@@ -24,7 +24,7 @@ def getColumns(dataset : Dataset) -> list[DDLColumn]:
 
 def generate_code(store : Datastore) -> str:
     env = Environment(
-        loader=PackageLoader('dataglide.codegen', 'templates'),
+        loader=PackageLoader('datasurface.codegen', 'templates'),
         autoescape=select_autoescape(['html', 'xml'])
     )
 
