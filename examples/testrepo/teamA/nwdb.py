@@ -162,7 +162,7 @@ def defineWorkspaces(t : Team):
                     ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
                         DataLatency.MINUTES, # Minutes of latency is acceptable
                         None, # Regulator
-                        None) # Data used here has no retention requirement
+                        None) # Data used here has no retention requirement due to this use case
                     ),
                 DatasetSink("NW_Data", "product"),
                 DatasetSink("NW_Data", "customers"),
