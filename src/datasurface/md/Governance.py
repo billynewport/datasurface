@@ -3,7 +3,7 @@ from collections import OrderedDict
 from typing import Any, Iterable, List, Optional, Sequence, Union
 from .Schema import Schema
 from abc import ABC, abstractmethod
-from .Exceptions import ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, StoragePolicyFromDifferentZone, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, StoragePolicyFromDifferentZone, AssetDoesntExistException
 from datetime import timedelta
 
 from enum import Enum
@@ -402,10 +402,10 @@ class Datastore(object):
         
 
 class ValidationProblem:
-    def __init__(self) -> None:
+    def __init__(self, desc : str) -> None:
         self.object : object = None
         """The original object that is in use"""
-        self.description : Optional[str] = None
+        self.description : Optional[str] = desc
         """A description of what the issue is"""
 
 
@@ -505,8 +505,7 @@ class Ecosystem:
         problem_list : List[ValidationProblem] = []
         for s in t.getTeam().dataStores.values():
             if self.datastoreCache.get(s.name) is not None:
-                p = ValidationProblem()
-                p.description = f"Duplicate Datastore {s.name}"
+                p = ValidationProblem(f"Duplicate Datastore {s.name}")
                 p.object = s
                 problem_list.append(p)
             else:
@@ -514,8 +513,7 @@ class Ecosystem:
                 self.validateDatastore(gz, t, s)
         for w in t.getTeam().workspaces.values():
             if self.workSpaceCache.get(w.name) is not None:
-                p = ValidationProblem()
-                p.description = f"Duplicate Workspace {w.name}"
+                p = ValidationProblem(f"Duplicate Workspace {w.name}")
                 p.object = t
                 problem_list.append(p)
             else:
@@ -527,8 +525,7 @@ class Ecosystem:
         list : List[ValidationProblem] = []
         for t in gz.teams.values():
             if(self.teamDeclarationCache.get(t.name) != None):
-                p : ValidationProblem = ValidationProblem()
-                p.description = f"Duplicate TeamDeclaration {t.name}"
+                p : ValidationProblem = ValidationProblem(f"Duplicate TeamDeclaration {t.name}")
                 p.object = t
                 list.append(p)
             else:
@@ -554,18 +551,53 @@ class Ecosystem:
                         # Check all datasets in the workspace exist
                         self.getDatasetOrThrow(sink.storeName, sink.datasetName)
                     except Exception as e:
-                        p : ValidationProblem = ValidationProblem()
+                        p : ValidationProblem = ValidationProblem(str(e))
                         p.object = sink
-                        p.description = str(e)
                         list.append(p)
         return list
 
+    def checkIfChangesAreAuthorized(self, proposed : 'Ecosystem', changeSource : Repository) -> List[ValidationProblem]:
+        """This checks if the ecosystem top level has changed relative to the specified change source"""
+        """This checks if any Governance zones has been added or removed relative to e"""
 
-    def checkChangesAreAuthorized(self, e : 'Ecosystem', changeSource : Repository) -> Sequence[ValidationProblem]:
-        """This checks that the changes made in e relative to this ecosystem are authorized from the specified change source"""
-        list : List[ValidationProblem] = []
-        return list
+        rc : List[ValidationProblem] = []
 
+        # Get the current governance zones from the change source
+        current_governance_zones = set(self.governanceZones)
+
+        # Get the governance zones from the ecosystem
+        proposed_governance_zones = set(proposed.governanceZones.keys())
+
+        deleted_governance_zones : set[str] = current_governance_zones - proposed_governance_zones
+        added_governance_zones : set[str] = proposed_governance_zones - current_governance_zones
+
+        # first check any top level governance zones have been added or removed by the correct change sources
+        for zoneName in deleted_governance_zones:
+            # Check if the zone was deleted by the authoized change source
+            zone : Optional[GovernanceZone] = self.governanceZones[zoneName]
+            if(zone.owningRepo != changeSource):
+                rc.append(ValidationProblem(f"Governance zone {zoneName} has been deleted by an unauthorized source"))
+        
+        for zoneName in added_governance_zones:
+            # Check if the zone was added by the specified change source
+            zone : Optional[GovernanceZone] = proposed.governanceZones[zoneName]
+            if(zone.owningRepo != changeSource):
+                rc.append(ValidationProblem(f"Governance zone {zoneName} has been added by an unauthorized source"))
+
+        # Now check each governance zone for changes
+        common_governance_zones : set[str] = current_governance_zones.intersection(proposed_governance_zones)
+        for zoneName in common_governance_zones:
+            prop_zone : Optional[GovernanceZone] = proposed.governanceZones[zoneName]
+            curr_zone : Optional[GovernanceZone] = self.governanceZones[zoneName]
+            if(prop_zone != curr_zone):
+                if(curr_zone.owningRepo != changeSource):
+                    rc.append(ValidationProblem(f"Governance zone {zoneName} has been modified by an unauthorized source"))
+                else:
+                    # Check if the changes are authorized
+                    rc.extend(curr_zone.checkIfChangesAreAuthorized(prop_zone, changeSource))
+
+        return rc
+    
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is Ecosystem):
             return self.name == __value.name and self.governanceZones == __value.governanceZones
@@ -576,13 +608,13 @@ class Ecosystem:
 class Team:
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
-    def __init__(self, td : 'TeamDeclaration', *args : Union[Datastore, 'Workspace', Repository]) -> None:
+    def __init__(self, td : 'TeamDeclaration', *args : Union[Datastore, 'Workspace']) -> None:
         self.td : 'TeamDeclaration' = td
         self.workspaces : dict[str, Workspace] = OrderedDict()
         self.dataStores : dict[str, Datastore] = OrderedDict()
         self.add(*args)
 
-    def add(self, *args : Union[Datastore, 'Workspace', Repository]) -> None:
+    def add(self, *args : Union[Datastore, 'Workspace']) -> None:
         """Adds a workspace, datastore or gitrepository to the team"""
         for arg in args:
             if(type(arg) is Datastore):
@@ -591,9 +623,6 @@ class Team:
             elif(type(arg) is Workspace):
                 w : Workspace = arg
                 self.addWorkspace(w)
-            elif(isinstance(arg, Repository)):
-                r : Repository = arg
-                self.masterRepo = r
 
     def getName(self) -> str:
         """Returns the name of the team"""
@@ -605,6 +634,7 @@ class Team:
             raise ObjectAlreadyExistsException(f"Duplicate Datastore {store.name}")
         self.dataStores[store.name] = store
         store.setTeam(self)
+
     def addWorkspace(self, w : 'Workspace'):
         if self.workspaces.get(w.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Workspace {w.name}")
@@ -627,7 +657,7 @@ class TeamDeclaration:
     def __init__(self, name : str, *args : Repository) -> None:
         self.name : str = name
         self.gZone : Optional['GovernanceZone'] = None
-        self.masterRepo : Optional[Repository] = None
+        self.owningRepo : Optional[Repository] = None
         """Changes to the Team object can only be done using committed changes in the specified repository"""
         """Files for this team must be in this folder in the master repo"""
         self.team : Optional[Team] = None
@@ -641,14 +671,18 @@ class TeamDeclaration:
 
     def add(self, *args : Repository) -> None:
         for arg in args:
-            self.masterRepo = arg
+            if(self.owningRepo != None):
+                raise AttributeAlreadySetException("Owning repo")
+            self.owningRepo = arg
             
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is TeamDeclaration):
             return (
                 self.name == __value.name and
                 self.refersToSameZoneShallowly(__value) and
-                self.masterRepo == __value.masterRepo
+                self.owningRepo == __value.owningRepo and
+                self.team == __value.team and 
+                self.owningRepo == __value.owningRepo
             )
         else:
             return False
@@ -665,21 +699,30 @@ class TeamDeclaration:
             return self.gZone.name == o.gZone.name
         else:
             return False
+        
+    def checkIfChangesAreAuthorized(self, proposed : 'TeamDeclaration', changeSource : Repository) -> List[ValidationProblem]:
+        """This checks if the team has changed relative to the specified change source"""
+        rc : List[ValidationProblem] = []
+
+        if(self.team != proposed.team and self.owningRepo != changeSource):
+            rc.append(ValidationProblem(f"Team has been modified by an unauthorized source"))
+        return rc
 
 class GovernanceZone:
 
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name : str, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
+    def __init__(self, name : str, *args : Union[Repository, InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
         self.name : str = name
         self.platforms : dict[str, 'DataPlatform'] = OrderedDict[str, 'DataPlatform']()
         self.teams : dict[str, TeamDeclaration] = OrderedDict[str, TeamDeclaration]()
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
+        self.owningRepo : Optional[Repository] = None
         self.eco : Optional[Ecosystem] = None
         self.add(*args)
 
-    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
+    def add(self, *args : Union[Repository, InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
         for arg in args:
             if(type(arg) is InfrastructureVendor):
                 vendor : InfrastructureVendor = arg
@@ -690,6 +733,11 @@ class GovernanceZone:
             elif(type(arg) is TeamDeclaration):
                 t : TeamDeclaration = arg
                 self.addTeam(t)
+            elif(type(arg) is Repository):
+                r : Repository = arg
+                if(self.owningRepo != None):
+                    raise AttributeAlreadySetException("Owning repo")
+                self.owningRepo = r
             elif(type(arg) is DataPlatform):
                 p : DataPlatform = arg
                 self.addPlatform(p)
@@ -729,6 +777,56 @@ class GovernanceZone:
             return self.name == __value.name and self.platforms == __value.platforms and self.teams == __value.teams and self.vendors == __value.vendors and self.storagePolicies == __value.storagePolicies and self.eco == __value.eco
         else:
             return False
+        
+    def checkIfChangesAreAuthorized(self, proposed : 'GovernanceZone', changeSource : Repository) -> List[ValidationProblem]:
+        """This checks if the governance zone has changed relative to the specified change source"""
+        """This checks if any teams have been added or removed relative to e"""
+
+        rc : List[ValidationProblem] = []
+
+        if(self.storagePolicies != proposed.storagePolicies and self.owningRepo != changeSource):
+            rc.append(ValidationProblem(f"Storage policies have been modified by an unauthorized source"))
+        
+        if(self.platforms != proposed.platforms and self.owningRepo != changeSource):
+            rc.append(ValidationProblem(f"Data platforms have been modified by an unauthorized source"))
+
+        if(self.vendors != proposed.vendors and self.owningRepo != changeSource):
+            rc.append(ValidationProblem(f"Infrastructure vendors have been modified by an unauthorized source"))
+
+        # Get the current teams from the change source
+        current_teams = set(self.teams)
+
+        # Get the teams from the governance zone
+        proposed_teams = set(proposed.teams.keys())
+
+        deleted_teams : set[str] = current_teams - proposed_teams
+        added_teams : set[str] = proposed_teams - current_teams
+
+        # first check any top level teams have been added or removed by the correct change sources
+        for teamName in deleted_teams:
+            # Check if the team was deleted by the authoized change source
+            team : Optional[TeamDeclaration] = self.teams[teamName]
+            if(team.owningRepo != changeSource):
+                rc.append(ValidationProblem(f"Team {teamName} has been deleted by an unauthorized source"))
+        
+        for teamName in added_teams:
+            # Check if the team was added by the specified change source
+            team : Optional[TeamDeclaration] = proposed.teams[teamName]
+            if(team.owningRepo != changeSource):
+                rc.append(ValidationProblem(f"Team {teamName} has been added by an unauthorized source"))
+
+        # Now check each team for changes
+        common_teams : set[str] = current_teams.intersection(proposed_teams)
+        for teamName in common_teams:
+            prop_team : Optional[TeamDeclaration] = proposed.teams[teamName]
+            curr_team : Optional[TeamDeclaration] = self.teams[teamName]
+            if(prop_team != curr_team):
+                if(curr_team.owningRepo != changeSource):
+                    rc.append(ValidationProblem(f"Team {teamName} has been modified by an unauthorized source"))
+                else:
+                    # Check if the changes are authorized
+                    rc.extend(curr_team.checkIfChangesAreAuthorized(prop_team, changeSource))
+        return rc
     
 @dataclass
 class WorkspaceEntitlement:

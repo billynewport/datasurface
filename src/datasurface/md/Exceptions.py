@@ -8,6 +8,10 @@ class ObjectAlreadyExistsException(Exception):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
+class AttributeAlreadySetException(Exception):
+    """This means the attribute has already been set"""
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
 class ObjectDoesntExistException(Exception):
     """This means the named object doesn't exist"""
     def __init__(self, *args: object) -> None:
