@@ -2,8 +2,7 @@ from datasurface.md import *
 
 def defineTables(t : Team):
     t.add(
-        Datastore("Test_Store",
-
+        Datastore("NW_Data",
             Dataset("us_states",
                 DDLTable(
                     DDLColumn("state_id", SmallInt(), NullableStatus.NOT_NULLABLE, DataClassification.PUB, PrimaryKeyStatus.PK),
@@ -151,6 +150,23 @@ def defineTables(t : Team):
                     DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, DataClassification.PUB, PrimaryKeyStatus.PK),
                     DDLColumn("customer_type_id", VarChar(5), NullableStatus.NOT_NULLABLE, DataClassification.PUB, PrimaryKeyStatus.PK)
                 )
+            )
+        )
+    )
+
+def defineWorkspaces(t : Team):
+    t.add(
+        Workspace("Product live adhoc reporting",
+            DatasetGroup("Live Products",
+                WorkspacePlatformConfig(
+                    ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
+                        DataLatency.MINUTES, # Minutes of latency is acceptable
+                        None, # Regulator
+                        None) # Data used here has no retention requirement
+                    ),
+                DatasetSink("NW_Data", "product"),
+                DatasetSink("NW_Data", "customers"),
+                DatasetSink("NW_Data", "suppliers")
             )
         )
     )

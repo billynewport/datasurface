@@ -432,11 +432,16 @@ class Ecosystem:
     def __init__(self, name : str, repo : Repository, *args : 'GovernanceZone') -> None:
         self.name : str = name
         self.owningRepo : Repository = repo
+        self.isModified : bool = False
         self.governanceZones : dict[str, GovernanceZone] = OrderedDict()
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.resetCaches()
         self.add(*args)
+
+    def markModified(self) -> None:
+        """This marks the ecosystem as modified"""
+        self.isModified = True
 
     def resetCaches(self) -> None:
         """Empties the caches"""
@@ -500,21 +505,21 @@ class Ecosystem:
         problems.extend(l)
         return problems
 
-    def validateTeamDeclaration(self, gz: 'GovernanceZone', t: 'TeamDeclaration') -> Sequence['ValidationProblem']:
+    def validateTeamDeclaration(self, gz: 'GovernanceZone', td: 'TeamDeclaration') -> Sequence['ValidationProblem']:
         """This validates a single team declaration and populates the datastore cache with that team's stores"""
         problem_list : List[ValidationProblem] = []
-        for s in t.getTeam().dataStores.values():
+        for s in td.getTeam().dataStores.values():
             if self.datastoreCache.get(s.name) is not None:
                 p = ValidationProblem(f"Duplicate Datastore {s.name}")
                 p.object = s
                 problem_list.append(p)
             else:
                 self.datastoreCache[s.name] = s
-                self.validateDatastore(gz, t, s)
-        for w in t.getTeam().workspaces.values():
+                self.validateDatastore(gz, td, s)
+        for w in td.getTeam().workspaces.values():
             if self.workSpaceCache.get(w.name) is not None:
                 p = ValidationProblem(f"Duplicate Workspace {w.name}")
-                p.object = t
+                p.object = td
                 problem_list.append(p)
             else:
                 self.workSpaceCache[w.name] = w
@@ -604,6 +609,15 @@ class Ecosystem:
         else:
             return False
         
+    def getTeam(self, gz : str, teamName : str) -> Optional['Team']:
+        """Returns the team with the specified name in the specified zone"""
+        zone : Optional[GovernanceZone] = self.governanceZones.get(gz)
+        if(zone):
+            td : Optional[TeamDeclaration] = zone.teams.get(teamName)
+            if(td):
+                return td.getTeam() 
+        else:
+            return None
 
 class Team:
     """This is the authoritive definition of a team within a goverance zone. All teams must have
@@ -889,13 +903,12 @@ class ConsumerRetentionRequirements:
 class WorkspacePlatformConfig(object):
     """This allows a Workspace to specify per pipeline hints for behavior, i.e.
     allowed latency and so on"""
-    def __init__(self, p : DataPlatform, hist : ConsumerRetentionRequirements) -> None:
-        self.platform : DataPlatform = p
+    def __init__(self, hist : ConsumerRetentionRequirements) -> None:
         self.retention : ConsumerRetentionRequirements = hist
 
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is WorkspacePlatformConfig):
-            return self.platform == __value.platform and self.retention == __value.retention
+            return self.retention == __value.retention
         else:
             return False
 
@@ -914,13 +927,15 @@ class DatasetSink(object):
 
 class DatasetGroup(object):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace"""
-    def __init__(self, name : str, *args : Any) -> None:
+    def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig]) -> None:
         self.name : str = name
         self.platformMD : Optional[WorkspacePlatformConfig] = None
         self.datasets : dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
         for arg in args:
             if(type(arg) is DatasetSink):
                 sink : DatasetSink = arg
+                if(self.datasets.get(sink.key) != None):
+                    raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
                 self.datasets[sink.key] = sink
             elif(type(arg) is WorkspacePlatformConfig):
                 if self.platformMD == None:
@@ -941,17 +956,21 @@ class DatasetGroup(object):
 class Workspace(object):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group"""
-    def __init__(self, name : str, *args : Any) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset']) -> None:
         self.name : str = name
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
-        self.asset : Optional[Asset] = None
+        self.asset : Optional['Asset'] = None
         self.team : Optional[Team] = None
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
+                if(self.dsgs.get(dsg.name) != None):
+                    raise ObjectAlreadyExistsException(f"Duplicate DatasetGroup {dsg.name}")
                 self.dsgs[dsg.name] = dsg
             elif(isinstance(arg, Asset)):
-                a : Asset = arg
+                a : 'Asset' = arg
+                if(self.asset != None):
+                    raise ObjectAlreadyExistsException("Asset already specified")
                 self.asset = a
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
