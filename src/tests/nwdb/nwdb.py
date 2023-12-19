@@ -164,7 +164,7 @@ def defineWorkspaces(t : Team):
                         None, # Regulator
                         None) # Data used here has no retention requirement due to this use case
                     ),
-                DatasetSink("NW_Data", "product"),
+                DatasetSink("NW_Data", "products"),
                 DatasetSink("NW_Data", "customers"),
                 DatasetSink("NW_Data", "suppliers")
             )

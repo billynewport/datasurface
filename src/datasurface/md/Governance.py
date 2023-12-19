@@ -408,6 +408,14 @@ class ValidationProblem:
         self.description : Optional[str] = desc
         """A description of what the issue is"""
 
+    def __str__(self) -> str:
+        if(self.object):
+            return f"{self.description} {self.object}"
+        elif(self.description):
+            return self.description
+        else:
+            return "Unknown validation problem"
+
 
 class Repository(ABC):
     pass
@@ -497,12 +505,7 @@ class Ecosystem:
 
     def validateDatastore(self, gz : 'GovernanceZone', t : 'TeamDeclaration', s : Datastore) -> Sequence[ValidationProblem]:
         problems : List[ValidationProblem] = []
-        l = self.validateAndHydrateCaches()
-        problems.extend(l)
-        l = self.validateTeamDeclaration(gz, t)
-        problems.extend(l)
-        l = self.validateGoveranceZone(gz)
-        problems.extend(l)
+        # TODO code this
         return problems
 
     def validateTeamDeclaration(self, gz: 'GovernanceZone', td: 'TeamDeclaration') -> Sequence['ValidationProblem']:
@@ -521,6 +524,7 @@ class Ecosystem:
                 p = ValidationProblem(f"Duplicate Workspace {w.name}")
                 p.object = td
                 problem_list.append(p)
+                # Cannot validate Workspace datasets until everything is loaded
             else:
                 self.workSpaceCache[w.name] = w
         return problem_list
@@ -647,7 +651,6 @@ class Team:
         if self.dataStores.get(store.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Datastore {store.name}")
         self.dataStores[store.name] = store
-        store.setTeam(self)
 
     def addWorkspace(self, w : 'Workspace'):
         if self.workspaces.get(w.name) != None:
@@ -855,6 +858,7 @@ class Deliverable:
     pass
 
 class DataPlatform(object):
+    """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name : str) -> None:
         self.name : str = name
 
@@ -941,7 +945,7 @@ class DatasetGroup(object):
                 if self.platformMD == None:
                     self.platformMD = arg
                 else:
-                    raise ObjectAlreadyExistsException("Platform already specified")
+                    raise AttributeAlreadySetException("Platform")
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
             
@@ -970,7 +974,7 @@ class Workspace(object):
             elif(isinstance(arg, Asset)):
                 a : 'Asset' = arg
                 if(self.asset != None):
-                    raise ObjectAlreadyExistsException("Asset already specified")
+                    raise AttributeAlreadySetException("Asset")
                 self.asset = a
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")

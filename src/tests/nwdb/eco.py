@@ -1,8 +1,8 @@
 from typing import Optional
 from datasurface.md import Ecosystem, Team, GovernanceZone, GitRepository, InfrastructureVendor, InfraLocation, TeamDeclaration
 from datasurface.md import DataPlatform, GitRepository
-from nwdb import defineTables as defineNWTeamTables
-from nwdb import defineWorkspaces as defineNWTeamWorkspaces
+from tests.nwdb.nwdb import defineTables as defineNWTeamTables
+from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 
 def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem("Test", GitRepository("ssh://u@local:/v1/source/eco", "main"),
@@ -13,6 +13,7 @@ def createEcosystem() -> Ecosystem:
             InfrastructureVendor("MyCorp",
                 InfraLocation("NJ_1"),
                 InfraLocation("NY_1")),
+
             TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
             TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
             TeamDeclaration("NorthWindTeam", GitRepository("ssh://u@local:/v1/source/nwteam", "main")),
@@ -24,9 +25,11 @@ def createEcosystem() -> Ecosystem:
             InfrastructureVendor("AWS",
                 InfraLocation("eu-central-1"), # Frankfurt
                 InfraLocation("eu-west-3")), # Paris
+
             TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
             TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
             TeamDeclaration("BackOffice", GitRepository("ssh://u@local:/v1/source/bo", "main")),
+
             DataPlatform("DataGlide@1.0")
             ),
         GovernanceZone("UK", GitRepository("ssh://u@local:/v1/source/gz_uk", "main"),
@@ -36,9 +39,11 @@ def createEcosystem() -> Ecosystem:
             InfrastructureVendor("MyCorp",
                 InfraLocation("London"),
                 InfraLocation("Cambridge")),
+
             TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
             TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
             TeamDeclaration("BackOffice", GitRepository("ssh://u@local:/v1/source/bo", "main")),
+            
             DataPlatform("DataGlide@1.0")
             )
         )
