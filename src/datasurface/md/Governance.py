@@ -171,11 +171,7 @@ class InfraLocation:
             loc.setParentLocation(vendor, self)
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is InfraLocation):
-            v : InfraLocation = __value
-            return self.name == v.name and self.vendor == v.vendor and self.locations == v.locations and self.containers == v.containers
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
     
     def findLocationUsingKey(self, locationPath : list[str]) -> Optional['InfraLocation']:
         """Returns the location using the path"""
@@ -218,11 +214,7 @@ class InfrastructureVendor:
             loc.setVendor(self)
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is InfrastructureVendor):
-            v : InfrastructureVendor = __value
-            return self.name == v.name and self.locations == v.locations and self.govZone == v.govZone
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
         
     def findLocationUsingKey(self, locationPath : list[str]) -> Optional[InfraLocation]:
         """Returns the location using the path"""
@@ -248,11 +240,7 @@ class EncryptionSystem:
         self.hasThirdPartySuperUser : bool = False
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is EncryptionSystem):
-            return self.name == __value.name and self.keyContainer == __value.keyContainer and \
-                self.hasThirdPartySuperUser == __value.hasThirdPartySuperUser
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
 class DataContainer:
     def __init__(self, *args : 'InfraLocation') -> None:
@@ -270,12 +258,7 @@ class DataContainer:
             self.location = loc
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is DataContainer):
-            return self.name == __value.name and self.location == __value.location and \
-                self.serverSideEncryptionKeys == __value.serverSideEncryptionKeys and \
-                self.clientSideEncryptionKeys == __value.clientSideEncryptionKeys and self.isReadOnly == __value.isReadOnly
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
         
     def getName(self) -> str:
         """Returns the name of the container"""
@@ -308,23 +291,8 @@ class Dataset(object):
 
     def __eq__(self, __value: object) -> bool:
         """Check for equality but shallow check to referenced objects to prevent recursion"""
-        if(type(__value) is Dataset):
-            return self.name == __value.name and self.originalSchema == __value.originalSchema and \
-                self.policies == __value.policies and self.refersToSameStoreShallowly(__value)
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
-    def refersToSameStoreShallowly(self, o : 'Dataset') -> bool:
-        """Checks if another store is the same as this one"""
-        if(self.store is None and o.store is not None):
-            return False
-        if(self.store is not None and o.store is None):
-            return False
-        if(self.store is None and o.store is None):
-            return True
-        else:
-            return self.store is not None and o.store is not None and self.store.name == o.store.name
-    
     def validate(self):
         """Place holder to validate constraints on the dataset"""
 #        for policy in self.policies.values():
@@ -426,10 +394,7 @@ class CaptureMetaData(object):
                 self.store = d
             
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is CaptureMetaData):
-            return self.store == __value.store and self.credential == __value.credential and self.captureSource == __value.captureSource
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
 class SQLPullIngestion(CaptureMetaData):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
@@ -445,7 +410,7 @@ class SQLPullIngestion(CaptureMetaData):
         """A SQL string per dataset which pulls all rows which changed since last time for a table"""
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is SQLPullIngestion and self.variableNames == __value.variableNames and self.snapshotSQL == __value.snapshotSQL and self.deltaSQL == __value.deltaSQL
+        return cyclic_safe_eq(self, __value, set())
     
 
 
@@ -489,30 +454,8 @@ class Datastore(object):
         self.team = t
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is Datastore):
-            return (
-                self.name == __value.name
-                and self.datasets == __value.datasets
-                and self.imd == __value.imd
-                and self.container == __value.container
-                and self.refersToSameTeamShallowly(__value)
-            )
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
         
-    def refersToSameTeamShallowly(self, o : 'Datastore') -> bool:
-        """Avoiding recursion, check if another store uses the same team as this one"""
-        if(self.team is None and o.team is not None):
-            return False
-        if(self.team is not None and o.team is None):
-            return False
-        if(self.team is None and o.team is None):
-            return True
-        if self.team is not None and o.team is not None:
-            return self.team == o.team
-        return False
-        
-
 class ValidationProblem:
     def __init__(self, desc : str) -> None:
         self.object : object = None
