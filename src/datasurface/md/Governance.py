@@ -8,16 +8,16 @@ from datetime import timedelta
 from enum import Enum
 
 
-def cyclic_safe_eq(obj : object, __value: object, visited : set[object]) -> bool:
+def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
     """This is a recursive equality checker which avoids infinite recursion by tracking visited objects. The \
         meta data objects have circular references which cause infinite recursion when using the default"""
-    ida : int = id(obj)
-    idb : int = id(__value)
+    ida : int = id(a)
+    idb : int = id(b)
 
     if(ida == idb):
         return True
     
-    if(type(__value) is not type(obj)):
+    if(type(b) is not type(a)):
         return False
     
     if(idb > ida):
@@ -29,15 +29,39 @@ def cyclic_safe_eq(obj : object, __value: object, visited : set[object]) -> bool
     
     visited.add(pair)
 
+    # Handle comparing dict objects
+    if isinstance(a, dict) and isinstance(b, dict):
+        d_a : dict[Any, Any] = a
+        d_b : dict[Any, Any] = b
+
+        if len(d_a) != len(d_b):
+            return False
+        for key in d_a:
+            if key not in b or not cyclic_safe_eq(d_a[key], d_b[key], visited):
+                return False
+        return True
+
+    # Handle comparing list objects
+    if isinstance(a, list) and isinstance(b, list):
+        l_a : list[Any] = a
+        l_b : list[Any] = b
+
+        if len(l_a) != len(l_b):
+            return False
+        for item_a, item_b in zip(l_a, l_b):
+            if not cyclic_safe_eq(item_a, item_b, visited):
+                return False
+        return True
+
     # Now compare objects for equality
     try:
-        self_vars : dict[str, Any] = vars(obj)
+        self_vars : dict[str, Any] = vars(a)
     except TypeError:
         # This is a primitive type
-        return obj == __value
+        return a == b
 
     # Check same named attributes for equality    
-    for attr, value in vars(__value).items():
+    for attr, value in vars(b).items():
         if(not attr.startswith("_")):
             if not cyclic_safe_eq(self_vars[attr], value, visited):
                 return False
@@ -699,15 +723,8 @@ class Ecosystem:
         return rc
     
     def __eq__(self, __value: object) -> bool:
-#        if(type(__value) is Ecosystem):
-#            return self.name == __value.name and self.governanceZones == __value.governanceZones
-#        else:
-#            return False
         return cyclic_safe_eq(self, __value, set())
         
-    def eq_Shallow(self, __value : Optional[object]) -> bool:
-        return __value != None and isinstance(__value, 'Ecosystem') and  self.name == __value.name
-
     def getTeam(self, gz : str, teamName : str) -> Optional['Team']:
         """Returns the team with the specified name in the specified zone"""
         zone : Optional[GovernanceZone] = self.governanceZones.get(gz)
@@ -759,10 +776,7 @@ class Team:
         w.setTeam(self)
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is Team):
-            return self.td.eq_Shallow(__value.td) and self.workspaces == __value.workspaces and self.dataStores == __value.dataStores
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
         
 class TeamDeclaration:
     """All teams must be declared at the GovernanceZone level using one of these objects. The Team objects are initialized in a secondary step"""
@@ -793,20 +807,8 @@ class TeamDeclaration:
             self.owningRepo = arg
             
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is TeamDeclaration):
-            return (
-                self.name == __value.name and
-                self.owningRepo == __value.owningRepo and
-                self.team == __value.team and 
-                self.owningRepo == __value.owningRepo and
-                self.gZone == __value.gZone
-            )
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
-    def eq_Shallow(self, __value : Optional[object]) -> bool:
-        return __value != None and isinstance(__value, type(self)) and  self.name == __value.name and self.gZone == __value.gZone
-    
     def checkIfChangesAreAuthorized(self, proposed : 'TeamDeclaration', changeSource : Repository) -> List[ValidationProblem]:
         """This checks if the team has changed relative to the specified change source"""
         rc : List[ValidationProblem] = []
@@ -892,14 +894,8 @@ class GovernanceZone:
         
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is GovernanceZone):
-            return self.name == __value.name and self.platforms == __value.platforms and self.teams == __value.teams and self.vendors == __value.vendors and self.storagePolicies == __value.storagePolicies
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
-    def eq_Shallow(self, __value : Optional[object]) -> bool:
-        return __value != None and isinstance(__value, type(self)) and  self.name == __value.name
-            
     def checkIfChangesAreAuthorized(self, proposed : 'GovernanceZone', changeSource : Repository) -> List[ValidationProblem]:
         """This checks if the governance zone has changed relative to the specified change source"""
         """This checks if any teams have been added or removed relative to e"""
@@ -968,10 +964,7 @@ class DataPlatform(object):
         self.name : str = name
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is DataPlatform):
-            return self.name == __value.name
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
 class DataLatency(Enum):
     """Specifies the acceptable latency range from a consumer"""
@@ -1004,10 +997,7 @@ class ConsumerRetentionRequirements:
         self.regulator : Optional[str] = regulator
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is ConsumerRetentionRequirements):
-            return self.policy == __value.policy and self.latency == __value.latency and self.minRetentionTime == __value.minRetentionTime and self.regulator == __value.regulator
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
 class WorkspacePlatformConfig(object):
     """This allows a Workspace to specify per pipeline hints for behavior, i.e.
@@ -1016,10 +1006,7 @@ class WorkspacePlatformConfig(object):
         self.retention : ConsumerRetentionRequirements = hist
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is WorkspacePlatformConfig):
-            return self.retention == __value.retention
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
 
 class DatasetSink(object):
     """This is a reference to a dataset in a Workspace"""
@@ -1055,12 +1042,7 @@ class DatasetGroup(object):
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
             
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is DatasetGroup):
-            return self.name == __value.name and self.datasets == __value.datasets and self.platformMD == __value.platformMD
-        else:
-            return False
-        
-
+        return cyclic_safe_eq(self, __value, set())
 
 class Workspace(object):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.

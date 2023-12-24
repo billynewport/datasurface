@@ -17,3 +17,10 @@ def test_eq_ecosystem():
 
     e2.name = "Test2"
     assert e != e2
+
+    e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
+
+    assert e == e2
+    e2.governanceZones.pop("USA")
+    assert e != e2
+
