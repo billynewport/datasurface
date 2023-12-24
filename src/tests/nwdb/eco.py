@@ -13,6 +13,20 @@ def createEcosystem() -> Ecosystem:
             InfrastructureVendor("MyCorp",
                 InfraLocation("NJ_1"),
                 InfraLocation("NY_1")),
+            
+            InfrastructureVendor("Azure",
+                InfraLocation("USA",
+                    InfraLocation("Central US"), # Iowa
+                    InfraLocation("East US"), # Virginia
+                    InfraLocation("East US 2"), # Virginia
+    #                InfraLocation("East US 3"), # Georgia
+    #                InfraLocation("North Central US"), # Illinois
+                    InfraLocation("South Central US"), # Texas
+    #                InfraLocation("West Central US"), # Wyoming
+    #                InfraLocation("West US"), # California
+                    InfraLocation("West US 2"), # Washington
+                    InfraLocation("West US 3")), # Arizona
+            ),
 
             TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
             TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),

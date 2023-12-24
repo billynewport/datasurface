@@ -3,20 +3,61 @@ from collections import OrderedDict
 from typing import Any, Iterable, List, Optional, Sequence, Union
 from .Schema import Schema
 from abc import ABC, abstractmethod
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, StoragePolicyFromDifferentZone, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
-
 from enum import Enum
+
+
+def cycli_eq(obj : object, __value: object, visited : set[object]) -> bool:
+    """This is a recursive equality checker which avoids infinite recursion by tracking visited objects"""
+    ida : int = id(obj)
+    idb : int = id(__value)
+
+    if(ida == idb):
+        return True
+    
+    if(type(__value) is not type(obj)):
+        return False
+    
+    if(idb > ida):
+        ida, idb = idb, ida
+
+    pair = (ida, idb)
+    if(pair in visited):
+        return True
+    
+    visited.add(pair)
+
+    # Now compare objects for equality
+    try:
+        self_vars : dict[str, Any] = vars(obj)
+    except TypeError:
+        # This is a primitive type
+        return obj == __value
+
+    # Check same named attributes for equality    
+    for attr, value in vars(__value).items():
+        if(not attr.startswith("_")):
+            if not cycli_eq(self_vars[attr], value, visited):
+                return False
+
+    return True
 
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
     def __init__(self, name : str, isMandatory : bool) -> None:
         self.name : str = name
-        self.governanceZone : Optional['GovernanceZone'] = None
+        self.governanceZone : Optional[GovernanceZone] = None
         self.mandatory : bool = isMandatory
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
 
+    def setZone(self, z : 'GovernanceZone') -> None:
+        """Sets the governance zone key for this policy"""
+        if(self.governanceZone is not None):
+            raise AttributeAlreadySetException("Governance zone already set")
+        self.governanceZone = z
+    
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, type(self)):
             return self.name == __value.name and self.governanceZone == __value.governanceZone and self.mandatory == __value.mandatory
@@ -24,7 +65,7 @@ class StoragePolicy(ABC):
     
 
     @abstractmethod
-    def isCompatible(self, container : 'DataContainer') -> bool:
+    def isCompatible(self, eco : 'Ecosystem', container : 'DataContainer') -> bool:
         '''This returns true if the container is compatible with the policy. This is used to determine whether data tagged with a policy can be stored in a specific container.'''
         return False
 
@@ -33,12 +74,13 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
     def __init__(self, name : str, isMandatory : bool) -> None:
         super().__init__(name, isMandatory)
 
-    def isCompatible(self, container : 'DataContainer') -> bool:
+    def isCompatible(self, eco : 'Ecosystem', container : 'DataContainer') -> bool:
         return True
     
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, type(self)):
-            return super().__eq__(__value) and self.name == __value.name and self.governanceZone == __value.governanceZone and self.mandatory == __value.mandatory
+            return super().__eq__(__value) and self.name == __value.name and \
+                self.governanceZone == __value.governanceZone and self.mandatory == __value.mandatory
         else:
             return False
 
@@ -46,30 +88,27 @@ class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
     def __init__(self, name : str, isMandatory : bool, localZone : 'GovernanceZone') -> None:
         super().__init__(name, isMandatory)
-        self.localZone = localZone
+        self.setZone(localZone)
 
-    def isCompatible(self, container : 'DataContainer') -> bool:
+    def isCompatible(self, eco : 'Ecosystem', container : 'DataContainer') -> bool:
         """Only allow if the location is managed by the required zone"""
         if(container.location and container.location.vendor):
-            return container.location.vendor.zone == self.localZone
+            return container.location.vendor.govZone == self.governanceZone
         else:
             return False
     
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is LocalGovernanceManagedOnly and self.name == __value.name and self.governanceZone == __value.governanceZone and self.mandatory == __value.mandatory and self.localZone == __value.localZone
+        return super().__eq__(__value) and type(__value) is LocalGovernanceManagedOnly and \
+            self.name == __value.name and self.governanceZone == __value.governanceZone and \
+                self.mandatory == __value.mandatory
 
 class InfraLocation:
     """This is a location within a vendors physical location hierarchy"""
 
-    def setVendor(self, v : Optional['InfrastructureVendor']):
-        self.vendor = v
-        for l in self.locations.values():
-            l.setVendor(v)
-
     def __init__(self, name: str, *args: 'InfraLocation') -> None:
         self.name: str = name
-        self.parentLocation: Optional['InfraLocation'] = None
-        self.vendor: Optional['InfrastructureVendor'] = None
+        self.parentLocation : Optional[InfraLocation] = None # Parent Location
+        self.vendor : Optional[InfrastructureVendor] = None
 
         self.locations: dict[str, 'InfraLocation'] = OrderedDict()
         """These are the 'child' locations under this location. A state location would have city children for example"""
@@ -85,8 +124,6 @@ class InfraLocation:
         if self.locations.get(loc.name) != None:
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
-        loc.setVendor(self.vendor)
-        loc.parentLocation = self
 
     def addContainer(self, c : 'DataContainer'):
         if self.containers.get(c.getName()) != None:
@@ -94,20 +131,48 @@ class InfraLocation:
         self.containers[c.getName()] = c
         c.location = self
 
+    def setVendor(self, v : 'InfrastructureVendor') -> None:
+        self.vendor = v
+        
+        for loc in self.locations.values():
+            loc.setParentLocation(self.vendor, self)
+        
+    def setParentLocation(self, vendor : 'InfrastructureVendor', parent : 'InfraLocation') -> None:
+        """Sets the parent path of this location and all children recursively"""
+        self.parentLocation = parent
+        self.vendor = vendor
+
+        for loc in self.locations.values():
+            loc.setParentLocation(vendor, self)
+
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is InfraLocation):
             v : InfraLocation = __value
-            return self.name == v.name and self.vendor == v.vendor and self.locations == v.locations and self.parentLocation == v.parentLocation and self.containers == v.containers
+            return self.name == v.name and self.vendor == v.vendor and self.locations == v.locations and self.containers == v.containers
         else:
             return False
-        
+    
+    def findLocationUsingKey(self, locationPath : list[str]) -> Optional['InfraLocation']:
+        """Returns the location using the path"""
+        if(len(locationPath) == 0):
+            return None
+        else:
+            locName : str = locationPath[0]
+            loc : Optional[InfraLocation] = self.locations.get(locName)
+            if(loc):
+                if(len(locationPath) == 1):
+                    return loc
+                else:
+                    return loc.findLocationUsingKey(locationPath[1:])
+            else:
+                return None
 
 class InfrastructureVendor:
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an enterprise or an external cloud provider"""
     def __init__(self, name : str, *args : InfraLocation) -> None:
         self.name : str = name
         self.locations : dict[str, 'InfraLocation'] = OrderedDict()
-        self.zone : Optional['GovernanceZone'] = None
+        self.govZone : Optional[GovernanceZone] = None
         self.add(*args)
 
     def add(self, *args : 'InfraLocation') -> None:
@@ -118,13 +183,36 @@ class InfrastructureVendor:
         if self.locations.get(loc.name) != None:
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
-        loc.setVendor(self)
+
+    def setZone(self, gZone : 'GovernanceZone') -> None:
+        """Sets the key for this vendor and all child locations"""
+
+        self.govZone = gZone
+
+        for loc in self.locations.values():
+            loc.setVendor(self)
 
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is InfrastructureVendor):
-            return self.name == __value.name and self.locations == __value.locations and self.zone == __value.zone
+            v : InfrastructureVendor = __value
+            return self.name == v.name and self.locations == v.locations and self.govZone == v.govZone
         else:
             return False
+        
+    def findLocationUsingKey(self, locationPath : list[str]) -> Optional[InfraLocation]:
+        """Returns the location using the path"""
+        if(len(locationPath) == 0):
+            return None
+        else:
+            locName : str = locationPath[0]
+            loc : Optional[InfraLocation] = self.locations.get(locName)
+            if(loc):
+                if(len(locationPath) == 1):
+                    return loc
+                else:
+                    return loc.findLocationUsingKey(locationPath[1:])
+            else:
+                return None
 
 
 class EncryptionSystem:
@@ -136,7 +224,8 @@ class EncryptionSystem:
 
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is EncryptionSystem):
-            return self.name == __value.name and self.keyContainer == __value.keyContainer and self.hasThirdPartySuperUser == __value.hasThirdPartySuperUser
+            return self.name == __value.name and self.keyContainer == __value.keyContainer and \
+                self.hasThirdPartySuperUser == __value.hasThirdPartySuperUser
         else:
             return False
 
@@ -157,7 +246,9 @@ class DataContainer:
 
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is DataContainer):
-            return self.name == __value.name and self.location == __value.location and self.serverSideEncryptionKeys == __value.serverSideEncryptionKeys and self.clientSideEncryptionKeys == __value.clientSideEncryptionKeys and self.isReadOnly == __value.isReadOnly
+            return self.name == __value.name and self.location == __value.location and \
+                self.serverSideEncryptionKeys == __value.serverSideEncryptionKeys and \
+                self.clientSideEncryptionKeys == __value.clientSideEncryptionKeys and self.isReadOnly == __value.isReadOnly
         else:
             return False
         
@@ -176,12 +267,6 @@ class Dataset(object):
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.add(*args)
 
-    def getZone(self) -> Optional['GovernanceZone']:
-        if(self.store and self.store.team):
-            return self.store.team.getZone()
-        else:
-            return None
-    
     def add(self, *args : Union[Schema, StoragePolicy]) -> None:
         for arg in args:
             if(isinstance(arg,Schema)):
@@ -199,7 +284,8 @@ class Dataset(object):
     def __eq__(self, __value: object) -> bool:
         """Check for equality but shallow check to referenced objects to prevent recursion"""
         if(type(__value) is Dataset):
-            return self.name == __value.name and self.originalSchema == __value.originalSchema and self.policies == __value.policies and self.refersToSameStoreShallowly(__value)
+            return self.name == __value.name and self.originalSchema == __value.originalSchema and \
+                self.policies == __value.policies and self.refersToSameStoreShallowly(__value)
         else:
             return False
 
@@ -216,10 +302,10 @@ class Dataset(object):
     
     def validate(self):
         """Place holder to validate constraints on the dataset"""
-        for policy in self.policies.values():
-            if(policy.governanceZone != self.getZone()):
-                raise StoragePolicyFromDifferentZone("Datasets must be governed by storage policies from its managing zone")
-        
+#        for policy in self.policies.values():
+#            if(policy.governanceZone != self.getZone()):
+#                raise StoragePolicyFromDifferentZone("Datasets must be governed by storage policies from its managing zone")
+        pass       
     
 class DataSourceConnection:
     def __init__(self, name : str) -> None:
@@ -441,11 +527,15 @@ class Ecosystem:
         self.name : str = name
         self.owningRepo : Repository = repo
         self.isModified : bool = False
+
         self.governanceZones : dict[str, GovernanceZone] = OrderedDict()
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.resetCaches()
         self.add(*args)
+
+        for z in self.governanceZones.values():
+            z.setEcosystem(self)
 
     def markModified(self) -> None:
         """This marks the ecosystem as modified"""
@@ -469,7 +559,6 @@ class Ecosystem:
         if(self.governanceZones.get(z.name) != None):
             raise ObjectAlreadyExistsException(f"GoveranceZone already exists {z.name}")
         self.governanceZones[z.name] = z
-        z.eco  = self
 
     def addTeamDeclaration(self, td : 'TeamDeclaration'):
         if(self.teamDeclarationCache.get(td.name) != None):
@@ -608,11 +697,15 @@ class Ecosystem:
         return rc
     
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is Ecosystem):
-            return self.name == __value.name and self.governanceZones == __value.governanceZones
-        else:
-            return False
+#        if(type(__value) is Ecosystem):
+#            return self.name == __value.name and self.governanceZones == __value.governanceZones
+#        else:
+#            return False
+        return cycli_eq(self, __value, set())
         
+    def eq_Shallow(self, __value : Optional[object]) -> bool:
+        return __value != None and isinstance(__value, 'Ecosystem') and  self.name == __value.name
+
     def getTeam(self, gz : str, teamName : str) -> Optional['Team']:
         """Returns the team with the specified name in the specified zone"""
         zone : Optional[GovernanceZone] = self.governanceZones.get(gz)
@@ -660,25 +753,25 @@ class Team:
 
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is Team):
-            return self.td.name == __value.td.name and self.workspaces == __value.workspaces and self.dataStores == __value.dataStores
+            return self.td.eq_Shallow(__value.td) and self.workspaces == __value.workspaces and self.dataStores == __value.dataStores
         else:
             return False
         
-    def getZone(self) -> Optional['GovernanceZone']:
-        """Returns the governance zone for this team"""
-        if(self.td and self.td.gZone):
-            return self.td.gZone
-
 class TeamDeclaration:
     """All teams must be declared at the GovernanceZone level using one of these objects. The Team objects are initialized in a secondary step"""
     def __init__(self, name : str, *args : Repository) -> None:
         self.name : str = name
-        self.gZone : Optional['GovernanceZone'] = None
+        self.gZone : Optional[GovernanceZone] = None
+    
         self.owningRepo : Optional[Repository] = None
         """Changes to the Team object can only be done using committed changes in the specified repository"""
         """Files for this team must be in this folder in the master repo"""
         self.team : Optional[Team] = None
         self.add(*args)
+
+    def setZone(self, zone : 'GovernanceZone'):
+        """Sets the key for this team"""
+        self.gZone = zone
 
     def getTeam(self) -> Team:
         """Return a singleton Team object managed by this declaration"""
@@ -696,27 +789,17 @@ class TeamDeclaration:
         if(type(__value) is TeamDeclaration):
             return (
                 self.name == __value.name and
-                self.refersToSameZoneShallowly(__value) and
                 self.owningRepo == __value.owningRepo and
                 self.team == __value.team and 
-                self.owningRepo == __value.owningRepo
+                self.owningRepo == __value.owningRepo and
+                self.gZone == __value.gZone
             )
         else:
             return False
 
-    def refersToSameZoneShallowly(self, o : 'TeamDeclaration') -> bool:
-        """Avoiding recursion, check if another team uses the same zone as this one"""
-        if(self.gZone is None and o.gZone is not None):
-            return False
-        if(self.gZone is not None and o.gZone is None):
-            return False
-        if(self.gZone is None and o.gZone is None):
-            return True
-        if(self.gZone and o.gZone):
-            return self.gZone.name == o.gZone.name
-        else:
-            return False
-        
+    def eq_Shallow(self, __value : Optional[object]) -> bool:
+        return __value != None and isinstance(__value, type(self)) and  self.name == __value.name and self.gZone == __value.gZone
+    
     def checkIfChangesAreAuthorized(self, proposed : 'TeamDeclaration', changeSource : Repository) -> List[ValidationProblem]:
         """This checks if the team has changed relative to the specified change source"""
         rc : List[ValidationProblem] = []
@@ -736,7 +819,7 @@ class GovernanceZone:
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         self.owningRepo : Optional[Repository] = None
-        self.eco : Optional[Ecosystem] = None
+        self.ecoSystem : Optional[Ecosystem] = None
         self.add(*args)
 
     def add(self, *args : Union[Repository, InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
@@ -759,6 +842,11 @@ class GovernanceZone:
                 p : DataPlatform = arg
                 self.addPlatform(p)
 
+        # This writes all the parent references to the objects in the eco system
+        for v in self.vendors.values():
+            if(self):
+                v.setZone(self)
+
     def addPlatform(self, p : 'DataPlatform'):
         if self.platforms.get(p.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Platform {p.name}")
@@ -768,19 +856,16 @@ class GovernanceZone:
         if self.storagePolicies.get(p.name) != None:
             raise Exception(f"Duplicate Storage Policy {p.name}")
         self.storagePolicies[p.name] = p
-        p.governanceZone = self   
 
     def addTeam(self, t : TeamDeclaration):
         if self.teams.get(t.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Team {t.name}")
         self.teams[t.name] = t
-        t.gZone = self
 
     def addVendor(self, iv : InfrastructureVendor):
         if self.vendors.get(iv.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Vendor {iv.name}")
         self.vendors[iv.name] = iv
-        iv.zone = self
 
     def getTeam(self, name : str) -> Team:
         """This retrieves the team object for a declared team. Additional team elements can then be added to the team"""
@@ -789,12 +874,25 @@ class GovernanceZone:
             raise ObjectDoesntExistException(f"Team {name} doesn't exist")
         return td.getTeam()
 
+    def setEcosystem(self, e : Ecosystem):
+        self.ecoSystem = e
+        for v in self.vendors.values():
+            v.setZone(self)
+        for s in self.storagePolicies.values():
+            s.setZone(self)
+        for t in self.teams.values():
+            t.setZone(self)
+        
+
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is GovernanceZone):
-            return self.name == __value.name and self.platforms == __value.platforms and self.teams == __value.teams and self.vendors == __value.vendors and self.storagePolicies == __value.storagePolicies and self.eco == __value.eco
+            return self.name == __value.name and self.platforms == __value.platforms and self.teams == __value.teams and self.vendors == __value.vendors and self.storagePolicies == __value.storagePolicies
         else:
             return False
-        
+
+    def eq_Shallow(self, __value : Optional[object]) -> bool:
+        return __value != None and isinstance(__value, type(self)) and  self.name == __value.name
+            
     def checkIfChangesAreAuthorized(self, proposed : 'GovernanceZone', changeSource : Repository) -> List[ValidationProblem]:
         """This checks if the governance zone has changed relative to the specified change source"""
         """This checks if any teams have been added or removed relative to e"""

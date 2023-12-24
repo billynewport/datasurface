@@ -9,4 +9,11 @@ def test_validate_nwdb():
     print(rc)
     assert len(rc) == 0
 
+def test_eq_ecosystem():
+    e : Ecosystem = tests.nwdb.eco.createEcosystem()
+    e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
 
+    assert e == e2
+
+    e2.name = "Test2"
+    assert e != e2
