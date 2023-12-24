@@ -8,8 +8,9 @@ from datetime import timedelta
 from enum import Enum
 
 
-def cycli_eq(obj : object, __value: object, visited : set[object]) -> bool:
-    """This is a recursive equality checker which avoids infinite recursion by tracking visited objects"""
+def cyclic_safe_eq(obj : object, __value: object, visited : set[object]) -> bool:
+    """This is a recursive equality checker which avoids infinite recursion by tracking visited objects. The \
+        meta data objects have circular references which cause infinite recursion when using the default"""
     ida : int = id(obj)
     idb : int = id(__value)
 
@@ -38,7 +39,7 @@ def cycli_eq(obj : object, __value: object, visited : set[object]) -> bool:
     # Check same named attributes for equality    
     for attr, value in vars(__value).items():
         if(not attr.startswith("_")):
-            if not cycli_eq(self_vars[attr], value, visited):
+            if not cyclic_safe_eq(self_vars[attr], value, visited):
                 return False
 
     return True
@@ -59,9 +60,7 @@ class StoragePolicy(ABC):
         self.governanceZone = z
     
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, type(self)):
-            return self.name == __value.name and self.governanceZone == __value.governanceZone and self.mandatory == __value.mandatory
-        return False
+        return cyclic_safe_eq(self, __value, set())
     
 
     @abstractmethod
@@ -103,7 +102,9 @@ class LocalGovernanceManagedOnly(StoragePolicy):
                 self.mandatory == __value.mandatory
 
 class InfraLocation:
-    """This is a location within a vendors physical location hierarchy"""
+    """This is a location within a vendors physical location hierarchy. This object
+    is only fully initialized after construction when either the setParentLocation or
+    setVendor methods are called. This is because the vendor is required to set the parent"""
 
     def __init__(self, name: str, *args: 'InfraLocation') -> None:
         self.name: str = name
@@ -456,9 +457,10 @@ class Datastore(object):
             raise ObjectAlreadyExistsException(f"Duplicate Dataset {item.name}")
         self.datasets[item.name] = item
         item.store = self
+
     def setTeam(self, t : 'Team'):
         """Set the data stores owning team"""
-        if(self.team is not None):
+        if(self.team is not None and self.team != t):
             raise Exception("Team already set")
         self.team = t
 
@@ -701,7 +703,7 @@ class Ecosystem:
 #            return self.name == __value.name and self.governanceZones == __value.governanceZones
 #        else:
 #            return False
-        return cycli_eq(self, __value, set())
+        return cyclic_safe_eq(self, __value, set())
         
     def eq_Shallow(self, __value : Optional[object]) -> bool:
         return __value != None and isinstance(__value, 'Ecosystem') and  self.name == __value.name
@@ -734,6 +736,11 @@ class Team:
             elif(type(arg) is Workspace):
                 w : Workspace = arg
                 self.addWorkspace(w)
+
+        for s in self.dataStores.values():
+            s.setTeam(self)
+        for w in self.workspaces.values():
+            w.setTeam(self)
 
     def getName(self) -> str:
         """Returns the name of the team"""
@@ -1081,24 +1088,8 @@ class Workspace(object):
         self.team = t
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is Workspace):
-            return self.name == __value.name and self.dsgs == __value.dsgs and self.asset == __value.asset and self.refersToSameTeamShallowly(__value)
-        else:
-            return False
+        return cyclic_safe_eq(self, __value, set())
     
-    def refersToSameTeamShallowly(self, o : 'Workspace') -> bool:
-        """Avoiding recursion, check if another store uses same team as this one"""
-        if(self.team == None and o.team != None):
-            return False
-        if(self.team and o.team == None):
-            return False
-        if(self.team == None and o.team == None):
-            return True
-        if(self.team and o.team):
-            return self.team.getName() == o.team.getName()
-        else:
-            return False
-
 class Asset:
     def __init__(self, name : str, containers : Iterable[DataContainer]) -> None:
         self.name : str = name
