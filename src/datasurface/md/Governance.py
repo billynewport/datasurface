@@ -495,7 +495,6 @@ class Ecosystem:
     def __init__(self, name : str, repo : Repository, *args : 'GovernanceZone') -> None:
         self.name : str = name
         self.owningRepo : Repository = repo
-        self.isModified : bool = False
 
         self.governanceZones : dict[str, GovernanceZone] = OrderedDict()
         """This is the authorative list of governance zones within the ecosystem"""
@@ -505,10 +504,6 @@ class Ecosystem:
 
         for z in self.governanceZones.values():
             z.setEcosystem(self)
-
-    def markModified(self) -> None:
-        """This marks the ecosystem as modified"""
-        self.isModified = True
 
     def resetCaches(self) -> None:
         """Empties the caches"""
@@ -629,6 +624,13 @@ class Ecosystem:
 
         rc : List[ValidationProblem] = []
 
+        # Check if the ecosystem has been modified at all
+        if(self == proposed):
+            return rc
+        elif(not self.eq_toplevel(proposed) and self.owningRepo != changeSource):
+            rc.append(ValidationProblem("Ecosystem top level has been modified by an unauthorized source"))
+            return rc
+        
         # Get the current governance zones from the change source
         current_governance_zones = set(self.governanceZones)
 
@@ -667,6 +669,13 @@ class Ecosystem:
     
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    def eq_toplevel(self, __value: object) -> bool:
+        """This is a shallow equality check for the top level ecosystem object"""
+        if(isinstance(__value, Ecosystem)):
+            return self.name == __value.name and self.owningRepo == __value.owningRepo
+        else:
+            return False
         
     def getTeam(self, gz : str, teamName : str) -> Optional['Team']:
         """Returns the team with the specified name in the specified zone"""
@@ -1003,13 +1012,16 @@ class Workspace(object):
                 self.dsgs[dsg.name] = dsg
             elif(isinstance(arg, Asset)):
                 a : 'Asset' = arg
-                if(self.asset != None):
+                if(self.asset != None and self.asset != a):
                     raise AttributeAlreadySetException("Asset")
                 self.asset = a
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
 
     def setTeam(self, t : Team):
+        """Sets the owning team"""
+        if(self.team != None and self.team != t):
+            raise AttributeAlreadySetException("Team already set")
         self.team = t
 
     def __eq__(self, __value: object) -> bool:
