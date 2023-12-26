@@ -12,10 +12,7 @@ class TestZones(unittest.TestCase):
             raise Exception("Child location {} not found in parent {}".format(childName, parent.name))
         self.assertIsNotNone(child)
         self.assertEqual(child.name, childName)
-        self.assertEqual(child.parentLocation, parent)
         self.assertIsNotNone(child)
-        if(child.vendor):
-            self.assertEqual(child.vendor.name, vendor.name)
 
     def test_CreateUSAEco(self):
         eco = Ecosystem("BigCorp", GitRepository("a", "b"))
@@ -78,9 +75,6 @@ class TestZones(unittest.TestCase):
         self.assertIsNotNone(awsUSA)
         self.assertEqual(awsUSA.name, "USA")
          
-        self.assertIsNone(awsUSA.parentLocation)
-        if(awsUSA.vendor):
-            self.assertEqual(awsUSA.vendor.name, "AWS")
         for locName in ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2']:
             self.checkChildLocation(awsUSA, locName, aws)
         awsEurope : Optional[InfraLocation] = aws.locations.get("Europe")
@@ -89,10 +83,6 @@ class TestZones(unittest.TestCase):
             raise Exception("Location Europe not found")
         
         self.assertEqual(awsEurope.name, "Europe")
-        self.assertIsNone(awsEurope.parentLocation)
-        if(awsEurope.parentLocation and awsEurope.parentLocation.vendor):
-            self.assertIsNone(awsEurope.parentLocation.vendor.name)
-            self.assertEqual(awsEurope.parentLocation.vendor.name, "AWS")
         for locName in ['eu-west-1', 'eu-west-2']:
             self.checkChildLocation(awsEurope, locName, aws)
                          
@@ -106,9 +96,6 @@ class TestZones(unittest.TestCase):
             raise Exception("Location USA not found")
         self.assertIsNotNone(azureUSA)
         self.assertEqual(azureUSA.name, "USA")
-        self.assertIsNone(azureUSA.parentLocation)
-        if(azureUSA.parentLocation and azureUSA.parentLocation.vendor):
-            self.assertEqual(azureUSA.parentLocation.vendor.name, "AZURE")
         self.assertEqual(len(azureUSA.locations), 10)
         for locName in ['Central US', 'North Central US', 'South Central US', 'West Central US', 'West US', 'West US 2', 'West US 3', 'East US', 'East US 2', 'East US 3']:
             self.checkChildLocation(azureUSA, locName, azure)

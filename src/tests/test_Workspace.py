@@ -26,7 +26,7 @@ class TestWorkspace(unittest.TestCase):
         if(gzChina):
             gzChina.add(
                     # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
-                    LocalGovernanceManagedOnly("China Only", True, gzChina)
+                    LocalGovernanceManagedOnly("China Only", True)
                 )
         else:
             raise Exception("China zone not found")
@@ -54,7 +54,7 @@ class TestWorkspace(unittest.TestCase):
         if(gzChina):
             gzChina.add(
                     # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
-                    LocalGovernanceManagedOnly("China Only", True, gzChina)
+                    LocalGovernanceManagedOnly("China Only", True)
                 )
         else:
             raise Exception("China zone not found")

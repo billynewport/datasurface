@@ -28,10 +28,14 @@ def createEcosystem() -> Ecosystem:
                     InfraLocation("West US 3")), # Arizona
             ),
 
-            TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
-            TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
-            TeamDeclaration("NorthWindTeam", GitRepository("ssh://u@local:/v1/source/nwteam", "main")),
-            TeamDeclaration("BackOffice"), GitRepository("ssh://u@local:/v1/source/bo", "main"),
+            TeamDeclaration("FrontOffice", 
+                GitRepository("ssh://u@local:/v1/source/fo", "main")),
+            TeamDeclaration("MiddleOffice", 
+                GitRepository("ssh://u@local:/v1/source/mo", "main")),
+            TeamDeclaration("NorthWindTeam", 
+                GitRepository("ssh://u@local:/v1/source/nwteam", "main")),
+            TeamDeclaration("BackOffice", 
+                GitRepository("ssh://u@local:/v1/source/bo", "main")),
 
             DataPlatform("DataGlide@1.0")
         ),
