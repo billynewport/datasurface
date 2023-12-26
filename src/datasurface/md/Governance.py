@@ -1,12 +1,24 @@
 from dataclasses import dataclass
 from collections import OrderedDict
-from typing import Any, Iterable, List, Optional, Sequence, Union
+from typing import Any, Generic, Iterable, List, Optional, Sequence, Type, TypeVar, Union
 from .Schema import Schema
 from abc import ABC, abstractmethod
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
+from typing import Optional, Type, TypeVar
 
+T = TypeVar('T')
+
+class BackReference(Generic[T]):
+    def __init__(self, initial_value: Optional[T] = None):
+        self.value: Optional[T] = initial_value
+
+    def __get__(self, instance: object, owner: Type[object]) -> Optional[T]:
+        return self.value
+
+    def __set__(self, instance: object, value: Optional[T]) -> None:
+        self.value = value
 
 def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
     """This is a recursive equality checker which avoids infinite recursion by tracking visited objects. The \
@@ -653,7 +665,7 @@ class Ecosystem:
             if(zone.owningRepo != changeSource):
                 rc.append(ValidationProblem(f"Governance zone {zoneName} has been added by an unauthorized source"))
 
-        # Now check each governance zone for changes
+        # Now check each common governance zone for changes
         common_governance_zones : set[str] = current_governance_zones.intersection(proposed_governance_zones)
         for zoneName in common_governance_zones:
             prop_zone : Optional[GovernanceZone] = proposed.governanceZones[zoneName]
