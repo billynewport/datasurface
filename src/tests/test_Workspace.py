@@ -13,11 +13,13 @@ class TestWorkspace(unittest.TestCase):
     def createEco(self) -> Ecosystem:
         eco : Ecosystem = Ecosystem("BigCorp", GitRepository("a", "b"),
             GovernanceZone("US",
+                GitRepository("aa", "bb"),
                 TeamDeclaration("Test", GitRepository("gitrepo url", "module")),
                 DataPlatform("FastPlatform"),
                 DataPlatform("SlowPlatform")
                 ),
             GovernanceZone("China",
+                GitRepository("aa", "cc"),
                 TeamDeclaration("China Team", GitRepository("git repo 2", "module"))
                 )
             )
@@ -39,6 +41,7 @@ class TestWorkspace(unittest.TestCase):
         # First define an ecosystem with a single US zone and a single team
         eco : Ecosystem = Ecosystem("BigCorp", GitRepository("a", "b"),
             GovernanceZone(usZoneName,
+                GitRepository("aa", "bb"),
                 TeamDeclaration(testTeamName, 
                     GitRepository("gitrepo url", "module")
                     ),
@@ -46,6 +49,7 @@ class TestWorkspace(unittest.TestCase):
                 DataPlatform("SlowPlatform")
                 ),
             GovernanceZone(chinaZoneName,
+                GitRepository("aa", "cc"),
                 TeamDeclaration("China Team",
                     GitRepository("git repo 2", "module"))
             ))

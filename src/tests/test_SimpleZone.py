@@ -21,6 +21,7 @@ class TestZones(unittest.TestCase):
         usZoneName : str = "US"
         eco.add(
             GovernanceZone(usZoneName,
+                GitRepository("aa", "bb"),
                 InfrastructureVendor("AWS",
                     InfraLocation("USA",
                         InfraLocation("us-east-1"),
