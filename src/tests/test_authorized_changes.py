@@ -5,7 +5,7 @@ from datasurface.md.Governance import Ecosystem, GitRepository, GovernanceZone, 
 import tests.nwdb.eco
 
 
-class TestGitReopen(unittest.TestCase):
+class TestGitEquals(unittest.TestCase):
     def test_git_equals(self):
         r1 : Repository = GitRepository("repo", "moduleNameA")
         r2 : Repository = GitRepository("repo", "moduleNameB")
@@ -19,7 +19,7 @@ class TestGitReopen(unittest.TestCase):
         self.assertFalse(r2 == r3)
 
     
-class TestChangesAreAuthorized(unittest.TestCase):
+class TestEcoNameChange(unittest.TestCase):
     def test_EcoSystem_Name_Change(self):
         e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
         gitMain : Repository = e_main.owningRepo

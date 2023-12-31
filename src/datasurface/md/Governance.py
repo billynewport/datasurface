@@ -24,6 +24,7 @@ class GitControlledObject(ABC):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo : 'Repository') -> None:
         self.owningRepo : Repository = repo
+        """This is the repository which is authorized to make changes to this object"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, GitControlledObject)):
@@ -36,11 +37,12 @@ class GitControlledObject(ABC):
         return False
     
     def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository') -> List['ValidationProblem']:
+        """This checks if the local attributes of the object have been modified by the authorized change source"""
         rc : List[ValidationProblem] = []
 
         # Check if the ecosystem has been modified at all
         if(self == proposed):
-            return rc
+            return rc # No changes then no problems
         elif(not self.eq_toplevel(proposed) and self.owningRepo != changeSource):
             rc.append(ValidationProblem("Ecosystem top level has been modified by an unauthorized source"))
         return rc
@@ -560,33 +562,33 @@ class Ecosystem(GitControlledObject):
             raise ObjectAlreadyExistsException(f"GoveranceZone already exists {z.name}")
         self.governanceZones[z.name] = z
 
-    def addTeamDeclaration(self, td : 'TeamDeclaration'):
+    def cache_addTeamDeclaration(self, td : 'TeamDeclaration'):
         if(self.teamDeclarationCache.get(td.name) != None):
             if(self.teamDeclarationCache.get(td.name) != None):
                 raise ObjectAlreadyExistsException(f"Duplicate TeamDeclaration {td.name}")
             self.teamDeclarationCache[td.name] = td
 
-    def addWorkspace(self, work : 'Workspace'):
+    def cache_addWorkspace(self, work : 'Workspace'):
         """This adds a workspace to the eco cache and flags duplicates"""
         if(self.workSpaceCache.get(work.name) != None):
             raise ObjectAlreadyExistsException(f"Duplicate workspace {work.name}")
         self.workSpaceCache[work.name] = work
 
-    def addDatastore(self, store : 'Datastore'):
+    def cache_addDatastore(self, store : 'Datastore'):
         """This adds a store to the eco cache and flags duplicates"""
         if(self.datastoreCache.get(store.name) != None):
             raise ObjectAlreadyExistsException(f"Duplicate data store {store.name}")
         self.datastoreCache[store.name] = store
 
-    def getDatastoreOrThrow(self, store : str):
+    def cache_getDatastoreOrThrow(self, store : str):
         s : Optional[Datastore] = self.datastoreCache.get(store)
         if(s):
             return s
         else:
             raise DatastoreDoesntExistException(f"Unknown datastore {store}")
 
-    def getDatasetOrThrow(self, store : str, set : str):
-        s : Datastore = self.getDatastoreOrThrow(store)
+    def cache_getDatasetOrThrow(self, store : str, set : str):
+        s : Datastore = self.cache_getDatastoreOrThrow(store)
         dataset = s.datasets.get(set)
         if(dataset == None):
             raise DatasetDoesntExistException(f"Dataset doesn't exist {store}:{set}")
@@ -647,7 +649,7 @@ class Ecosystem(GitControlledObject):
                 for sink in dsg.datasets.values():
                     try:
                         # Check all datasets in the workspace exist
-                        self.getDatasetOrThrow(sink.storeName, sink.datasetName)
+                        self.cache_getDatasetOrThrow(sink.storeName, sink.datasetName)
                     except Exception as e:
                         p : ValidationProblem = ValidationProblem(str(e))
                         p.object = sink
