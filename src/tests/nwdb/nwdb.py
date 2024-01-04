@@ -1,8 +1,14 @@
 from datasurface.md import *
+from datasurface.md.Azure import AzureKeyVaultCredential
+
 
 def defineTables(t : Team):
     t.add(
         Datastore("NW_Data",
+            CaptureMetaData(
+                IngestionConsistencyType.MULTI,
+                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
+                ),
             Dataset("us_states",
                 DDLTable(
                     DDLColumn("state_id", SmallInt(), NullableStatus.NOT_NULLABLE, DataClassification.PUB, PrimaryKeyStatus.PK),

@@ -1,24 +1,14 @@
 from dataclasses import dataclass
 from collections import OrderedDict
-from typing import Any, Generic, Iterable, List, Mapping, Optional, Sequence, Type, TypeVar, Union, cast
+from typing import Any, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
 from .Schema import Schema
 from abc import ABC, abstractmethod
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
-from typing import Optional, Type, TypeVar
+from typing import Optional, TypeVar
 
 T = TypeVar('T')
-
-class BackReference(Generic[T]):
-    def __init__(self, initial_value: Optional[T] = None):
-        self.value: Optional[T] = initial_value
-
-    def __get__(self, instance: object, owner: Type[object]) -> Optional[T]:
-        return self.value
-
-    def __set__(self, instance: object, value: Optional[T]) -> None:
-        self.value = value
 
 class GitControlledObject(ABC):
     """This is the base class for all objects which are controlled by a git repository"""
@@ -300,6 +290,8 @@ class EncryptionSystem:
         return cyclic_safe_eq(self, __value, set())
 
 class DataContainer:
+    """This is a container for data. It is a physical location where data is stored. It is owned by a data platform
+      and is used to determine whether a dataset is compatible with the container by a governancezone."""   
     def __init__(self, *args : 'InfraLocation') -> None:
         self.location : Optional[InfraLocation] = None
         self.name : Optional[str] = None
@@ -325,6 +317,7 @@ class DataContainer:
             raise Exception("Container name not set")
 
 class Dataset(object):
+    """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy]) -> None:
         self.name : str = name
         self.originalSchema : Optional[Schema] = None
@@ -368,6 +361,11 @@ class DataSourceConnection:
 
 class Credential:
     """These allow a client to connect to a service/server"""
+    def __init__(self) -> None:
+        pass
+
+    def __eq__(self, __value: object) -> bool:
+        return cyclic_safe_eq(self, __value, set())
 
 
 class FileSecretCredential(Credential):
@@ -380,7 +378,6 @@ class FileSecretCredential(Credential):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is FileSecretCredential and self.secretFilePath == __value.secretFilePath
-
 
 class ClearTextCredential(Credential):
     """This is implemented for testing but should never be used in production. All
@@ -427,21 +424,31 @@ class CaptureType(Enum):
     SNAPSHOT = 0
     INCREMENTAL = 1
 
+class IngestionConsistencyType(Enum):
+    """This determines whether data is ingested in consistent groups across multiple datasets or
+    whether each dataset is ingested independently"""
+    SINGLE = 0
+    MULTI = 1
+
 class CaptureMetaData(object):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
-    def __init__(self, *args : Union[Credential, CaptureSourceInfo]) -> None:
+    def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
         self.credential : Optional[Credential] = None
+        self.SingleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
         self.captureSource : Optional[CaptureSourceInfo] = None
         self.add(*args)
 
-    def add(self, *args : Union[Credential, CaptureSourceInfo]) -> None:
+    def add(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
         for arg in args:
             if(isinstance(arg, Credential)):
                 c : Credential = arg
                 self.credential = c
-            else:
+            elif(type(arg) == IngestionConsistencyType):
+                sm : IngestionConsistencyType = arg
+                self.SingleOrMultiDatasetIngestion = sm
+            elif(isinstance(arg, CaptureSourceInfo)):
                 i : CaptureSourceInfo = arg
                 self.captureSource = i
             
@@ -468,7 +475,7 @@ class SQLPullIngestion(CaptureMetaData):
 
 class Datastore(object):
 
-    """This is a unit of ingestion for a group of datasets."""
+    """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer]) -> None:
         self.name : str = name
         self.datasets : dict[str, Dataset] = OrderedDict()
