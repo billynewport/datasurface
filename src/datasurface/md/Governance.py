@@ -451,20 +451,24 @@ class CaptureMetaData(object):
     def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
         self.credential : Optional[Credential] = None
         self.SingleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
-        self.captureSource : Optional[CaptureSourceInfo] = None
+        self.captureSource : list[CaptureSourceInfo] = []
         self.add(*args)
 
     def add(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
         for arg in args:
             if(isinstance(arg, Credential)):
                 c : Credential = arg
+                if(self.credential != None):
+                    raise AttributeAlreadySetException("Credential already set")
                 self.credential = c
             elif(type(arg) == IngestionConsistencyType):
+                if(self.SingleOrMultiDatasetIngestion != None):
+                    raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
                 sm : IngestionConsistencyType = arg
                 self.SingleOrMultiDatasetIngestion = sm
             elif(isinstance(arg, CaptureSourceInfo)):
                 i : CaptureSourceInfo = arg
-                self.captureSource = i
+                self.captureSource.append(i)
             
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
