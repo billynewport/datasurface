@@ -8,7 +8,13 @@ def defineTables(t : Team):
             CaptureMetaData(
                 IngestionConsistencyType.MULTI,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
+                PyOdbcSourceInfo(
+                    serverHost="tcp:nwdb.database.windows.net,1433",
+                    databaseName="nwdb",
+                    driver="{ODBC Driver 17 for SQL Server}",
+                    connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
                 ),
+            ),
             Dataset("us_states",
                 DDLTable(
                     DDLColumn("state_id", SmallInt(), NullableStatus.NOT_NULLABLE, DataClassification.PUB, PrimaryKeyStatus.PK),

@@ -146,14 +146,19 @@ def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
 
 class InfraPath:
     """This is a path to a location in the infrastructure hierarchy. It is used to specify the location of a container"""
-    def __init__(self, eco : 'Ecosystem', gz : 'GovernanceZone', iv : 'InfrastructureVendor', locPath : list['InfraLocation']):
-        self.eco : Ecosystem = eco
-        self.gz : GovernanceZone = gz
-        self.iv : InfrastructureVendor = iv
+    def __init__(self, eco : str, gz : str, iv : str, locPath : list['InfraLocation']):
+        self.ecosystemName : str = eco
+        self.governanceZoneName : str = gz
+        self.infraVendorName : str = iv
         self.locPath : list[InfraLocation] = locPath
 
     def __str__(self) -> str:
-        return f"{self.eco.name}:{self.gz.name}:{self.iv.name}:{self.locPath}"
+        return f"{self.ecosystemName}:{self.governanceZoneName}:{self.infraVendorName}:{self.locPath}"
+    
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, InfraPath) and self.ecosystemName == __value.ecosystemName and \
+            self.governanceZoneName == __value.governanceZoneName and \
+            self.infraVendorName == __value.infraVendorName and self.locPath == __value.locPath
 
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
@@ -164,7 +169,7 @@ class StoragePolicy(ABC):
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory
     
 
     @abstractmethod
@@ -191,7 +196,7 @@ class LocalGovernanceManagedOnly(StoragePolicy):
 
     def isCompatible(self, policyPath : InfraPath, containerPath : InfraPath, container : 'DataContainer') -> bool:
         """Only allow if the location is managed by the required zone"""
-        return containerPath.gz.name == policyPath.gz.name
+        return containerPath.governanceZoneName == policyPath.governanceZoneName
     
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is LocalGovernanceManagedOnly and \
@@ -284,6 +289,7 @@ class EncryptionSystem:
     def __init__(self) -> None:
         self.name : Optional[str] = None
         self.keyContainer : Optional['DataContainer'] = None
+        """Are keys stored on site or at a third party?"""
         self.hasThirdPartySuperUser : bool = False
 
     def __eq__(self, __value: object) -> bool:
@@ -296,7 +302,11 @@ class DataContainer:
         self.location : Optional[InfraLocation] = None
         self.name : Optional[str] = None
         self.serverSideEncryptionKeys : Optional[EncryptionSystem] = None
+        """This is the vendor ecnryption system providing the container. For example, if a cloud vendor
+        hosts the container, do they have access to the container data?"""
         self.clientSideEncryptionKeys : Optional[EncryptionSystem] = None
+        """This is the encryption system used by the client to encrypt data before sending to the container. This could be used
+        to encrypt data before sending to a cloud vendor for example"""
         self.isReadOnly : bool =  False
         self.add(*args)
 
@@ -402,23 +412,27 @@ class LocalJDBCConnection(DataSourceConnection):
 
 class CaptureSourceInfo:
     """Describes how an IMD can connect to the database or similar to ingest data"""
-    def __init__(self, name : str) -> None:
-        self.name : str = name
+    def __init__(self) -> None:
+        pass
 
     def __eq__(self, __value: object) -> bool:
-        if(type(__value) is CaptureSourceInfo):
-            return self.name == __value.name
+        if(isinstance(__value, CaptureSourceInfo)):
+            return True
         else:
             return False
 
-class SimpleJDBCSourceInfo(CaptureSourceInfo):
-    """Stores connection metadata for simple JDBC connection to source"""
-    def __init__(self, name : str, jdbcURL : str) -> None:
-        super().__init__(name)
-        self.jdbcURL : str = jdbcURL
+class PyOdbcSourceInfo(CaptureSourceInfo):
+    """This describes how to connect to a database using pyodbc"""
+    def __init__(self, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
+        super().__init__()
+        self.serverHost : str = serverHost
+        self.databaseName : str = databaseName
+        self.driver : str = driver
+        self.connectionStringTemplate : str = connectionStringTemplate
+
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is SimpleJDBCSourceInfo and self.jdbcURL == __value.jdbcURL
+        return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
         
 class CaptureType(Enum):
     SNAPSHOT = 0
@@ -728,7 +742,6 @@ class Team:
         if self.workspaces.get(w.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Workspace {w.name}")
         self.workspaces[w.name] = w
-        w.setTeam(self)
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
@@ -950,7 +963,6 @@ class Workspace(object):
         self.name : str = name
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
-        self.team : Optional[Team] = None
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
@@ -964,12 +976,6 @@ class Workspace(object):
                 self.asset = a
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
-
-    def setTeam(self, t : Team):
-        """Sets the owning team"""
-        if(self.team != None and self.team != t):
-            raise AttributeAlreadySetException("Team already set")
-        self.team = t
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
