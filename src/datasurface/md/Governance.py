@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from collections import OrderedDict
-from typing import Any, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
+from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
 from .Schema import Schema
 from abc import ABC, abstractmethod
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Generic
 
 T = TypeVar('T')
 
@@ -616,6 +616,7 @@ class Ecosystem(GitControlledObject):
         super().__init__(repo)
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
+        self.authorizedZones : dict[str, 'GovernanceZone'] = OrderedDict()
 
         self.governanceZones : dict[str, GovernanceZone] = OrderedDict()
         """This is the authorative list of governance zones within the ecosystem"""
@@ -635,7 +636,7 @@ class Ecosystem(GitControlledObject):
     def add(self, *args : 'GovernanceZone') -> None:
         for arg in args:
             self.addZoneDef(arg)
-            
+
     def addZoneDef(self, z : 'GovernanceZone'):
         """Adds a zone def to the ecosystem and sets the zone to this ecosystem"""
         if(self.governanceZones.get(z.name) != None):
@@ -683,7 +684,7 @@ class Ecosystem(GitControlledObject):
     def validateTeamDeclaration(self, gz: 'GovernanceZone', tdName: str) -> Sequence['ValidationProblem']:
         """This validates a single team declaration and populates the datastore cache with that team's stores"""
         problem_list : List[ValidationProblem] = []
-        td : Optional[TeamDeclaration] = gz.authorizedTeams.get(tdName)
+        td : Optional[TeamDeclaration] = gz.teams.authorizedNames.get(tdName)
         if(td == None):
             p = ValidationProblem(f"Unknown TeamDeclaration {tdName}")
             problem_list.append(p)
@@ -715,7 +716,7 @@ class Ecosystem(GitControlledObject):
     def validateGoveranceZone(self, gz : 'GovernanceZone') -> Sequence[ValidationProblem]:
         """This validates a GovernanceZone and populates the teamcache with the zones teams"""
         list : List[ValidationProblem] = []
-        for t in gz.authorizedTeams.values():
+        for t in gz.teams.authorizedNames.values():
             if(self.teamDeclarationCache.get(t.name) != None):
                 p : ValidationProblem = ValidationProblem(f"Duplicate TeamDeclaration {t.name}")
                 p.object = t
@@ -824,15 +825,69 @@ class Team(GitControlledObject):
 
         return rc
         
-class TeamDeclaration:
-    """All teams must be declared at the GovernanceZone level using one of these objects. The Team objects are initialized in a secondary step"""
-    def __init__(self, name : str, repo : Repository) -> None:
+class NamedObjectAuthorization:
+    def __init__(self, name : str, owningRepo : Repository) -> None:
         self.name : str = name
-        self.authRepo : Repository = repo
+        self.owningRepo : Repository = owningRepo
+
+G = TypeVar('G', bound=GitControlledObject)
+N = TypeVar('N', bound=NamedObjectAuthorization)
+
+class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
+    def __init__(self, factory : Callable[[str, Repository], G], owningRepo : Repository) -> None:
+        super().__init__(owningRepo)
+        self.authorizedNames : dict[str, N] = OrderedDict[str, N]()
+        self.authorizedObjects : dict[str, G] = OrderedDict[str, G]()
+        self.factory : Callable[[str, Repository], G] = factory
+
+    def addAuthorization(self, t : N):
+        if self.authorizedNames.get(t.name) != None:
+            raise ObjectAlreadyExistsException(f"Duplicate authorization {t.name}")
+        self.authorizedNames[t.name] = t
+
+    def getObject(self, name : str) -> Optional[G]:
+        """This returns a team object for the specified team name and verifies the team
+        was authorized in this zone"""
+        noa : Optional[N] = self.authorizedNames.get(name)
+        if(noa == None):
+            return None
+        t : Optional[G] = self.authorizedObjects.get(name)
+        if(t == None):
+            t = self.factory(name, noa.owningRepo) # Create an instance of the object
+            self.authorizedObjects[name] = t
+        return t
+    
+    def __eq__(self, __value: object) -> bool:
+        return cyclic_safe_eq(self, __value, set())
+
+    def eq_toplevel(self, proposed: GitControlledObject) -> bool:
+        p : AuthorizedNamesObjects[G, N] = cast(AuthorizedNamesObjects[G, N], proposed)
+        return self.authorizedNames == p.authorizedNames
+
+    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
+        proposedGZ : AuthorizedNamesObjects[G, N] = cast(AuthorizedNamesObjects[G, N], proposed)
+        
+        """This checks if the governance zone has changed relative to the specified change source"""
+        """This checks if any teams have been added or removed relative to e"""
+
+        rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource)
+
+        # Get the current teams from the change source
+        rc.extend(self.checkDictChangesAreAuthorized(self.authorizedObjects, proposedGZ.authorizedObjects, changeSource))
+
+        return rc
+
+
+class TeamDeclaration(NamedObjectAuthorization):
+    """This is a declaration of a team within a governance zone. It is used to authorize
+    the team and to provide the source of changes to the team"""
+    def __init__(self, name : str, authRepo : Repository) -> None:
+        super().__init__(name, authRepo)
+        self.authRepo : Repository = authRepo
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is TeamDeclaration and self.name == __value.name and self.authRepo == __value.authRepo
-
+        return cyclic_safe_eq(self, __value, set())
+    
 class GovernanceZone(GitControlledObject):
 
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
@@ -842,8 +897,7 @@ class GovernanceZone(GitControlledObject):
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
         self.platforms : dict[str, 'DataPlatform'] = OrderedDict[str, 'DataPlatform']()
-        self.authorizedTeams : dict[str, TeamDeclaration] = OrderedDict[str, TeamDeclaration]()
-        self.teams : dict[str, Team] = OrderedDict[str, Team]()
+        self.teams : AuthorizedNamesObjects[Team, TeamDeclaration] = AuthorizedNamesObjects[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         self.add(*args)
@@ -864,7 +918,7 @@ class GovernanceZone(GitControlledObject):
                 self.addPolicy(s)
             elif(type(arg) is TeamDeclaration):
                 t : TeamDeclaration = arg
-                self.addAuthTeam(t)
+                self.teams.addAuthorization(t)
             elif(isinstance(arg, DataPlatform)):
                 p : DataPlatform = arg
                 self.addPlatform(p)
@@ -883,9 +937,7 @@ class GovernanceZone(GitControlledObject):
         self.storagePolicies[p.name] = p
 
     def addAuthTeam(self, t : TeamDeclaration):
-        if self.authorizedTeams.get(t.name) != None:
-            raise ObjectAlreadyExistsException(f"Duplicate Team {t.name}")
-        self.authorizedTeams[t.name] = t
+        self.teams.addAuthorization(t)
 
     def addVendor(self, iv : InfrastructureVendor):
         if self.vendors.get(iv.name) != None:
@@ -893,16 +945,7 @@ class GovernanceZone(GitControlledObject):
         self.vendors[iv.name] = iv
 
     def getTeam(self, name : str) -> Optional[Team]:
-        """This returns a team object for the specified team name and verifies the team
-        was authorized in this zone"""
-        td : Optional[TeamDeclaration] = self.authorizedTeams.get(name)
-        if(td == None):
-            return None
-        t : Optional[Team] = self.teams.get(name)
-        if(t == None):
-            t = Team(name, td.authRepo)
-            self.teams[name] = t
-        return t
+        return self.teams.getObject(name)
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
@@ -912,7 +955,7 @@ class GovernanceZone(GitControlledObject):
         if not(super().eq_toplevel(proposed) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
         return self.storagePolicies == proposed.storagePolicies and self.platforms == proposed.platforms and self.vendors == proposed.vendors and \
-            self.authorizedTeams == proposed.authorizedTeams
+            self.teams.eq_toplevel(proposed.teams)
     
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
         proposedGZ : GovernanceZone = cast(GovernanceZone, proposed)
@@ -923,7 +966,7 @@ class GovernanceZone(GitControlledObject):
         rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource)
 
         # Get the current teams from the change source
-        rc.extend(self.checkDictChangesAreAuthorized(self.teams, proposedGZ.teams, changeSource))
+        rc.extend(self.teams.checkIfChangesAreAuthorized(proposedGZ.teams, changeSource))
 
         return rc
     

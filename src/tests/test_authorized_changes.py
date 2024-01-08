@@ -121,8 +121,13 @@ class TestEcoNameChange(unittest.TestCase):
         val = eco_baseline.checkIfChangesAreAuthorized(e_other, newTeam.owningRepo)
         self.assertEqual(len(val), 0)
 
+        # Check other repos cannot edit team
+        val = eco_baseline.checkIfChangesAreAuthorized(e_other, eco_baseline.owningRepo)
+        self.assertNotEqual(len(val), 0)
+
 
     def test_checkZoneRemoval(self):
+        # Check that a gz can only be removed by the gz owning repo
         e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
         gitMain : Repository = e_main.owningRepo
 
