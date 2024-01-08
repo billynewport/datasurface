@@ -81,7 +81,9 @@ class TestWorkspace(unittest.TestCase):
         # Check we can't get a team that wasnt declared in the GovernanceZone
         self.assertRaises(ObjectDoesntExistException, gzUSA.getTeam, "Undefined Team")
 
-        t : Team = gzUSA.getTeam(testTeamName)
+        t : Optional[Team] = gzUSA.getTeam(testTeamName)
+        if(t is None):
+            raise Exception("Team not found")
         t.add(
             Datastore("Store1",
                     Dataset("Dataset1",
@@ -421,8 +423,8 @@ class TestWorkspace(unittest.TestCase):
         if(gzChina is None):
             raise Exception("China zone not found") 
         
-        t1 : Team = gzUSA.getTeam("Test")
-        t2 : Team = gzChina.getTeam("China Team")
+        t1 : Optional[Team] = gzUSA.getTeam("Test")
+        t2 : Optional[Team] = gzChina.getTeam("China Team")
 
         self.assertEqual(t1, t1)
         self.assertEqual(t2, t2)
