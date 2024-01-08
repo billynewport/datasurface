@@ -12,3 +12,4 @@ class AzureKeyVaultCredential(Credential):
         return super().__eq__(__value) and type(__value) is AzureKeyVaultCredential and self.keyVaultName == __value.keyVaultName and self.secretName == __value.secretName
 
 class AzureKeyVault(EncryptionSystem):
+    pass

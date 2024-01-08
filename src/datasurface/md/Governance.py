@@ -144,21 +144,57 @@ def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
 
     return True
 
-class InfraPath:
-    """This is a path to a location in the infrastructure hierarchy. It is used to specify the location of a container"""
-    def __init__(self, eco : str, gz : str, iv : str, locPath : list['InfraLocation']):
-        self.ecosystemName : str = eco
-        self.governanceZoneName : str = gz
-        self.infraVendorName : str = iv
-        self.locPath : list[InfraLocation] = locPath
+class EcosystemKey:
+    def __init__(self, ecoName : str) -> None:
+        self.ecoName : str = ecoName
 
-    def __str__(self) -> str:
-        return f"{self.ecosystemName}:{self.governanceZoneName}:{self.infraVendorName}:{self.locPath}"
-    
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, InfraPath) and self.ecosystemName == __value.ecosystemName and \
-            self.governanceZoneName == __value.governanceZoneName and \
-            self.infraVendorName == __value.infraVendorName and self.locPath == __value.locPath
+        return isinstance(__value, EcosystemKey) and self.ecoName == __value.ecoName
+
+class GovernanceZoneKey(EcosystemKey):
+    def __init__(self, e : EcosystemKey, gz : str) -> None:
+        super().__init__(e.ecoName)
+        self.gzName : str = gz
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, GovernanceZoneKey) and self.ecoName == __value.ecoName and self.gzName == __value.gzName
+
+class StoragePolicyKey(GovernanceZoneKey):
+    def __init__(self, gz : GovernanceZoneKey, policyName : str):
+        super().__init__(gz, gz.gzName)
+        self.policyName : str = policyName
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, StoragePolicyKey) and self.ecoName == __value.ecoName and \
+            self.gzName == __value.gzName and self.policyName == __value.policyName
+
+class InfrastructureVendorKey(GovernanceZoneKey):
+    def __init__(self, gz : GovernanceZoneKey, iv : str) -> None:
+        super().__init__(gz, gz.gzName)
+        self.ivName : str = iv
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, InfrastructureVendorKey) and self.ecoName == __value.ecoName and \
+            self.gzName == __value.gzName and self.ivName == __value.ivName
+
+class InfraLocationKey(InfrastructureVendorKey):
+    def __init__(self, iv : InfrastructureVendorKey, loc : list[str]) -> None:
+        super().__init__(iv, iv.ivName)
+        self.locationPath : list[str] = loc
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, InfraLocationKey) and self.ecoName == __value.ecoName and \
+                self.gzName == __value.gzName and self.ivName == __value.ivName and self.locationPath == __value.locationPath
+
+class TeamDeclarationKey(GovernanceZoneKey):
+    def __init__(self, gz : GovernanceZoneKey, td : str) -> None:
+        super().__init__(gz, gz.gzName)
+        self.tdName : str = td
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, TeamDeclarationKey) and self.ecoName == __value.ecoName and \
+            self.gzName == __value.gzName and self.tdName == __value.tdName
+
 
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
@@ -166,6 +202,7 @@ class StoragePolicy(ABC):
     def __init__(self, name : str, isMandatory : bool) -> None:
         self.name : str = name
         self.mandatory : bool = isMandatory
+        self.key : Optional[StoragePolicyKey] = None
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
@@ -173,7 +210,7 @@ class StoragePolicy(ABC):
     
 
     @abstractmethod
-    def isCompatible(self, policyPath : InfraPath, containerPath : InfraPath, container : 'DataContainer') -> bool:
+    def isCompatible(self, container : 'DataContainer') -> bool:
         '''This returns true if the container is compatible with the policy. This is used to determine whether data tagged with a policy can be stored in a specific container.'''
         return False
 
@@ -182,7 +219,7 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
     def __init__(self, name : str, isMandatory : bool) -> None:
         super().__init__(name, isMandatory)
 
-    def isCompatible(self, policyPath : InfraPath, containerPath : InfraPath, container : 'DataContainer') -> bool:
+    def isCompatible(self, container : 'DataContainer') -> bool:
         return True
     
     def __eq__(self, __value: object) -> bool:
@@ -194,9 +231,14 @@ class LocalGovernanceManagedOnly(StoragePolicy):
     def __init__(self, name : str, isMandatory : bool) -> None:
         super().__init__(name, isMandatory)
 
-    def isCompatible(self, policyPath : InfraPath, containerPath : InfraPath, container : 'DataContainer') -> bool:
-        """Only allow if the location is managed by the required zone"""
-        return containerPath.governanceZoneName == policyPath.governanceZoneName
+    def isCompatible(self, container : 'DataContainer') -> bool:
+        """Only allow if the container locations are managed by the required zone"""
+        if(self.key == None):
+            raise Exception("Policy Key not set")
+        for loc in container.locations:
+            if(loc.gzName != self.key.gzName):
+                return False
+        return True
     
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is LocalGovernanceManagedOnly and \
@@ -209,27 +251,30 @@ class InfraLocation:
 
     def __init__(self, name: str, *args: 'InfraLocation') -> None:
         self.name: str = name
+        self.key : Optional[InfraLocationKey] = None
 
         self.locations: dict[str, 'InfraLocation'] = OrderedDict()
         """These are the 'child' locations under this location. A state location would have city children for example"""
         """This specifies the parent location of this location. State is parent on city and so on"""
-        self.containers: dict[str, 'DataContainer'] = OrderedDict()
         self.add(*args)
+
+    def setParentLocation(self, parent : InfraLocationKey) -> None:
+        locList : list[str] = list(parent.locationPath)
+        locList.append(self.name)
+        self.key = InfraLocationKey(parent, locList)
+        self.add()
 
     def add(self, *args : 'InfraLocation') -> None:
         for loc in args:
             self.addLocation(loc)
+        if(self.key):
+            for loc in self.locations.values():
+                loc.setParentLocation(self.key)
 
     def addLocation(self, loc : 'InfraLocation'):
         if self.locations.get(loc.name) != None:
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
-
-    def addContainer(self, c : 'DataContainer'):
-        if self.containers.get(c.getName()) != None:
-            raise ObjectAlreadyExistsException(f"Duplicate Container {c.name}")
-        self.containers[c.getName()] = c
-        c.location = self
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
@@ -253,12 +298,24 @@ class InfrastructureVendor:
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an enterprise or an external cloud provider"""
     def __init__(self, name : str, *args : InfraLocation) -> None:
         self.name : str = name
+        self.key : Optional[InfrastructureVendorKey] = None
         self.locations : dict[str, 'InfraLocation'] = OrderedDict()
         self.add(*args)
+
+    def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
+        if gz.key == None:
+            raise Exception("GovernanceZone key not set")
+        self.key = InfrastructureVendorKey(gz.key, self.name)
+
+        self.add()
 
     def add(self, *args : 'InfraLocation') -> None:
         for loc in args:
             self.addLocation(loc)
+        if(self.key):
+            topLocationKey : InfraLocationKey = InfraLocationKey(self.key, [])
+            for loc in self.locations.values():
+                loc.setParentLocation(topLocationKey)
 
     def addLocation(self, loc : 'InfraLocation'):
         if self.locations.get(loc.name) != None:
@@ -296,10 +353,11 @@ class EncryptionSystem:
         return cyclic_safe_eq(self, __value, set())
 
 class DataContainer:
-    """This is a container for data. It is a physical location where data is stored. It is owned by a data platform
+    """This is a container for data. It's a logical container. The data can be physically stored in
+    one or more locations through replication or fault tolerance measures. It is owned by a data platform
       and is used to determine whether a dataset is compatible with the container by a governancezone."""   
-    def __init__(self, *args : 'InfraLocation') -> None:
-        self.location : Optional[InfraLocation] = None
+    def __init__(self, *args : 'InfraLocationKey') -> None:
+        self.locations : set[InfraLocationKey] = set()
         self.name : Optional[str] = None
         self.serverSideEncryptionKeys : Optional[EncryptionSystem] = None
         """This is the vendor ecnryption system providing the container. For example, if a cloud vendor
@@ -310,11 +368,11 @@ class DataContainer:
         self.isReadOnly : bool =  False
         self.add(*args)
 
-    def add(self, *args : 'InfraLocation') -> None:
+    def add(self, *args : 'InfraLocationKey') -> None:
         for loc in args:
-            if(self.location != None):
-                raise ObjectAlreadyExistsException("Location already set")
-            self.location = loc
+            if(loc in self.locations):
+                raise Exception(f"Duplicate Location {loc}")
+            self.locations.add(loc)
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
@@ -561,6 +619,7 @@ class Ecosystem(GitControlledObject):
     def __init__(self, name : str, repo : Repository, *args : 'GovernanceZone') -> None:
         super().__init__(repo)
         self.name : str = name
+        self.key : EcosystemKey = EcosystemKey(self.name)
 
         self.governanceZones : dict[str, GovernanceZone] = OrderedDict()
         """This is the authorative list of governance zones within the ecosystem"""
@@ -586,6 +645,7 @@ class Ecosystem(GitControlledObject):
         if(self.governanceZones.get(z.name) != None):
             raise ObjectAlreadyExistsException(f"GoveranceZone already exists {z.name}")
         self.governanceZones[z.name] = z
+        z.setEcosystem(self)
 
     def cache_addTeamDeclaration(self, td : 'TeamDeclaration'):
         if(self.teamDeclarationCache.get(td.name) != None):
@@ -791,11 +851,18 @@ class GovernanceZone(GitControlledObject):
     def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
         super().__init__(ownerRepo)
         self.name : str = name
+        self.key : Optional[GovernanceZoneKey] = None
         self.platforms : dict[str, 'DataPlatform'] = OrderedDict[str, 'DataPlatform']()
         self.teams : dict[str, TeamDeclaration] = OrderedDict[str, TeamDeclaration]()
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         self.add(*args)
+
+    def setEcosystem(self, eco : Ecosystem) -> None:
+        """Sets the ecosystem for this zone and sets the zone for all teams"""
+        self.key = GovernanceZoneKey(eco.key, self.name)
+
+        self.add()
 
     def add(self, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
         for arg in args:
@@ -811,6 +878,9 @@ class GovernanceZone(GitControlledObject):
             elif(isinstance(arg, DataPlatform)):
                 p : DataPlatform = arg
                 self.addPlatform(p)
+        if(self.key):
+            for vendor in self.vendors.values():
+                vendor.setGovernanceZone(self)
 
     def addPlatform(self, p : 'DataPlatform'):
         if self.platforms.get(p.name) != None:

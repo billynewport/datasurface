@@ -321,7 +321,7 @@ class DDLColumn(object):
         self.type : DataType = dataType
         self.primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
         self.classification : DataClassification = DataClassification.PC3
-        self.nullable : NullableStatus = NullableStatus.NOT_NULLABLE
+        self.nullable : NullableStatus = NullableStatus.NULLABLE
         for arg in args:
             if(type(arg) == NullableStatus):
                 self.nullable = arg
