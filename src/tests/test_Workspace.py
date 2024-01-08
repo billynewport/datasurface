@@ -1,7 +1,7 @@
 from typing import Optional
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, GitRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
-from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, ObjectDoesntExistException, LocalGovernanceManagedOnly
+from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocalGovernanceManagedOnly
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
@@ -79,7 +79,7 @@ class TestWorkspace(unittest.TestCase):
         if(fastP is None or slowP is None):
             raise Exception("Fast or Slow platform not found")
         # Check we can't get a team that wasnt declared in the GovernanceZone
-        self.assertRaises(ObjectDoesntExistException, gzUSA.getTeam, "Undefined Team")
+        self.assertIsNone(gzUSA.getTeam("Undefined Team"))
 
         t : Optional[Team] = gzUSA.getTeam(testTeamName)
         if(t is None):

@@ -1,8 +1,11 @@
+import copy
 from typing import List, Optional
 import unittest
 
 from datasurface.md.Governance import Ecosystem, GitRepository, GovernanceZone, Repository, ValidationProblem
+from datasurface.md import TeamDeclaration, Team
 import tests.nwdb.eco
+import tests.nwdb.nwdb
 
 
 class TestGitEquals(unittest.TestCase):
@@ -38,6 +41,87 @@ class TestEcoNameChange(unittest.TestCase):
 
         # reset
 
+    def test_TeamAuthorization(self):
+        """Test that a team can be added to a zone by the gz owning repo, but not by another repo"""
+
+        # Make the baseline ecosystem against which changes are checked
+        eco_baseline : Ecosystem = tests.nwdb.eco.createEcosystem()
+        eco_repo : Repository = eco_baseline.owningRepo
+
+        # Make the ecosystem which has the changed to check if authorized against
+        # the baseline ecosystem
+        e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
+
+        # Check unchanged repo has no problems
+        val : List[ValidationProblem] = eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo)
+        self.assertEqual(len(val), 0)
+
+        # Get the USA zone so we can change it
+        gzUSA : Optional[GovernanceZone] = e_other.governanceZones["USA"]
+        self.assertIsNotNone(gzUSA)
+
+        # NewTeam should not exist
+        t : Optional[Team] = gzUSA.getTeam("NewTeam")
+        self.assertIsNone(t)
+
+        # Authorize a new team with its repo. Team has to be authorized
+        # by the gz repo and later edited with the team repo. Must be 2 steps
+        gzUSA.add(TeamDeclaration("NewTeam", GitRepository("ssh://u@local:/v1/source/nt", "newTeamRepo")))
+
+        # Should be allowed from gz repo
+        val = eco_baseline.checkIfChangesAreAuthorized(e_other, gzUSA.owningRepo)
+        self.assertEqual(len(val), 0)
+
+        # reset baseline ecosystem
+        eco_baseline = e_other
+        e_other = copy.deepcopy(eco_baseline)
+
+        gzUSA = e_other.governanceZones["USA"]
+        self.assertIsNotNone(gzUSA)
+
+        # This creates a team object and is the first team specific change that
+        # needs to be authorized. The team cannot be defined and authorized in
+        # one step. Authorize using gz repo, then create/edit using team repo
+        t = gzUSA.getTeam("NewTeam")
+        self.assertIsNotNone(t)
+        if(t == None):
+            raise Exception("NewTeam should not be None")
+
+        # Should not be allowed from other repo
+        val = eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo)
+        self.assertNotEqual(len(val), 0)
+
+        # Should be allowed from team repo
+        val = eco_baseline.checkIfChangesAreAuthorized(e_other, t.owningRepo)
+
+        # Now verify that the new team can only be changed from its owning repo which can 
+        # be different from the owning repo of the zone
+
+        # Change the baseline to the repo with the added team
+        eco_baseline = e_other
+
+        # Make a new ecosystem to check against the baseline
+        e_other = copy.deepcopy(eco_baseline)
+
+        # Get the USA zone so we can change it
+        gzUSA = e_other.governanceZones["USA"]
+        newTeam : Optional[Team] = gzUSA.getTeam("NewTeam")
+
+        self.assertIsNotNone(newTeam)
+        if(newTeam == None):
+            raise Exception("NewTeam should not be None")
+        
+        # Add tables to the new team
+        tests.nwdb.nwdb.defineTables(newTeam)
+
+        # Check the unchanged team has no changes
+        val = eco_baseline.checkIfChangesAreAuthorized(eco_baseline, newTeam.owningRepo)
+        self.assertEqual(len(val), 0)
+
+        val = eco_baseline.checkIfChangesAreAuthorized(e_other, newTeam.owningRepo)
+        self.assertEqual(len(val), 0)
+
+
     def test_checkZoneRemoval(self):
         e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
         gitMain : Repository = e_main.owningRepo
@@ -66,6 +150,7 @@ class TestEcoNameChange(unittest.TestCase):
         self.assertIsNotNone(gitUSA)
         if(gitUSA):
             gzUSA : Optional[GovernanceZone] = e_other.governanceZones.pop("USA")
+            self.assertIsNotNone(gzUSA)
             val = e_other.checkIfChangesAreAuthorized(e_main, gitMain)
             self.assertNotEqual(len(val), 0, "Zone cannot be added by non-owning repo")
             val = e_other.checkIfChangesAreAuthorized(e_main, gitUSA)

@@ -3,7 +3,7 @@ from collections import OrderedDict
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
 from .Schema import Schema
 from abc import ABC, abstractmethod
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar
@@ -24,7 +24,7 @@ class GitControlledObject(ABC):
         
     @abstractmethod
     def eq_toplevel(self, proposed : 'GitControlledObject') -> bool:
-        return False
+        return True
     
     def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository') -> List['ValidationProblem']:
         """This checks if the local attributes of the object have been modified by the authorized change source"""
@@ -34,7 +34,7 @@ class GitControlledObject(ABC):
         if(self == proposed):
             return rc # No changes then no problems
         elif(not self.eq_toplevel(proposed) and self.owningRepo != changeSource):
-            rc.append(ValidationProblem("Ecosystem top level has been modified by an unauthorized source"))
+            rc.append(ValidationProblem(f"{self} top level has been modified by an unauthorized source", proposed))
         return rc
 
     @abstractmethod    
@@ -68,19 +68,15 @@ class GitControlledObject(ABC):
             # Check if the zone was added by the specified change source
             obj : Optional[GitControlledObject] = proposed[key]
             if(obj.owningRepo != changeSource):
-                rc.append(ValidationProblem(f"Key {key} has been added by an unauthorized source"))
+                rc.append(ValidationProblem(f"Key {key} has been added by an unauthorized source", obj))
 
         # Now check each common governance zone for changes
         common_keys : set[str] = current_keys.intersection(proposed_keys)
         for key in common_keys:
             prop : Optional[GitControlledObject] = proposed[key]
             curr : Optional[GitControlledObject] = current[key]
-            if(prop != curr):
-                if(curr.owningRepo != changeSource):
-                    rc.append(ValidationProblem(f"Key {key} has been modified by an unauthorized source"))
-                else:
-                    # Check prop against curr for unauthorized changes
-                    rc.extend(curr.checkIfChangesAreAuthorized(prop, changeSource))
+            # Check prop against curr for unauthorized changes
+            rc.extend(curr.checkIfChangesAreAuthorized(prop, changeSource))
         return rc
 
 
@@ -581,8 +577,8 @@ class Datastore(object):
         return cyclic_safe_eq(self, __value, set())
         
 class ValidationProblem:
-    def __init__(self, desc : str) -> None:
-        self.object : object = None
+    def __init__(self, desc : str, obj : object = None) -> None:
+        self.object : object = obj
         """The original object that is in use"""
         self.description : Optional[str] = desc
         """A description of what the issue is"""
@@ -901,7 +897,7 @@ class GovernanceZone(GitControlledObject):
         was authorized in this zone"""
         td : Optional[TeamDeclaration] = self.authorizedTeams.get(name)
         if(td == None):
-            raise ObjectDoesntExistException(f"Team {name} doesn't exist")
+            return None
         t : Optional[Team] = self.teams.get(name)
         if(t == None):
             t = Team(name, td.authRepo)
@@ -913,10 +909,10 @@ class GovernanceZone(GitControlledObject):
 
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         """Just check the not git controlled attributes"""
-        if super().eq_toplevel(proposed) and type(proposed) is GovernanceZone and self.name == proposed.name:
-            return True
-        prop_gZone : GovernanceZone = cast(GovernanceZone, proposed)
-        return self.storagePolicies == prop_gZone.storagePolicies and self.platforms == prop_gZone.platforms and self.vendors == prop_gZone.vendors
+        if not(super().eq_toplevel(proposed) and type(proposed) is GovernanceZone and self.name == proposed.name):
+            return False
+        return self.storagePolicies == proposed.storagePolicies and self.platforms == proposed.platforms and self.vendors == proposed.vendors and \
+            self.authorizedTeams == proposed.authorizedTeams
     
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
         proposedGZ : GovernanceZone = cast(GovernanceZone, proposed)
@@ -927,7 +923,7 @@ class GovernanceZone(GitControlledObject):
         rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource)
 
         # Get the current teams from the change source
-        self.checkDictChangesAreAuthorized(self.teams, proposedGZ.teams, changeSource)
+        rc.extend(self.checkDictChangesAreAuthorized(self.teams, proposedGZ.teams, changeSource))
 
         return rc
     
