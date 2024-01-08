@@ -1,7 +1,6 @@
 from typing import Optional
 from datasurface.md import Team, GovernanceZone, GitRepository, InfrastructureVendor, InfraLocation, TeamDeclaration
-from datasurface.md import DataPlatform, GitRepository
-from datasurface.md.Governance import Ecosystem
+from datasurface.md import DataPlatform, Ecosystem
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 
