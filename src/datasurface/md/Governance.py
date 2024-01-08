@@ -834,6 +834,9 @@ G = TypeVar('G', bound=GitControlledObject)
 N = TypeVar('N', bound=NamedObjectAuthorization)
 
 class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
+    """This tracks a list of named authorizations and the named objects themselves in seperate lists. It is used
+    to allow one repository to managed the authorization to create named objects using a second object specific repository or branch. 
+    Each named object can then be managed by a seperate repository. """
     def __init__(self, factory : Callable[[str, Repository], G], owningRepo : Repository) -> None:
         super().__init__(owningRepo)
         self.authorizedNames : dict[str, N] = OrderedDict[str, N]()
@@ -841,13 +844,14 @@ class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
         self.factory : Callable[[str, Repository], G] = factory
 
     def addAuthorization(self, t : N):
+        """This is used to add a named authorization along with its owning repository to the list of authorized names"""
         if self.authorizedNames.get(t.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate authorization {t.name}")
         self.authorizedNames[t.name] = t
 
     def getObject(self, name : str) -> Optional[G]:
-        """This returns a team object for the specified team name and verifies the team
-        was authorized in this zone"""
+        """This returns a managed object for the specified name. Users can then fill out the attributes 
+        of the returned object."""
         noa : Optional[N] = self.authorizedNames.get(name)
         if(noa == None):
             return None
@@ -880,7 +884,7 @@ class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
 
 class TeamDeclaration(NamedObjectAuthorization):
     """This is a declaration of a team within a governance zone. It is used to authorize
-    the team and to provide the source of changes to the team"""
+    the team and to provide the official source of changes for that object and its children"""
     def __init__(self, name : str, authRepo : Repository) -> None:
         super().__init__(name, authRepo)
         self.authRepo : Repository = authRepo
@@ -889,7 +893,6 @@ class TeamDeclaration(NamedObjectAuthorization):
         return cyclic_safe_eq(self, __value, set())
     
 class GovernanceZone(GitControlledObject):
-
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
     def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:

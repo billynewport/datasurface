@@ -1,0 +1,31 @@
+= Data surface Data Catalog
+Data surface uses a unique data catalog implementation. Data catalogs are used to describe data sources and their schemas in a database. There are controls implemented around the data catalog so that provenance can be established for the artifacts stored in the catalog:
+
+* Data sources
+* Datasets and their schemas
+* Data surface allows data consumers to describe their inputs, engine requirements and regulatory requirements.
+
+= Controls for provenance
+Catalogs typically need to define roles, workflows and approval processes. Data surface uses github for these purposes rather than needing a proprietary implementation or such as implementation that can be bridged to workflow or authorization frameworks in use by the enterprise.
+
+= Controlling changes of metadata in Data surface
+This section describes how a use can use github to define the major artifacts needed in an implementation. Data surface defines top level artifacts whose changes can be managed by use of github.
+
+* Ecosystem
+* Governance Zones
+* Teams
+
+== Defining an ecosystem
+An ecosystem consists of a collection of governancezones. The ecosystem is defined in to main branch of a github repository. The CICD in place around who can make changes and who reviews those changes controls the changes to the ecosystem.
+== Defining a Governance Zone
+The ecosystem team can allow a new governance zone to be defined. They can add a governancezone declaration to a specific ecosystem. This defines the name of the governance zone as well as the repository which can be used to control changes to all objects for that governance zone. It's important to realize that the way these changes are controlled is not at the file level but instead it's at the model level. Data surface only requires that the ecosystem must be defined in a file called eco.py. It does not define any other file names. Users can use any files they choose.
+
+The *eco.py* module be at the root level and must have a method called:
+*def createEcosystem() -> Ecosystem:*
+This method must return the primary Ecosystem instance. All objects within that ecosystem should also be filled out on that instance. The ecosystem branch checks the model for validity. It checks:
+
+* That all objects are defined correctly.
+* That all references between objects are valid.
+* The whole model is consistent.
+
+The main branch defines the steady state of the system, the release version if you want. Other git repositories can be defined on branches or even seperate repositories. Ownership of a subset of the model is assigned to these branches or repositories. When changes are pulled in to the main branch, handlers make sure that the changes result in a consistent model AND that any model changes were made from a git branch or repository that is authorized to make those changes. The system doesn't care which files were modified by which repository. It only cares that the model is consistent and that the model objects were only modified by an authorized repository. Thus, a repository can refactor how the ecosystem is constructed from the eco.py file to a different file structure. The ecosystem branch will only check that the model is consistent and that the objects are only modified by authorized repositories.
