@@ -2,7 +2,7 @@ from typing import Optional
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, GitRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocalGovernanceManagedOnly
-from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification
+from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
 
@@ -12,19 +12,19 @@ class TestWorkspace(unittest.TestCase):
 
     def createEco(self) -> Ecosystem:
         eco : Ecosystem = Ecosystem("BigCorp", GitRepository("a", "b"),
-            GovernanceZone("US",
-                GitRepository("aa", "bb"),
+            GovernanceZoneDeclaration("US", GitRepository("aa", "bb")),
+            GovernanceZoneDeclaration("China", GitRepository("aa", "cc")))
+        
+        gzUSA : Optional[GovernanceZone] = eco.getZone("US")
+        if(gzUSA is None):
+            raise Exception("US zone not found")
+        gzUSA.add(
                 TeamDeclaration("Test", GitRepository("gitrepo url", "module")),
                 DataPlatform("FastPlatform"),
                 DataPlatform("SlowPlatform")
-                ),
-            GovernanceZone("China",
-                GitRepository("aa", "cc"),
-                TeamDeclaration("China Team", GitRepository("git repo 2", "module"))
-                )
-            )
-            
-        gzChina : Optional[GovernanceZone] = eco.governanceZones.get("China")
+        )
+
+        gzChina : Optional[GovernanceZone] = eco.getZone("China")
         if(gzChina):
             gzChina.add(
                     # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
@@ -40,36 +40,27 @@ class TestWorkspace(unittest.TestCase):
         testTeamName : str = "Test Team A"
         # First define an ecosystem with a single US zone and a single team
         eco : Ecosystem = Ecosystem("BigCorp", GitRepository("a", "b"),
-            GovernanceZone(usZoneName,
-                GitRepository("aa", "bb"),
-                TeamDeclaration(testTeamName, 
-                    GitRepository("gitrepo url", "module")
-                    ),
-                DataPlatform("FastPlatform"),
-                DataPlatform("SlowPlatform")
-                ),
-            GovernanceZone(chinaZoneName,
-                GitRepository("aa", "cc"),
-                TeamDeclaration("China Team",
-                    GitRepository("git repo 2", "module"))
-            ))
+            GovernanceZoneDeclaration(usZoneName, GitRepository("aa", "bb")),
+            GovernanceZoneDeclaration(chinaZoneName, GitRepository("aa", "cc")))
         
-        gzChina : Optional[GovernanceZone] = eco.governanceZones.get(chinaZoneName)
-        if(gzChina):
-            gzChina.add(
-                    # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
-                    LocalGovernanceManagedOnly("China Only", True)
-                )
-        else:
-            raise Exception("China zone not found")
-
-        gzUSA : Optional[GovernanceZone] = eco.governanceZones.get(usZoneName)
+        gzUSA : Optional[GovernanceZone] = eco.getZone(usZoneName)
         if(gzUSA is None):
             raise Exception("US zone not found")
-        self.assertIsNotNone(gzUSA)
-        gzChina = eco.governanceZones.get(chinaZoneName)
-        self.assertIsNotNone(gzChina)
-        self.assertEqual(len(eco.governanceZones), 2)
+        gzUSA.add(
+                TeamDeclaration(testTeamName, GitRepository("gitrepo url", "module")),
+                DataPlatform("FastPlatform"),
+                DataPlatform("SlowPlatform")
+                )
+        gzChina : Optional[GovernanceZone] = eco.getZone(chinaZoneName)
+        if(gzChina is None):
+            raise Exception("China zone not found")
+        gzChina.add(
+                TeamDeclaration("China Team", GitRepository("git repo 2", "module")),
+                                    LocalGovernanceManagedOnly("China Only", True)
+        )
+        
+
+        self.assertEqual(eco.zones.getNumObjects(), 2)
 
         fastP : Optional[DataPlatform] = gzUSA.platforms.get("FastPlatform")
         self.assertIsNotNone(fastP)
@@ -278,7 +269,7 @@ class TestWorkspace(unittest.TestCase):
 
     def test_DatasetEquality(self):
         eco : Ecosystem = self.createEco()
-        china : Optional[GovernanceZone] = eco.governanceZones.get("China")
+        china : Optional[GovernanceZone] = eco.getZone("China")
         if(china is None):
             raise Exception("China zone not found")
         
@@ -415,8 +406,8 @@ class TestWorkspace(unittest.TestCase):
     def test_TeamEquality(self):
         eco : Ecosystem = self.createEco()
 
-        gzUSA : Optional[GovernanceZone] = eco.governanceZones.get("US")
-        gzChina : Optional[GovernanceZone] = eco.governanceZones.get("China")
+        gzUSA : Optional[GovernanceZone] = eco.getZone("US")
+        gzChina : Optional[GovernanceZone] = eco.getZone("China")
 
         if(gzUSA is None):
             raise Exception("US zone not found")

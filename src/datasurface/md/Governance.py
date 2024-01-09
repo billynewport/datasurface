@@ -612,13 +612,12 @@ class GitRepository(Repository):
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
 class Ecosystem(GitControlledObject):
-    def __init__(self, name : str, repo : Repository, *args : 'GovernanceZone') -> None:
+    def __init__(self, name : str, repo : Repository, *args : 'GovernanceZoneDeclaration') -> None:
         super().__init__(repo)
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
-        self.authorizedZones : dict[str, 'GovernanceZone'] = OrderedDict()
 
-        self.governanceZones : dict[str, GovernanceZone] = OrderedDict()
+        self.zones : AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration](lambda name, repo : GovernanceZone(name, repo), repo)
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.resetCaches()
@@ -633,16 +632,14 @@ class Ecosystem(GitControlledObject):
         self.teamDeclarationCache : dict[str, 'TeamDeclaration'] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def add(self, *args : 'GovernanceZone') -> None:
+    def add(self, *args : 'GovernanceZoneDeclaration') -> None:
         for arg in args:
             self.addZoneDef(arg)
 
-    def addZoneDef(self, z : 'GovernanceZone'):
+    def addZoneDef(self, z : 'GovernanceZoneDeclaration') -> None:
         """Adds a zone def to the ecosystem and sets the zone to this ecosystem"""
-        if(self.governanceZones.get(z.name) != None):
-            raise ObjectAlreadyExistsException(f"GoveranceZone already exists {z.name}")
-        self.governanceZones[z.name] = z
-        z.setEcosystem(self)
+        self.zones.addAuthorization(z)
+        z.key = GovernanceZoneKey(self.key, z.name)
 
     def cache_addTeamDeclaration(self, td : 'TeamDeclaration'):
         if(self.teamDeclarationCache.get(td.name) != None):
@@ -732,7 +729,7 @@ class Ecosystem(GitControlledObject):
 
         list : List[ValidationProblem] = []
         """No need to dedup zones as the authorative list is already a dict"""
-        for gz in self.governanceZones.values():
+        for gz in self.zones.authorizedObjects.values():
             self.validateGoveranceZone(gz)
 
         """All caches should now be populated"""
@@ -757,7 +754,7 @@ class Ecosystem(GitControlledObject):
 
         rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(prop_eco, changeSource)
 
-        rc.extend(self.checkDictChangesAreAuthorized(self.governanceZones, prop_eco.governanceZones, changeSource))
+        rc.extend(self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource))
 
         return rc
     
@@ -767,13 +764,18 @@ class Ecosystem(GitControlledObject):
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         """This is a shallow equality check for the top level ecosystem object"""
         if(isinstance(proposed, Ecosystem)):
-            return self.name == proposed.name and self.owningRepo == proposed.owningRepo
+            return self.name == proposed.name and self.owningRepo == proposed.owningRepo and self.zones.eq_toplevel(proposed.zones)
         else:
             return False
         
+    def getZone(self, gz : str) -> Optional['GovernanceZone']:
+        """Returns the governance zone with the specified name"""
+        zone : Optional[GovernanceZone] = self.zones.getObject(gz)
+        return zone
+    
     def getTeam(self, gz : str, teamName : str) -> Optional['Team']:
         """Returns the team with the specified name in the specified zone"""
-        zone : Optional[GovernanceZone] = self.governanceZones.get(gz)
+        zone : Optional[GovernanceZone] = self.getZone(gz)
         if(zone):
             t : Optional[Team] = zone.getTeam(teamName)
             return t
@@ -826,6 +828,8 @@ class Team(GitControlledObject):
         return rc
         
 class NamedObjectAuthorization:
+    """This represents a named object under the management of a repository. It is used to authorize the existence
+    of the object before the specified repository can be used to edit/specify it."""
     def __init__(self, name : str, owningRepo : Repository) -> None:
         self.name : str = name
         self.owningRepo : Repository = owningRepo
@@ -833,7 +837,7 @@ class NamedObjectAuthorization:
 G = TypeVar('G', bound=GitControlledObject)
 N = TypeVar('N', bound=NamedObjectAuthorization)
 
-class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
+class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
     """This tracks a list of named authorizations and the named objects themselves in seperate lists. It is used
     to allow one repository to managed the authorization to create named objects using a second object specific repository or branch. 
     Each named object can then be managed by a seperate repository. """
@@ -843,8 +847,12 @@ class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
         self.authorizedObjects : dict[str, G] = OrderedDict[str, G]()
         self.factory : Callable[[str, Repository], G] = factory
 
+    def getNumObjects(self) -> int:
+        """Returns the number of objects"""
+        return len(self.authorizedObjects)
+    
     def addAuthorization(self, t : N):
-        """This is used to add a named authorization along with its owning repository to the list of authorized names"""
+        """This is used to add a named authorization along with its owning repository to the list of authorizations."""
         if self.authorizedNames.get(t.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate authorization {t.name}")
         self.authorizedNames[t.name] = t
@@ -865,11 +873,11 @@ class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
         return cyclic_safe_eq(self, __value, set())
 
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
-        p : AuthorizedNamesObjects[G, N] = cast(AuthorizedNamesObjects[G, N], proposed)
+        p : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
         return self.authorizedNames == p.authorizedNames
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
-        proposedGZ : AuthorizedNamesObjects[G, N] = cast(AuthorizedNamesObjects[G, N], proposed)
+        proposedGZ : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
         
         """This checks if the governance zone has changed relative to the specified change source"""
         """This checks if any teams have been added or removed relative to e"""
@@ -880,6 +888,18 @@ class AuthorizedNamesObjects(Generic[G, N], GitControlledObject):
         rc.extend(self.checkDictChangesAreAuthorized(self.authorizedObjects, proposedGZ.authorizedObjects, changeSource))
 
         return rc
+    
+    def removeAuthorization(self, name : str) -> Optional[N]:
+        """Removes the authorization from the list of authorized names"""
+        r : Optional[N] = self.authorizedNames.pop(name)
+        if(r and self.authorizedObjects.get(name) != None):
+            self.removeDefinition(name)
+        return r
+    
+    def removeDefinition(self, name : str) -> Optional[G]:
+        """Removes the object definition . This must be done by the object repo before the parent repo can remove the authorization"""
+        r : Optional[G] = self.authorizedObjects.pop(name)
+        return r
 
 
 class TeamDeclaration(NamedObjectAuthorization):
@@ -892,6 +912,15 @@ class TeamDeclaration(NamedObjectAuthorization):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
     
+class GovernanceZoneDeclaration(NamedObjectAuthorization):
+    def __init__(self, name : str, authRepo : Repository) -> None:
+        super().__init__(name, authRepo)
+        self.key : Optional[GovernanceZoneKey] = None
+
+    def __eq__(self, __value: object) -> bool:
+        return cyclic_safe_eq(self, __value, set())
+    
+
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
@@ -900,7 +929,7 @@ class GovernanceZone(GitControlledObject):
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
         self.platforms : dict[str, 'DataPlatform'] = OrderedDict[str, 'DataPlatform']()
-        self.teams : AuthorizedNamesObjects[Team, TeamDeclaration] = AuthorizedNamesObjects[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
+        self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         self.add(*args)

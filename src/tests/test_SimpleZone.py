@@ -2,7 +2,7 @@ from typing import Optional
 import unittest
 
 from datasurface.md import InfrastructureVendor, InfraLocation, TeamDeclaration, GitRepository, Ecosystem
-from datasurface.md import GovernanceZone
+from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
 
 class TestZones(unittest.TestCase):
 
@@ -17,11 +17,15 @@ class TestZones(unittest.TestCase):
     def test_CreateUSAEco(self):
         eco = Ecosystem("BigCorp", GitRepository("a", "b"))
         self.assertEqual(eco.name, "BigCorp")
-        self.assertEqual(len(eco.governanceZones), 0)
+        self.assertEqual(eco.zones.getNumObjects(), 0)
         usZoneName : str = "US"
         eco.add(
-            GovernanceZone(usZoneName,
-                GitRepository("aa", "bb"),
+            GovernanceZoneDeclaration(usZoneName, GitRepository("aa", "bb")),
+        )
+        gzUSA : Optional[GovernanceZone] = eco.getZone(usZoneName)
+        if(gzUSA is None):
+            raise Exception("Zone {} not found".format(usZoneName))
+        gzUSA.add(
                 InfrastructureVendor("AWS",
                     InfraLocation("USA",
                         InfraLocation("us-east-1"),
@@ -33,10 +37,8 @@ class TestZones(unittest.TestCase):
                         InfraLocation("eu-west-1"),
                         InfraLocation("eu-west-2")
                         ),
-                )))
-        gzUSA : Optional[GovernanceZone] = eco.governanceZones.get(usZoneName)
-        if(gzUSA is None):
-            raise Exception("Governance zone {} not found".format(usZoneName))
+                ))
+        
         gzUSA.add(
             InfrastructureVendor("AZURE",
                 InfraLocation("USA",
@@ -59,8 +61,8 @@ class TestZones(unittest.TestCase):
             TeamDeclaration("Jacks team", 
                 GitRepository("git repo 2", "module2"))
             )
-        self.assertEqual(len(eco.governanceZones), 1)
-        self.assertEqual(eco.governanceZones.get("US"), gzUSA)
+        self.assertEqual(eco.zones.getNumObjects(), 1)
+        self.assertEqual(eco.getZone("US"), gzUSA)
 
         self.assertEqual(gzUSA.name, usZoneName)
         self.assertEqual(len(gzUSA.vendors), 2)

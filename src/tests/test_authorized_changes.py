@@ -3,7 +3,7 @@ from typing import List, Optional
 import unittest
 
 from datasurface.md.Governance import Ecosystem, GitRepository, GovernanceZone, Repository, ValidationProblem
-from datasurface.md import TeamDeclaration, Team
+from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 import tests.nwdb.eco
 import tests.nwdb.nwdb
 
@@ -57,7 +57,7 @@ class TestEcoNameChange(unittest.TestCase):
         self.assertEqual(len(val), 0)
 
         # Get the USA zone so we can change it
-        gzUSA : Optional[GovernanceZone] = e_other.governanceZones["USA"]
+        gzUSA : Optional[GovernanceZone] = e_other.zones.authorizedObjects["USA"]
         self.assertIsNotNone(gzUSA)
 
         # NewTeam should not exist
@@ -76,7 +76,7 @@ class TestEcoNameChange(unittest.TestCase):
         eco_baseline = e_other
         e_other = copy.deepcopy(eco_baseline)
 
-        gzUSA = e_other.governanceZones["USA"]
+        gzUSA = e_other.zones.authorizedObjects["USA"]
         self.assertIsNotNone(gzUSA)
 
         # This creates a team object and is the first team specific change that
@@ -104,7 +104,7 @@ class TestEcoNameChange(unittest.TestCase):
         e_other = copy.deepcopy(eco_baseline)
 
         # Get the USA zone so we can change it
-        gzUSA = e_other.governanceZones["USA"]
+        gzUSA = e_other.zones.authorizedObjects["USA"]
         newTeam : Optional[Team] = gzUSA.getTeam("NewTeam")
 
         self.assertIsNotNone(newTeam)
@@ -134,14 +134,25 @@ class TestEcoNameChange(unittest.TestCase):
         e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # Remove USA zone
-        gitUSA : Optional[Repository] = e_other.governanceZones["USA"].owningRepo
+        gitUSA : Optional[Repository] = e_other.zones.authorizedObjects["USA"].owningRepo
         self.assertIsNotNone(gitUSA)
         if(gitUSA):
-            e_other.governanceZones.pop("USA")
+            # Only gitUSA can remove the zone definition
+            e_other.zones.removeDefinition("USA") # Still authorized but definition is gone
             val = e_main.checkIfChangesAreAuthorized(e_other, gitMain)
             self.assertNotEqual(len(val), 0, "Zone cannot be removed by non-owning repo")
             val = e_main.checkIfChangesAreAuthorized(e_other, gitUSA)
             self.assertEqual(len(val), 0, "Zone can be removed by owning repo")
+
+            e_main = e_other # Promote definition less ecosystem to main ecosystem
+            e_other = copy.deepcopy(e_main)
+            e_other.zones.removeAuthorization("USA") # Remove authorization
+
+            val = e_main.checkIfChangesAreAuthorized(e_other, gitMain)
+            self.assertEqual(len(val), 0, "Zone cannot be unauthorized by non-owning repo")
+
+            val = e_main.checkIfChangesAreAuthorized(e_other, gitUSA)
+            self.assertNotEqual(len(val), 0, "Zone can be unauthorized by owning repo")
 
     def test_checkZoneAddition(self):
 
@@ -150,16 +161,33 @@ class TestEcoNameChange(unittest.TestCase):
         
         e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
 
-        # Remove USA zone
-        gitUSA : Optional[Repository] = e_other.governanceZones["USA"].owningRepo
-        self.assertIsNotNone(gitUSA)
-        if(gitUSA):
-            gzUSA : Optional[GovernanceZone] = e_other.governanceZones.pop("USA")
-            self.assertIsNotNone(gzUSA)
-            val = e_other.checkIfChangesAreAuthorized(e_main, gitMain)
-            self.assertNotEqual(len(val), 0, "Zone cannot be added by non-owning repo")
-            val = e_other.checkIfChangesAreAuthorized(e_main, gitUSA)
-            self.assertEqual(len(val), 0, "Zone can be added by owning repo")
+        # First, add authorization for china gz
+        gitChina : Repository = GitRepository("ssh://u@local:/v1/source/gz_china", "main")
+        e_other.add(GovernanceZoneDeclaration("China", gitChina))
+
+        # eco repo can add a zone authorization
+        val = e_main.checkIfChangesAreAuthorized(e_other, gitMain)
+        self.assertEqual(len(val), 0, "Zone can be added by owning repo")
+
+        # check that other repo cannot add a zone authorization
+        val = e_main.checkIfChangesAreAuthorized(e_other, gitChina)
+        self.assertNotEqual(len(val), 0, "Zone cannot be added by non-owning repo")
+
+        # promote the ecosystem to main
+        e_main = e_other
+        e_other = copy.deepcopy(e_main)
+
+        # Now add the zone definition
+        gzChina : Optional[GovernanceZone] = e_other.getZone("China")
+        self.assertIsNotNone(gzChina)
+
+        # Check the china repo CAN add the zone definition
+        val = e_main.checkIfChangesAreAuthorized(e_other, gitChina)
+        self.assertEqual(len(val), 0, "Zone cannot be added by non-owning repo")
+
+        # Check the eco repo CANNOT add the zone definition
+        val = e_main.checkIfChangesAreAuthorized(e_other, gitMain)
+        self.assertNotEqual(len(val), 0, "Zone cannot be added by non-owning repo")
 
     def test_changes_are_authorized(self):
 #        e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
