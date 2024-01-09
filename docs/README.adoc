@@ -5,10 +5,10 @@ Data surface uses a unique data catalog implementation. Data catalogs are used t
 * Datasets and their schemas
 * Data surface allows data consumers to describe their inputs, engine requirements and regulatory requirements.
 
-= Controls for provenance
+== Controls for provenance
 Catalogs typically need to define roles, workflows and approval processes. Data surface uses github for these purposes rather than needing a proprietary implementation or such as implementation that can be bridged to workflow or authorization frameworks in use by the enterprise.
 
-= Controlling changes of metadata in Data surface
+== Controlling changes of metadata in Data surface
 This section describes how a use can use github to define the major artifacts needed in an implementation. Data surface defines top level artifacts whose changes can be managed by use of github.
 
 * Ecosystem
