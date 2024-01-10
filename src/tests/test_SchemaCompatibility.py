@@ -1,7 +1,8 @@
 import unittest
 import copy
 
-from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32
+from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32, IEEE64, IEEE16, IEEE128, BigInt, SmallInt
+
 
 
 
@@ -26,4 +27,22 @@ class TestSchemaCompatibility(unittest.TestCase):
         col1.type = IEEE32()
         self.assertFalse(col1.isBackwardsCompatibleWith(col2))
         self.assertFalse(col2.isBackwardsCompatibleWith(col1))
+
+        col1.type = IEEE64()
+        col2.type = IEEE32()
+
+        # Check IEEE32 is compatible with IEEE64
+        self.assertTrue(col1.isBackwardsCompatibleWith(col2))
+        col2.type = IEEE16()
+
+        col1.type = IEEE128()
+        self.assertTrue(col1.isBackwardsCompatibleWith(col2))
+
+        col1.type = BigInt()
+        self.assertFalse(col1.isBackwardsCompatibleWith(col2))
+
+        # Test SmallInt can be replaced with a Bigint
+        col2.type = SmallInt()
+        self.assertTrue(col1.isBackwardsCompatibleWith(col2))
+
 

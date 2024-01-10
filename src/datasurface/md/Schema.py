@@ -114,7 +114,7 @@ class FixedSizeBinaryDataType(NumericDataType):
         otherFSBDT : FixedSizeBinaryDataType = cast(FixedSizeBinaryDataType, other)
         if(self.sizeInBits == otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned):
             return True
-        if(self.sizeInBits >= otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned):
+        if(not (self.sizeInBits >= otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned)):
             return False
         return super().isBackwardsCompatibleWith(other)
     
@@ -188,7 +188,9 @@ class CustomFloat(NumericDataType):
         if(isinstance(other, CustomFloat) == False):
             return False
         otherCF : CustomFloat = cast(CustomFloat, other)
-        if self.isRepresentableBy(otherCF):
+
+        # Can this object be stored without precision loss in otherCF
+        if otherCF.isRepresentableBy(self):
             return super().isBackwardsCompatibleWith(other)
         return False
     

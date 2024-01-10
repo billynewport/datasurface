@@ -40,6 +40,7 @@ class Test_ColumnCodeGen(unittest.TestCase):
         self.assertEqual(str(Date()), 'Date()')
         self.assertEqual(str(Timestamp()), 'Timestamp()')
 
-        self.assertEquals(str(Decimal(10, 2)), 'Decimal(10,2)')
+        self.assertEqual(str(Decimal(10, 2)), 'Decimal(10,2)')
 
-        self.assertEquals(str(FP8_E4M3FNUZ()), 'FP8_E4M3FNUZ()')
+        # The other floating types are similar to this
+        self.assertEqual(str(FP8_E4M3FNUZ()), 'FP8_E4M3FNUZ()')
