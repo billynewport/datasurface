@@ -1,7 +1,7 @@
 import unittest
 import copy
 
-from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus
+from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32
 
 
 
@@ -18,4 +18,12 @@ class TestSchemaCompatibility(unittest.TestCase):
         col1.type = String(25)
         self.assertTrue(col1.isBackwardsCompatibleWith(col2))
 
+        # Check a small string is not compatible
+        col1.type = String(15)
+        self.assertFalse(col1.isBackwardsCompatibleWith(col2))
+
+        # Check String isn't compatible with IEEE32
+        col1.type = IEEE32()
+        self.assertFalse(col1.isBackwardsCompatibleWith(col2))
+        self.assertFalse(col2.isBackwardsCompatibleWith(col1))
 

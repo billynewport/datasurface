@@ -54,8 +54,12 @@ class BoundedDataType(DataType):
         return True
 
 class TextDataType(BoundedDataType):
-    def __init__(self, maxSize : Optional[int]) -> None:
+    def __init__(self, maxSize : Optional[int], collationString : Optional[str]) -> None:
         super().__init__(maxSize)
+        self.collationString : Optional[str] = collationString
+        """The collation and/or character encoding for this string. Unicode strings
+        can have a collation but it is not required. Non unicode strings must have a collation"""
+
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TextDataType)
@@ -63,6 +67,9 @@ class TextDataType(BoundedDataType):
     def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, TextDataType) == False):
+            return False
+        otherTD : TextDataType = cast(TextDataType, other)
+        if(self.collationString != otherTD.collationString):
             return False
         return super().isBackwardsCompatibleWith(other)
 
@@ -289,8 +296,8 @@ class Interval(TemporalDataType):
 
 class UniCodeType(TextDataType):
     """Base class for unicode datatypes"""
-    def __init__(self, maxSize : Optional[int]) -> None:
-        super().__init__(maxSize)
+    def __init__(self, maxSize : Optional[int], collationString : Optional[str]) -> None:
+        super().__init__(maxSize, collationString)
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, UniCodeType) and self.maxSize == __value.maxSize
@@ -301,46 +308,41 @@ class UniCodeType(TextDataType):
             return False
         return super().isBackwardsCompatibleWith(other)
 
-class CollatedString(TextDataType):
+class NonUnicodeString(TextDataType):
     """Base class for non unicode datatypes with collation"""
     def __init__(self, maxSize: Optional[int], collationString : Optional[str]) -> None:
-        super().__init__(maxSize)
-        self.collationString : Optional[str] = collationString
+        super().__init__(maxSize, collationString)
 
     def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
-        if(isinstance(other, CollatedString) == False):
-            return False
-        otherCS : CollatedString = cast(CollatedString, other)
-        if(self.collationString != otherCS.collationString):
+        if(isinstance(other, NonUnicodeString) == False):
             return False
         return super().isBackwardsCompatibleWith(other)
 
-class VarChar(CollatedString):
+class VarChar(NonUnicodeString):
     """Variable length non unicode string with maximum size"""
     def __init__(self, maxSize : Optional[int], collationString : Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
 class NVarChar(UniCodeType):
     """Variable length unicode string with maximum size"""
-    def __init__(self, maxSize : Optional[int]) -> None:
-        super().__init__(maxSize)
+    def __init__(self, maxSize : Optional[int], collationString : Optional[str] = None) -> None:
+        super().__init__(maxSize, collationString)
 
 class String(NVarChar):
     """Alias for NVarChar"""
-    def __init__(self, maxSize : Optional[int]) -> None:
-        super().__init__(maxSize)
+    def __init__(self, maxSize : Optional[int], collationString : Optional[str] = None) -> None:
+        super().__init__(maxSize, collationString)
 
 class Char(TextDataType):
     """Non unicode fixed length character string"""
     def __init__(self, maxSize : int = 1, collationString : Optional[str] = None) -> None:
-        super().__init__(maxSize)
-        self.collationString : Optional[str] = collationString
+        super().__init__(maxSize, collationString)
 
 class NChar(UniCodeType):
     """Unicode fixed length character string"""
-    def __init__(self, maxSize : int = 1) -> None:
-        super().__init__(maxSize)
+    def __init__(self, maxSize : int = 1, collationString : Optional[str] = None) -> None:
+        super().__init__(maxSize, collationString)
 
 class Boolean(DataType):
     """Boolean value"""
