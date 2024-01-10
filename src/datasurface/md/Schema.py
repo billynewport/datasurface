@@ -29,7 +29,7 @@ class BoundedDataType(DataType):
     
     def __str__(self) -> str:
         if(self.maxSize == None):
-            return str(self.__class__.__name__) + "(None)"
+            return str(self.__class__.__name__) + "()"
         else:
             return str(self.__class__.__name__) + f"({self.maxSize})"
         
@@ -61,6 +61,16 @@ class TextDataType(BoundedDataType):
         can have a collation but it is not required. Non unicode strings must have a collation"""
 
 
+    def __str__(self) -> str:
+        if(self.maxSize == None and self.collationString == None):
+            return str(self.__class__.__name__) + "()"
+        elif(self.maxSize == None and self.collationString != None):
+            return str(self.__class__.__name__) + f"(collationString='{self.collationString}')"
+        elif(self.maxSize != None and self.collationString == None):
+            return str(self.__class__.__name__) + f"({self.maxSize})"
+        else:
+            return str(self.__class__.__name__) + f"({self.maxSize}, '{self.collationString}')"
+        
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TextDataType)
     
@@ -255,6 +265,11 @@ class Decimal(BoundedDataType):
             return False
         return super().isBackwardsCompatibleWith(other)
     
+    def __str__(self) -> str:
+        if(self.maxSize == None):
+            raise Exception("Decimal must have a maximum size")
+        return str(self.__class__.__name__) + f"({self.maxSize},{self.precision})"
+    
 class TemporalDataType(DataType):
     """Base class for all temporal data types"""
     def __init__(self) -> None:
@@ -302,6 +317,18 @@ class UniCodeType(TextDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, UniCodeType) and self.maxSize == __value.maxSize
     
+
+    def __str__(self) -> str:
+        if(self.maxSize == None and self.collationString == None):
+            return str(self.__class__.__name__) + "()"
+        elif(self.maxSize == None):
+            return str(self.__class__.__name__) + f"(collationString='{self.collationString}')"
+        elif(self.collationString == None):
+            return str(self.__class__.__name__) + f"({self.maxSize})"
+        else:
+            return str(self.__class__.__name__) + f"({self.maxSize}, '{self.collationString}')"
+            
+        
     def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, UniCodeType) == False):
@@ -321,28 +348,44 @@ class NonUnicodeString(TextDataType):
 
 class VarChar(NonUnicodeString):
     """Variable length non unicode string with maximum size"""
-    def __init__(self, maxSize : Optional[int], collationString : Optional[str] = None) -> None:
+    def __init__(self, maxSize : Optional[int] = None, collationString : Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
 class NVarChar(UniCodeType):
     """Variable length unicode string with maximum size"""
-    def __init__(self, maxSize : Optional[int], collationString : Optional[str] = None) -> None:
+    def __init__(self, maxSize : Optional[int] = None, collationString : Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
 class String(NVarChar):
     """Alias for NVarChar"""
-    def __init__(self, maxSize : Optional[int], collationString : Optional[str] = None) -> None:
+    def __init__(self, maxSize : Optional[int] = None, collationString : Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
+
+def strForFixedSizeString(clsName : str, maxSize : int, collationString : Optional[str]) -> str:
+    if(maxSize == 1 and collationString == None):
+        return str(clsName) + "()"
+    elif(collationString == None):
+        return str(clsName) + f"({maxSize})"
+    else:
+        return str(clsName) + f"({maxSize}, '{collationString}')"
 
 class Char(TextDataType):
     """Non unicode fixed length character string"""
     def __init__(self, maxSize : int = 1, collationString : Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
+    def __str__(self) -> str:
+        sz : int = 1 if self.maxSize == None else self.maxSize
+        return strForFixedSizeString(self.__class__.__name__, sz, self.collationString)
+
 
 class NChar(UniCodeType):
     """Unicode fixed length character string"""
     def __init__(self, maxSize : int = 1, collationString : Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
+
+    def __str__(self) -> str:
+        sz : int = 1 if self.maxSize == None else self.maxSize
+        return strForFixedSizeString(self.__class__.__name__, sz, self.collationString)
 
 class Boolean(DataType):
     """Boolean value"""
@@ -357,7 +400,7 @@ class Boolean(DataType):
 
 class Variant(BoundedDataType):
     """JSON type datatype"""
-    def __init__(self, maxSize : Optional[int]) -> None:
+    def __init__(self, maxSize : Optional[int] = None) -> None:
         super().__init__(maxSize)
 
     def __eq__(self, __value: object) -> bool:
@@ -371,7 +414,7 @@ class Variant(BoundedDataType):
 
 class Binary(BoundedDataType):
     """Binary blob"""
-    def __init__(self, maxSize : Optional[int]) -> None:
+    def __init__(self, maxSize : Optional[int] = None) -> None:
         super().__init__(maxSize)
 
     def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
@@ -386,6 +429,9 @@ class Vector(DataType):
         super().__init__()
         self.dimensions : int = dimensions
 
+    def __str__(self) -> str:
+        return str(self.__class__.__name__) + f"({self.dimensions})"
+    
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Vector) and self.dimensions == __value.dimensions
 
