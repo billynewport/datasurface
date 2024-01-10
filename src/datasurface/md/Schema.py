@@ -1,9 +1,9 @@
 from enum import Enum
-from typing import List, Optional, Sequence, Union
+from typing import List, Optional, Sequence, Union, cast
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 
-class DataType():
+class DataType(ABC):
     """Base class for all data types"""
     def __init__(self) -> None:
         pass
@@ -13,6 +13,11 @@ class DataType():
 
     def __str__(self) -> str:
         return str(self.__class__.__name__) + "()"
+
+    @abstractmethod    
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        return False
     
 class BoundedDataType(DataType):
     def __init__(self, maxSize : Optional[int]) -> None:
@@ -27,6 +32,26 @@ class BoundedDataType(DataType):
             return str(self.__class__.__name__) + "(None)"
         else:
             return str(self.__class__.__name__) + f"({self.maxSize})"
+        
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, BoundedDataType) == False):
+            return False
+        otherBT : BoundedDataType = cast(BoundedDataType, other)
+
+        # If this is unlimited then its compatible
+        if(self.maxSize == None):
+            return True
+
+        # Must be unlimited to be compatible with unlimited
+        if(self.maxSize and otherBT.maxSize == None):
+            return False
+                
+        if(self.maxSize == otherBT.maxSize):
+            return True
+        if(otherBT.maxSize and self.maxSize and self.maxSize < otherBT.maxSize):
+            return False
+        return True
 
 class TextDataType(BoundedDataType):
     def __init__(self, maxSize : Optional[int]) -> None:
@@ -34,33 +59,52 @@ class TextDataType(BoundedDataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TextDataType)
+    
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, TextDataType) == False):
+            return False
+        return super().isBackwardsCompatibleWith(other)
 
 class NumericDataType(DataType):
     """Base class for all numeric data types"""
     def __init__(self) -> None:
         super().__init__()
 
-class IntegerDataType(NumericDataType):
-    """Base class for all integer data types"""
-    def __init__(self) -> None:
-        super().__init__()
+    def isBackwardsCompatibleWith(self, other: DataType) -> bool:
+        return isinstance(other, NumericDataType)
+
+class SignedOrNot(Enum):
+    SIGNED = 0
+    UNSIGNED = 1
 
 class FixedSizeBinaryDataType(NumericDataType):
     """"""
-    def __init__(self, sizeInBits : int, isSigned : bool) -> None:
+    def __init__(self, sizeInBits : int, isSigned : SignedOrNot) -> None:
         super().__init__()
         self.sizeInBits : int = sizeInBits
         """Number of bits including sign bit if present"""
-        self.isSigned : bool = isSigned
+        self.isSigned : SignedOrNot = isSigned
         """Is this a signed integer"""
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, FixedSizeBinaryDataType) and self.sizeInBits == __value.sizeInBits and self.isSigned == __value.isSigned
 
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, FixedSizeBinaryDataType) == False):
+            return False
+        otherFSBDT : FixedSizeBinaryDataType = cast(FixedSizeBinaryDataType, other)
+        if(self.sizeInBits == otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned):
+            return True
+        if(self.sizeInBits >= otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned):
+            return False
+        return super().isBackwardsCompatibleWith(other)
+    
 class TinyInt(FixedSizeBinaryDataType):
     """8 bit signed integer"""
     def __init__(self) -> None:
-        super().__init__(8, True)
+        super().__init__(8, SignedOrNot.SIGNED)
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TinyInt)
@@ -68,21 +112,21 @@ class TinyInt(FixedSizeBinaryDataType):
 class SmallInt(FixedSizeBinaryDataType):
     """16 bit signed integer"""
     def __init__(self) -> None:
-        super().__init__(16, True)
+        super().__init__(16, SignedOrNot.SIGNED)
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, SmallInt)
 
 class Integer(FixedSizeBinaryDataType):
     """32 bit signed integer"""
     def __init__(self) -> None:
-        super().__init__(32, True)
+        super().__init__(32, SignedOrNot.SIGNED)
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Integer)
 
 class BigInt(FixedSizeBinaryDataType):
     """64 bit signed integer"""
     def __init__(self) -> None:
-        super().__init__(64, True)
+        super().__init__(64, SignedOrNot.SIGNED)
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, BigInt)
 
@@ -122,6 +166,15 @@ class CustomFloat(NumericDataType):
         """Returns true if this float can be represented by the other float excluding non finite behaviors"""
         return self.maxExponent <= other.maxExponent and self.minExponent >= other.minExponent and self.precision <= other.precision
 
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, CustomFloat) == False):
+            return False
+        otherCF : CustomFloat = cast(CustomFloat, other)
+        if self.isRepresentableBy(otherCF):
+            return super().isBackwardsCompatibleWith(other)
+        return False
+    
 class IEEE16(CustomFloat):
     """Half precision IEEE754"""
     def __init__(self) -> None:
@@ -186,6 +239,15 @@ class Decimal(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Decimal) and self.precision == __value.precision        
 
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, Decimal) == False):
+            return False
+        otherD : Decimal = cast(Decimal, other)
+        if(self.precision < otherD.precision):
+            return False
+        return super().isBackwardsCompatibleWith(other)
+    
 class TemporalDataType(DataType):
     """Base class for all temporal data types"""
     def __init__(self) -> None:
@@ -199,12 +261,20 @@ class Timestamp(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        return isinstance(other, Timestamp) or isinstance(other, Date)
+
 class Date(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Date)
+    
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        return isinstance(other, Date)
 
 class Interval(TemporalDataType):
     def __init__(self) -> None:
@@ -212,6 +282,10 @@ class Interval(TemporalDataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Interval)
+    
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        return isinstance(other, Interval) and super().isBackwardsCompatibleWith(other)
 
 class UniCodeType(TextDataType):
     """Base class for unicode datatypes"""
@@ -220,12 +294,27 @@ class UniCodeType(TextDataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, UniCodeType) and self.maxSize == __value.maxSize
+    
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, UniCodeType) == False):
+            return False
+        return super().isBackwardsCompatibleWith(other)
 
 class CollatedString(TextDataType):
     """Base class for non unicode datatypes with collation"""
     def __init__(self, maxSize: Optional[int], collationString : Optional[str]) -> None:
         super().__init__(maxSize)
         self.collationString : Optional[str] = collationString
+
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, CollatedString) == False):
+            return False
+        otherCS : CollatedString = cast(CollatedString, other)
+        if(self.collationString != otherCS.collationString):
+            return False
+        return super().isBackwardsCompatibleWith(other)
 
 class VarChar(CollatedString):
     """Variable length non unicode string with maximum size"""
@@ -258,6 +347,12 @@ class Boolean(DataType):
     def __init__(self) -> None:
         super().__init__()
 
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, Boolean) == False):
+            return False
+        return super().isBackwardsCompatibleWith(other)
+
 class Variant(BoundedDataType):
     """JSON type datatype"""
     def __init__(self, maxSize : Optional[int]) -> None:
@@ -265,11 +360,23 @@ class Variant(BoundedDataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Variant)
+    
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, Variant) == False):
+            return False
+        return super().isBackwardsCompatibleWith(other)
 
 class Binary(BoundedDataType):
     """Binary blob"""
     def __init__(self, maxSize : Optional[int]) -> None:
         super().__init__(maxSize)
+
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, Binary) == False):
+            return False
+        return super().isBackwardsCompatibleWith(other)
 
 class Vector(DataType):
     """Fixed length vector of floats for machine learning"""
@@ -280,6 +387,14 @@ class Vector(DataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Vector) and self.dimensions == __value.dimensions
 
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+        """Returns true if this data type is backwards compatible with the other data type"""
+        if(isinstance(other, Vector) == False):
+            return False
+        otherV : Vector = cast(Vector, other)
+        if(self.dimensions < otherV.dimensions):
+            return False
+        return super().isBackwardsCompatibleWith(other)
 
 class DataClassification(Enum):
     """This is the privacy classification of the data"""
@@ -334,6 +449,19 @@ class DDLColumn(object):
         if(type(o) is not DDLColumn):
             return False
         return self.name == o.name and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification
+    
+    def isBackwardsCompatibleWith(self, other : 'DDLColumn') -> bool:
+        """Returns true if this column is backwards compatible with the other column"""
+        # TODO Add support to changing the column data type to a compatible type
+        if(self.name != other.name):
+            return False
+        if(self.type.isBackwardsCompatibleWith(other.type) == False):
+            return False
+        if(self.nullable != other.nullable):
+            return False
+        if(self.classification != other.classification):
+            return False
+        return True
 
 class AttributeList:
     """A list of column names."""
@@ -372,6 +500,17 @@ class Schema(ABC):
     def getHubSchema(self) -> 'Schema':
         """Returns the hub schema for this schema"""
         raise NotImplementedError()
+    
+    @abstractmethod
+    def isBackwardCompatibleWith(self, other : 'Schema') -> bool:
+        """Returns true if this schema is backward compatible with the other schema"""
+        # Primary keys cannot change
+        if(self.primaryKeyColumns != other.primaryKeyColumns):
+            return False
+        # Partitioning cannot change
+        if(self.ingestionPartitionColumns != other.ingestionPartitionColumns):
+            return False
+        return True
     
 class DDLTable(Schema):
     """Table definition"""
@@ -423,3 +562,20 @@ class DDLTable(Schema):
         if(type(o) is not DDLTable):
             return False
         return self.columns == o.columns and self.columns == o.columns and self.primaryKeyColumns == o.primaryKeyColumns
+
+    def isBackwardCompatibleWith(self, other : 'Schema') -> bool:
+        """Returns true if this schema is backward compatible with the other schema"""
+        if(super().isBackwardCompatibleWith(other) == False):
+            return False
+        if(type(other) is not DDLTable):
+            return False
+        # New tables must contain all old columns
+        for col in other.columns.values():
+            if(col.name not in self.columns):
+                return False
+        # Existing columns must be compatible
+        for col in self.columns.values():
+            newCol : Optional[DDLColumn] = other.getColumnByName(col.name)
+            if(newCol and newCol.isBackwardsCompatibleWith(col) == False):
+                return False
+        return True 

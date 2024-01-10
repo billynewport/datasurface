@@ -3,7 +3,7 @@ from collections import OrderedDict
 from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
 from .Schema import Schema
 from abc import ABC, abstractmethod
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatasetDoesntExistException, DatastoreDoesntExistException, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
@@ -44,34 +44,34 @@ class GitControlledObject(ABC):
         
     def checkDictChangesAreAuthorized(self, current : Mapping[str, 'GitControlledObject'], proposed : Mapping[str, 'GitControlledObject'], changeSource : 'Repository') -> List['ValidationProblem']:
         """This checks if the current dict has been modified relative to the specified change source"""
-        """This checks if any Governance zones has been added or removed relative to e"""
+        """This checks if any objects has been added or removed relative to e"""
 
 
-        # Get the current committed state from the change source
+        # Get the object keys from the current main ecosystem
         current_keys : set[str] = set(current)
 
         rc : List[ValidationProblem] = []
 
-        # Get the governance zones from the ecosystem
+        # Get the object keys from the proposed ecosystem
         proposed_keys : set[str] = set(proposed.keys())
 
         deleted_keys : set[str] = current_keys - proposed_keys
         added_keys : set[str] = proposed_keys - current_keys
 
-        # first check any top level governance zones have been added or removed by the correct change sources
+        # first check any top level objects have been added or removed by the correct change sources
         for key in deleted_keys:
-            # Check if the zone was deleted by the authoized change source
+            # Check if the object was deleted by the authoized change source
             obj : Optional[GitControlledObject] = current[key]
             if(obj.owningRepo != changeSource):
                 rc.append(ValidationProblem(f"Key {key} has been deleted by an unauthorized source"))
         
         for key in added_keys:
-            # Check if the zone was added by the specified change source
+            # Check if the object was added by the specified change source
             obj : Optional[GitControlledObject] = proposed[key]
             if(obj.owningRepo != changeSource):
                 rc.append(ValidationProblem(f"Key {key} has been added by an unauthorized source", obj))
 
-        # Now check each common governance zone for changes
+        # Now check each common object for changes
         common_keys : set[str] = current_keys.intersection(proposed_keys)
         for key in common_keys:
             prop : Optional[GitControlledObject] = proposed[key]
