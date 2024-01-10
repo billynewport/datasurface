@@ -41,13 +41,13 @@ def ddlColumnToSQLAlchemyType(dataType : DDLColumn) -> sqlalchemy.Column[Any]:
         t = sqlalchemy.CHAR(ch.maxSize, ch.collationString)
     elif isinstance(dataType, NChar):
         nch : NChar = dataType
-        t = sqlalchemy.NCHAR(nch.maxSize)
+        t = sqlalchemy.NCHAR(nch.maxSize, collation=nch.collationString)
     elif isinstance(dataType, VarChar):
         vc : VarChar = dataType
         t = sqlalchemy.VARCHAR(vc.maxSize, vc.collationString)
     elif isinstance(dataType, NVarChar):
         nvc : NVarChar = dataType
-        t = sqlalchemy.NVARCHAR(nvc.maxSize)
+        t = sqlalchemy.NVARCHAR(nvc.maxSize, collation=nvc.collationString)
     else:
         raise Exception(f"Unknown data type {dataType.name}")
     
@@ -110,13 +110,13 @@ def convertSQLAlchemyTableToDataset(table : sqlalchemy.Table) -> Dataset:
             ch_col : sqlalchemy.CHAR = colType
             newType = Char(getValueOrThrow(ch_col.length), ch_col.collation)
         elif isinstance(colType, sqlalchemy.NCHAR):
-            newType = NChar(getValueOrThrow(colType.length))
+            newType = NChar(getValueOrThrow(colType.length), colType.collation)
         elif isinstance(colType, sqlalchemy.VARCHAR):
             newType = VarChar(getValueOrThrow(colType.length), colType.collation)
         elif isinstance(colType, sqlalchemy.TEXT):
             newType = VarChar(None, colType.collation)
         elif isinstance(colType, sqlalchemy.NVARCHAR):
-            newType = NVarChar(getValueOrThrow(colType.length))
+            newType = NVarChar(getValueOrThrow(colType.length), colType.collation)
         if(newType):
             n : NullableStatus = NullableStatus.NOT_NULLABLE
             if(getValueOrThrow(al_col.nullable)):
