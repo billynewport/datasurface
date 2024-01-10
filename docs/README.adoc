@@ -15,6 +15,31 @@ This section describes how a use can use github to define the major artifacts ne
 * Governance Zones
 * Teams
 
+== What is an Ecosystem?
+An Ecosystem is intended to represent the entirety of a firms data assets. This includes all geographical/regulatory locations, all data platforms, data center hosting providers, cloud providers and internal providers. The ecosystem is defined in a github repository. The CICD in place around who can make changes and who reviews those changes controls the changes to the ecosystem. An Ecosystem is divided in to Governance Zones. 
+
+An Ecoystem is associated with a specific repository to manage changes. The repository must contain a file called *eco.py* which defines the ecosystem. The *eco.py* module be at the root level and must have a method called: *def createEcosystem() -> Ecosystem:* This method must return the primary Ecosystem instance. All objects within that ecosystem should also be filled out on that instance.
+
+Each Governance zone must be authorized by the ecosystem owner before it can be defined.
+
+=== What is a Governance Zone?
+Each governance zone is responsible for implementing a set of policies over internal and cloud infrastructure providers and data platforms. All data stores and moved within this zone is governed by the zone policies. Firms might have a US zone, a UK zone, a European Zone and a Chinese zone for example. Data sourced in each zone would be managed by teams local to that one. The zone can define storage policies which control how and where data is stored and where it can be moved.
+
+A Governance zone is associated with a specific repository to manage changes
+
+Each team must be authorized by the governance zone owner before it can be defined.
+
+==== What is a Team?
+A team is responsible for an exclusive set of data and consumers of that data. Data is represented as Datastores and consumers are represented as Workspaces.
+
+A team is associated with a specific repository to manage changes
+
+===== Datastores, datasets and capture metadata
+Data is represented as Datastores which are collections of Datasets. A dataset can be thought of as a single collection of homegenous data with a common schema describing all records in that dataset. A datastore is a collection of these datasets which are ingested together in to the ecosystem. A single physical database might have several data stores defined on it. Each datastore having datsets corresponding to tables within the database. Each data store is pointed at the same database but may use different credentials for reading the data and use different schedules or approaches for ingesting the data in to the ecosystem.
+
+===== Consuming data, Workspaces and dataplatforms
+
+
 == Defining an ecosystem
 An ecosystem consists of a collection of governancezones. The ecosystem is defined in to main branch of a github repository. The CICD in place around who can make changes and who reviews those changes controls the changes to the ecosystem.
 == Defining a Governance Zone

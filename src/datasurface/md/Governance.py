@@ -24,6 +24,7 @@ class GitControlledObject(ABC):
         
     @abstractmethod
     def eq_toplevel(self, proposed : 'GitControlledObject') -> bool:
+        """This should compare attributes which are locally authorized only"""
         return True
     
     def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository') -> List['ValidationProblem']:
@@ -575,6 +576,13 @@ class Datastore(object):
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        problems : List[ValidationProblem] = []
+        # TODO code this
+        return problems
+
+
         
 class ValidationProblem:
     def __init__(self, desc : str, obj : object = None) -> None:
@@ -629,7 +637,7 @@ class Ecosystem(GitControlledObject):
         """This is a cache of all data stores in the ecosystem"""
         self.workSpaceCache : dict[str, 'Workspace'] = {}
         """This is a cache of all workspaces in the ecosystem"""
-        self.teamDeclarationCache : dict[str, 'TeamDeclaration'] = {}
+        self.teamCache : dict[str, 'Team'] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
     def add(self, *args : 'GovernanceZoneDeclaration') -> None:
@@ -641,11 +649,11 @@ class Ecosystem(GitControlledObject):
         self.zones.addAuthorization(z)
         z.key = GovernanceZoneKey(self.key, z.name)
 
-    def cache_addTeamDeclaration(self, td : 'TeamDeclaration'):
-        if(self.teamDeclarationCache.get(td.name) != None):
-            if(self.teamDeclarationCache.get(td.name) != None):
-                raise ObjectAlreadyExistsException(f"Duplicate TeamDeclaration {td.name}")
-            self.teamDeclarationCache[td.name] = td
+    def cache_addTeam(self, td : 'Team'):
+        if(self.teamCache.get(td.name) != None):
+            if(self.teamCache.get(td.name) != None):
+                raise ObjectAlreadyExistsException(f"Duplicate Team {td.name}")
+            self.teamCache[td.name] = td
 
     def cache_addWorkspace(self, work : 'Workspace'):
         """This adds a workspace to the eco cache and flags duplicates"""
@@ -666,82 +674,37 @@ class Ecosystem(GitControlledObject):
         else:
             raise DatastoreDoesntExistException(f"Unknown datastore {store}")
 
-    def cache_getDatasetOrThrow(self, store : str, set : str):
-        s : Datastore = self.cache_getDatastoreOrThrow(store)
-        dataset = s.datasets.get(set)
-        if(dataset == None):
-            raise DatasetDoesntExistException(f"Dataset doesn't exist {store}:{set}")
-        return dataset
+    def cache_getDataset(self, storeName : str, datasetName : str) -> Optional[Dataset]:
+        """This returns the named dataset if it exists"""
+        s : Optional[Datastore] = self.datastoreCache.get(storeName)
+        if(s):
+            dataset = s.datasets.get(datasetName)
+            return dataset
+        return None
 
-    def validateDatastore(self, gz : 'GovernanceZone', t : 'TeamDeclaration', s : Datastore) -> Sequence[ValidationProblem]:
-        problems : List[ValidationProblem] = []
-        # TODO code this
-        return problems
-
-    def validateTeamDeclaration(self, gz: 'GovernanceZone', tdName: str) -> Sequence['ValidationProblem']:
-        """This validates a single team declaration and populates the datastore cache with that team's stores"""
-        problem_list : List[ValidationProblem] = []
-        td : Optional[TeamDeclaration] = gz.teams.authorizedNames.get(tdName)
-        if(td == None):
-            p = ValidationProblem(f"Unknown TeamDeclaration {tdName}")
-            problem_list.append(p)
-            return problem_list
-
-        team : Optional[Team] = gz.getTeam(tdName)
-        if(team):
-            for s in team.dataStores.values():
-                if self.datastoreCache.get(s.name) is not None:
-                    p = ValidationProblem(f"Duplicate Datastore {s.name}")
-                    p.object = s
-                    problem_list.append(p)
-                else:
-                    self.datastoreCache[s.name] = s
-                    self.validateDatastore(gz, td, s)
-            for w in team.workspaces.values():
-                if self.workSpaceCache.get(w.name) is not None:
-                    p = ValidationProblem(f"Duplicate Workspace {w.name}")
-                    p.object = td
-                    problem_list.append(p)
-                    # Cannot validate Workspace datasets until everything is loaded
-                else:
-                    self.workSpaceCache[w.name] = w
-        else:
-            p = ValidationProblem(f"Team not defined {tdName}")
-            problem_list.append(p)
-        return problem_list
-
-    def validateGoveranceZone(self, gz : 'GovernanceZone') -> Sequence[ValidationProblem]:
-        """This validates a GovernanceZone and populates the teamcache with the zones teams"""
-        list : List[ValidationProblem] = []
-        for t in gz.teams.authorizedNames.values():
-            if(self.teamDeclarationCache.get(t.name) != None):
-                p : ValidationProblem = ValidationProblem(f"Duplicate TeamDeclaration {t.name}")
-                p.object = t
-                list.append(p)
-            else:
-                self.teamDeclarationCache[t.name] = t
-                self.validateTeamDeclaration(gz, t.name)
-        return list
-
-    def validateAndHydrateCaches(self) -> Sequence[ValidationProblem]:
+    def lintAndHydrateCaches(self) -> Sequence[ValidationProblem]:
         """This validates the ecosystem and returns a list of problems which is empty if there are no issues"""
         self.resetCaches()
 
         list : List[ValidationProblem] = []
+
+        # This will lint the ecosystem, zones, teams, datastores and datasets.
+        # Workspaces are linted in a second pass later.
+        # It populates the caches for zones, teams, stores and workspaces.
         """No need to dedup zones as the authorative list is already a dict"""
         for gz in self.zones.authorizedObjects.values():
-            self.validateGoveranceZone(gz)
+            list.extend(gz.lint(self))
 
         """All caches should now be populated"""
 
+        # Now lint the workspaces
         for work in self.workSpaceCache.values():
             for dsg in work.dsgs.values():
                 for sink in dsg.datasets.values():
-                    try:
-                        # Check all datasets in the workspace exist
-                        self.cache_getDatasetOrThrow(sink.storeName, sink.datasetName)
-                    except Exception as e:
-                        p : ValidationProblem = ValidationProblem(str(e))
+                    # Check all datasets in the workspace exist
+                    dataset : Optional[Dataset] = self.cache_getDataset(sink.storeName, sink.datasetName)
+                    if(dataset == None):
+                        p : ValidationProblem = ValidationProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
                         p.object = sink
                         list.append(p)
         return list
@@ -826,6 +789,31 @@ class Team(GitControlledObject):
         rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(prop_Team, changeSource)
 
         return rc
+    
+    def lint(self, eco : Ecosystem, gz: 'GovernanceZone') -> Sequence['ValidationProblem']:
+        """This validates a single team declaration and populates the datastore cache with that team's stores"""
+        problem_list : List[ValidationProblem] = []
+
+        for s in self.dataStores.values():
+            if eco.datastoreCache.get(s.name) is not None:
+                p = ValidationProblem(f"Duplicate Datastore {s.name}")
+                p.object = s
+                problem_list.append(p)
+            else:
+                eco.datastoreCache[s.name] = s
+                problem_list.extend(s.lint(eco, gz, self))
+
+        # Iterate over the workspaces to populate the cache but dont lint them yet
+        for w in self.workspaces.values():
+            if eco.workSpaceCache.get(w.name) is not None:
+                p = ValidationProblem(f"Duplicate Workspace {w.name}")
+                p.object = w
+                problem_list.append(p)
+                # Cannot validate Workspace datasets until everything is loaded
+            else:
+                eco.workSpaceCache[w.name] = w
+        return problem_list
+
         
 class NamedObjectAuthorization:
     """This represents a named object under the management of a repository. It is used to authorize the existence
@@ -913,6 +901,8 @@ class TeamDeclaration(NamedObjectAuthorization):
         return cyclic_safe_eq(self, __value, set())
     
 class GovernanceZoneDeclaration(NamedObjectAuthorization):
+    """This is a declaration of a governance zone within an ecosystem. It is used to authorize
+    the definition of a governance zone and to provide the official source of changes for that object and its children"""
     def __init__(self, name : str, authRepo : Repository) -> None:
         super().__init__(name, authRepo)
         self.key : Optional[GovernanceZoneKey] = None
@@ -1001,7 +991,21 @@ class GovernanceZone(GitControlledObject):
         rc.extend(self.teams.checkIfChangesAreAuthorized(proposedGZ.teams, changeSource))
 
         return rc
-    
+
+    def lint(self, eco : Ecosystem) -> Sequence[ValidationProblem]:
+        """This validates a GovernanceZone and populates the teamcache with the zones teams"""
+        list : List[ValidationProblem] = []
+        for team in self.teams.authorizedObjects.values():
+            if(eco.teamCache.get(team.name) != None):
+                p : ValidationProblem = ValidationProblem(f"Duplicate TeamDeclaration {team.name}")
+                p.object = team
+                list.append(p)
+            else:
+                eco.teamCache[team.name] = team
+                list.extend(team.lint(eco, self))
+        return list
+
+
 @dataclass
 class WorkspaceEntitlement:
     pass

@@ -6,7 +6,7 @@ from datasurface.md import Ecosystem, ValidationProblem
 def test_validate_nwdb():
     e : Ecosystem = tests.nwdb.eco.createEcosystem()
 
-    rc : Sequence[ValidationProblem] = e.validateAndHydrateCaches()
+    rc : Sequence[ValidationProblem] = e.lintAndHydrateCaches()
     print(rc)
     assert len(rc) == 0
 
