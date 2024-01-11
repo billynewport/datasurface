@@ -515,7 +515,7 @@ class DDLColumn(object):
 
 class AttributeList:
     """A list of column names."""
-    def __init__(self, colNames : Sequence[str]) -> None:
+    def __init__(self, colNames : list[str]) -> None:
         self.colNames : List[str] = []
         for col in colNames:
             self.colNames.append(col)
@@ -525,7 +525,7 @@ class AttributeList:
 
 class PrimaryKeyList(AttributeList):
     """A list of columns to be used as the primary key"""
-    def __init__(self, colNames: Sequence[str]) -> None:
+    def __init__(self, colNames: list[str]) -> None:
         super().__init__(colNames)
 
     def __eq__(self, __value: object) -> bool:
