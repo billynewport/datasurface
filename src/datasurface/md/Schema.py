@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Sequence, Union, cast
+from typing import List, Optional, Union, cast
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 
@@ -23,6 +23,8 @@ class BoundedDataType(DataType):
     def __init__(self, maxSize : Optional[int]) -> None:
         super().__init__()
         self.maxSize : Optional[int] = maxSize
+        if(self.maxSize != None and self.maxSize <= 0):
+            raise Exception("Max size must be > 0")
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, BoundedDataType) and self.maxSize == __value.maxSize
@@ -253,6 +255,8 @@ class Decimal(BoundedDataType):
     """Signed Fixed decimal number with fixed size fraction"""
     def __init__(self, maxSize : int, precision : int) -> None:
         super().__init__(maxSize)
+        if(precision < 0):
+            raise Exception("Precision must be >= 0")
         self.precision : int = precision
 
     def __eq__(self, __value: object) -> bool:
