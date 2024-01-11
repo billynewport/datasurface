@@ -552,7 +552,7 @@ class Schema(ABC):
         raise NotImplementedError()
     
     @abstractmethod
-    def isBackwardCompatibleWith(self, other : 'Schema') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'Schema') -> bool:
         """Returns true if this schema is backward compatible with the other schema"""
         # Primary keys cannot change
         if(self.primaryKeyColumns != other.primaryKeyColumns):
@@ -569,12 +569,15 @@ class DDLTable(Schema):
         super().__init__()
         self.columns : dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
         self.primaryKeyColumns : Optional[PrimaryKeyList] = None
+        self.add(*args)
+
+    def add(self, *args : Union[DDLColumn, PrimaryKeyList]):
+        """Add a column or primary key list to the table"""
         for c in args:
             if(type(c) == DDLColumn):
                 self.addColumn(c)
             elif(type(c) == PrimaryKeyList):
                 self.primaryKeyColumns = c
-        """Dictionary of columns by name"""
         self.calculateKeys()
 
     def calculateKeys(self):            
@@ -613,9 +616,9 @@ class DDLTable(Schema):
             return False
         return self.columns == o.columns and self.columns == o.columns and self.primaryKeyColumns == o.primaryKeyColumns
 
-    def isBackwardCompatibleWith(self, other : 'Schema') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'Schema') -> bool:
         """Returns true if this schema is backward compatible with the other schema"""
-        if(super().isBackwardCompatibleWith(other) == False):
+        if(super().isBackwardsCompatibleWith(other) == False):
             return False
         if(type(other) is not DDLTable):
             return False
@@ -625,7 +628,17 @@ class DDLTable(Schema):
                 return False
         # Existing columns must be compatible
         for col in self.columns.values():
-            newCol : Optional[DDLColumn] = other.getColumnByName(col.name)
+            newCol : Optional[DDLColumn] = other.columns.get(col.name)
             if(newCol and newCol.isBackwardsCompatibleWith(col) == False):
+                return False
+
+        newColumnNames : set[str] = set(self.columns.keys())
+        oldColNames : set[str] = set(other.columns.keys())  
+        additionalColumns : set[str] = newColumnNames.difference(oldColNames)
+        for colName in additionalColumns:
+            col : DDLColumn = self.columns[colName]
+            if(col.primaryKey == PrimaryKeyStatus.PK):
+                return False
+            if(col.nullable == NullableStatus.NOT_NULLABLE):
                 return False
         return True 

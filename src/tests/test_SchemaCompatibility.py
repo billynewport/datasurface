@@ -2,9 +2,7 @@ import unittest
 import copy
 
 from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32, IEEE64, IEEE16, IEEE128, BigInt, SmallInt
-
-
-
+from datasurface.md import DDLTable
 
 class TestSchemaCompatibility(unittest.TestCase):
 
@@ -44,5 +42,26 @@ class TestSchemaCompatibility(unittest.TestCase):
         # Test SmallInt can be replaced with a Bigint
         col2.type = SmallInt()
         self.assertTrue(col1.isBackwardsCompatibleWith(col2))
+        # BigInt can't be replaced with a SmallInt
+        self.assertFalse(col2.isBackwardsCompatibleWith(col1))
 
+    def testDDLTableBackwardsCompatibility(self):
+        t1 : DDLTable = DDLTable(
+            DDLColumn("key", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK), 
+            DDLColumn("firstName", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.NOT_PK),
+            DDLColumn("lastName", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.NOT_PK))
+        
+        # Adding a nullable column is backwards compatible
+        t2 : DDLTable = copy.deepcopy(t1)
+        t2.addColumn(DDLColumn("middleName", String(20), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK))
+
+        self.assertTrue(t2.isBackwardsCompatibleWith(t1))
+
+        # Adding a non-nullable column is not backwards compatible
+        t2.add(DDLColumn("middleName2", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.NOT_PK))
+        self.assertFalse(t2.isBackwardsCompatibleWith(t1))
+
+        # Adding a PK column is not backwards compatible
+        t2.add(DDLColumn("middleName3", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK))
+        self.assertFalse(t2.isBackwardsCompatibleWith(t1))
 
