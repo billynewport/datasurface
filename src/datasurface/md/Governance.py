@@ -433,18 +433,16 @@ class Dataset(object):
 #                raise StoragePolicyFromDifferentZone("Datasets must be governed by storage policies from its managing zone")
         pass       
 
-    def isBackwardsCompatibleWith(self, other : 'Dataset') -> Sequence['ValidationProblem']:
+    def isBackwardsCompatibleWith(self, other : 'Dataset', vTree : ValidationTree) -> None:
         """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
         can be used in place of this dataset. This is used to check if a dataset can be replaced by another dataset
         when a new version is released"""
-        rc : List[ValidationProblem] = []
         if(self.originalSchema == None):
-            rc.append(ValidationProblem(f"Original schema not set for {self.name}"))
+            vTree.addProblem(f"Original schema not set for {self.name}")
         elif(other.originalSchema == None):
-            rc.append(ValidationProblem(f"Original schema not set for {other.name}"))
+            vTree.addProblem(f"Original schema not set for {other.name}")
         else:
-            rc.extend(self.originalSchema.isBackwardsCompatibleWith(other.originalSchema))
-        return rc
+            self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
     
 class DataSourceConnection:
     def __init__(self, name : str) -> None:
@@ -661,19 +659,18 @@ class Datastore(object):
         # TODO Code this
         pass
     
-    def isBackwardsCompatibleWith(self, other : 'Datastore') -> Sequence['ValidationProblem']:
+    def isBackwardsCompatibleWith(self, other : 'Datastore', vTree : ValidationTree) -> None:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
         can be used to replace this one without breaking any data pipelines"""
-        rc : List[ValidationProblem] = []
 
         # Check if the datasets are compatible
         for dataset in self.datasets.values():
+            dTree : ValidationTree = vTree.createChild(dataset)
             otherDataset : Optional[Dataset] = other.datasets.get(dataset.name)
             if(otherDataset):
-                rc.extend(dataset.isBackwardsCompatibleWith(otherDataset))
+                dataset.isBackwardsCompatibleWith(otherDataset, dTree)
             else:
-                rc.append(ValidationProblem(f"Dataset {dataset.name} is missing from datastore {other.name}"))
-        return rc
+                dTree.addProblem(f"Dataset {dataset.name} is missing from datastore {other.name}")
         
 class Repository(ABC):
     pass
