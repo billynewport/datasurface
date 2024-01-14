@@ -1,14 +1,14 @@
-from typing import List, Sequence
 from datasurface.md.Governance import GitRepository, Repository
+from datasurface.md.Lint import ValidationTree
 import tests.nwdb.eco
-from datasurface.md import Ecosystem, ValidationProblem
+from datasurface.md import Ecosystem
 
 def test_validate_nwdb():
     e : Ecosystem = tests.nwdb.eco.createEcosystem()
 
-    rc : Sequence[ValidationProblem] = e.lintAndHydrateCaches()
+    rc : ValidationTree = e.lintAndHydrateCaches()
     print(rc)
-    assert len(rc) == 0
+    assert rc.hasIssues() == False
 
 def test_eq_ecosystem():
     e : Ecosystem = tests.nwdb.eco.createEcosystem()
@@ -19,13 +19,19 @@ def test_eq_ecosystem():
     assert e == e2
 
     # No changes
-    problems : List[ValidationProblem] = e.checkIfChangesAreAuthorized(e2, e.owningRepo)
-    assert len(problems) == 0
+    problems : ValidationTree = ValidationTree(e)
+    e.checkIfChangesAreAuthorized(e2, e.owningRepo, problems)
+    assert problems.hasIssues() == False
 
     e2.name = "Test2"
+    # Test name cannot be changed from another repo
+    # Verify they are not equal, the name was changed
     assert e != e2
-    problems : List[ValidationProblem] = e.checkIfChangesAreAuthorized(e2, diffR)
-    assert len(problems) != 0
+
+    # Verify that the change is not authorized
+    problems = ValidationTree(e)
+    e.checkIfChangesAreAuthorized(e2, diffR, problems)
+    assert problems.hasIssues()
 
     e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
 

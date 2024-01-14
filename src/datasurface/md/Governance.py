@@ -7,6 +7,30 @@ from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsExcepti
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
+import socket
+import ipaddress
+from datasurface.md.Lint import ValidationProblem, ValidationTree
+
+
+
+def is_valid_hostname_or_ip(s : str) -> bool:
+    """This checks if the string is a valid hostname or IP address"""
+    try:
+        # Check if it's a valid IP address
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        pass
+
+    try:
+        # Check if it's a valid hostname
+        if s == socket.gethostbyname(s):
+            return True
+    except socket.gaierror:
+        pass
+
+    return False    
+        
 
 T = TypeVar('T')
 
@@ -27,30 +51,25 @@ class GitControlledObject(ABC):
         """This should compare attributes which are locally authorized only"""
         return True
     
-    def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository') -> List['ValidationProblem']:
+    def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
         """This checks if the local attributes of the object have been modified by the authorized change source"""
-        rc : List[ValidationProblem] = []
-
         # Check if the ecosystem has been modified at all
         if(self == proposed):
-            return rc # No changes then no problems
+            return
         elif(not self.eq_toplevel(proposed) and self.owningRepo != changeSource):
-            rc.append(ValidationProblem(f"{self} top level has been modified by an unauthorized source", proposed))
-        return rc
+            vTree.addProblem(f"{self} top level has been modified by an unauthorized source")
 
     @abstractmethod    
-    def checkIfChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository') -> List['ValidationProblem']:
-        return []
+    def checkIfChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
+        raise NotImplementedError()
         
-    def checkDictChangesAreAuthorized(self, current : Mapping[str, 'GitControlledObject'], proposed : Mapping[str, 'GitControlledObject'], changeSource : 'Repository') -> List['ValidationProblem']:
+    def checkDictChangesAreAuthorized(self, current : Mapping[str, 'GitControlledObject'], proposed : Mapping[str, 'GitControlledObject'], changeSource : 'Repository', vTree : ValidationTree) -> None:
         """This checks if the current dict has been modified relative to the specified change source"""
         """This checks if any objects has been added or removed relative to e"""
 
 
         # Get the object keys from the current main ecosystem
         current_keys : set[str] = set(current)
-
-        rc : List[ValidationProblem] = []
 
         # Get the object keys from the proposed ecosystem
         proposed_keys : set[str] = set(proposed.keys())
@@ -63,13 +82,13 @@ class GitControlledObject(ABC):
             # Check if the object was deleted by the authoized change source
             obj : Optional[GitControlledObject] = current[key]
             if(obj.owningRepo != changeSource):
-                rc.append(ValidationProblem(f"Key {key} has been deleted by an unauthorized source"))
+                vTree.addProblem(f"Key {key} has been deleted by an unauthorized source")
         
         for key in added_keys:
             # Check if the object was added by the specified change source
             obj : Optional[GitControlledObject] = proposed[key]
             if(obj.owningRepo != changeSource):
-                rc.append(ValidationProblem(f"Key {key} has been added by an unauthorized source", obj))
+                vTree.addProblem(f"Key {key} has been added by an unauthorized source")
 
         # Now check each common object for changes
         common_keys : set[str] = current_keys.intersection(proposed_keys)
@@ -77,8 +96,8 @@ class GitControlledObject(ABC):
             prop : Optional[GitControlledObject] = proposed[key]
             curr : Optional[GitControlledObject] = current[key]
             # Check prop against curr for unauthorized changes
-            rc.extend(curr.checkIfChangesAreAuthorized(prop, changeSource))
-        return rc
+            cTree : ValidationTree = vTree.createChild(curr)
+            curr.checkIfChangesAreAuthorized(prop, changeSource, cTree)
 
 
 def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
@@ -413,6 +432,19 @@ class Dataset(object):
 #            if(policy.governanceZone != self.getZone()):
 #                raise StoragePolicyFromDifferentZone("Datasets must be governed by storage policies from its managing zone")
         pass       
+
+    def isBackwardsCompatibleWith(self, other : 'Dataset') -> Sequence['ValidationProblem']:
+        """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
+        can be used in place of this dataset. This is used to check if a dataset can be replaced by another dataset
+        when a new version is released"""
+        rc : List[ValidationProblem] = []
+        if(self.originalSchema == None):
+            rc.append(ValidationProblem(f"Original schema not set for {self.name}"))
+        elif(other.originalSchema == None):
+            rc.append(ValidationProblem(f"Original schema not set for {other.name}"))
+        else:
+            rc.extend(self.originalSchema.isBackwardsCompatibleWith(other.originalSchema))
+        return rc
     
 class DataSourceConnection:
     def __init__(self, name : str) -> None:
@@ -424,13 +456,18 @@ class DataSourceConnection:
         else:
             return False
 
-class Credential:
+class Credential(ABC):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
         pass
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        raise NotImplementedError()
 
 
 class FileSecretCredential(Credential):
@@ -443,6 +480,14 @@ class FileSecretCredential(Credential):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is FileSecretCredential and self.secretFilePath == __value.secretFilePath
+    
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        rc : List[ValidationProblem] = []
+        # TODO This needs to be better
+        if(self.secretFilePath == ""):
+            rc.append(ValidationProblem("Secret file path is empty"))
+        return rc
 
 class ClearTextCredential(Credential):
     """This is implemented for testing but should never be used in production. All
@@ -455,6 +500,15 @@ class ClearTextCredential(Credential):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is ClearTextCredential and self.username == __value.username and self.password == __value.password
+    
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        rc : List[ValidationProblem] = []
+        if(self.username == ""):
+            rc.append(ValidationProblem("Username is empty"))
+        if(self.password == ""):
+            rc.append(ValidationProblem("Password is empty"))
+        return rc
 
 class LocalJDBCConnection(DataSourceConnection):
     def __init__(self, name: str, jdbcUrl : str, cred : Credential) -> None:
@@ -465,7 +519,7 @@ class LocalJDBCConnection(DataSourceConnection):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is LocalJDBCConnection and self.jdbcUrl == __value.jdbcUrl and self.credential == __value.credential
 
-class CaptureSourceInfo:
+class CaptureSourceInfo(ABC):
     """Describes how an IMD can connect to the database or similar to ingest data"""
     def __init__(self) -> None:
         pass
@@ -475,6 +529,11 @@ class CaptureSourceInfo:
             return True
         else:
             return False
+        
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        raise NotImplementedError()
 
 class PyOdbcSourceInfo(CaptureSourceInfo):
     """This describes how to connect to a database using pyodbc"""
@@ -485,9 +544,15 @@ class PyOdbcSourceInfo(CaptureSourceInfo):
         self.driver : str = driver
         self.connectionStringTemplate : str = connectionStringTemplate
 
-
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
+
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        rc : List[ValidationProblem] = []
+        if(not is_valid_hostname_or_ip(self.serverHost)):
+            rc.append(ValidationProblem(f"Server host {self.serverHost} is not a valid hostname or IP address"))
+        return rc
         
 class CaptureType(Enum):
     SNAPSHOT = 0
@@ -499,7 +564,7 @@ class IngestionConsistencyType(Enum):
     SINGLE = 0
     MULTI = 1
 
-class CaptureMetaData(object):
+class CaptureMetaData(ABC):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
@@ -527,7 +592,19 @@ class CaptureMetaData(object):
             
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        raise NotImplementedError()
 
+class CDCCaptureIngestion(CaptureMetaData):
+    def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
+        super().__init__(*args)
+
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore') -> Sequence['ValidationProblem']:
+        raise NotImplementedError()
+        
 class SQLPullIngestion(CaptureMetaData):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
@@ -543,6 +620,9 @@ class SQLPullIngestion(CaptureMetaData):
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore') -> Sequence['ValidationProblem']:
+        raise NotImplementedError()
     
 
 
@@ -577,29 +657,24 @@ class Datastore(object):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
-        problems : List[ValidationProblem] = []
-        # TODO code this
-        return problems
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
+        # TODO Code this
+        pass
+    
+    def isBackwardsCompatibleWith(self, other : 'Datastore') -> Sequence['ValidationProblem']:
+        """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
+        can be used to replace this one without breaking any data pipelines"""
+        rc : List[ValidationProblem] = []
 
-
+        # Check if the datasets are compatible
+        for dataset in self.datasets.values():
+            otherDataset : Optional[Dataset] = other.datasets.get(dataset.name)
+            if(otherDataset):
+                rc.extend(dataset.isBackwardsCompatibleWith(otherDataset))
+            else:
+                rc.append(ValidationProblem(f"Dataset {dataset.name} is missing from datastore {other.name}"))
+        return rc
         
-class ValidationProblem:
-    def __init__(self, desc : str, obj : object = None) -> None:
-        self.object : object = obj
-        """The original object that is in use"""
-        self.description : Optional[str] = desc
-        """A description of what the issue is"""
-
-    def __str__(self) -> str:
-        if(self.object):
-            return f"{self.description} {self.object}"
-        elif(self.description):
-            return self.description
-        else:
-            return "Unknown validation problem"
-
-
 class Repository(ABC):
     pass
 
@@ -682,44 +757,43 @@ class Ecosystem(GitControlledObject):
             return dataset
         return None
 
-    def lintAndHydrateCaches(self) -> Sequence[ValidationProblem]:
+    def lintAndHydrateCaches(self) -> ValidationTree:
         """This validates the ecosystem and returns a list of problems which is empty if there are no issues"""
         self.resetCaches()
 
-        list : List[ValidationProblem] = []
-
+        ecoTree : ValidationTree = ValidationTree(self)
+        
         # This will lint the ecosystem, zones, teams, datastores and datasets.
         # Workspaces are linted in a second pass later.
         # It populates the caches for zones, teams, stores and workspaces.
         """No need to dedup zones as the authorative list is already a dict"""
         for gz in self.zones.authorizedObjects.values():
-            list.extend(gz.lint(self))
+            govTree : ValidationTree = ecoTree.createChild(gz)
+            gz.lint(self, govTree)
 
         """All caches should now be populated"""
 
         # Now lint the workspaces
         for work in self.workSpaceCache.values():
+            workTree : ValidationTree = ecoTree.createChild(work)
             for dsg in work.dsgs.values():
                 for sink in dsg.datasets.values():
                     # Check all datasets in the workspace exist
                     dataset : Optional[Dataset] = self.cache_getDataset(sink.storeName, sink.datasetName)
                     if(dataset == None):
-                        p : ValidationProblem = ValidationProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
-                        p.object = sink
-                        list.append(p)
-        return list
+                        workTree.addProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
 
-    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
+        return ecoTree
+
+    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         """This checks if the ecosystem top level has changed relative to the specified change source"""
         """This checks if any Governance zones has been added or removed relative to e"""
 
         prop_eco : Ecosystem = cast(Ecosystem, proposed)
 
-        rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(prop_eco, changeSource)
+        self.checkTopLevelAttributeChangesAreAuthorized(prop_eco, changeSource, vTree)
 
-        rc.extend(self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource))
-
-        return rc
+        self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource, vTree)
     
     def __eq__(self, proposed: object) -> bool:
         return cyclic_safe_eq(self, proposed, set())
@@ -782,37 +856,30 @@ class Team(GitControlledObject):
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         return super().eq_toplevel(proposed) and type(proposed) is Team and self.dataStores == proposed.dataStores and self.workspaces == proposed.workspaces
     
-    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
+    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         """This checks if the team has changed relative to the specified change source"""
         prop_Team : Team = cast(Team, proposed)
 
-        rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(prop_Team, changeSource)
-
-        return rc
+        self.checkTopLevelAttributeChangesAreAuthorized(prop_Team, changeSource, vTree)
     
-    def lint(self, eco : Ecosystem, gz: 'GovernanceZone') -> Sequence['ValidationProblem']:
+    def lint(self, eco : Ecosystem, gz: 'GovernanceZone', teamTree : ValidationTree) -> None:
         """This validates a single team declaration and populates the datastore cache with that team's stores"""
-        problem_list : List[ValidationProblem] = []
-
         for s in self.dataStores.values():
+            storeTree : ValidationTree = teamTree.createChild(s)
             if eco.datastoreCache.get(s.name) is not None:
-                p = ValidationProblem(f"Duplicate Datastore {s.name}")
-                p.object = s
-                problem_list.append(p)
+                storeTree.addProblem(f"Duplicate Datastore {s.name}")
             else:
                 eco.datastoreCache[s.name] = s
-                problem_list.extend(s.lint(eco, gz, self))
+                s.lint(eco, gz, self, storeTree)
 
         # Iterate over the workspaces to populate the cache but dont lint them yet
         for w in self.workspaces.values():
+            wsTree : ValidationTree = teamTree.createChild(w)
             if eco.workSpaceCache.get(w.name) is not None:
-                p = ValidationProblem(f"Duplicate Workspace {w.name}")
-                p.object = w
-                problem_list.append(p)
+                wsTree.addProblem(f"Duplicate Workspace {w.name}")
                 # Cannot validate Workspace datasets until everything is loaded
             else:
                 eco.workSpaceCache[w.name] = w
-        return problem_list
 
         
 class NamedObjectAuthorization:
@@ -864,18 +931,16 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
         p : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
         return self.authorizedNames == p.authorizedNames
 
-    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
+    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         proposedGZ : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
         
         """This checks if the governance zone has changed relative to the specified change source"""
         """This checks if any teams have been added or removed relative to e"""
 
-        rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource)
+        self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource, vTree)
 
         # Get the current teams from the change source
-        rc.extend(self.checkDictChangesAreAuthorized(self.authorizedObjects, proposedGZ.authorizedObjects, changeSource))
-
-        return rc
+        self.checkDictChangesAreAuthorized(self.authorizedObjects, proposedGZ.authorizedObjects, changeSource, vTree)
     
     def removeAuthorization(self, name : str) -> Optional[N]:
         """Removes the authorization from the list of authorized names"""
@@ -979,31 +1044,26 @@ class GovernanceZone(GitControlledObject):
         return self.storagePolicies == proposed.storagePolicies and self.platforms == proposed.platforms and self.vendors == proposed.vendors and \
             self.teams.eq_toplevel(proposed.teams)
     
-    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository) -> List[ValidationProblem]:
+    def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         proposedGZ : GovernanceZone = cast(GovernanceZone, proposed)
         
         """This checks if the governance zone has changed relative to the specified change source"""
         """This checks if any teams have been added or removed relative to e"""
 
-        rc : List[ValidationProblem] = self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource)
+        self.checkTopLevelAttributeChangesAreAuthorized(proposedGZ, changeSource, vTree)
 
         # Get the current teams from the change source
-        rc.extend(self.teams.checkIfChangesAreAuthorized(proposedGZ.teams, changeSource))
+        self.teams.checkIfChangesAreAuthorized(proposedGZ.teams, changeSource, vTree)
 
-        return rc
-
-    def lint(self, eco : Ecosystem) -> Sequence[ValidationProblem]:
+    def lint(self, eco : Ecosystem, govTree : ValidationTree) -> None:
         """This validates a GovernanceZone and populates the teamcache with the zones teams"""
-        list : List[ValidationProblem] = []
         for team in self.teams.authorizedObjects.values():
             if(eco.teamCache.get(team.name) != None):
-                p : ValidationProblem = ValidationProblem(f"Duplicate TeamDeclaration {team.name}")
-                p.object = team
-                list.append(p)
+                govTree.addProblem(f"Duplicate TeamDeclaration {team.name}")
             else:
                 eco.teamCache[team.name] = team
-                list.extend(team.lint(eco, self))
-        return list
+                teamTree : ValidationTree = govTree.createChild(team)
+                team.lint(eco, self, teamTree)
 
 
 @dataclass

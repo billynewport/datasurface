@@ -5,7 +5,7 @@ from datasurface.md.Azure import AzureKeyVaultCredential
 def defineTables(t : Team):
     t.add(
         Datastore("NW_Data",
-            CaptureMetaData(
+            CDCCaptureIngestion(
                 IngestionConsistencyType.MULTI,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
                 PyOdbcSourceInfo(

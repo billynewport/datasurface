@@ -1,7 +1,8 @@
 from enum import Enum
-from typing import List, Optional, Union, cast
+from typing import List, Optional, Sequence, Union, cast
 from collections import OrderedDict
 from abc import ABC, abstractmethod
+from datasurface.md.Lint import ValidationProblem
 
 class DataType(ABC):
     """Base class for all data types"""
@@ -15,9 +16,9 @@ class DataType(ABC):
         return str(self.__class__.__name__) + "()"
 
     @abstractmethod    
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
-        return False
+        return []
     
 class BoundedDataType(DataType):
     def __init__(self, maxSize : Optional[int]) -> None:
@@ -35,25 +36,25 @@ class BoundedDataType(DataType):
         else:
             return str(self.__class__.__name__) + f"({self.maxSize})"
         
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, BoundedDataType) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         otherBT : BoundedDataType = cast(BoundedDataType, other)
 
         # If this is unlimited then its compatible
         if(self.maxSize == None):
-            return True
+            return []
 
         # Must be unlimited to be compatible with unlimited
         if(self.maxSize and otherBT.maxSize == None):
-            return False
+            return [ValidationProblem(f"maxSize has been reduced from unlimited to {self.maxSize}")]
                 
         if(self.maxSize == otherBT.maxSize):
-            return True
+            return []
         if(otherBT.maxSize and self.maxSize and self.maxSize < otherBT.maxSize):
-            return False
-        return True
+            return [ValidationProblem(f"maxSize has been reduced from {otherBT.maxSize} to {self.maxSize}")]
+        return []
 
 class TextDataType(BoundedDataType):
     def __init__(self, maxSize : Optional[int], collationString : Optional[str]) -> None:
@@ -76,13 +77,13 @@ class TextDataType(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TextDataType)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, TextDataType) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         otherTD : TextDataType = cast(TextDataType, other)
         if(self.collationString != otherTD.collationString):
-            return False
+            return [ValidationProblem(f"Collation has changed from {otherTD.collationString} to {self.collationString}")]
         return super().isBackwardsCompatibleWith(other)
 
 class NumericDataType(DataType):
@@ -90,8 +91,11 @@ class NumericDataType(DataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def isBackwardsCompatibleWith(self, other: DataType) -> bool:
-        return isinstance(other, NumericDataType)
+    def isBackwardsCompatibleWith(self, other: DataType) -> Sequence[ValidationProblem]:
+        if isinstance(other, NumericDataType):
+            return []
+        else:
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
 
 class SignedOrNot(Enum):
     SIGNED = 0
@@ -109,15 +113,17 @@ class FixedSizeBinaryDataType(NumericDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, FixedSizeBinaryDataType) and self.sizeInBits == __value.sizeInBits and self.isSigned == __value.isSigned
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, FixedSizeBinaryDataType) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         otherFSBDT : FixedSizeBinaryDataType = cast(FixedSizeBinaryDataType, other)
         if(self.sizeInBits == otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned):
-            return True
-        if(not (self.sizeInBits >= otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned)):
-            return False
+            return []
+        if(self.sizeInBits < otherFSBDT.sizeInBits):
+            return [ValidationProblem(f"Size has been reduced from {otherFSBDT.sizeInBits} to {self.sizeInBits}")]
+        if(self.isSigned != otherFSBDT.isSigned):
+            return [ValidationProblem(f"Signedness has changed from {otherFSBDT.isSigned} to {self.isSigned}")]
         return super().isBackwardsCompatibleWith(other)
     
 class TinyInt(FixedSizeBinaryDataType):
@@ -185,16 +191,16 @@ class CustomFloat(NumericDataType):
         """Returns true if this float can be represented by the other float excluding non finite behaviors"""
         return self.maxExponent <= other.maxExponent and self.minExponent >= other.minExponent and self.precision <= other.precision
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, CustomFloat) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         otherCF : CustomFloat = cast(CustomFloat, other)
 
         # Can this object be stored without precision loss in otherCF
         if otherCF.isRepresentableBy(self):
             return super().isBackwardsCompatibleWith(other)
-        return False
+        return [ValidationProblem("New Type loses precision on current type")]
     
 class IEEE16(CustomFloat):
     """Half precision IEEE754"""
@@ -262,13 +268,13 @@ class Decimal(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Decimal) and self.precision == __value.precision        
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, Decimal) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         otherD : Decimal = cast(Decimal, other)
         if(self.precision < otherD.precision):
-            return False
+            return [ValidationProblem(f"Precision has been reduced from {otherD.precision} to {self.precision}")]
         return super().isBackwardsCompatibleWith(other)
     
     def __str__(self) -> str:
@@ -289,9 +295,12 @@ class Timestamp(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
-        return isinstance(other, Timestamp) or isinstance(other, Date)
+        if not(isinstance(other, Timestamp) or isinstance(other, Date)):
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
+        else:
+            return []
 
 class Date(TemporalDataType):
     def __init__(self) -> None:
@@ -300,9 +309,12 @@ class Date(TemporalDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Date)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
-        return isinstance(other, Date)
+        if isinstance(other, Date):
+            return []
+        else:
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
 
 class Interval(TemporalDataType):
     def __init__(self) -> None:
@@ -311,9 +323,12 @@ class Interval(TemporalDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Interval)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
-        return isinstance(other, Interval) and super().isBackwardsCompatibleWith(other)
+        if not(isinstance(other, Interval) and super().isBackwardsCompatibleWith(other)):
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
+        else:
+            return []
 
 class UniCodeType(TextDataType):
     """Base class for unicode datatypes"""
@@ -335,10 +350,10 @@ class UniCodeType(TextDataType):
             return str(self.__class__.__name__) + f"({self.maxSize}, '{self.collationString}')"
             
         
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, UniCodeType) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         return super().isBackwardsCompatibleWith(other)
 
 class NonUnicodeString(TextDataType):
@@ -346,10 +361,10 @@ class NonUnicodeString(TextDataType):
     def __init__(self, maxSize: Optional[int], collationString : Optional[str]) -> None:
         super().__init__(maxSize, collationString)
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, NonUnicodeString) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         return super().isBackwardsCompatibleWith(other)
 
 class VarChar(NonUnicodeString):
@@ -398,10 +413,10 @@ class Boolean(DataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, Boolean) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         return super().isBackwardsCompatibleWith(other)
 
 class Variant(BoundedDataType):
@@ -412,10 +427,10 @@ class Variant(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Variant)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, Variant) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         return super().isBackwardsCompatibleWith(other)
 
 class Binary(BoundedDataType):
@@ -423,10 +438,10 @@ class Binary(BoundedDataType):
     def __init__(self, maxSize : Optional[int] = None) -> None:
         super().__init__(maxSize)
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, Binary) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         return super().isBackwardsCompatibleWith(other)
 
 class Vector(DataType):
@@ -441,13 +456,13 @@ class Vector(DataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Vector) and self.dimensions == __value.dimensions
 
-    def isBackwardsCompatibleWith(self, other : 'DataType') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DataType') -> Sequence[ValidationProblem]:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, Vector) == False):
-            return False
+            return [ValidationProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")]
         otherV : Vector = cast(Vector, other)
         if(self.dimensions < otherV.dimensions):
-            return False
+            return [ValidationProblem(f"Dimensions has been reduced from {otherV.dimensions} to {self.dimensions}")]
         return super().isBackwardsCompatibleWith(other)
 
 class DataClassification(Enum):
@@ -504,18 +519,18 @@ class DDLColumn(object):
             return False
         return self.name == o.name and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification
     
-    def isBackwardsCompatibleWith(self, other : 'DDLColumn') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'DDLColumn') -> Sequence[ValidationProblem]:
         """Returns true if this column is backwards compatible with the other column"""
         # TODO Add support to changing the column data type to a compatible type
+        rc : list[ValidationProblem] = []
         if(self.name != other.name):
-            return False
-        if(self.type.isBackwardsCompatibleWith(other.type) == False):
-            return False
+            rc.append(ValidationProblem(f"Column name changed from {self.name} to {other.name}"))
+        rc : list[ValidationProblem] = list(self.type.isBackwardsCompatibleWith(other.type))
         if(self.nullable != other.nullable):
-            return False
+            rc.append(ValidationProblem(f"Nullable status changed from {self.nullable} to {other.nullable}"))
         if(self.classification != other.classification):
-            return False
-        return True
+            rc.append(ValidationProblem(f"Data classification changed from {self.classification} to {other.classification}"))
+        return rc
 
 class AttributeList:
     """A list of column names."""
@@ -556,15 +571,16 @@ class Schema(ABC):
         raise NotImplementedError()
     
     @abstractmethod
-    def isBackwardsCompatibleWith(self, other : 'Schema') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'Schema') -> Sequence[ValidationProblem]:
         """Returns true if this schema is backward compatible with the other schema"""
+        rc : list[ValidationProblem] = []
         # Primary keys cannot change
         if(self.primaryKeyColumns != other.primaryKeyColumns):
-            return False
+            rc.append(ValidationProblem(f"Primary key columns cannot change from {self.primaryKeyColumns} to {other.primaryKeyColumns}"))
         # Partitioning cannot change
         if(self.ingestionPartitionColumns != other.ingestionPartitionColumns):
-            return False
-        return True
+            rc.append(ValidationProblem(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}"))
+        return rc
     
 class DDLTable(Schema):
     """Table definition"""
@@ -620,29 +636,32 @@ class DDLTable(Schema):
             return False
         return self.columns == o.columns and self.columns == o.columns and self.primaryKeyColumns == o.primaryKeyColumns
 
-    def isBackwardsCompatibleWith(self, other : 'Schema') -> bool:
+    def isBackwardsCompatibleWith(self, other : 'Schema') -> Sequence[ValidationProblem]:
         """Returns true if this schema is backward compatible with the other schema"""
-        if(super().isBackwardsCompatibleWith(other) == False):
-            return False
+        rc : list[ValidationProblem] = []
+        rc.extend(super().isBackwardsCompatibleWith(other))
         if(type(other) is not DDLTable):
-            return False
+            rc.append(ValidationProblem(f"Schema type changed from DDLTable to {type(other)}"))
         # New tables must contain all old columns
-        for col in other.columns.values():
+        ddlOther : DDLTable = cast(DDLTable, other)
+        for col in ddlOther.columns.values():
             if(col.name not in self.columns):
-                return False
+                rc.append(ValidationProblem(f"Column {col.name} is missing from the new schema"))
         # Existing columns must be compatible
         for col in self.columns.values():
-            newCol : Optional[DDLColumn] = other.columns.get(col.name)
-            if(newCol and newCol.isBackwardsCompatibleWith(col) == False):
-                return False
+            newCol : Optional[DDLColumn] = ddlOther.columns.get(col.name)
+            if(newCol):
+                rc.extend(newCol.isBackwardsCompatibleWith(col))
 
         newColumnNames : set[str] = set(self.columns.keys())
-        oldColNames : set[str] = set(other.columns.keys())  
+        oldColNames : set[str] = set(ddlOther.columns.keys())  
         additionalColumns : set[str] = newColumnNames.difference(oldColNames)
         for colName in additionalColumns:
             col : DDLColumn = self.columns[colName]
+            # Additional columns cannot be primary keys
             if(col.primaryKey == PrimaryKeyStatus.PK):
-                return False
+                rc.append(ValidationProblem(f"Column {col.name} cannot be a new primary key column"))
+            # Additional columns must be nullable
             if(col.nullable == NullableStatus.NOT_NULLABLE):
-                return False
-        return True 
+                rc.append(ValidationProblem(f"Column {col.name} must be nullable"))
+        return rc

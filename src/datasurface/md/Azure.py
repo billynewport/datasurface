@@ -1,4 +1,7 @@
-from datasurface.md.Governance import Credential, EncryptionSystem
+from typing import Sequence
+from datasurface.md.Governance import Credential, EncryptionSystem, Ecosystem, GovernanceZone, Team
+from datasurface.md.Lint import ValidationProblem
+
 
 class AzureKeyVaultCredential(Credential):
     """This allows a secret to be read from Azure Key Vault. The secret should be in the
@@ -10,6 +13,11 @@ class AzureKeyVaultCredential(Credential):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is AzureKeyVaultCredential and self.keyVaultName == __value.keyVaultName and self.secretName == __value.secretName
+    
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        # TODO code this
+        raise NotImplementedError()
 
 class AzureKeyVault(EncryptionSystem):
     pass
