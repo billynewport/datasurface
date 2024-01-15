@@ -3,6 +3,10 @@ class UnknownArgumentException(Exception):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
+class NameMustBeANSISQLIdentifierException(Exception):
+    """This means the name must be an ANSI SQL identifier"""
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
 class ObjectAlreadyExistsException(Exception):
     """This means there is already an object with the same name"""
     def __init__(self, *args: object) -> None:

@@ -1,7 +1,10 @@
 from typing import List, Optional, OrderedDict, Union, cast
 from abc import ABC, abstractmethod
+from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
 from datasurface.md.Lint import ValidationTree
 from enum import Enum
+
+from datasurface.md.utils import is_valid_sql_identifier
 
 class DataType(ABC):
     """Base class for all data types"""
@@ -495,6 +498,8 @@ class DDLColumn(object):
     """Column definition for a table"""
     def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus]) -> None:
         self.name : str = name;
+        if not is_valid_sql_identifier(self.name):
+            raise NameMustBeANSISQLIdentifierException(self.name)
         self.type : DataType = dataType
         self.primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
         self.classification : DataClassification = DataClassification.PC3
@@ -524,6 +529,10 @@ class DDLColumn(object):
             vTree.addProblem(f"Data classification for {self.name} changed from {self.classification} to {other.classification}")
         return vTree.hasIssues() == False
     
+    def lint(self, tree : ValidationTree) -> None:
+        """This method performs linting on this column"""
+        # TODO Add support for linting the column
+        pass
 
 class AttributeList:
     """A list of column names."""
@@ -573,6 +582,12 @@ class Schema(ABC):
         if(self.ingestionPartitionColumns != other.ingestionPartitionColumns):
             vTree.addProblem(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}")
         return vTree.hasIssues() == False
+    
+    @abstractmethod
+    def lint(self, tree : ValidationTree) -> None:
+        """This method performs linting on this schema"""
+        raise NotImplementedError()
+
     
 class DDLTable(Schema):
     """Table definition"""
@@ -655,3 +670,10 @@ class DDLTable(Schema):
                 if col.nullable == NullableStatus.NOT_NULLABLE:
                     vTree.addProblem(f"Column {col.name} must be nullable")
         return vTree.hasIssues() == False
+    
+    def lint(self, tree : ValidationTree) -> None:
+        """This method performs linting on this schema"""
+        for col in self.columns.values():
+            colTree : ValidationTree = tree.createChild(col)
+            col.lint(colTree)
+    

@@ -1,36 +1,15 @@
 from dataclasses import dataclass
 from collections import OrderedDict
 from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
+
+from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
 from abc import ABC, abstractmethod
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifierException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
-import socket
-import ipaddress
 from datasurface.md.Lint import ValidationProblem, ValidationTree
-
-
-
-def is_valid_hostname_or_ip(s : str) -> bool:
-    """This checks if the string is a valid hostname or IP address"""
-    try:
-        # Check if it's a valid IP address
-        ipaddress.ip_address(s)
-        return True
-    except ValueError:
-        pass
-
-    try:
-        # Check if it's a valid hostname
-        if s == socket.gethostbyname(s):
-            return True
-    except socket.gaierror:
-        pass
-
-    return False    
-        
 
 T = TypeVar('T')
 
@@ -404,6 +383,8 @@ class Dataset(object):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy]) -> None:
         self.name : str = name
+        if not is_valid_sql_identifier(self.name):
+            raise NameMustBeANSISQLIdentifierException(f"Dataset name {self.name} is not a valid SQL identifier")
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.add(*args)
@@ -426,12 +407,19 @@ class Dataset(object):
         """Check for equality but shallow check to referenced objects to prevent recursion"""
         return cyclic_safe_eq(self, __value, set())
 
-    def validate(self):
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', store : 'Datastore', tree : ValidationTree) -> None:
         """Place holder to validate constraints on the dataset"""
-#        for policy in self.policies.values():
-#            if(policy.governanceZone != self.getZone()):
-#                raise StoragePolicyFromDifferentZone("Datasets must be governed by storage policies from its managing zone")
-        pass       
+        for policy in self.policies.values():
+            if(policy.key == None):
+                tree.addProblem(f"Storage policy {policy.name} is not associated with a governance zone")
+            else:
+                if(policy.key.gzName != gz.name):
+                    tree.addProblem(f"Datasets must be governed by storage policies from its managing zone")
+        if(self.originalSchema):
+            self.originalSchema.lint(tree)
+        else:
+            tree.addProblem("Original schema not set")
+
 
     def isBackwardsCompatibleWith(self, other : 'Dataset', vTree : ValidationTree) -> bool:
         """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
@@ -630,6 +618,8 @@ class Datastore(object):
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer]) -> None:
         self.name : str = name
+        if not is_valid_sql_identifier(self.name):
+            raise NameMustBeANSISQLIdentifierException(f"Datastore name {self.name} is not a valid SQL identifier")
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
@@ -657,8 +647,9 @@ class Datastore(object):
         return cyclic_safe_eq(self, __value, set())
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
-        # TODO Code this
-        pass
+        for dataset in self.datasets.values():
+            dTree : ValidationTree = storeTree.createChild(dataset)
+            dataset.lint(eco, gz, t, self, dTree)
     
     def isBackwardsCompatibleWith(self, other : 'Datastore', vTree : ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
@@ -760,6 +751,7 @@ class Ecosystem(GitControlledObject):
         """This validates the ecosystem and returns a list of problems which is empty if there are no issues"""
         self.resetCaches()
 
+        # This will lint the ecosystem, zones, teams, datastores and datasets.
         ecoTree : ValidationTree = ValidationTree(self)
         
         # This will lint the ecosystem, zones, teams, datastores and datasets.
