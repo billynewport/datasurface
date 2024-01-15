@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from collections import OrderedDict
-from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, TypeVar, Union, cast
+from typing import Any, Callable, Iterable, Mapping, Optional, TypeVar, Union, cast
 
 from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
@@ -9,7 +9,7 @@ from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifie
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
-from datasurface.md.Lint import ValidationProblem, ValidationTree
+from datasurface.md.Lint import ValidationTree
 
 T = TypeVar('T')
 
@@ -452,7 +452,7 @@ class Credential(ABC):
         return cyclic_safe_eq(self, __value, set())
     
     @abstractmethod
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         raise NotImplementedError()
 
@@ -468,13 +468,11 @@ class FileSecretCredential(Credential):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is FileSecretCredential and self.secretFilePath == __value.secretFilePath
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        rc : List[ValidationProblem] = []
         # TODO This needs to be better
         if(self.secretFilePath == ""):
-            rc.append(ValidationProblem("Secret file path is empty"))
-        return rc
+            tree.addProblem("Secret file path is empty")
 
 class ClearTextCredential(Credential):
     """This is implemented for testing but should never be used in production. All
@@ -488,14 +486,12 @@ class ClearTextCredential(Credential):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is ClearTextCredential and self.username == __value.username and self.password == __value.password
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        rc : List[ValidationProblem] = []
         if(self.username == ""):
-            rc.append(ValidationProblem("Username is empty"))
+            tree.addProblem("Username is empty")
         if(self.password == ""):
-            rc.append(ValidationProblem("Password is empty"))
-        return rc
+            tree.addProblem("Password is empty")
 
 class LocalJDBCConnection(DataSourceConnection):
     def __init__(self, name: str, jdbcUrl : str, cred : Credential) -> None:

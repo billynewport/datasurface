@@ -1,6 +1,6 @@
-from typing import Sequence
 from datasurface.md.Governance import Credential, EncryptionSystem, Ecosystem, GovernanceZone, Team
-from datasurface.md.Lint import ValidationProblem
+from datasurface.md.Lint import ValidationTree
+from datasurface.md.utils import is_valid_azure_key_vault_name
 
 
 class AzureKeyVaultCredential(Credential):
@@ -14,10 +14,12 @@ class AzureKeyVaultCredential(Credential):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is AzureKeyVaultCredential and self.keyVaultName == __value.keyVaultName and self.secretName == __value.secretName
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        # TODO code this
-        raise NotImplementedError()
+        super().lint(eco, gz, t, tree)
+        if(not is_valid_azure_key_vault_name(self.keyVaultName)):
+            tree.addProblem("Azure Key Vault name is invalid")
+
 
 class AzureKeyVault(EncryptionSystem):
     pass

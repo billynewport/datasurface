@@ -8,6 +8,11 @@ def is_valid_sql_identifier(identifier: str) -> bool:
     pattern = r'^[a-zA-Z][a-zA-Z0-9_]{0,127}$'
     return bool(re.match(pattern, identifier))
 
+def is_valid_azure_key_vault_name(name: str) -> bool:
+    # Regular expression for a valid Azure Key Vault name
+    pattern = r'^[a-z0-9]{3,24}$'
+    return bool(re.match(pattern, name))
+
 def is_valid_hostname_or_ip(s : str) -> bool:
     """This checks if the string is a valid hostname or IP address"""
     try:
