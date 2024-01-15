@@ -518,7 +518,7 @@ class CaptureSourceInfo(ABC):
             return False
         
     @abstractmethod
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         raise NotImplementedError()
 
@@ -534,12 +534,10 @@ class PyOdbcSourceInfo(CaptureSourceInfo):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
 
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        rc : List[ValidationProblem] = []
         if(not is_valid_hostname_or_ip(self.serverHost)):
-            rc.append(ValidationProblem(f"Server host {self.serverHost} is not a valid hostname or IP address"))
-        return rc
+            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
         
 class CaptureType(Enum):
     SNAPSHOT = 0
@@ -581,16 +579,19 @@ class CaptureMetaData(ABC):
         return cyclic_safe_eq(self, __value, set())
     
     @abstractmethod
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        raise NotImplementedError()
+        for cap in self.captureSource:
+            capTree : ValidationTree = tree.createChild(cap)
+            cap.lint(eco, gz, t, capTree)
 
 class CDCCaptureIngestion(CaptureMetaData):
+    """This indicates CDC can be used to capture deltas from the source"""
     def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
         super().__init__(*args)
 
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore') -> Sequence['ValidationProblem']:
-        raise NotImplementedError()
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
+        pass
         
 class SQLPullIngestion(CaptureMetaData):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
@@ -608,7 +609,7 @@ class SQLPullIngestion(CaptureMetaData):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore') -> Sequence['ValidationProblem']:
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         raise NotImplementedError()
     
 
@@ -650,6 +651,12 @@ class Datastore(object):
         for dataset in self.datasets.values():
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
+
+        if(self.imd):
+            imdTree : ValidationTree = storeTree.createChild(self.imd)
+            self.imd.lint(eco, gz, t, self, imdTree)
+        else:
+            storeTree.addProblem("IMD not set")
     
     def isBackwardsCompatibleWith(self, other : 'Datastore', vTree : ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
@@ -856,18 +863,17 @@ class Team(GitControlledObject):
     def lint(self, eco : Ecosystem, gz: 'GovernanceZone', teamTree : ValidationTree) -> None:
         """This validates a single team declaration and populates the datastore cache with that team's stores"""
         for s in self.dataStores.values():
-            storeTree : ValidationTree = teamTree.createChild(s)
             if eco.datastoreCache.get(s.name) is not None:
-                storeTree.addProblem(f"Duplicate Datastore {s.name}")
+                teamTree.addProblem(f"Duplicate Datastore {s.name}")
             else:
+                storeTree : ValidationTree = teamTree.createChild(s)
                 eco.datastoreCache[s.name] = s
                 s.lint(eco, gz, self, storeTree)
 
         # Iterate over the workspaces to populate the cache but dont lint them yet
         for w in self.workspaces.values():
-            wsTree : ValidationTree = teamTree.createChild(w)
             if eco.workSpaceCache.get(w.name) is not None:
-                wsTree.addProblem(f"Duplicate Workspace {w.name}")
+                teamTree.addProblem(f"Duplicate Workspace {w.name}")
                 # Cannot validate Workspace datasets until everything is loaded
             else:
                 eco.workSpaceCache[w.name] = w

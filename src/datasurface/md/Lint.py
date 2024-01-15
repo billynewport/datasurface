@@ -35,12 +35,12 @@ class ValidationTree:
         return False
     
     def checkTypeMatches(self, obj : object, *expectedType : type) -> bool:
-        """Returns true if type matches, false if not and adds a problem"""
+        """Returns true if any type matches, false if not and adds a problem"""
 
         for type in expectedType:
             if(isinstance(obj, type)):
                 return True
-        self.addProblem("Incompatible type " + str(obj.__class__.__name__))
+        self.addProblem("Unexpected type " + str(obj.__class__.__name__))
         return False
 
 

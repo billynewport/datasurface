@@ -3,6 +3,7 @@ import socket
 import ipaddress
 
 def is_valid_sql_identifier(identifier: str) -> bool:
+    """This checks if the string is a valid SQL identifier"""
     # Regular expression for a valid SQL identifier
     pattern = r'^[a-zA-Z][a-zA-Z0-9_]{0,127}$'
     return bool(re.match(pattern, identifier))
