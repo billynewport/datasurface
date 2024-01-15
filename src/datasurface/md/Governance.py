@@ -433,7 +433,7 @@ class Dataset(object):
 #                raise StoragePolicyFromDifferentZone("Datasets must be governed by storage policies from its managing zone")
         pass       
 
-    def isBackwardsCompatibleWith(self, other : 'Dataset', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'Dataset', vTree : ValidationTree) -> bool:
         """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
         can be used in place of this dataset. This is used to check if a dataset can be replaced by another dataset
         when a new version is released"""
@@ -443,6 +443,7 @@ class Dataset(object):
             vTree.addProblem(f"Original schema not set for {other.name}")
         else:
             self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
+        return not vTree.hasIssues()
     
 class DataSourceConnection:
     def __init__(self, name : str) -> None:
@@ -659,7 +660,7 @@ class Datastore(object):
         # TODO Code this
         pass
     
-    def isBackwardsCompatibleWith(self, other : 'Datastore', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'Datastore', vTree : ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
         can be used to replace this one without breaking any data pipelines"""
 
@@ -671,6 +672,7 @@ class Datastore(object):
                 dataset.isBackwardsCompatibleWith(otherDataset, dTree)
             else:
                 dTree.addProblem(f"Dataset {dataset.name} is missing from datastore {other.name}")
+        return not vTree.hasIssues()
         
 class Repository(ABC):
     pass
