@@ -15,9 +15,9 @@ class DataType(ABC):
         return str(self.__class__.__name__) + "()"
 
     @abstractmethod    
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
-        return
+        return True
     
 class BoundedDataType(DataType):
     def __init__(self, maxSize : Optional[int]) -> None:
@@ -35,25 +35,26 @@ class BoundedDataType(DataType):
         else:
             return str(self.__class__.__name__) + f"({self.maxSize})"
         
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if(isinstance(other, BoundedDataType) == False):
             vTree.addProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")
-            return
+            return False
         otherBT : BoundedDataType = cast(BoundedDataType, other)
 
         # If this is unlimited then its compatible
         if(self.maxSize == None):
-            return
+            return True
 
         # Must be unlimited to be compatible with unlimited
         if(self.maxSize and otherBT.maxSize == None):
             vTree.addProblem(f"maxSize has been reduced from unlimited to {self.maxSize}")
                 
         if(self.maxSize == otherBT.maxSize):
-            return
+            return True
         if(otherBT.maxSize and self.maxSize and self.maxSize < otherBT.maxSize):
             vTree.addProblem(f"maxSize has been reduced from {otherBT.maxSize} to {self.maxSize}")
+        return vTree.hasIssues() == False
 
 class TextDataType(BoundedDataType):
     def __init__(self, maxSize : Optional[int], collationString : Optional[str]) -> None:
@@ -76,21 +77,23 @@ class TextDataType(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TextDataType)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, TextDataType):
             otherTD : TextDataType = cast(TextDataType, other)
             if(self.collationString != otherTD.collationString):
                 vTree.addProblem(f"Collation has changed from {otherTD.collationString} to {self.collationString}")
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class NumericDataType(DataType):
     """Base class for all numeric data types"""
     def __init__(self) -> None:
         super().__init__()
 
-    def isBackwardsCompatibleWith(self, other: DataType, vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other: DataType, vTree : ValidationTree) -> bool:
         vTree.checkTypeMatches(other, NumericDataType)
+        return vTree.hasIssues() == False
 
 class SignedOrNot(Enum):
     SIGNED = 0
@@ -108,17 +111,17 @@ class FixedSizeBinaryDataType(NumericDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, FixedSizeBinaryDataType) and self.sizeInBits == __value.sizeInBits and self.isSigned == __value.isSigned
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, FixedSizeBinaryDataType):
             otherFSBDT : FixedSizeBinaryDataType = cast(FixedSizeBinaryDataType, other)
-            if(self.sizeInBits == otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned):
-                return
-            if(self.sizeInBits < otherFSBDT.sizeInBits):
-                vTree.addProblem(f"Size has been reduced from {otherFSBDT.sizeInBits} to {self.sizeInBits}")
-            if(self.isSigned != otherFSBDT.isSigned):
-                vTree.addProblem(f"Signedness has changed from {otherFSBDT.isSigned} to {self.isSigned}")
-            super().isBackwardsCompatibleWith(other, vTree)
+            if(not (self.sizeInBits == otherFSBDT.sizeInBits and self.isSigned == otherFSBDT.isSigned)):
+                if(self.sizeInBits < otherFSBDT.sizeInBits):
+                    vTree.addProblem(f"Size has been reduced from {otherFSBDT.sizeInBits} to {self.sizeInBits}")
+                if(self.isSigned != otherFSBDT.isSigned):
+                    vTree.addProblem(f"Signedness has changed from {otherFSBDT.isSigned} to {self.isSigned}")
+                super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
     
 class TinyInt(FixedSizeBinaryDataType):
     """8 bit signed integer"""
@@ -185,7 +188,7 @@ class CustomFloat(NumericDataType):
         """Returns true if this float can be represented by the other float excluding non finite behaviors"""
         return self.maxExponent <= other.maxExponent and self.minExponent >= other.minExponent and self.precision <= other.precision
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, CustomFloat):
             otherCF : CustomFloat = cast(CustomFloat, other)
@@ -194,6 +197,7 @@ class CustomFloat(NumericDataType):
             if otherCF.isRepresentableBy(self):
                 return super().isBackwardsCompatibleWith(other, vTree)
             vTree.addProblem("New Type loses precision on current type")
+        return vTree.hasIssues() == False
     
 class IEEE16(CustomFloat):
     """Half precision IEEE754"""
@@ -261,13 +265,14 @@ class Decimal(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Decimal) and self.precision == __value.precision        
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Decimal):
             otherD : Decimal = cast(Decimal, other)
             if(self.precision < otherD.precision):
                 vTree.addProblem(f"Precision has been reduced from {otherD.precision} to {self.precision}")
             return super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
     
     def __str__(self) -> str:
         if(self.maxSize == None):
@@ -287,9 +292,10 @@ class Timestamp(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         vTree.checkTypeMatches(other, Timestamp, Date)
+        return vTree.hasIssues() == False
 
 class Date(TemporalDataType):
     def __init__(self) -> None:
@@ -298,9 +304,10 @@ class Date(TemporalDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Date)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         vTree.checkTypeMatches(other, Date)
+        return vTree.hasIssues() == False
 
 class Interval(TemporalDataType):
     def __init__(self) -> None:
@@ -309,10 +316,11 @@ class Interval(TemporalDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Interval)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Interval):
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class UniCodeType(TextDataType):
     """Base class for unicode datatypes"""
@@ -334,20 +342,22 @@ class UniCodeType(TextDataType):
             return str(self.__class__.__name__) + f"({self.maxSize}, '{self.collationString}')"
             
         
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, UniCodeType):
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class NonUnicodeString(TextDataType):
     """Base class for non unicode datatypes with collation"""
     def __init__(self, maxSize: Optional[int], collationString : Optional[str]) -> None:
         super().__init__(maxSize, collationString)
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, NonUnicodeString):
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class VarChar(NonUnicodeString):
     """Variable length non unicode string with maximum size"""
@@ -395,10 +405,11 @@ class Boolean(DataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Boolean):
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class Variant(BoundedDataType):
     """JSON type datatype"""
@@ -408,20 +419,22 @@ class Variant(BoundedDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Variant)
     
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Variant):
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class Binary(BoundedDataType):
     """Binary blob"""
     def __init__(self, maxSize : Optional[int] = None) -> None:
         super().__init__(maxSize)
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Binary):
             super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class Vector(DataType):
     """Fixed length vector of floats for machine learning"""
@@ -435,7 +448,7 @@ class Vector(DataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Vector) and self.dimensions == __value.dimensions
 
-    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> None:
+    def isBackwardsCompatibleWith(self, other : 'DataType', vTree : ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Vector):
             otherV : Vector = cast(Vector, other)
@@ -443,6 +456,7 @@ class Vector(DataType):
                 vTree.addProblem(f"Dimensions has been reduced from {otherV.dimensions} to {self.dimensions}")
             else:
                 super().isBackwardsCompatibleWith(other, vTree)
+        return vTree.hasIssues() == False
 
 class DataClassification(Enum):
     """This is the privacy classification of the data"""
