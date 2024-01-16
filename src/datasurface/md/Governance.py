@@ -6,7 +6,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
 
-from .utils import is_valid_hostname_or_ip, is_valid_sql_identifier
+from .utils import is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
 from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifierException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
 from .Lint import ValidationTree
@@ -719,10 +719,10 @@ class GitRepository(Repository):
     
     def lint(self, tree : ValidationTree):
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if(self.repoURL == ""):
-            tree.addProblem("Repository URL is empty")
-        if(self.moduleName == ""):
-            tree.addProblem("Module name is empty")
+        if(is_valid_github_url(self.repoURL) == False):
+            tree.addProblem("Repository URL is not valid")
+        if(is_valid_github_module(self.moduleName) == False):
+            tree.addProblem("Module name is not valid")
 
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
@@ -812,6 +812,7 @@ class Ecosystem(GitControlledObject):
             work.lint(self, workTree)
 
         self.superLint(ecoTree)
+        self.zones.lint(ecoTree)
         return ecoTree
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
@@ -866,19 +867,20 @@ class Ecosystem(GitControlledObject):
 
         # First, the incoming ecosystem must be consistent and pass lint checks
         eTree : ValidationTree = proposed.lintAndHydrateCaches()
+
+        # Any errors make us fail immediately
+        # But we want warnings and infos to accumulate for the caller
         if eTree.hasErrors():
             return eTree
         
         # Check if the proposed changes being made by an authorized repository
-        vTree : ValidationTree = ValidationTree(self)
-        self.checkIfChangesAreAuthorized(proposed, source, vTree)
-        if vTree.hasErrors():
-            return vTree
+        self.checkIfChangesAreAuthorized(proposed, source, eTree)
+        if eTree.hasErrors():
+            return eTree
         
         # Check if the proposed changes are backwards compatible
-        bTree : ValidationTree = ValidationTree(self)
-        proposed.checkIfChangesAreBackwardsCompatibleWith(self, bTree)
-        return bTree
+        proposed.checkIfChangesAreBackwardsCompatibleWith(self, eTree)
+        return eTree
     
 
 
@@ -963,6 +965,10 @@ class NamedObjectAuthorization:
     def __init__(self, name : str, owningRepo : Repository) -> None:
         self.name : str = name
         self.owningRepo : Repository = owningRepo
+
+    def lint(self, tree : ValidationTree):
+        self.owningRepo.lint(tree)
+
 
 G = TypeVar('G', bound=GitControlledObject)
 N = TypeVar('N', bound=NamedObjectAuthorization)
@@ -1143,6 +1149,7 @@ class GovernanceZone(GitControlledObject):
                 teamTree : ValidationTree = govTree.createChild(team)
                 team.lint(eco, self, teamTree)
         self.superLint(govTree)
+        self.teams.lint(govTree)
 
     def __str__(self) -> str:
         return f"GovernanceZone({self.name})"

@@ -8,10 +8,10 @@ from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem(
         "Test", 
-        GitRepository("ssh://u@local:/v1/source/eco", "main"),
-        GovernanceZoneDeclaration("USA", GitRepository("ssh://u@local:/v1/source/gz_usa", "main")),
-        GovernanceZoneDeclaration("EU", GitRepository("ssh://u@local:/v1/source/gz_eu", "main")),
-        GovernanceZoneDeclaration("UK", GitRepository("ssh://u@local:/v1/source/gz_uk", "main"))
+        GitRepository("https://github.com/billynewport/eco.git", "main"),
+        GovernanceZoneDeclaration("USA", GitRepository("https://github.com/billynewport/gzUSA.git", "main")),
+        GovernanceZoneDeclaration("EU", GitRepository("https://github.com/billynewport/gzEU.git", "main")),
+        GovernanceZoneDeclaration("UK", GitRepository("https://github.com/billynewport/gzUK.git", "main"))
     )
 
     gzUSA : Optional[GovernanceZone] = ecosys.getZone("USA")
@@ -38,10 +38,10 @@ def createEcosystem() -> Ecosystem:
                         InfraLocation("West US 3")), # Arizona
                 ),
 
-                TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
-                TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
-                TeamDeclaration("NorthWindTeam", GitRepository("ssh://u@local:/v1/source/nwteam", "main")),
-                TeamDeclaration("BackOffice", GitRepository("ssh://u@local:/v1/source/bo", "main")),
+                TeamDeclaration("FrontOffice", GitRepository("https://github.com/billynewport/fo.git", "main")),
+                TeamDeclaration("MiddleOffice", GitRepository("https://github.com/billynewport/mo.git", "main")),
+                TeamDeclaration("NorthWindTeam", GitRepository("https://github.com/billynewport/nwTeam.git", "main")),
+                TeamDeclaration("BackOffice", GitRepository("https://github.com/billynewport/bo.git", "main")),
 
                 DataPlatform("DataGlide@1.0")
             )
@@ -54,9 +54,9 @@ def createEcosystem() -> Ecosystem:
                     InfraLocation("eu-central-1"), # Frankfurt
                     InfraLocation("eu-west-3")), # Paris
 
-                TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
-                TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
-                TeamDeclaration("BackOffice", GitRepository("ssh://u@local:/v1/source/bo", "main")),
+                TeamDeclaration("FrontOffice", GitRepository("https://github.com/billynewport/fo.git", "main")),
+                TeamDeclaration("MiddleOffice", GitRepository("https://github.com/billynewport/mo.git", "main")),
+                TeamDeclaration("BackOffice", GitRepository("https://github.com/billynewport/bo.git", "main")),
 
                 DataPlatform("DataGlide@1.0")
                 )
@@ -73,9 +73,9 @@ def createEcosystem() -> Ecosystem:
                 InfraLocation("London"),
                 InfraLocation("Cambridge")),
 
-            TeamDeclaration("FrontOffice", GitRepository("ssh://u@local:/v1/source/fo", "main")),
-            TeamDeclaration("MiddleOffice", GitRepository("ssh://u@local:/v1/source/mo", "main")),
-            TeamDeclaration("BackOffice", GitRepository("ssh://u@local:/v1/source/bo", "main")),
+            TeamDeclaration("FrontOffice", GitRepository("https://github.com/billynewport/fo.git", "main")),
+            TeamDeclaration("MiddleOffice", GitRepository("https://github.com/billynewport/mo.git", "main")),
+            TeamDeclaration("BackOffice", GitRepository("https://github.com/billynewport/bo.git", "main")),
 
             DataPlatform("DataGlide@1.0")
         )

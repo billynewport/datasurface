@@ -1,6 +1,7 @@
 import re
 import socket
 import ipaddress
+from urllib.parse import urlparse
 
 def is_valid_sql_identifier(identifier: str) -> bool:
     """This checks if the string is a valid SQL identifier"""
@@ -31,3 +32,17 @@ def is_valid_hostname_or_ip(s : str) -> bool:
 
     return False    
         
+def is_valid_github_url(url: str) -> bool:
+    try:
+        result = urlparse(url)
+        if result.scheme in ['http', 'https']:
+            return result.netloc == 'github.com' and result.path.count('/') >= 2
+        elif result.scheme == '':
+            return result.netloc == 'github.com' and result.path.startswith(':') and result.path.count('/') == 1
+        else:
+            return False
+    except ValueError:
+        return False
+    
+def is_valid_github_module(module: str) -> bool:
+    return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', module))
