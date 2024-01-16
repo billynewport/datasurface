@@ -5,6 +5,9 @@ class ValidationProblem:
         self.description : str = desc
         """A description of what the issue is"""
 
+    def __str__(self) -> str:
+        return self.description
+
 class ValidationTree:
     def __init__(self, obj : object) -> None:
         self.object : object = obj
@@ -43,6 +46,13 @@ class ValidationTree:
         self.addProblem("Unexpected type " + str(obj.__class__.__name__))
         return False
 
-
+    def printTree(self, indent : int = 0) -> None:
+        """This prints the tree of objects"""
+        if(self.hasIssues()):
+            print(" " * indent, self.object)
+            for problem in self.problems:
+                print(" " * (indent + 2), problem.description)
+            for child in self.children:
+                child.printTree(indent + 2)
     
 

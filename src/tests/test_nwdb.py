@@ -9,7 +9,7 @@ def test_validate_nwdb():
     e : Ecosystem = tests.nwdb.eco.createEcosystem()
 
     rc : ValidationTree = e.lintAndHydrateCaches()
-    print(rc)
+    rc.printTree()
     assert rc.hasIssues() == False
 
 class TestEcosystemValidation(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestEcosystemValidation(unittest.TestCase):
         col.name = "col 1" # Not ANSI SQL Identifier
         tree : ValidationTree = ValidationTree(col)
         col.lint(tree)
-        self.assertEquals(len(tree.problems), 1)
+        self.assertEqual(len(tree.problems), 1)
         self.assertTrue(tree.hasIssues())
 
         # Test cases where the column is not valid
@@ -31,7 +31,7 @@ class TestEcosystemValidation(unittest.TestCase):
     def assertOneIssue(self, o : DataType):
         tree : ValidationTree = ValidationTree(o)
         o.lint(tree)
-        self.assertEquals(len(tree.problems), 1)
+        self.assertEqual(len(tree.problems), 1)
         self.assertTrue(tree.hasIssues())
 
     def assertNoIssue(self, o : DataType):

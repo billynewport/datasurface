@@ -584,6 +584,9 @@ class DDLColumn(object):
             tree.addProblem(f"Column name {self.name} is not a valid ANSI SQL identifier")
         self.type.lint(tree)
 
+    def __str__(self) -> str:
+        return f"DDLColumn({self.name})"
+
 class AttributeList:
     """A list of column names."""
     def __init__(self, colNames : list[str]) -> None:
@@ -743,7 +746,15 @@ class DDLTable(Schema):
                         tree.addProblem(f"Column {colName} should be marked primary key column")
                     if(col.nullable == NullableStatus.NULLABLE):
                         tree.addProblem(f"Primary key {colName} cannot be nullable")
+            for col in self.columns.values():
+                colTree : ValidationTree = tree.createChild(col)
+                col.lint(colTree)
+                if col.primaryKey == PrimaryKeyStatus.PK and col.name not in self.primaryKeyColumns.colNames:
+                    tree.addProblem(f"Column {col.name} is marked as primary key but is not in the primary key list")
+        else:
+            tree.addProblem("Table must have a primary key list")
 
+        # If partitioning columns are specified then they must exist and be non nullable
         if self.ingestionPartitionColumns:
             for colName in self.ingestionPartitionColumns.colNames:
                 if(colName not in self.columns):
@@ -752,8 +763,8 @@ class DDLTable(Schema):
                     col : DDLColumn = self.columns[colName]
                     if(col.nullable == NullableStatus.NULLABLE):
                         tree.addProblem(f"Partitioning column {colName} cannot be nullable")
-                        
-        for col in self.columns.values():
-            colTree : ValidationTree = tree.createChild(col)
-            col.lint(colTree)
+
+    def __str__(self) -> str:
+        return f"DDLTable()"
+
     

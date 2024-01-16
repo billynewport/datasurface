@@ -433,6 +433,9 @@ class Dataset(object):
             self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
         return not vTree.hasIssues()
     
+    def __str__(self) -> str:
+        return f"Dataset({self.name})"
+    
 class DataSourceConnection:
     def __init__(self, name : str) -> None:
         self.name : str = name
@@ -667,6 +670,9 @@ class Datastore(object):
             else:
                 dTree.addProblem(f"Dataset {dataset.name} is missing from datastore {other.name}")
         return not vTree.hasIssues()
+    
+    def __str__(self) -> str:
+        return f"Datastore({self.name})"
         
 class Repository(ABC):
     pass
@@ -812,6 +818,9 @@ class Ecosystem(GitControlledObject):
             return t
         else:
             return None
+        
+    def __str__(self) -> str:
+        return f"Ecosystem({self.name})"
 
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
@@ -874,6 +883,8 @@ class Team(GitControlledObject):
             else:
                 eco.workSpaceCache[w.name] = w
 
+    def __str__(self) -> str:
+        return f"Team({self.name})"
         
 class NamedObjectAuthorization:
     """This represents a named object under the management of a repository. It is used to authorize the existence
@@ -1058,6 +1069,8 @@ class GovernanceZone(GitControlledObject):
                 teamTree : ValidationTree = govTree.createChild(team)
                 team.lint(eco, self, teamTree)
 
+    def __str__(self) -> str:
+        return f"GovernanceZone({self.name})"
 
 @dataclass
 class WorkspaceEntitlement:
