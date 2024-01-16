@@ -168,8 +168,8 @@ def defineTables(t : Team):
 
 def defineWorkspaces(t : Team):
     t.add(
-        Workspace("Product live adhoc reporting",
-            DatasetGroup("Live Products",
+        Workspace("ProductLiveAdhocReporting",
+            DatasetGroup("LiveProducts",
                 WorkspacePlatformConfig(
                     ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
                         DataLatency.MINUTES, # Minutes of latency is acceptable

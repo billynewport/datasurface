@@ -10,21 +10,21 @@ def test_validate_nwdb():
 
     rc : ValidationTree = e.lintAndHydrateCaches()
     rc.printTree()
-    assert rc.hasIssues() == False
+    assert rc.hasErrors() == False
 
 class TestEcosystemValidation(unittest.TestCase):
     def test_validate_columns(self):
         col : DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
         tree : ValidationTree = ValidationTree(col)
         col.lint(tree)
-        self.assertFalse(tree.hasIssues())
+        self.assertFalse(tree.hasErrors())
 
         # Test cases where the column is not valid
         col.name = "col 1" # Not ANSI SQL Identifier
         tree : ValidationTree = ValidationTree(col)
         col.lint(tree)
         self.assertEqual(len(tree.problems), 1)
-        self.assertTrue(tree.hasIssues())
+        self.assertTrue(tree.hasErrors())
 
         # Test cases where the column is not valid
 
@@ -32,12 +32,12 @@ class TestEcosystemValidation(unittest.TestCase):
         tree : ValidationTree = ValidationTree(o)
         o.lint(tree)
         self.assertEqual(len(tree.problems), 1)
-        self.assertTrue(tree.hasIssues())
+        self.assertTrue(tree.hasErrors())
 
     def assertNoIssue(self, o : DataType):
         tree : ValidationTree = ValidationTree(o)
         o.lint(tree)
-        self.assertFalse(tree.hasIssues())
+        self.assertFalse(tree.hasErrors())
 
     def test_lint_datatypes(self):
         self.assertNoIssue(String(20))
@@ -69,7 +69,7 @@ def test_eq_ecosystem():
     # No changes
     problems : ValidationTree = ValidationTree(e)
     e.checkIfChangesAreAuthorized(e2, e.owningRepo, problems)
-    assert problems.hasIssues() == False
+    assert problems.hasErrors() == False
 
     e2.name = "Test2"
     # Test name cannot be changed from another repo
@@ -79,7 +79,7 @@ def test_eq_ecosystem():
     # Verify that the change is not authorized
     problems = ValidationTree(e)
     e.checkIfChangesAreAuthorized(e2, diffR, problems)
-    assert problems.hasIssues()
+    assert problems.hasErrors()
 
     e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
 

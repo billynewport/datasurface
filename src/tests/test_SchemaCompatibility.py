@@ -8,10 +8,10 @@ from datasurface.md.Lint import ValidationTree
 class TestSchemaCompatibility(unittest.TestCase):
 
     def assertCompatible(self, rc : ValidationTree):
-        self.assertFalse(rc.hasIssues())
+        self.assertFalse(rc.hasErrors())
 
     def assertNotCompatible(self, rc : ValidationTree):
-        self.assertTrue(rc.hasIssues())
+        self.assertTrue(rc.hasErrors())
 
     def test_ColumnCompatibility(self):
         col1 : DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)

@@ -1,12 +1,22 @@
 
 
+from enum import Enum
+
+
+class ProblemSeverity(Enum):
+    """This is the severity of the problem"""
+    ERROR = 0
+    WARNING = 1
+    INFO = 2
+    
 class ValidationProblem:
-    def __init__(self, desc : str) -> None:
+    def __init__(self, desc : str, sev : ProblemSeverity = ProblemSeverity.ERROR) -> None:
         self.description : str = desc
         """A description of what the issue is"""
+        self.sev : ProblemSeverity = sev
 
     def __str__(self) -> str:
-        return self.description
+        return f"{self.sev}:{self.description}"
 
 class ValidationTree:
     def __init__(self, obj : object) -> None:
@@ -28,10 +38,23 @@ class ValidationTree:
         """This adds a problem to this object"""
         self.problems.append(ValidationProblem(problem))
 
+    def hasErrors(self) -> bool:
+        """This returns true if this object or any of its children have ERROR severity problems"""
+        for problem in self.problems:
+            if(problem.sev == ProblemSeverity.ERROR):
+                return True
+            
+        for child in self.children:
+            if(child.hasErrors()):
+                return True
+        return False
+    
     def hasIssues(self) -> bool:
-        """This returns true if this object or any of its children have problems"""
-        if(len(self.problems) > 0):
-            return True
+        """This returns true if this object or any of its children have non ERROR severity problems"""
+        for problem in self.problems:
+            if(problem.sev != ProblemSeverity.ERROR):
+                return True
+            
         for child in self.children:
             if(child.hasIssues()):
                 return True
@@ -48,10 +71,10 @@ class ValidationTree:
 
     def printTree(self, indent : int = 0) -> None:
         """This prints the tree of objects"""
-        if(self.hasIssues()): # If something to see here or in the children then
+        if(self.hasErrors()): # If something to see here or in the children then
             print(" " * indent, self.object)
             for problem in self.problems:
-                print(" " * (indent + 2), problem.description)
+                print(" " * (indent + 2), str(problem))
             for child in self.children:
                 child.printTree(indent + 2)
     

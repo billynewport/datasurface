@@ -435,7 +435,7 @@ class Dataset(object):
             vTree.addProblem(f"Original schema not set for {other.name}")
         else:
             self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
-        return not vTree.hasIssues()
+        return not vTree.hasErrors()
     
     def __str__(self) -> str:
         return f"Dataset({self.name})"
@@ -688,7 +688,7 @@ class Datastore(object):
                 dataset.isBackwardsCompatibleWith(otherDataset, dTree)
             else:
                 dTree.addProblem(f"Dataset {dataset.name} is missing from datastore {other.name}")
-        return not vTree.hasIssues()
+        return not vTree.hasErrors()
     
     def __str__(self) -> str:
         return f"Datastore({self.name})"
@@ -809,12 +809,7 @@ class Ecosystem(GitControlledObject):
         # Now lint the workspaces
         for work in self.workSpaceCache.values():
             workTree : ValidationTree = ecoTree.createChild(work)
-            for dsg in work.dsgs.values():
-                for sink in dsg.datasets.values():
-                    # Check all datasets in the workspace exist
-                    dataset : Optional[Dataset] = self.cache_getDataset(sink.storeName, sink.datasetName)
-                    if(dataset == None):
-                        workTree.addProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
+            work.lint(self, workTree)
 
         self.superLint(ecoTree)
         return ecoTree
@@ -855,6 +850,37 @@ class Ecosystem(GitControlledObject):
         
     def __str__(self) -> str:
         return f"Ecosystem({self.name})"
+
+    def checkIfChangesAreBackwardsCompatibleWith(self, originEco : 'Ecosystem', vTree : ValidationTree) -> None:
+        """This checks if the proposed ecosystem is backwards compatible with the current ecosystem"""
+        # Check if the zones are compatible
+        for zone in self.zones.authorizedObjects.values():
+            zTree : ValidationTree = vTree.createChild(zone)
+            originZone : Optional[GovernanceZone] = originEco.getZone(zone.name)
+            if originZone:
+                zone.isBackwardsCompatibleWith(originZone, zTree)
+
+    def checkIfChangesCanBeMerged(self, proposed : 'Ecosystem', source : Repository) -> ValidationTree:
+        """This is called to check if the proposed changes can be merged in to the current ecosystem. It returns a ValidationTree with issues if not
+        or an empty ValidationTree if allowed."""
+
+        # First, the incoming ecosystem must be consistent and pass lint checks
+        eTree : ValidationTree = proposed.lintAndHydrateCaches()
+        if eTree.hasErrors():
+            return eTree
+        
+        # Check if the proposed changes being made by an authorized repository
+        vTree : ValidationTree = ValidationTree(self)
+        self.checkIfChangesAreAuthorized(proposed, source, vTree)
+        if vTree.hasErrors():
+            return vTree
+        
+        # Check if the proposed changes are backwards compatible
+        bTree : ValidationTree = ValidationTree(self)
+        proposed.checkIfChangesAreBackwardsCompatibleWith(self, bTree)
+        return bTree
+    
+
 
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
@@ -921,6 +947,15 @@ class Team(GitControlledObject):
 
     def __str__(self) -> str:
         return f"Team({self.name})"
+    
+    def isBackwardsCompatibleWith(self, originTeam : 'Team', vTree : ValidationTree):
+        """This checks if the current team is backwards compatible with the origin team"""
+        # Check if the datasets are compatible
+        for store in self.dataStores.values():
+            sTree : ValidationTree = vTree.createChild(store)
+            originStore : Optional[Datastore] = originTeam.dataStores.get(store.name)
+            if(originStore):
+                store.isBackwardsCompatibleWith(originStore, sTree)
         
 class NamedObjectAuthorization:
     """This represents a named object under the management of a repository. It is used to authorize the existence
@@ -1111,6 +1146,19 @@ class GovernanceZone(GitControlledObject):
 
     def __str__(self) -> str:
         return f"GovernanceZone({self.name})"
+    
+    def isBackwardsCompatibleWith(self, originZone : 'GovernanceZone', tree : ValidationTree):
+        """This checks if this zone is backwards compatible with the original zone. This means that the proposed zone
+        can be used to replace this one without breaking any data pipelines"""
+
+        # Check if the teams are compatible
+        for team in self.teams.authorizedObjects.values():
+            tTree : ValidationTree = tree.createChild(team)
+            originTeam : Optional[Team] = originZone.getTeam(team.name)
+            if originTeam:
+                team.isBackwardsCompatibleWith(originTeam, tTree)
+            else:
+                tTree.addProblem(f"Team {team.name} is missing from zone {originZone.name}")
 
 @dataclass
 class WorkspaceEntitlement:
@@ -1233,6 +1281,24 @@ class Workspace(object):
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    def lint(self, eco : Ecosystem, tree : ValidationTree):
+        if not is_valid_sql_identifier(self.name):
+            tree.addProblem(f"Workspace name {self.name} is not a valid SQL identifier")
+
+        # Lint the DSGs
+        for dsg in self.dsgs.values():
+            for sink in dsg.datasets.values():
+                # Check all datasets in the workspace exist
+                dataset : Optional[Dataset] = eco.cache_getDataset(sink.storeName, sink.datasetName)
+                if(dataset == None):
+                    tree.addProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
+        for dsg in self.dsgs.keys():
+            if not is_valid_sql_identifier(dsg):
+                tree.addProblem(f"DatasetGroup name {dsg} is not a valid SQL identifier")
+
+    def __str__(self) -> str:
+        return f"Workspace({self.name})"    
     
 class Asset:
     def __init__(self, name : str, containers : Iterable[DataContainer]) -> None:

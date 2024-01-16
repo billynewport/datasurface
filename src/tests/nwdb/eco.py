@@ -94,7 +94,7 @@ def createEcosystem() -> Ecosystem:
 def test_Validate():
     ecosys : Ecosystem = createEcosystem()
     vTree : ValidationTree = ecosys.lintAndHydrateCaches()
-    if(vTree.hasIssues()):
+    if(vTree.hasErrors()):
         print(vTree)
         raise Exception("Ecosystem validation failed")
     else:
