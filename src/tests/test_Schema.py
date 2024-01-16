@@ -1,7 +1,7 @@
 import unittest
 
 from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus
-from datasurface.md import DDLTable, PrimaryKeyList, DataClassification, Decimal
+from datasurface.md import DDLTable, PrimaryKeyList, DataClassification
 
 class TestSchemaCreation(unittest.TestCase):
     def testPrimaryKeys(self):
@@ -13,15 +13,6 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(c.type, String(10))
         self.assertEqual(c.name, "id")
         self.assertEqual(c.classification, DataClassification.PC3)
-
-        # Check type bounds are enforced
-        self.assertRaises(Exception, String, 0) # Size must be > 0
-        self.assertRaises(Exception, Decimal, 10, -1) # Precision must be >= 0
-
-        try:
-            Decimal(10, 0) # Precision must be >= 0
-        except Exception as e:
-            self.fail(f"Unexpected exception {e}")
 
         # Create a table specifying the primary key on the columns
         t : DDLTable = DDLTable(

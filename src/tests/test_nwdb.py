@@ -1,5 +1,7 @@
+import unittest
 from datasurface.md.Governance import GitRepository, Repository
 from datasurface.md.Lint import ValidationTree
+from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
 from datasurface.md import Ecosystem
 
@@ -10,6 +12,52 @@ def test_validate_nwdb():
     print(rc)
     assert rc.hasIssues() == False
 
+class TestEcosystemValidation(unittest.TestCase):
+    def test_validate_columns(self):
+        col : DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
+        tree : ValidationTree = ValidationTree(col)
+        col.lint(tree)
+        self.assertFalse(tree.hasIssues())
+
+        # Test cases where the column is not valid
+        col.name = "col 1" # Not ANSI SQL Identifier
+        tree : ValidationTree = ValidationTree(col)
+        col.lint(tree)
+        self.assertEquals(len(tree.problems), 1)
+        self.assertTrue(tree.hasIssues())
+
+        # Test cases where the column is not valid
+
+    def assertOneIssue(self, o : DataType):
+        tree : ValidationTree = ValidationTree(o)
+        o.lint(tree)
+        self.assertEquals(len(tree.problems), 1)
+        self.assertTrue(tree.hasIssues())
+
+    def assertNoIssue(self, o : DataType):
+        tree : ValidationTree = ValidationTree(o)
+        o.lint(tree)
+        self.assertFalse(tree.hasIssues())
+
+    def test_lint_datatypes(self):
+        self.assertNoIssue(String(20))
+
+        self.assertOneIssue(String(0)) # String length must be > 0
+        self.assertOneIssue(Decimal(10, -1)) # Scale < 0
+        self.assertOneIssue(Decimal(10, 11)) # Precision > scale
+        self.assertNoIssue(Decimal(10, 0)) # Scale == 0 is ok
+
+        self.assertNoIssue(Vector(10))
+        self.assertOneIssue(Vector(0)) # Vector length must be > 0
+
+        self.assertNoIssue(IEEE128())
+        self.assertNoIssue(IEEE64())
+        self.assertNoIssue(IEEE32())
+        self.assertNoIssue(IEEE16())
+
+        self.assertNoIssue(Date())
+
+    
 def test_eq_ecosystem():
     e : Ecosystem = tests.nwdb.eco.createEcosystem()
     e2 : Ecosystem = tests.nwdb.eco.createEcosystem()

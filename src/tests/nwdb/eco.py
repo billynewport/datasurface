@@ -1,6 +1,7 @@
 from typing import Optional
 from datasurface.md import Team, GovernanceZoneDeclaration, GitRepository, GovernanceZone, InfrastructureVendor, InfraLocation, TeamDeclaration, DataPlatform
 from datasurface.md import Ecosystem
+from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 
@@ -90,3 +91,14 @@ def createEcosystem() -> Ecosystem:
     
     return ecosys
 
+def test_Validate():
+    ecosys : Ecosystem = createEcosystem()
+    vTree : ValidationTree = ecosys.lintAndHydrateCaches()
+    if(vTree.hasIssues()):
+        print(vTree)
+        raise Exception("Ecosystem validation failed")
+    else:
+        print("Ecosystem validated OK")
+
+if __name__ == "__main__":
+    test_Validate()

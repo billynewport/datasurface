@@ -22,12 +22,21 @@ class DataType(ABC):
         """Returns true if this data type is backwards compatible with the other data type"""
         return True
     
+    @abstractmethod
+    def lint(self, vTree : ValidationTree) -> None:
+        """This method is called to lint the data type. All validation of parameters should
+        be here and not in the constructor"""
+        pass
+    
 class BoundedDataType(DataType):
     def __init__(self, maxSize : Optional[int]) -> None:
         super().__init__()
         self.maxSize : Optional[int] = maxSize
+
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
         if(self.maxSize != None and self.maxSize <= 0):
-            raise Exception("Max size must be > 0")
+            vTree.addProblem("Max size must be > 0")
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, BoundedDataType) and self.maxSize == __value.maxSize
@@ -111,6 +120,11 @@ class FixedSizeBinaryDataType(NumericDataType):
         self.isSigned : SignedOrNot = isSigned
         """Is this a signed integer"""
 
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
+        if(self.sizeInBits <= 0):
+            vTree.addProblem("Size must be > 0")
+
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, FixedSizeBinaryDataType) and self.sizeInBits == __value.sizeInBits and self.isSigned == __value.isSigned
 
@@ -183,6 +197,23 @@ class CustomFloat(NumericDataType):
         """Number of bits in the significand, this includes the sign bit"""
         self.nonFiniteBehavior : NonFiniteBehavior = nonFiniteBehavior
         self.nanEncoding : FloatNanEncoding = nanEncoding
+
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
+        if(self.sizeInBits <= 0):
+            vTree.addProblem("Size must be > 0")
+        if(self.maxExponent <= 0):
+            vTree.addProblem("Max exponent must be > 0")
+        if(self.minExponent >= 0):
+            vTree.addProblem("Min exponent must be < 0")
+        if(self.precision <= 0):
+            vTree.addProblem("Precision must be > 0")
+        if(self.maxExponent <= self.minExponent):
+            vTree.addProblem("Max exponent must be > min exponent")
+        if(self.precision > self.sizeInBits):
+            vTree.addProblem("Precision must be <= size in bits")
+        if(self.nonFiniteBehavior == NonFiniteBehavior.NanOnly and self.nanEncoding == FloatNanEncoding.NegativeZero):
+            vTree.addProblem("Non finite behavior cannot be NanOnly and nan encoding cannot be NegativeZero")
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, CustomFloat) and self.maxExponent == __value.maxExponent and self.minExponent == __value.minExponent and self.precision == __value.precision and self.nonFiniteBehavior == __value.nonFiniteBehavior and self.nanEncoding == __value.nanEncoding
@@ -261,9 +292,17 @@ class Decimal(BoundedDataType):
     """Signed Fixed decimal number with fixed size fraction"""
     def __init__(self, maxSize : int, precision : int) -> None:
         super().__init__(maxSize)
-        if(precision < 0):
-            raise Exception("Precision must be >= 0")
         self.precision : int = precision
+
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
+        if(self.precision < 0):
+            vTree.addProblem("Precision must be >= 0")
+        if(self.maxSize == None):
+            vTree.addProblem("Decimal must have a maximum size")
+        else:
+            if(self.precision > self.maxSize):
+                vTree.addProblem("Precision must be <= maxSize")
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Decimal) and self.precision == __value.precision        
@@ -289,6 +328,9 @@ class TemporalDataType(DataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TemporalDataType)
+    
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
 
 class Timestamp(TemporalDataType):
     """Timestamp with microsecond precision, this includes a Date and a timestamp with microsecond precision"""
@@ -413,6 +455,9 @@ class Boolean(DataType):
         if vTree.checkTypeMatches(other, Boolean):
             super().isBackwardsCompatibleWith(other, vTree)
         return vTree.hasIssues() == False
+    
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
 
 class Variant(BoundedDataType):
     """JSON type datatype"""
@@ -444,6 +489,11 @@ class Vector(DataType):
     def __init__(self, dimensions : int) -> None:
         super().__init__()
         self.dimensions : int = dimensions
+
+    def lint(self, vTree : ValidationTree) -> None:
+        super().lint(vTree)
+        if(self.dimensions <= 0):
+            vTree.addProblem("Dimensions must be > 0")
 
     def __str__(self) -> str:
         return str(self.__class__.__name__) + f"({self.dimensions})"
@@ -530,9 +580,9 @@ class DDLColumn(object):
         return vTree.hasIssues() == False
     
     def lint(self, tree : ValidationTree) -> None:
-        """This method performs linting on this column"""
-        # TODO Add support for linting the column
-        pass
+        if not is_valid_sql_identifier(self.name):
+            tree.addProblem(f"Column name {self.name} is not a valid ANSI SQL identifier")
+        self.type.lint(tree)
 
 class AttributeList:
     """A list of column names."""
@@ -543,6 +593,11 @@ class AttributeList:
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, AttributeList) and self.colNames == __value.colNames
+    
+    def lint(self, tree : ValidationTree) -> None:
+        for col in self.colNames:
+            if not is_valid_sql_identifier(col):
+                tree.addProblem(f"Column name {col} is not a valid ANSI SQL identifier")
 
 class PrimaryKeyList(AttributeList):
     """A list of columns to be used as the primary key"""
@@ -586,7 +641,11 @@ class Schema(ABC):
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:
         """This method performs linting on this schema"""
-        raise NotImplementedError()
+        if(self.primaryKeyColumns):
+            self.primaryKeyColumns.lint(tree.createChild(self.primaryKeyColumns))
+                
+        if(self.ingestionPartitionColumns):
+            self.ingestionPartitionColumns.lint(tree.createChild(self.ingestionPartitionColumns))
 
     
 class DDLTable(Schema):
@@ -673,6 +732,27 @@ class DDLTable(Schema):
     
     def lint(self, tree : ValidationTree) -> None:
         """This method performs linting on this schema"""
+        super().lint(tree)
+        if self.primaryKeyColumns:
+            for colName in self.primaryKeyColumns.colNames:
+                if(colName not in self.columns):
+                    tree.addProblem(f"Primary key column {colName} is not in the column list")
+                else:
+                    col : DDLColumn = self.columns[colName]
+                    if(col.primaryKey != PrimaryKeyStatus.PK):
+                        tree.addProblem(f"Column {colName} should be marked primary key column")
+                    if(col.nullable == NullableStatus.NULLABLE):
+                        tree.addProblem(f"Primary key {colName} cannot be nullable")
+
+        if self.ingestionPartitionColumns:
+            for colName in self.ingestionPartitionColumns.colNames:
+                if(colName not in self.columns):
+                    tree.addProblem(f"Partitioning column {colName} is not in the column list")
+                else:
+                    col : DDLColumn = self.columns[colName]
+                    if(col.nullable == NullableStatus.NULLABLE):
+                        tree.addProblem(f"Partitioning column {colName} cannot be nullable")
+                        
         for col in self.columns.values():
             colTree : ValidationTree = tree.createChild(col)
             col.lint(colTree)
