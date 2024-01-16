@@ -1,6 +1,6 @@
-from datasurface.md.Governance import Credential, EncryptionSystem, Ecosystem, GovernanceZone, Team
-from datasurface.md.Lint import ValidationTree
-from datasurface.md.utils import is_valid_azure_key_vault_name
+from .Governance import Credential, EncryptionSystem, Ecosystem, GovernanceZone, Team
+from .Lint import ValidationTree
+from .utils import is_valid_azure_key_vault_name
 
 
 class AzureKeyVaultCredential(Credential):
@@ -19,6 +19,9 @@ class AzureKeyVaultCredential(Credential):
         super().lint(eco, gz, t, tree)
         if(not is_valid_azure_key_vault_name(self.keyVaultName)):
             tree.addProblem("Azure Key Vault name is invalid")
+
+    def __str__(self) -> str:
+        return f"AzureKeyVaultCredential({self.keyVaultName})"
 
 
 class AzureKeyVault(EncryptionSystem):

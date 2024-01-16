@@ -1,10 +1,10 @@
 from typing import List, Optional, OrderedDict, Union, cast
 from abc import ABC, abstractmethod
-from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
-from datasurface.md.Lint import ValidationTree
 from enum import Enum
 
-from datasurface.md.utils import is_valid_sql_identifier
+from .Exceptions import NameMustBeANSISQLIdentifierException
+from .Lint import ValidationTree
+from .utils import is_valid_sql_identifier
 
 class DataType(ABC):
     """Base class for all data types"""

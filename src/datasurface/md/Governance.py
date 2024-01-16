@@ -1,15 +1,15 @@
 from dataclasses import dataclass
 from collections import OrderedDict
 from typing import Any, Callable, Iterable, Mapping, Optional, TypeVar, Union, cast
-
-from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier
-from .Schema import Schema
 from abc import ABC, abstractmethod
-from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifierException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
-from datasurface.md.Lint import ValidationTree
+
+from .utils import is_valid_hostname_or_ip, is_valid_sql_identifier
+from .Schema import Schema
+from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifierException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
+from .Lint import ValidationTree
 
 T = TypeVar('T')
 
@@ -29,6 +29,10 @@ class GitControlledObject(ABC):
     def eq_toplevel(self, proposed : 'GitControlledObject') -> bool:
         """This should compare attributes which are locally authorized only"""
         return True
+    
+    def superLint(self, tree : ValidationTree):
+        rTree : ValidationTree = tree.createChild(self.owningRepo)
+        self.owningRepo.lint(rTree)
     
     def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
         """This checks if the local attributes of the object have been modified by the authorized change source"""
@@ -477,6 +481,9 @@ class FileSecretCredential(Credential):
         if(self.secretFilePath == ""):
             tree.addProblem("Secret file path is empty")
 
+    def __str__(self) -> str:
+        return f"FileSecretCredential({self.secretFilePath})"
+
 class ClearTextCredential(Credential):
     """This is implemented for testing but should never be used in production. All
     credentials should be stored and retrieved using secrets Credential objects also
@@ -495,6 +502,9 @@ class ClearTextCredential(Credential):
             tree.addProblem("Username is empty")
         if(self.password == ""):
             tree.addProblem("Password is empty")
+
+    def __str__(self) -> str:
+        return f"ClearTextCredential({self.username})"
 
 class LocalJDBCConnection(DataSourceConnection):
     def __init__(self, name: str, jdbcUrl : str, cred : Credential) -> None:
@@ -537,6 +547,9 @@ class PyOdbcSourceInfo(CaptureSourceInfo):
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         if(not is_valid_hostname_or_ip(self.serverHost)):
             tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
+
+    def __str__(self) -> str:
+        return f"PyOdbcSourceInfo({self.serverHost})"
         
 class CaptureType(Enum):
     SNAPSHOT = 0
@@ -591,6 +604,9 @@ class CDCCaptureIngestion(CaptureMetaData):
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         pass
+
+    def __str__(self) -> str:
+        return f"CDCCaptureIngestion()"
         
 class SQLPullIngestion(CaptureMetaData):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
@@ -610,6 +626,9 @@ class SQLPullIngestion(CaptureMetaData):
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         raise NotImplementedError()
+    
+    def __str__(self) -> str:
+        return f"SQLPullIngestion()"
     
 
 
@@ -675,7 +694,11 @@ class Datastore(object):
         return f"Datastore({self.name})"
         
 class Repository(ABC):
-    pass
+
+    @abstractmethod
+    def lint(self, tree : ValidationTree) -> None:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        raise NotImplementedError()
 
 class GitRepository(Repository):
     """This represents a source of changes. All changes to objects in the ecosystem are gated to come from a specific repository"""
@@ -690,6 +713,16 @@ class GitRepository(Repository):
             return self.repoURL == __value.repoURL and self.moduleName == __value.moduleName
         else:
             return False
+        
+    def __str__(self) -> str:
+        return f"GitRepository({self.repoURL})"
+    
+    def lint(self, tree : ValidationTree):
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        if(self.repoURL == ""):
+            tree.addProblem("Repository URL is empty")
+        if(self.moduleName == ""):
+            tree.addProblem("Module name is empty")
 
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
@@ -783,6 +816,7 @@ class Ecosystem(GitControlledObject):
                     if(dataset == None):
                         workTree.addProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
 
+        self.superLint(ecoTree)
         return ecoTree
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
@@ -883,6 +917,8 @@ class Team(GitControlledObject):
             else:
                 eco.workSpaceCache[w.name] = w
 
+        self.superLint(teamTree)
+
     def __str__(self) -> str:
         return f"Team({self.name})"
         
@@ -957,6 +993,9 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
         """Removes the object definition . This must be done by the object repo before the parent repo can remove the authorization"""
         r : Optional[G] = self.authorizedObjects.pop(name)
         return r
+    
+    def lint(self, tree : ValidationTree):
+        self.superLint(tree)
 
 
 class TeamDeclaration(NamedObjectAuthorization):
@@ -1068,6 +1107,7 @@ class GovernanceZone(GitControlledObject):
                 eco.teamCache[team.name] = team
                 teamTree : ValidationTree = govTree.createChild(team)
                 team.lint(eco, self, teamTree)
+        self.superLint(govTree)
 
     def __str__(self) -> str:
         return f"GovernanceZone({self.name})"
