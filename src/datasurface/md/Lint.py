@@ -48,7 +48,7 @@ class ValidationTree:
 
     def printTree(self, indent : int = 0) -> None:
         """This prints the tree of objects"""
-        if(self.hasIssues()):
+        if(self.hasIssues()): # If something to see here or in the children then
             print(" " * indent, self.object)
             for problem in self.problems:
                 print(" " * (indent + 2), problem.description)
