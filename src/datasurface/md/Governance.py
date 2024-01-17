@@ -6,6 +6,8 @@ from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
 
+from datasurface.md import Documentation
+
 from .utils import is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
 from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifierException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
@@ -198,25 +200,29 @@ class TeamDeclarationKey(GovernanceZoneKey):
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
-    def __init__(self, name : str, isMandatory : bool) -> None:
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation]) -> None:
         self.name : str = name
         self.mandatory : bool = isMandatory
         self.key : Optional[StoragePolicyKey] = None
+        self.documentation : Optional[Documentation] = doc
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory
+        return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and self.documentation == __value.documentation
     
 
     @abstractmethod
     def isCompatible(self, container : 'DataContainer') -> bool:
         '''This returns true if the container is compatible with the policy. This is used to determine whether data tagged with a policy can be stored in a specific container.'''
         return False
+    
+    def __str__(self) -> str:
+        return f"StoragePolicy({self.name})"
 
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
-    def __init__(self, name : str, isMandatory : bool) -> None:
-        super().__init__(name, isMandatory)
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None) -> None:
+        super().__init__(name, isMandatory, doc)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
         return True
@@ -227,8 +233,8 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
 
 class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
-    def __init__(self, name : str, isMandatory : bool) -> None:
-        super().__init__(name, isMandatory)
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None) -> None:
+        super().__init__(name, isMandatory, doc)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
         """Only allow if the container locations are managed by the required zone"""
@@ -248,9 +254,10 @@ class InfraLocation:
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
-    def __init__(self, name: str, *args: 'InfraLocation') -> None:
+    def __init__(self, name: str, *args: Union[Documentation, 'InfraLocation']) -> None:
         self.name: str = name
         self.key : Optional[InfraLocationKey] = None
+        self.documentation : Optional[Documentation] = None
 
         self.locations: dict[str, 'InfraLocation'] = OrderedDict()
         """These are the 'child' locations under this location. A state location would have city children for example"""
@@ -263,9 +270,12 @@ class InfraLocation:
         self.key = InfraLocationKey(parent, locList)
         self.add()
 
-    def add(self, *args : 'InfraLocation') -> None:
+    def add(self, *args : Union[Documentation, 'InfraLocation']) -> None:
         for loc in args:
-            self.addLocation(loc)
+            if(isinstance(loc, InfraLocation)):
+                self.addLocation(loc)
+            else:
+                self.documentation = loc
         if(self.key):
             for loc in self.locations.values():
                 loc.setParentLocation(self.key)
@@ -295,10 +305,11 @@ class InfraLocation:
 
 class InfrastructureVendor:
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an enterprise or an external cloud provider"""
-    def __init__(self, name : str, *args : InfraLocation) -> None:
+    def __init__(self, name : str, *args : Union[InfraLocation, Documentation]) -> None:
         self.name : str = name
         self.key : Optional[InfrastructureVendorKey] = None
         self.locations : dict[str, 'InfraLocation'] = OrderedDict()
+        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
     def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
@@ -308,9 +319,12 @@ class InfrastructureVendor:
 
         self.add()
 
-    def add(self, *args : 'InfraLocation') -> None:
+    def add(self, *args : Union['InfraLocation', Documentation]) -> None:
         for loc in args:
-            self.addLocation(loc)
+            if(isinstance(loc, InfraLocation)):
+                self.addLocation(loc)
+            else:
+                self.documentation = loc
         if(self.key):
             topLocationKey : InfraLocationKey = InfraLocationKey(self.key, [])
             for loc in self.locations.values():
@@ -385,22 +399,26 @@ class DataContainer:
 
 class Dataset(object):
     """This is a single collection of homogeneous records with a primary key"""
-    def __init__(self, name : str, *args : Union[Schema, StoragePolicy]) -> None:
+    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation]) -> None:
         self.name : str = name
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(f"Dataset name {self.name} is not a valid SQL identifier")
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
+        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
-    def add(self, *args : Union[Schema, StoragePolicy]) -> None:
+    def add(self, *args : Union[Schema, StoragePolicy, Documentation]) -> None:
         for arg in args:
             if(isinstance(arg,Schema)):
                 s : Schema = arg
                 self.originalSchema = s
-            else:
+            elif(isinstance(arg, StoragePolicy)):
                 p : StoragePolicy = arg
                 self.addPolicy(p)
+            else:
+                d : Documentation = arg
+                self.documentation = d
     
     def addPolicy(self, s : StoragePolicy) -> None:
         if self.policies.get(s.name) != None:
@@ -635,16 +653,17 @@ class SQLPullIngestion(CaptureMetaData):
 class Datastore(object):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
-    def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer]) -> None:
+    def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation]) -> None:
         self.name : str = name
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(f"Datastore name {self.name} is not a valid SQL identifier")
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
+        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
-    def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer]) -> None:
+    def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation]) -> None:
         for arg in args:
             if(type(arg) is Dataset):
                 d : Dataset = arg
@@ -655,6 +674,9 @@ class Datastore(object):
             elif(isinstance(arg, DataContainer)):
                 c : DataContainer = arg
                 self.container = c
+            elif(isinstance(arg, Documentation)):
+                doc : Documentation = arg
+                self.documentation = doc
 
     def addDataset(self, item : Dataset) -> None:
         """Add a named dataset"""
@@ -694,6 +716,8 @@ class Datastore(object):
         return f"Datastore({self.name})"
         
 class Repository(ABC):
+    def __init__(self, doc : Optional[Documentation]):
+        self.documentation : Optional[Documentation] = doc
 
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:
@@ -702,7 +726,8 @@ class Repository(ABC):
 
 class GitRepository(Repository):
     """This represents a source of changes. All changes to objects in the ecosystem are gated to come from a specific repository"""
-    def __init__(self, repo : str, moduleName : str) -> None:
+    def __init__(self, repo : str, moduleName : str, doc : Optional[Documentation] = None) -> None:
+        super().__init__(doc)
         self.repoURL : str = repo
         """The name of the git repository from which changes to Team objects are authorized"""
         self.moduleName : str = moduleName
@@ -887,22 +912,26 @@ class Ecosystem(GitControlledObject):
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
-    def __init__(self, name : str, repo : Repository, *args : Union[Datastore, 'Workspace']) -> None:
+    def __init__(self, name : str, repo : Repository, *args : Union[Datastore, 'Workspace', Documentation]) -> None:
         super().__init__(repo)
         self.name : str = name
         self.workspaces : dict[str, Workspace] = OrderedDict()
         self.dataStores : dict[str, Datastore] = OrderedDict()
+        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
-    def add(self, *args : Union[Datastore, 'Workspace']) -> None:
+    def add(self, *args : Union[Datastore, 'Workspace', Documentation]) -> None:
         """Adds a workspace, datastore or gitrepository to the team"""
         for arg in args:
-            if(type(arg) is Datastore):
+            if(isinstance(arg, Datastore)):
                 s : Datastore = arg
                 self.addStore(s)
-            elif(type(arg) is Workspace):
+            elif(isinstance(arg, Workspace)):
                 w : Workspace = arg
                 self.addWorkspace(w)
+            else:
+                d : Documentation = arg
+                self.documentation = d
 
     def addStore(self, store : Datastore):
         """Adds a datastore to the team checking for duplicates"""
@@ -1063,7 +1092,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
+    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
         super().__init__(ownerRepo)
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
@@ -1071,6 +1100,7 @@ class GovernanceZone(GitControlledObject):
         self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
+        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
     def setEcosystem(self, eco : Ecosystem) -> None:
@@ -1079,7 +1109,7 @@ class GovernanceZone(GitControlledObject):
 
         self.add()
 
-    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform']) -> None:
+    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
         for arg in args:
             if(type(arg) is InfrastructureVendor):
                 vendor : InfrastructureVendor = arg
@@ -1093,6 +1123,9 @@ class GovernanceZone(GitControlledObject):
             elif(isinstance(arg, DataPlatform)):
                 p : DataPlatform = arg
                 self.addPlatform(p)
+            elif(isinstance(arg, Documentation)):
+                d : Documentation = arg
+                self.documentation = d
         if(self.key):
             for vendor in self.vendors.values():
                 vendor.setGovernanceZone(self)
@@ -1241,6 +1274,15 @@ class DatasetSink(object):
             return self.key == __value.key and self.storeName == __value.storeName and self.datasetName == __value.datasetName
         else:
             return False
+        
+    def lint(self, eco : Ecosystem, tree : ValidationTree):
+        if(is_valid_sql_identifier(self.storeName) == False):
+            tree.addProblem(f"DatasetSink store name {self.storeName} is not a valid SQL identifier")
+        if(is_valid_sql_identifier(self.datasetName) == False):
+            tree.addProblem(f"DatasetSink dataset name {self.datasetName} is not a valid SQL identifier")
+        dataset : Optional[Dataset] = eco.cache_getDataset(self.storeName, self.datasetName)
+        if(dataset == None):
+            tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
 
 class DatasetGroup(object):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace"""
@@ -1264,14 +1306,24 @@ class DatasetGroup(object):
             
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    def lint(self, eco : Ecosystem, tree : ValidationTree):
+        if(is_valid_sql_identifier(self.name) == False):
+            tree.addProblem(f"DatasetGroup name {self.name} is not a valid SQL identifier")
+        for sink in self.datasets.values():
+            sink.lint(eco, tree)
+
+    def __str__(self) -> str:
+        return f"DatasetGroup({self.name})"
 
 class Workspace(object):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset']) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation]) -> None:
         self.name : str = name
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
+        self.documentation : Optional[Documentation] = None
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
@@ -1283,6 +1335,11 @@ class Workspace(object):
                 if(self.asset != None and self.asset != a):
                     raise AttributeAlreadySetException("Asset")
                 self.asset = a
+            elif(isinstance(arg, Documentation)):
+                d : Documentation = arg
+                if(self.documentation != None and self.documentation != d):
+                    raise AttributeAlreadySetException("Documentation")
+                self.documentation = d
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
 
@@ -1295,14 +1352,8 @@ class Workspace(object):
 
         # Lint the DSGs
         for dsg in self.dsgs.values():
-            for sink in dsg.datasets.values():
-                # Check all datasets in the workspace exist
-                dataset : Optional[Dataset] = eco.cache_getDataset(sink.storeName, sink.datasetName)
-                if(dataset == None):
-                    tree.addProblem(f"Unknown dataset {sink.storeName}:{sink.datasetName}")
-        for dsg in self.dsgs.keys():
-            if not is_valid_sql_identifier(dsg):
-                tree.addProblem(f"DatasetGroup name {dsg} is not a valid SQL identifier")
+            dsgTree : ValidationTree = tree.createChild(dsg)
+            dsg.lint(eco, dsgTree)
 
     def __str__(self) -> str:
         return f"Workspace({self.name})"    

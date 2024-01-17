@@ -5,6 +5,7 @@ from enum import Enum
 from .Exceptions import NameMustBeANSISQLIdentifierException
 from .Lint import ValidationTree
 from .utils import is_valid_sql_identifier
+from .Documentation import Documentation
 
 class DataType(ABC):
     """Base class for all data types"""
@@ -544,9 +545,10 @@ class PrimaryKeyStatus(Enum):
     PK = 1
     """Part of the primary key"""
 
+
 class DDLColumn(object):
     """Column definition for a table"""
-    def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus]) -> None:
+    def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         self.name : str = name;
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(self.name)
@@ -554,6 +556,7 @@ class DDLColumn(object):
         self.primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
         self.classification : DataClassification = DataClassification.PC3
         self.nullable : NullableStatus = NullableStatus.NULLABLE
+        self.documentation : Optional[Documentation] = None
         for arg in args:
             if(type(arg) == NullableStatus):
                 self.nullable = arg
@@ -561,11 +564,13 @@ class DDLColumn(object):
                 self.classification = arg
             elif(type(arg) == PrimaryKeyStatus):
                 self.primaryKey = arg
+            elif(isinstance(arg, Documentation)):
+                self.documentation = arg
 
     def __eq__(self, o: object) -> bool:
         if(type(o) is not DDLColumn):
             return False
-        return self.name == o.name and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification
+        return self.name == o.name and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification and self.documentation == o.documentation
     
     def isBackwardsCompatibleWith(self, other : 'DDLColumn', vTree : ValidationTree) -> bool:
         """Returns true if this column is backwards compatible with the other column"""
@@ -583,6 +588,8 @@ class DDLColumn(object):
         if not is_valid_sql_identifier(self.name):
             tree.addProblem(f"Column name {self.name} is not a valid ANSI SQL identifier")
         self.type.lint(tree)
+        if(self.primaryKey == PrimaryKeyStatus.PK and self.nullable == NullableStatus.NULLABLE):
+            tree.addProblem(f"Primary key column {self.name} cannot be nullable")
 
     def __str__(self) -> str:
         return f"DDLColumn({self.name})"
@@ -602,6 +609,9 @@ class AttributeList:
             if not is_valid_sql_identifier(col):
                 tree.addProblem(f"Column name {col} is not a valid ANSI SQL identifier")
 
+    def __str__(self) -> str:
+        return f"AttributeList({self.colNames})"
+
 class PrimaryKeyList(AttributeList):
     """A list of columns to be used as the primary key"""
     def __init__(self, colNames: list[str]) -> None:
@@ -609,6 +619,9 @@ class PrimaryKeyList(AttributeList):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, PrimaryKeyList)
+    
+    def __str__(self) -> str:
+        return f"PrimaryKeyList({self.colNames})"
 
 # TODO Switch from PK flag to PK column name list
 class Schema(ABC):
@@ -654,19 +667,22 @@ class Schema(ABC):
 class DDLTable(Schema):
     """Table definition"""
 
-    def __init__(self, *args : Union[DDLColumn, PrimaryKeyList]) -> None:
+    def __init__(self, *args : Union[DDLColumn, PrimaryKeyList, Documentation]) -> None:
         super().__init__()
         self.columns : dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
         self.primaryKeyColumns : Optional[PrimaryKeyList] = None
+        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
-    def add(self, *args : Union[DDLColumn, PrimaryKeyList]):
+    def add(self, *args : Union[DDLColumn, PrimaryKeyList, Documentation]):
         """Add a column or primary key list to the table"""
         for c in args:
             if(type(c) == DDLColumn):
                 self.addColumn(c)
             elif(type(c) == PrimaryKeyList):
                 self.primaryKeyColumns = c
+            elif(isinstance(c, Documentation)):
+                self.documentation = c
         self.calculateKeys()
 
     def calculateKeys(self):            
@@ -709,20 +725,22 @@ class DDLTable(Schema):
         """Returns true if this schema is backward compatible with the other schema"""
         super().isBackwardsCompatibleWith(other, vTree)
         if vTree.checkTypeMatches(other, DDLTable):
-            ddl : DDLTable = cast(DDLTable, other)
+            currentDDL : DDLTable = cast(DDLTable, other)
             # New tables must contain all old columns
-            for col in ddl.columns.values():
+            for col in currentDDL.columns.values():
                 if(col.name not in self.columns):
                     vTree.addProblem(f"Column {col.name} is missing from the new schema")
             # Existing columns must be compatible
             for col in self.columns.values():
                 cTree : ValidationTree = vTree.createChild(col)
-                newCol : Optional[DDLColumn] = ddl.columns.get(col.name)
+                newCol : Optional[DDLColumn] = currentDDL.columns.get(col.name)
                 if(newCol):
                     newCol.isBackwardsCompatibleWith(col, cTree)
+
+            # Now check additional columns
             newColumnNames : set[str] = set(self.columns.keys())
-            oldColNames : set[str] = set(ddl.columns.keys())  
-            additionalColumns : set[str] = newColumnNames.difference(oldColNames)
+            currColNames : set[str] = set(currentDDL.columns.keys())  
+            additionalColumns : set[str] = newColumnNames.difference(currColNames)
             for colName in additionalColumns:
                 col : DDLColumn = self.columns[colName]
                 # Additional columns cannot be primary keys
@@ -737,9 +755,11 @@ class DDLTable(Schema):
         """This method performs linting on this schema"""
         super().lint(tree)
         if self.primaryKeyColumns:
+            pkTree : ValidationTree = tree.createChild(self.primaryKeyColumns)
+            self.primaryKeyColumns.lint(tree.createChild(pkTree))
             for colName in self.primaryKeyColumns.colNames:
                 if(colName not in self.columns):
-                    tree.addProblem(f"Primary key column {colName} is not in the column list")
+                    pkTree.addProblem(f"Primary key column {colName} is not in the column list")
                 else:
                     col : DDLColumn = self.columns[colName]
                     if(col.primaryKey != PrimaryKeyStatus.PK):
