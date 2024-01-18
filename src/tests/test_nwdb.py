@@ -19,6 +19,8 @@ class TestEcosystemValidation(unittest.TestCase):
     def test_nwdb_has_all_softlinks(self):
         e : Ecosystem = tests.nwdb.eco.createEcosystem()
 
+        self.assertEqual(e, e)
+
         rc : ValidationTree = e.lintAndHydrateCaches()
         rc.printTree()
         self.assertFalse(rc.hasErrors())

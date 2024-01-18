@@ -1,7 +1,7 @@
 import unittest
 
 from datasurface.md.Governance import GitRepository
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Lint import ProblemSeverity, ValidationTree
 
 class TestLint(unittest.TestCase):
     def test_RepositoryLint(self):
@@ -14,3 +14,20 @@ class TestLint(unittest.TestCase):
         tree : ValidationTree = ValidationTree(r)
         r.lint(tree)
         self.assertTrue(tree.hasErrors())        
+
+        # If tree has any problems marked as ERROR then hasErrors return true
+        tree = ValidationTree("")
+        tree.addProblem("This is a problem")
+        self.assertTrue(tree.hasErrors())
+
+        tree = ValidationTree("")
+        tree.addProblem("This is a problem", sev=ProblemSeverity.WARNING)
+        self.assertFalse(tree.hasErrors())
+        self.assertTrue(tree.hasIssues())
+
+        # Tree with a non error has issues, tree with an error has errors also
+        tree.addProblem("This is a problem", sev=ProblemSeverity.INFO)
+        self.assertFalse(tree.hasErrors())
+        self.assertTrue(tree.hasIssues())
+        tree.addProblem("This is a problem", sev=ProblemSeverity.ERROR)
+        self.assertTrue(tree.hasErrors())

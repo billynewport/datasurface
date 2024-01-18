@@ -70,6 +70,7 @@ class TestSchemaCompatibility(unittest.TestCase):
         self.assertTrue(String().isBackwardsCompatibleWith(String(10), ValidationTree(""))) # Unlimited
         self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE32(), ValidationTree("")))
         self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE16(), ValidationTree("")))
+        self.assertFalse(IEEE32().isBackwardsCompatibleWith(IEEE64(), ValidationTree("")))
         self.assertTrue(IEEE64().isBackwardsCompatibleWith(IEEE64(), ValidationTree("")))
         self.assertTrue(IEEE128().isBackwardsCompatibleWith(IEEE128(), ValidationTree("")))
 

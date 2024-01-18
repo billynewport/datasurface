@@ -34,9 +34,9 @@ class ValidationTree:
         self.children.append(child)
         return child
     
-    def addProblem(self, problem : str) -> None:
+    def addProblem(self, problem : str, sev : ProblemSeverity = ProblemSeverity.ERROR) -> None:
         """This adds a problem to this object"""
-        self.problems.append(ValidationProblem(problem))
+        self.problems.append(ValidationProblem(problem, sev))
 
     def hasErrors(self) -> bool:
         """This returns true if this object or any of its children have ERROR severity problems"""
