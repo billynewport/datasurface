@@ -1,18 +1,40 @@
+from typing import Optional
 import unittest
-from datasurface.md.Governance import GitRepository, Repository
+from datasurface.md.Governance import GitRepository, Repository, Team
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
 from datasurface.md import Ecosystem
 
-def test_validate_nwdb():
-    e : Ecosystem = tests.nwdb.eco.createEcosystem()
 
-    rc : ValidationTree = e.lintAndHydrateCaches()
-    rc.printTree()
-    assert rc.hasErrors() == False
 
 class TestEcosystemValidation(unittest.TestCase):
+
+    def test_validate_nwdb(self):
+        e : Ecosystem = tests.nwdb.eco.createEcosystem()
+
+        rc : ValidationTree = e.lintAndHydrateCaches()
+        rc.printTree()
+        self.assertFalse(rc.hasErrors())
+
+    def test_nwdb_has_all_softlinks(self):
+        e : Ecosystem = tests.nwdb.eco.createEcosystem()
+
+        rc : ValidationTree = e.lintAndHydrateCaches()
+        rc.printTree()
+        self.assertFalse(rc.hasErrors())
+
+        # Verify that all softlinks are in the ecosystem
+        self.assertIsNotNone(e.key)
+        if(e.zones.authorizedObjects):
+            for gz in e.zones.authorizedObjects.values():
+                self.assertIsNotNone(gz.key)
+                for iv in gz.vendors.values():
+                    self.assertIsNotNone(iv.key)
+                    for loc in iv.locations.values():
+                        self.assertIsNotNone(loc.key)
+
+            
     def test_validate_columns(self):
         col : DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
         tree : ValidationTree = ValidationTree(col)

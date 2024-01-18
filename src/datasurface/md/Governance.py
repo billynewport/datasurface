@@ -752,12 +752,18 @@ class GitRepository(Repository):
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
 class Ecosystem(GitControlledObject):
+
+    def createGZone(self, name : str, repo : Repository) -> 'GovernanceZone':
+        gz : GovernanceZone = GovernanceZone(name, repo)
+        gz.setEcosystem(self)
+        return gz
+    
     def __init__(self, name : str, repo : Repository, *args : 'GovernanceZoneDeclaration') -> None:
         super().__init__(repo)
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
 
-        self.zones : AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration](lambda name, repo : GovernanceZone(name, repo), repo)
+        self.zones : AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration](lambda name, repo : self.createGZone(name, repo), repo)
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.resetCaches()
@@ -775,6 +781,7 @@ class Ecosystem(GitControlledObject):
     def add(self, *args : 'GovernanceZoneDeclaration') -> None:
         for arg in args:
             self.addZoneDef(arg)
+
 
     def addZoneDef(self, z : 'GovernanceZoneDeclaration') -> None:
         """Adds a zone def to the ecosystem and sets the zone to this ecosystem"""

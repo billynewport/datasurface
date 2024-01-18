@@ -7,3 +7,4 @@ src/tests/nwdb/__pycache__/eco.cpython-311.pyc
 src/datasurface/md/__pycache__/Governance.cpython-311.pyc
 **/env/*
 
+.coverage
