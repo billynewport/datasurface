@@ -8,9 +8,9 @@ from typing import Optional, TypeVar, Generic
 
 from datasurface.md import Documentation
 
-from .utils import is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
+from .utils import ANSI_SQL_NamedObject, is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
-from .Exceptions import AttributeAlreadySetException, NameMustBeANSISQLIdentifierException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
 from .Lint import ValidationTree
 
 T = TypeVar('T')
@@ -411,12 +411,10 @@ class DataContainer:
         else:
             raise Exception("Container name not set")
 
-class Dataset(object):
+class Dataset(ANSI_SQL_NamedObject):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation]) -> None:
-        self.name : str = name
-        if not is_valid_sql_identifier(self.name):
-            raise NameMustBeANSISQLIdentifierException(f"Dataset name {self.name} is not a valid SQL identifier")
+        super().__init__(name)
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.documentation : Optional[Documentation] = None
@@ -441,12 +439,13 @@ class Dataset(object):
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Dataset):
-            return self.name == __value.name and self.originalSchema == __value.originalSchema and \
+            return super().__eq__(__value) and self.name == __value.name and self.originalSchema == __value.originalSchema and \
                 self.policies == __value.policies and self.documentation == __value.documentation
         return False
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', store : 'Datastore', tree : ValidationTree) -> None:
         """Place holder to validate constraints on the dataset"""
+        self.nameLint(tree)
         for policy in self.policies.values():
             if(policy.key == None):
                 tree.addProblem(f"Storage policy {policy.name} is not associated with a governance zone")
@@ -459,10 +458,14 @@ class Dataset(object):
             tree.addProblem("Original schema not set")
 
 
-    def isBackwardsCompatibleWith(self, other : 'Dataset', vTree : ValidationTree) -> bool:
+    def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
         can be used in place of this dataset. This is used to check if a dataset can be replaced by another dataset
         when a new version is released"""
+        if(not isinstance(other, Dataset)):
+            vTree.addProblem(f"Object {other} is not a Dataset")
+            return False
+        super().isBackwardsCompatibleWith(other, vTree)
         if(self.originalSchema == None):
             vTree.addProblem(f"Original schema not set for {self.name}")
         elif(other.originalSchema == None):
@@ -679,13 +682,11 @@ class SQLPullIngestion(CaptureMetaData):
     
 
 
-class Datastore(object):
+class Datastore(ANSI_SQL_NamedObject):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation]) -> None:
-        self.name : str = name
-        if not is_valid_sql_identifier(self.name):
-            raise NameMustBeANSISQLIdentifierException(f"Datastore name {self.name} is not a valid SQL identifier")
+        super().__init__(name)
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
@@ -715,11 +716,12 @@ class Datastore(object):
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Datastore):
-            return self.name == __value.name and self.datasets == __value.datasets and self.imd == __value.imd and \
+            return super().__eq__(__value) and self.datasets == __value.datasets and self.imd == __value.imd and \
                 self.container == __value.container and self.documentation == __value.documentation
         return False
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
+        self.nameLint(storeTree)
         for dataset in self.datasets.values():
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
@@ -730,10 +732,14 @@ class Datastore(object):
         else:
             storeTree.addProblem("IMD not set")
     
-    def isBackwardsCompatibleWith(self, other : 'Datastore', vTree : ValidationTree) -> bool:
+    def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
         can be used to replace this one without breaking any data pipelines"""
 
+        if(not isinstance(other, Datastore)):
+            vTree.addProblem(f"Object {other} is not a Datastore")
+            return False
+        super().isBackwardsCompatibleWith(other, vTree)
         # Check if the datasets are compatible
         for dataset in self.datasets.values():
             dTree : ValidationTree = vTree.createChild(dataset)

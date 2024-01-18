@@ -2,6 +2,8 @@ import unittest
 
 from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus
 from datasurface.md import DDLTable, PrimaryKeyList, DataClassification
+from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
+from datasurface.md.Lint import ValidationTree
 
 class TestSchemaCreation(unittest.TestCase):
     def testPrimaryKeys(self):
@@ -13,6 +15,19 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(c.type, String(10))
         self.assertEqual(c.name, "id")
         self.assertEqual(c.classification, DataClassification.PC3)
+
+        try:
+            # Cannot construct DDLColumn with invalid name
+            c = DDLColumn("id a", String(10), NullableStatus.NOT_NULLABLE)
+            self.fail("Should have thrown an exception")
+        except NameMustBeANSISQLIdentifierException:
+            pass
+
+        c = DDLColumn("id_a", String(10), NullableStatus.NOT_NULLABLE)
+        c.name = "Bad ANSI Name" # Has spaces
+        tree : ValidationTree = ValidationTree(c)
+        c.lint(tree)
+        self.assertTrue(tree.hasErrors()) # Name is not ANSI SQL compliant
 
         # Create a table specifying the primary key on the columns
         t : DDLTable = DDLTable(

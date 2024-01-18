@@ -2,9 +2,8 @@ from typing import List, Optional, OrderedDict, Union, cast
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from .Exceptions import NameMustBeANSISQLIdentifierException
 from .Lint import ValidationTree
-from .utils import is_valid_sql_identifier
+from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
 from .Documentation import Documentation
 
 class DataType(ABC):
@@ -546,12 +545,10 @@ class PrimaryKeyStatus(Enum):
     """Part of the primary key"""
 
 
-class DDLColumn(object):
+class DDLColumn(ANSI_SQL_NamedObject):
     """Column definition for a table"""
     def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
-        self.name : str = name;
-        if not is_valid_sql_identifier(self.name):
-            raise NameMustBeANSISQLIdentifierException(self.name)
+        super().__init__(name)
         self.type : DataType = dataType
         self.primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
         self.classification : DataClassification = DataClassification.PC3
@@ -570,13 +567,16 @@ class DDLColumn(object):
     def __eq__(self, o: object) -> bool:
         if(type(o) is not DDLColumn):
             return False
-        return self.name == o.name and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification and self.documentation == o.documentation
+        return super().__eq__(o) and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification and self.documentation == o.documentation
     
-    def isBackwardsCompatibleWith(self, other : 'DDLColumn', vTree : ValidationTree) -> bool:
+    def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """Returns true if this column is backwards compatible with the other column"""
         # TODO Add support to changing the column data type to a compatible type
-        if(self.name != other.name):
-            vTree.addProblem(f"Column name changed from {self.name} to {other.name}")
+        super().isBackwardsCompatibleWith(other, vTree)
+        if not isinstance(other, DDLColumn):
+            vTree.addProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")
+            return False
+
         self.type.isBackwardsCompatibleWith(other.type, vTree)
         if(self.nullable != other.nullable):
             vTree.addProblem(f"Nullable status for {self.name} changed from {self.nullable} to {other.nullable}")
@@ -585,8 +585,7 @@ class DDLColumn(object):
         return vTree.hasErrors() == False
     
     def lint(self, tree : ValidationTree) -> None:
-        if not is_valid_sql_identifier(self.name):
-            tree.addProblem(f"Column name {self.name} is not a valid ANSI SQL identifier")
+        super().nameLint(tree)
         self.type.lint(tree)
         if(self.primaryKey == PrimaryKeyStatus.PK and self.nullable == NullableStatus.NULLABLE):
             tree.addProblem(f"Primary key column {self.name} cannot be nullable")
