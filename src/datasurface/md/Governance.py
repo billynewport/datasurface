@@ -19,13 +19,11 @@ class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
     PRODUCTION = 0
     NON_PRODUCTION = 1
-    UNKNOWN = 2
 
 class DeprecationStatus(Enum):
     """This indicates whether the team is deprecated or not"""
     ACTIVE = 0
     DEPRECATED = 1
-    UNKNOWN = 2
 
 class GitControlledObject(ABC):
     """This is the base class for all objects which are controlled by a git repository"""
@@ -158,6 +156,7 @@ def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
     return True
 
 class EcosystemKey:
+    """Soft link to an ecosystem"""
     def __init__(self, ecoName : str) -> None:
         self.ecoName : str = ecoName
 
@@ -165,6 +164,7 @@ class EcosystemKey:
         return isinstance(__value, EcosystemKey) and self.ecoName == __value.ecoName
 
 class GovernanceZoneKey(EcosystemKey):
+    """Soft link to a governance zone"""
     def __init__(self, e : EcosystemKey, gz : str) -> None:
         super().__init__(e.ecoName)
         self.gzName : str = gz
@@ -173,6 +173,7 @@ class GovernanceZoneKey(EcosystemKey):
         return super().__eq__(__value) and isinstance(__value, GovernanceZoneKey) and self.gzName == __value.gzName
 
 class StoragePolicyKey(GovernanceZoneKey):
+    """Soft link to a storage policy"""
     def __init__(self, gz : GovernanceZoneKey, policyName : str):
         super().__init__(gz, gz.gzName)
         self.policyName : str = policyName
@@ -181,6 +182,7 @@ class StoragePolicyKey(GovernanceZoneKey):
         return super().__eq__(__value) and isinstance(__value, StoragePolicyKey) and self.policyName == __value.policyName
 
 class InfrastructureVendorKey(GovernanceZoneKey):
+    """Soft link to an infrastructure vendor"""
     def __init__(self, gz : GovernanceZoneKey, iv : str) -> None:
         super().__init__(gz, gz.gzName)
         self.ivName : str = iv
@@ -189,6 +191,7 @@ class InfrastructureVendorKey(GovernanceZoneKey):
         return super().__eq__(__value) and isinstance(__value, InfrastructureVendorKey) and self.ivName == __value.ivName
 
 class InfraLocationKey(InfrastructureVendorKey):
+    """Soft link to an infrastructure location"""
     def __init__(self, iv : InfrastructureVendorKey, loc : list[str]) -> None:
         super().__init__(iv, iv.ivName)
         self.locationPath : list[str] = loc
@@ -197,6 +200,7 @@ class InfraLocationKey(InfrastructureVendorKey):
         return super().__eq__(__value) and isinstance(__value, InfraLocationKey) and self.locationPath == __value.locationPath
 
 class TeamDeclarationKey(GovernanceZoneKey):
+    """Soft link to a team declaration"""
     def __init__(self, gz : GovernanceZoneKey, td : str) -> None:
         super().__init__(gz, gz.gzName)
         self.tdName : str = td
@@ -235,7 +239,7 @@ class StoragePolicy(ABC):
 
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.UNKNOWN) -> None:
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.ACTIVE) -> None:
         super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -247,7 +251,7 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
 
 class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.UNKNOWN) -> None:
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.ACTIVE) -> None:
         super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -431,7 +435,7 @@ class Dataset(ANSI_SQL_NamedObject):
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.documentation : Optional[Documentation] = None
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.UNKNOWN
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.ACTIVE
         self.add(*args)
 
     def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationStatus]) -> None:
@@ -468,6 +472,11 @@ class Dataset(ANSI_SQL_NamedObject):
             else:
                 if(policy.key.gzName != gz.name):
                     tree.addProblem(f"Datasets must be governed by storage policies from its managing zone")
+                if(policy.deprecationStatus == DeprecationStatus.DEPRECATED):
+                    if(store.isDatasetDeprecated(self)):
+                        tree.addProblem(f"Storage policy {policy.name} is deprecated", ProblemSeverity.WARNING)
+                    else:
+                        tree.addProblem(f"Storage policy {policy.name} is deprecated", ProblemSeverity.ERROR)
         if(self.originalSchema):
             self.originalSchema.lint(tree)
         else:
@@ -707,8 +716,9 @@ class Datastore(ANSI_SQL_NamedObject):
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
-        self.productionStatus : ProductionStatus = ProductionStatus.UNKNOWN
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.UNKNOWN
+        self.productionStatus : ProductionStatus = ProductionStatus.NON_PRODUCTION
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.ACTIVE
+        """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
         self.add(*args)
 
     def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationStatus]) -> None:
@@ -736,8 +746,8 @@ class Datastore(ANSI_SQL_NamedObject):
             raise ObjectAlreadyExistsException(f"Duplicate Dataset {item.name}")
         self.datasets[item.name] = item
 
-    def isDeprecated(self, dataset : Dataset) -> bool:
-        """Returns true if the dataset is deprecated"""
+    def isDatasetDeprecated(self, dataset : Dataset) -> bool:
+        """Returns true if the datastore is deprecated OR dataset is deprecated"""
         return self.deprecationStatus == DeprecationStatus.DEPRECATED or dataset.deprecationStatus == DeprecationStatus.DEPRECATED
     
     def __eq__(self, __value: object) -> bool:
@@ -1421,7 +1431,7 @@ class DatasetSink(object):
         else:
             store : Optional[Datastore] = eco.datastoreCache.get(self.storeName)
             if store:
-                if store.isDeprecated(dataset):
+                if store.isDatasetDeprecated(dataset):
                     if self.deprecationsAllowed == DeprecationsAllowed.NEVER:
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is deprecated and deprecations are not allowed")
                     elif(self.deprecationsAllowed == DeprecationsAllowed.ALLOWED):
@@ -1474,8 +1484,8 @@ class Workspace(object):
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
         self.documentation : Optional[Documentation] = None
-        self.productionStatus : ProductionStatus = ProductionStatus.UNKNOWN
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.UNKNOWN
+        self.productionStatus : ProductionStatus = ProductionStatus.NON_PRODUCTION
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.ACTIVE
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
