@@ -1,6 +1,5 @@
-from typing import Optional
 import unittest
-from datasurface.md.Governance import GitRepository, Repository, Team
+from datasurface.md.Governance import GitRepository, Repository
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
