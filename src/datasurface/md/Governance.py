@@ -158,7 +158,7 @@ class GovernanceZoneKey(EcosystemKey):
         self.gzName : str = gz
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, GovernanceZoneKey) and self.ecoName == __value.ecoName and self.gzName == __value.gzName
+        return super().__eq__(__value) and isinstance(__value, GovernanceZoneKey) and self.gzName == __value.gzName
 
 class StoragePolicyKey(GovernanceZoneKey):
     def __init__(self, gz : GovernanceZoneKey, policyName : str):
@@ -166,8 +166,7 @@ class StoragePolicyKey(GovernanceZoneKey):
         self.policyName : str = policyName
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, StoragePolicyKey) and self.ecoName == __value.ecoName and \
-            self.gzName == __value.gzName and self.policyName == __value.policyName
+        return super().__eq__(__value) and isinstance(__value, StoragePolicyKey) and self.policyName == __value.policyName
 
 class InfrastructureVendorKey(GovernanceZoneKey):
     def __init__(self, gz : GovernanceZoneKey, iv : str) -> None:
@@ -175,8 +174,7 @@ class InfrastructureVendorKey(GovernanceZoneKey):
         self.ivName : str = iv
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, InfrastructureVendorKey) and self.ecoName == __value.ecoName and \
-            self.gzName == __value.gzName and self.ivName == __value.ivName
+        return super().__eq__(__value) and isinstance(__value, InfrastructureVendorKey) and self.ivName == __value.ivName
 
 class InfraLocationKey(InfrastructureVendorKey):
     def __init__(self, iv : InfrastructureVendorKey, loc : list[str]) -> None:
@@ -184,8 +182,7 @@ class InfraLocationKey(InfrastructureVendorKey):
         self.locationPath : list[str] = loc
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, InfraLocationKey) and self.ecoName == __value.ecoName and \
-                self.gzName == __value.gzName and self.ivName == __value.ivName and self.locationPath == __value.locationPath
+        return super().__eq__(__value) and isinstance(__value, InfraLocationKey) and self.locationPath == __value.locationPath
 
 class TeamDeclarationKey(GovernanceZoneKey):
     def __init__(self, gz : GovernanceZoneKey, td : str) -> None:
@@ -193,8 +190,7 @@ class TeamDeclarationKey(GovernanceZoneKey):
         self.tdName : str = td
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, TeamDeclarationKey) and self.ecoName == __value.ecoName and \
-            self.gzName == __value.gzName and self.tdName == __value.tdName
+        return super().__eq__(__value) and isinstance(__value, TeamDeclarationKey) and self.tdName == __value.tdName
 
 
 class StoragePolicy(ABC):
@@ -208,8 +204,13 @@ class StoragePolicy(ABC):
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and self.documentation == __value.documentation
+        return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and \
+            self.documentation == __value.documentation and self.key == __value.key
     
+    def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
+        if gz.key == None:
+            raise Exception("GovernanceZone key not set")
+        self.key = StoragePolicyKey(gz.key, self.name)
 
     @abstractmethod
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -286,7 +287,10 @@ class InfraLocation:
         self.locations[loc.name] = loc
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, InfraLocation):
+            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
+                self.documentation == __value.documentation
+        return False
     
     def findLocationUsingKey(self, locationPath : list[str]) -> Optional['InfraLocation']:
         """Returns the location using the path"""
@@ -336,7 +340,11 @@ class InfrastructureVendor:
         self.locations[loc.name] = loc
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, InfrastructureVendor):
+            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
+                self.documentation == __value.documentation
+        else:
+            return False
         
     def findLocationUsingKey(self, locationPath : list[str]) -> Optional[InfraLocation]:
         """Returns the location using the path"""
@@ -388,7 +396,13 @@ class DataContainer:
             self.locations.add(loc)
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, DataContainer):
+            return self.name == __value.name and self.locations == __value.locations and \
+                self.serverSideEncryptionKeys == __value.serverSideEncryptionKeys and \
+                self.clientSideEncryptionKeys == __value.clientSideEncryptionKeys and \
+                self.isReadOnly == __value.isReadOnly
+        else:
+            return False
         
     def getName(self) -> str:
         """Returns the name of the container"""
@@ -426,8 +440,10 @@ class Dataset(object):
         self.policies[s.name] = s
 
     def __eq__(self, __value: object) -> bool:
-        """Check for equality but shallow check to referenced objects to prevent recursion"""
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, Dataset):
+            return self.name == __value.name and self.originalSchema == __value.originalSchema and \
+                self.policies == __value.policies and self.documentation == __value.documentation
+        return False
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', store : 'Datastore', tree : ValidationTree) -> None:
         """Place holder to validate constraints on the dataset"""
@@ -474,7 +490,10 @@ class Credential(ABC):
         pass
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if(isinstance(__value, Credential)):
+            return True
+        else:
+            return False
     
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
@@ -606,7 +625,10 @@ class CaptureMetaData(ABC):
                 self.captureSource.append(i)
             
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, CaptureMetaData):
+            return self.credential == __value.credential and self.SingleOrMultiDatasetIngestion == __value.SingleOrMultiDatasetIngestion and \
+                self.captureSource == __value.captureSource
+        return False
     
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
@@ -625,6 +647,10 @@ class CDCCaptureIngestion(CaptureMetaData):
 
     def __str__(self) -> str:
         return f"CDCCaptureIngestion()"
+    
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and type(__value) is CDCCaptureIngestion
+    
         
 class SQLPullIngestion(CaptureMetaData):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
@@ -640,7 +666,10 @@ class SQLPullIngestion(CaptureMetaData):
         """A SQL string per dataset which pulls all rows which changed since last time for a table"""
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, SQLPullIngestion):
+            return super().__eq__(__value) and self.variableNames == __value.variableNames and \
+                self.snapshotSQL == __value.snapshotSQL and self.deltaSQL == __value.deltaSQL
+        return False
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         raise NotImplementedError()
@@ -685,7 +714,10 @@ class Datastore(object):
         self.datasets[item.name] = item
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, Datastore):
+            return self.name == __value.name and self.datasets == __value.datasets and self.imd == __value.imd and \
+                self.container == __value.container and self.documentation == __value.documentation
+        return False
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
         for dataset in self.datasets.values():
@@ -723,6 +755,12 @@ class Repository(ABC):
     def lint(self, tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         raise NotImplementedError()
+    
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, Repository)):
+            return self.documentation == __value.documentation
+        else:
+            return False
 
 class GitRepository(Repository):
     """This represents a source of changes. All changes to objects in the ecosystem are gated to come from a specific repository"""
@@ -735,7 +773,7 @@ class GitRepository(Repository):
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, GitRepository)):
-            return self.repoURL == __value.repoURL and self.moduleName == __value.moduleName
+            return super().__eq__(__value) and self.repoURL == __value.repoURL and self.moduleName == __value.moduleName
         else:
             return False
         
@@ -858,7 +896,10 @@ class Ecosystem(GitControlledObject):
         self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource, vTree)
     
     def __eq__(self, proposed: object) -> bool:
-        return cyclic_safe_eq(self, proposed, set())
+        if super().__eq__(proposed) and isinstance(proposed, Ecosystem):
+            return self.name == proposed.name and self.zones == proposed.zones and self.key == proposed.key
+        else:
+            return False
     
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         """This is a shallow equality check for the top level ecosystem object"""
@@ -952,7 +993,10 @@ class Team(GitControlledObject):
         self.workspaces[w.name] = w
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, Team):
+            return self.name == __value.name and self.workspaces == __value.workspaces and \
+                self.dataStores == __value.dataStores and self.documentation == __value.documentation
+        return False
     
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         return super().eq_toplevel(proposed) and type(proposed) is Team and self.dataStores == proposed.dataStores and self.workspaces == proposed.workspaces
@@ -1005,6 +1049,12 @@ class NamedObjectAuthorization:
     def lint(self, tree : ValidationTree):
         self.owningRepo.lint(tree)
 
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, NamedObjectAuthorization)):
+            return self.name == __value.name and self.owningRepo == __value.owningRepo
+        else:
+            return False
+
 
 G = TypeVar('G', bound=GitControlledObject)
 N = TypeVar('N', bound=NamedObjectAuthorization)
@@ -1042,7 +1092,11 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
         return t
     
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if(super().__eq__(__value) and isinstance(__value, AuthorizedObjectManager)):
+            a : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], __value)
+            return self.authorizedNames == a.authorizedNames and self.authorizedObjects == a.authorizedObjects
+        else:
+            return False
 
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         p : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
@@ -1081,10 +1135,16 @@ class TeamDeclaration(NamedObjectAuthorization):
     def __init__(self, name : str, authRepo : Repository) -> None:
         super().__init__(name, authRepo)
         self.authRepo : Repository = authRepo
+        self.key : Optional[TeamDeclarationKey] = None
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        return super().__eq__(__value) and isinstance(__value, TeamDeclaration) and self.authRepo == __value.authRepo and self.key == __value.key
     
+    def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
+        """Sets the governance zone for this team and sets the team for all datastores and workspaces"""
+        if gz.key:
+            self.key = TeamDeclarationKey(gz.key, self.name)
+
 class GovernanceZoneDeclaration(NamedObjectAuthorization):
     """This is a declaration of a governance zone within an ecosystem. It is used to authorize
     the definition of a governance zone and to provide the official source of changes for that object and its children"""
@@ -1093,7 +1153,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
         self.key : Optional[GovernanceZoneKey] = None
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        return super().__eq__(__value) and isinstance(__value, GovernanceZoneDeclaration) and self.key == __value.key
     
 
 class GovernanceZone(GitControlledObject):
@@ -1133,9 +1193,15 @@ class GovernanceZone(GitControlledObject):
             elif(isinstance(arg, Documentation)):
                 d : Documentation = arg
                 self.documentation = d
+
+        # Set softlink keys
         if(self.key):
             for vendor in self.vendors.values():
                 vendor.setGovernanceZone(self)
+            for sp in self.storagePolicies.values():
+                sp.setGovernanceZone(self)
+            for td in self.teams.authorizedNames.values():
+                td.setGovernanceZone(self)
 
     def addPlatform(self, p : 'DataPlatform'):
         if self.platforms.get(p.name) != None:
@@ -1159,7 +1225,11 @@ class GovernanceZone(GitControlledObject):
         return self.teams.getObject(name)
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        if isinstance(__value, GovernanceZone):
+            return super().__eq__(__value) and self.name == __value.name and self.platforms == __value.platforms and \
+                self.teams == __value.teams and self.vendors == __value.vendors and self.storagePolicies == __value.storagePolicies and \
+                self.documentation == __value.documentation
+        return False
 
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         """Just check the not git controlled attributes"""

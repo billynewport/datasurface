@@ -26,12 +26,17 @@ class TestEcosystemValidation(unittest.TestCase):
         # Verify that all softlinks are in the ecosystem
         self.assertIsNotNone(e.key)
         if(e.zones.authorizedObjects):
+
             for gz in e.zones.authorizedObjects.values():
+                for sp in gz.storagePolicies.values():
+                    self.assertIsNotNone(sp.key)
                 self.assertIsNotNone(gz.key)
                 for iv in gz.vendors.values():
                     self.assertIsNotNone(iv.key)
                     for loc in iv.locations.values():
                         self.assertIsNotNone(loc.key)
+                for td in gz.teams.authorizedNames.values():
+                    self.assertIsNotNone(td.key)
 
             
     def test_validate_columns(self):

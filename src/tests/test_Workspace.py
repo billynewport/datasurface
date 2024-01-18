@@ -15,6 +15,8 @@ class TestWorkspace(unittest.TestCase):
             GovernanceZoneDeclaration("US", GitRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitRepository("aa", "cc")))
         
+        self.assertEqual(eco, eco)
+        
         gzUSA : Optional[GovernanceZone] = eco.getZone("US")
         if(gzUSA is None):
             raise Exception("US zone not found")

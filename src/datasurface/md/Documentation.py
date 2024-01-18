@@ -7,8 +7,18 @@ class Documentation:
         self.description : str = description
         self.tags : Optional[OrderedDict[str, str]] = tags
 
+    def __eq__(self, other : object):
+        if(not isinstance(other, Documentation)):
+            return False
+        return self.description == other.description and self.tags == other.tags
+
 class MarkdownDocumentation(Documentation):
     def __init__(self, description : str, markdown : str, tags : Optional[OrderedDict[str, str]] = None) -> None:
         super().__init__(description, tags)
         self.markdown : str = markdown
+
+    def __eq__(self, other : object):
+        if(not isinstance(other, MarkdownDocumentation)):
+            return False
+        return super().__eq__(other) and self.markdown == other.markdown
 
