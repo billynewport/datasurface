@@ -48,3 +48,4 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(t.columns['id'].primaryKey, PrimaryKeyStatus.PK)
         self.assertEqual(t.columns['firstName'].primaryKey, PrimaryKeyStatus.NOT_PK)
         self.assertEqual(t.columns['lastName'].primaryKey, PrimaryKeyStatus.NOT_PK)
+
