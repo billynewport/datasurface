@@ -5,6 +5,8 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
+from datasurface.md.Governance import CDCCaptureIngestion, DeprecationStatus, DeprecationsAllowed, TestRepository
+from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
 
@@ -343,6 +345,66 @@ class TestWorkspace(unittest.TestCase):
                 )
             )
         self.assertEqual(s1, s2)        
+
+    def test_DatasetDeprecation(self):
+        """Make a Workspace using a deprecated dataset and check it fails linting, then allow deprecated datasets and check it passes but has a warning"""
+        e : Ecosystem = Ecosystem("BigCorp", TestRepository("a"),
+            GovernanceZoneDeclaration("US", TestRepository("b")))
+        
+        gzUSA : Optional[GovernanceZone] = e.getZone("US")
+
+        if(gzUSA is None):
+            raise Exception("US zone not found")
+        gzUSA.add(
+                TeamDeclaration("Test", TestRepository("c"))
+        )
+        t : Optional[Team] = gzUSA.getTeam("Test")
+        if(t is None):
+            raise Exception("Team not found")
+        
+        d1 : Dataset = Dataset("Dataset1",
+            DDLTable(
+                DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
+                DDLColumn    ("Col2", String(10)),
+                DDLColumn    ("Col3", Date())
+                )
+            )
+        d2 : Dataset = Dataset("Dataset2",
+            DDLTable(
+                DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
+                DDLColumn    ("Col2", String(10)),
+                DDLColumn    ("Col3", Date())
+                ),
+            DeprecationStatus.DEPRECATED
+            )
+        
+        store : Datastore = Datastore("Store1", d1, d2)
+        store.add(CDCCaptureIngestion())
+        t.add(store)
+
+        sink : DatasetSink = DatasetSink("Store1", "Dataset2")
+
+        t.add(Workspace("WK_A", 
+            DatasetGroup("FastStuff",
+                        WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                        DatasetSink("Store1", "Dataset1"),
+                        sink
+                        )
+            )
+        )
+
+        eTree : ValidationTree = e.lintAndHydrateCaches()
+        self.assertTrue(eTree.hasErrors())
+        self.assertFalse(eTree.hasIssues())
+
+        # Mark Sink as allowing deprecated datasets and check again
+        sink.deprecationsAllowed = DeprecationsAllowed.ALLOWED
+
+        eTree = e.lintAndHydrateCaches()
+        eTree.printTree()
+        self.assertFalse(eTree.hasErrors())
+        self.assertTrue(eTree.hasIssues()) # Workspace using deprecated dataset
+
 
     def test_WorkspaceEquality(self):
         fastP : DataPlatform = DataPlatform("FastPlatform")

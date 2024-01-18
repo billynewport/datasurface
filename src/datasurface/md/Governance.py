@@ -11,9 +11,21 @@ from datasurface.md import Documentation
 from .utils import ANSI_SQL_NamedObject, is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
-from .Lint import ValidationTree
+from .Lint import ProblemSeverity, ValidationTree
 
 T = TypeVar('T')
+
+class ProductionStatus(Enum):
+    """This indicates whether the team is in production or not"""
+    PRODUCTION = 0
+    NON_PRODUCTION = 1
+    UNKNOWN = 2
+
+class DeprecationStatus(Enum):
+    """This indicates whether the team is deprecated or not"""
+    ACTIVE = 0
+    DEPRECATED = 1
+    UNKNOWN = 2
 
 class GitControlledObject(ABC):
     """This is the base class for all objects which are controlled by a git repository"""
@@ -196,16 +208,17 @@ class TeamDeclarationKey(GovernanceZoneKey):
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation]) -> None:
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation], depStatus : DeprecationStatus) -> None:
         self.name : str = name
         self.mandatory : bool = isMandatory
         self.key : Optional[StoragePolicyKey] = None
         self.documentation : Optional[Documentation] = doc
+        self.deprecationStatus : DeprecationStatus = depStatus
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and \
-            self.documentation == __value.documentation and self.key == __value.key
+            self.documentation == __value.documentation and self.key == __value.key and self.deprecationStatus == __value.deprecationStatus
     
     def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
         if gz.key == None:
@@ -222,8 +235,8 @@ class StoragePolicy(ABC):
 
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None) -> None:
-        super().__init__(name, isMandatory, doc)
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.UNKNOWN) -> None:
+        super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
         return True
@@ -234,8 +247,8 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
 
 class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None) -> None:
-        super().__init__(name, isMandatory, doc)
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.UNKNOWN) -> None:
+        super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
         """Only allow if the container locations are managed by the required zone"""
@@ -413,14 +426,15 @@ class DataContainer:
 
 class Dataset(ANSI_SQL_NamedObject):
     """This is a single collection of homogeneous records with a primary key"""
-    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation]) -> None:
+    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationStatus]) -> None:
         super().__init__(name)
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.documentation : Optional[Documentation] = None
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.UNKNOWN
         self.add(*args)
 
-    def add(self, *args : Union[Schema, StoragePolicy, Documentation]) -> None:
+    def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationStatus]) -> None:
         for arg in args:
             if(isinstance(arg,Schema)):
                 s : Schema = arg
@@ -428,6 +442,8 @@ class Dataset(ANSI_SQL_NamedObject):
             elif(isinstance(arg, StoragePolicy)):
                 p : StoragePolicy = arg
                 self.addPolicy(p)
+            elif(isinstance(arg, DeprecationStatus)):
+                self.deprecationStatus = arg
             else:
                 d : Documentation = arg
                 self.documentation = d
@@ -685,15 +701,17 @@ class SQLPullIngestion(CaptureMetaData):
 class Datastore(ANSI_SQL_NamedObject):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
-    def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation]) -> None:
+    def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationStatus]) -> None:
         super().__init__(name)
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
+        self.productionStatus : ProductionStatus = ProductionStatus.UNKNOWN
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.UNKNOWN
         self.add(*args)
 
-    def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation]) -> None:
+    def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationStatus]) -> None:
         for arg in args:
             if(type(arg) is Dataset):
                 d : Dataset = arg
@@ -704,6 +722,10 @@ class Datastore(ANSI_SQL_NamedObject):
             elif(isinstance(arg, DataContainer)):
                 c : DataContainer = arg
                 self.container = c
+            elif(isinstance(arg, ProductionStatus)):
+                self.productionStatus = arg
+            elif(isinstance(arg, DeprecationStatus)):
+                self.deprecationStatus = arg
             elif(isinstance(arg, Documentation)):
                 doc : Documentation = arg
                 self.documentation = doc
@@ -714,10 +736,15 @@ class Datastore(ANSI_SQL_NamedObject):
             raise ObjectAlreadyExistsException(f"Duplicate Dataset {item.name}")
         self.datasets[item.name] = item
 
+    def isDeprecated(self, dataset : Dataset) -> bool:
+        """Returns true if the dataset is deprecated"""
+        return self.deprecationStatus == DeprecationStatus.DEPRECATED or dataset.deprecationStatus == DeprecationStatus.DEPRECATED
+    
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Datastore):
             return super().__eq__(__value) and self.datasets == __value.datasets and self.imd == __value.imd and \
-                self.container == __value.container and self.documentation == __value.documentation
+                self.container == __value.container and self.documentation == __value.documentation and \
+                self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus
         return False
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
@@ -765,6 +792,23 @@ class Repository(ABC):
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, Repository)):
             return self.documentation == __value.documentation
+        else:
+            return False
+
+class TestRepository(Repository):
+    def __init__(self, name : str, doc : Optional[Documentation] = None) -> None:
+        super().__init__(doc)
+        self.name = name
+
+    def lint(self, tree : ValidationTree) -> None:
+        pass
+
+    def __str__(self) -> str:
+        return f"TestRepository({self.name})"
+    
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, TestRepository)):
+            return super().__eq__(__value) and self.name == __value.name
         else:
             return False
 
@@ -1345,12 +1389,20 @@ class WorkspacePlatformConfig(object):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
 
+class DeprecationsAllowed(Enum):
+    """This specifies if deprecations are allowed for a specific dataset in a workspace dsg"""
+    NEVER = 0
+    """Deprecations are never allowed"""
+    ALLOWED = 1
+    """Deprecations are allowed but not will generate warnings"""
+
 class DatasetSink(object):
     """This is a reference to a dataset in a Workspace"""
-    def __init__(self, storeName : str, datasetName : str) -> None:
+    def __init__(self, storeName : str, datasetName : str, deprecationsAllowed : DeprecationsAllowed = DeprecationsAllowed.NEVER) -> None:
         self.storeName : str = storeName
         self.datasetName : str = datasetName
         self.key = f"{self.storeName}:{self.datasetName}"
+        self.deprecationsAllowed : DeprecationsAllowed = deprecationsAllowed
 
     def __eq__(self, __value: object) -> bool:
         if(type(__value) is DatasetSink):
@@ -1366,6 +1418,19 @@ class DatasetSink(object):
         dataset : Optional[Dataset] = eco.cache_getDataset(self.storeName, self.datasetName)
         if(dataset == None):
             tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
+        else:
+            store : Optional[Datastore] = eco.datastoreCache.get(self.storeName)
+            if store:
+                if store.isDeprecated(dataset):
+                    if self.deprecationsAllowed == DeprecationsAllowed.NEVER:
+                        tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is deprecated and deprecations are not allowed")
+                    elif(self.deprecationsAllowed == DeprecationsAllowed.ALLOWED):
+                        tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using deprecated dataset", ProblemSeverity.WARNING)
+            else:
+                tree.addProblem(f"Unknown datastore {self.storeName}")
+
+    def __str__(self) -> str:
+        return f"DatasetSink({self.storeName}:{self.datasetName})"
 
 class DatasetGroup(object):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace"""
@@ -1394,19 +1459,23 @@ class DatasetGroup(object):
         if(is_valid_sql_identifier(self.name) == False):
             tree.addProblem(f"DatasetGroup name {self.name} is not a valid SQL identifier")
         for sink in self.datasets.values():
-            sink.lint(eco, tree)
+            sinkTree : ValidationTree = tree.createChild(sink)
+            sink.lint(eco, sinkTree)
 
     def __str__(self) -> str:
         return f"DatasetGroup({self.name})"
 
+
 class Workspace(object):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation]) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationStatus]) -> None:
         self.name : str = name
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
         self.documentation : Optional[Documentation] = None
+        self.productionStatus : ProductionStatus = ProductionStatus.UNKNOWN
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.UNKNOWN
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
@@ -1418,6 +1487,10 @@ class Workspace(object):
                 if(self.asset != None and self.asset != a):
                     raise AttributeAlreadySetException("Asset")
                 self.asset = a
+            elif(isinstance(arg, ProductionStatus)):
+                self.productionStatus = arg
+            elif(isinstance(arg, DeprecationStatus)):
+                self.deprecationStatus = arg
             elif(isinstance(arg, Documentation)):
                 d : Documentation = arg
                 if(self.documentation != None and self.documentation != d):
@@ -1433,6 +1506,8 @@ class Workspace(object):
         if not is_valid_sql_identifier(self.name):
             tree.addProblem(f"Workspace name {self.name} is not a valid SQL identifier")
 
+        # Check production status of workspace matches all datasets in use
+        # Check deprecation status of workspace generates warnings for all datasets in use
         # Lint the DSGs
         for dsg in self.dsgs.values():
             dsgTree : ValidationTree = tree.createChild(dsg)
