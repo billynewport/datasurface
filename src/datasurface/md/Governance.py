@@ -1498,7 +1498,8 @@ class DatasetSink(object):
         return f"DatasetSink({self.storeName}:{self.datasetName})"
 
 class DatasetGroup(ANSI_SQL_NamedObject):
-    """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace"""
+    """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace. The name should be
+    ANSI SQL compliant because it could be used as part of a SQL View/Table name in a Workspace database"""
     def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig]) -> None:
         super().__init__(name)
         self.platformMD : Optional[WorkspacePlatformConfig] = None
@@ -1585,7 +1586,8 @@ class DataTransformer(ANSI_SQL_NamedObject):
 
 class Workspace(ANSI_SQL_NamedObject):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
-    Specific datasets can be present in multiple groups. They will be named differently in each group"""
+    Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
+    it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
     def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationStatus, DataTransformer]) -> None:
         super().__init__(name)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
