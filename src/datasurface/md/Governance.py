@@ -208,6 +208,15 @@ class TeamDeclarationKey(GovernanceZoneKey):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TeamDeclarationKey) and self.tdName == __value.tdName
+    
+class DatastoreKey(TeamDeclarationKey):
+    """Soft link to a datastore"""
+    def __init__(self, td : TeamDeclarationKey, ds : str) -> None:
+        super().__init__(td, td.tdName)
+        self.dsName : str = ds
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, DatastoreKey) and self.dsName == __value.dsName
 
 
 class StoragePolicy(ABC):
@@ -848,6 +857,21 @@ class GitRepository(Repository):
         if(is_valid_github_module(self.moduleName) == False):
             tree.addProblem("Module name is not valid")
 
+class TeamInformation:
+    def __init__(self, t : 'Team', td : 'TeamDeclaration') -> None:
+        self.team : Team = t
+        self.declaration : TeamDeclaration = td
+
+class WorkspaceInformation:
+    def __init__(self, w : 'Workspace', t : 'Team') -> None:
+        self.workspace : Workspace = w
+        self.team : Team = t
+
+class DatastoreInformation:
+    def __init__(self, d : 'Datastore', t : 'Team') -> None:
+        self.datastore : Datastore = d
+        self.team : Team = t
+
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
 class Ecosystem(GitControlledObject):
@@ -870,11 +894,11 @@ class Ecosystem(GitControlledObject):
 
     def resetCaches(self) -> None:
         """Empties the caches"""
-        self.datastoreCache : dict[str, 'Datastore'] = {}
+        self.datastoreCache : dict[str, DatastoreInformation] = {}
         """This is a cache of all data stores in the ecosystem"""
-        self.workSpaceCache : dict[str, 'Workspace'] = {}
+        self.workSpaceCache : dict[str, WorkspaceInformation] = {}
         """This is a cache of all workspaces in the ecosystem"""
-        self.teamCache : dict[str, 'Team'] = {}
+        self.teamCache : dict[str, TeamInformation] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
     def add(self, *args : 'GovernanceZoneDeclaration') -> None:
@@ -887,34 +911,34 @@ class Ecosystem(GitControlledObject):
         self.zones.addAuthorization(z)
         z.key = GovernanceZoneKey(self.key, z.name)
 
-    def cache_addTeam(self, td : 'Team'):
+    def cache_addTeam(self, td : 'TeamDeclaration', t : 'Team'):
         if(self.teamCache.get(td.name) != None):
             if(self.teamCache.get(td.name) != None):
                 raise ObjectAlreadyExistsException(f"Duplicate Team {td.name}")
-            self.teamCache[td.name] = td
+            self.teamCache[td.name] = TeamInformation(t, td)
 
-    def cache_addWorkspace(self, work : 'Workspace'):
+    def cache_addWorkspace(self, team : 'Team', work : 'Workspace'):
         """This adds a workspace to the eco cache and flags duplicates"""
         if(self.workSpaceCache.get(work.name) != None):
             raise ObjectAlreadyExistsException(f"Duplicate workspace {work.name}")
-        self.workSpaceCache[work.name] = work
+        self.workSpaceCache[work.name] = WorkspaceInformation(work, team)
 
-    def cache_addDatastore(self, store : 'Datastore'):
+    def cache_addDatastore(self, store : 'Datastore', t : 'Team'):
         """This adds a store to the eco cache and flags duplicates"""
         if(self.datastoreCache.get(store.name) != None):
             raise ObjectAlreadyExistsException(f"Duplicate data store {store.name}")
-        self.datastoreCache[store.name] = store
+        self.datastoreCache[store.name] = DatastoreInformation(store, t)
 
-    def cache_getWorkspaceOrThrow(self, work : str) -> 'Workspace':
+    def cache_getWorkspaceOrThrow(self, work : str) -> WorkspaceInformation:
         """This returns the named workspace if it exists"""
-        w : Optional[Workspace] = self.workSpaceCache.get(work)
+        w : Optional[WorkspaceInformation] = self.workSpaceCache.get(work)
         if(w):
             return w
         else:
             raise WorkspaceDoesntExistException(f"Unknown workspace {work}")
         
-    def cache_getDatastoreOrThrow(self, store : str):
-        s : Optional[Datastore] = self.datastoreCache.get(store)
+    def cache_getDatastoreOrThrow(self, store : str) -> DatastoreInformation:
+        s : Optional[DatastoreInformation] = self.datastoreCache.get(store)
         if(s):
             return s
         else:
@@ -922,9 +946,9 @@ class Ecosystem(GitControlledObject):
 
     def cache_getDataset(self, storeName : str, datasetName : str) -> Optional[Dataset]:
         """This returns the named dataset if it exists"""
-        s : Optional[Datastore] = self.datastoreCache.get(storeName)
+        s : Optional[DatastoreInformation] = self.datastoreCache.get(storeName)
         if(s):
-            dataset = s.datasets.get(datasetName)
+            dataset = s.datastore.datasets.get(datasetName)
             return dataset
         return None
 
@@ -946,7 +970,8 @@ class Ecosystem(GitControlledObject):
         """All caches should now be populated"""
 
         # Now lint the workspaces
-        for work in self.workSpaceCache.values():
+        for workInfo in self.workSpaceCache.values():
+            work = workInfo.workspace
             workTree : ValidationTree = ecoTree.createChild(work)
             work.lint(self, workTree)
 
@@ -1090,7 +1115,7 @@ class Team(GitControlledObject):
                 teamTree.addProblem(f"Duplicate Datastore {s.name}")
             else:
                 storeTree : ValidationTree = teamTree.createChild(s)
-                eco.datastoreCache[s.name] = s
+                eco.cache_addDatastore(s, self)
                 s.lint(eco, gz, self, storeTree)
 
         # Iterate over the workspaces to populate the cache but dont lint them yet
@@ -1099,7 +1124,7 @@ class Team(GitControlledObject):
                 teamTree.addProblem(f"Duplicate Workspace {w.name}")
                 # Cannot validate Workspace datasets until everything is loaded
             else:
-                eco.workSpaceCache[w.name] = w
+                eco.cache_addWorkspace(self, w)
 
         self.superLint(teamTree)
 
@@ -1335,14 +1360,17 @@ class GovernanceZone(GitControlledObject):
     def lint(self, eco : Ecosystem, govTree : ValidationTree) -> None:
         """This validates a GovernanceZone and populates the teamcache with the zones teams"""
         for team in self.teams.authorizedObjects.values():
+            td : TeamDeclaration = self.teams.authorizedNames[team.name]
             if(eco.teamCache.get(team.name) != None):
                 govTree.addProblem(f"Duplicate TeamDeclaration {team.name}")
             else:
-                eco.teamCache[team.name] = team
+                eco.cache_addTeam(td, team)
                 teamTree : ValidationTree = govTree.createChild(team)
                 team.lint(eco, self, teamTree)
         self.superLint(govTree)
         self.teams.lint(govTree)
+        if(self.key == None):
+            govTree.addProblem("Key not set")
 
     def __str__(self) -> str:
         return f"GovernanceZone({self.name})"
@@ -1452,8 +1480,9 @@ class DatasetSink(object):
         if(dataset == None):
             tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
         else:
-            store : Optional[Datastore] = eco.datastoreCache.get(self.storeName)
-            if store:
+            storeI : Optional[DatastoreInformation] = eco.datastoreCache.get(self.storeName)
+            if storeI:
+                store : Datastore = storeI.datastore
                 # Production data in non production or vice versa should be noted
                 if(store.productionStatus != ws.productionStatus):
                     tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using a datastore with a different production status", ProblemSeverity.WARNING)
@@ -1468,10 +1497,10 @@ class DatasetSink(object):
     def __str__(self) -> str:
         return f"DatasetSink({self.storeName}:{self.datasetName})"
 
-class DatasetGroup(object):
+class DatasetGroup(ANSI_SQL_NamedObject):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace"""
     def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig]) -> None:
-        self.name : str = name
+        super().__init__(name)
         self.platformMD : Optional[WorkspacePlatformConfig] = None
         self.sinks : dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
         for arg in args:
@@ -1492,6 +1521,7 @@ class DatasetGroup(object):
         return cyclic_safe_eq(self, __value, set())
     
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
+        super().nameLint(tree)
         if(is_valid_sql_identifier(self.name) == False):
             tree.addProblem(f"DatasetGroup name {self.name} is not a valid SQL identifier")
         for sink in self.sinks.values():
@@ -1501,17 +1531,70 @@ class DatasetGroup(object):
     def __str__(self) -> str:
         return f"DatasetGroup({self.name})"
 
+class TransformerTrigger:
+    pass
 
-class Workspace(object):
+class CodeArtifact:
+    """This defines a piece of code which can be used to transform data in a workspace"""
+    pass
+
+class PythonCodeArtifact(CodeArtifact):
+    """This describes a python job and its dependencies"""
+    def __init__(self, requirements : list[str], envVars : dict[str, str], requiredVersion : str) -> None:
+        self.requirements : list[str] = requirements
+        self.envVars : dict[str, str] = envVars
+        self.requiredVersion : str = requiredVersion
+
+class CodeExecutionEnvironment:
+    """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
+    pass
+
+class KubernetesEnvironment(CodeExecutionEnvironment):
+    """This is a Kubernetes environment"""
+    def __init__(self, hostName : str, cred : Credential) -> None:
+        self.hostName : str = hostName
+        """This is the hostname of the Kubernetes cluster"""
+        self.credential : Credential = cred
+        """This is the credential used to access the Kubernetes cluster"""
+
+class DataTransformer(ANSI_SQL_NamedObject):
+    """This allows new data to be produced from existing data. The inputs to the transformer are the
+    datasets in the workspace and the output is a Datastore associated with the transformer. The transformer
+    will be triggered when needed"""
+    def __init__(self, name : str, outputStoreName : str, trigger : TransformerTrigger, code : CodeArtifact, codeEnv : CodeExecutionEnvironment) -> None:
+        super().__init__(name)
+        self.outputStoreName : str = outputStoreName
+        self.trigger : TransformerTrigger = trigger
+        self.code : CodeArtifact = code
+        self.codeEnv : CodeExecutionEnvironment = codeEnv
+
+    def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
+        super().nameLint(tree)
+        # Does store exist
+        storeI : Optional[DatastoreInformation] = eco.datastoreCache.get(self.outputStoreName)
+        if(storeI == None):
+            tree.addProblem(f"Unknown datastore {self.outputStoreName}")
+        else:
+            if(storeI.datastore.productionStatus != ws.productionStatus):
+                tree.addProblem(f"DataTransformer {self.name} is using a datastore with a different production status", ProblemSeverity.WARNING)
+            
+            workSpaceI : WorkspaceInformation = eco.cache_getWorkspaceOrThrow(ws.name)
+            if(workSpaceI.team != storeI.team):
+                tree.addProblem(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR)
+
+
+class Workspace(ANSI_SQL_NamedObject):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationStatus]) -> None:
-        self.name : str = name
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationStatus, DataTransformer]) -> None:
+        super().__init__(name)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
         self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
         self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
+        self.dataTransformer : Optional[DataTransformer] = None
+        """This workspace is the input to a data transformer if set"""
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
@@ -1532,6 +1615,11 @@ class Workspace(object):
                 if(self.documentation != None and self.documentation != d):
                     raise AttributeAlreadySetException("Documentation")
                 self.documentation = d
+            elif(isinstance(arg, DataTransformer)):
+                dt : DataTransformer = arg
+                if(self.dataTransformer != None and self.dataTransformer != dt):
+                    raise AttributeAlreadySetException("DataTransformer")
+                self.dataTransformer = dt
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
 
@@ -1539,6 +1627,7 @@ class Workspace(object):
         return cyclic_safe_eq(self, __value, set())
     
     def lint(self, eco : Ecosystem, tree : ValidationTree):
+        super().nameLint(tree)
         if not is_valid_sql_identifier(self.name):
             tree.addProblem(f"Workspace name {self.name} is not a valid SQL identifier")
 
@@ -1548,6 +1637,11 @@ class Workspace(object):
         for dsg in self.dsgs.values():
             dsgTree : ValidationTree = tree.createChild(dsg)
             dsg.lint(eco, self, dsgTree)
+
+        # Link the transformer if present
+        if self.dataTransformer:
+            dtTree : ValidationTree = tree.createChild(self.dataTransformer)
+            self.dataTransformer.lint(eco, self, dtTree)
 
     def __str__(self) -> str:
         return f"Workspace({self.name})"    

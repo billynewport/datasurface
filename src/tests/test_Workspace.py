@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DeprecationStatus, DeprecationsAllowed, ProductionStatus, TestRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DatastoreInformation, DeprecationStatus, DeprecationsAllowed, ProductionStatus, TestRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -111,17 +111,17 @@ class TestWorkspace(unittest.TestCase):
                        )
                     ),
             Workspace("WK_A",
-                DatasetGroup("Fast stuff",
+                DatasetGroup("FastStuff",
                             WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                             DatasetSink("Store1", "Dataset1"),
                             DatasetSink("Store2", "Dataset2")
                             ),
-                DatasetGroup("Slow ESMA stuff",
+                DatasetGroup("SlowESMAStuff",
                             WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))),
                             DatasetSink("Store3", "Dataset4"),
                             DatasetSink("Store4", "Dataset5")
                             ),
-                DatasetGroup("Slow SEC stuff",
+                DatasetGroup("SlowSEC_Stuff",
                             WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))),
                             DatasetSink("Store3", "Dataset4"),
                             DatasetSink("Store4", "Dataset5")
@@ -398,11 +398,12 @@ class TestWorkspace(unittest.TestCase):
         e : Ecosystem = self.createSimpleEcosystem()
 
         # Make a dataset deprecated with a no deprecation allowed sink link in a workspace
-        store : Datastore = e.cache_getDatastoreOrThrow("Store1")
+        storeI : DatastoreInformation = e.cache_getDatastoreOrThrow("Store1")
+        store : Datastore = storeI.datastore
         dataset2 : Dataset = store.datasets["Dataset2"]
         dataset2.deprecationStatus = DeprecationStatus.DEPRECATED
 
-        ws : Workspace = e.cache_getWorkspaceOrThrow("WK_A")
+        ws : Workspace = e.cache_getWorkspaceOrThrow("WK_A").workspace
 
         eTree : ValidationTree = e.lintAndHydrateCaches()
         self.assertTrue(eTree.hasErrors())
@@ -445,17 +446,17 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(slowP, fastP)
 
         w1 : Workspace = Workspace("WK_A",
-            DatasetGroup("Fast stuff",
+            DatasetGroup("FastStuff",
                         WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                         DatasetSink("Store1", "Dataset1"),
                         DatasetSink("Store2", "Dataset2")
                         ),
-            DatasetGroup("Slow ESMA stuff",
+            DatasetGroup("SlowESMA_Stuff",
                         WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))),
                         DatasetSink("Store3", "Dataset4"),
                         DatasetSink("Store4", "Dataset5")
                         ),
-            DatasetGroup("Slow SEC stuff",
+            DatasetGroup("SlowSEC_Stuff",
                         WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))),
                         DatasetSink("Store3", "Dataset4"),
                         DatasetSink("Store4", "Dataset5")
@@ -464,8 +465,8 @@ class TestWorkspace(unittest.TestCase):
         
         self.assertEqual(w1, w1)
 
-        w1_fastP : Optional[WorkspacePlatformConfig] = w1.dsgs["Fast stuff"].platformMD
-        w1_slowP : Optional[WorkspacePlatformConfig] = w1.dsgs["Slow ESMA stuff"].platformMD
+        w1_fastP : Optional[WorkspacePlatformConfig] = w1.dsgs["FastStuff"].platformMD
+        w1_slowP : Optional[WorkspacePlatformConfig] = w1.dsgs["SlowESMA_Stuff"].platformMD
 
         if(w1_fastP is None or w1_slowP is None):
             raise Exception("Fast or Slow platform not found")
@@ -477,9 +478,9 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(retFast, retSlow)
         self.assertNotEqual(retSlow, retFast)
 
-        dsg1 : DatasetGroup = w1.dsgs["Fast stuff"]
-        dsg2 : DatasetGroup = w1.dsgs["Slow ESMA stuff"]
-        dsg3 : DatasetGroup = w1.dsgs["Slow SEC stuff"]
+        dsg1 : DatasetGroup = w1.dsgs["FastStuff"]
+        dsg2 : DatasetGroup = w1.dsgs["SlowESMA_Stuff"]
+        dsg3 : DatasetGroup = w1.dsgs["SlowSEC_Stuff"]
         self.assertIsNotNone(dsg1)
         self.assertIsNotNone(dsg2)
         self.assertIsNotNone(dsg3)
