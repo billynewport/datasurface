@@ -22,9 +22,7 @@ class TestZones(unittest.TestCase):
         eco.add(
             GovernanceZoneDeclaration(usZoneName, GitRepository("aa", "bb")),
         )
-        gzUSA : Optional[GovernanceZone] = eco.getZone(usZoneName)
-        if(gzUSA is None):
-            raise Exception("Zone {} not found".format(usZoneName))
+        gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         gzUSA.add(
                 InfrastructureVendor("AWS",
                     InfraLocation("USA",

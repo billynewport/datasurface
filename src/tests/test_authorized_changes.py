@@ -62,8 +62,7 @@ class TestEcoNameChange(unittest.TestCase):
         self.assertFalse(eTree.hasErrors())
 
         # Get the USA zone so we can change it
-        gzUSA : Optional[GovernanceZone] = e_other.zones.authorizedObjects["USA"]
-        self.assertIsNotNone(gzUSA)
+        gzUSA : GovernanceZone = e_other.getZoneOrThrow("USA")
 
         # NewTeam should not exist
         t : Optional[Team] = gzUSA.getTeam("NewTeam")
@@ -88,10 +87,7 @@ class TestEcoNameChange(unittest.TestCase):
         # This creates a team object and is the first team specific change that
         # needs to be authorized. The team cannot be defined and authorized in
         # one step. Authorize using gz repo, then create/edit using team repo
-        t = gzUSA.getTeam("NewTeam")
-        self.assertIsNotNone(t)
-        if(t == None):
-            raise Exception("NewTeam should not be None")
+        t = gzUSA.getTeamOrThrow("NewTeam")
 
         # Should not be allowed from other repo
         eTree = ValidationTree(e_other)
@@ -114,12 +110,8 @@ class TestEcoNameChange(unittest.TestCase):
 
         # Get the USA zone so we can change it
         gzUSA = e_other.zones.authorizedObjects["USA"]
-        newTeam : Optional[Team] = gzUSA.getTeam("NewTeam")
+        newTeam : Team = gzUSA.getTeamOrThrow("NewTeam")
 
-        self.assertIsNotNone(newTeam)
-        if(newTeam == None):
-            raise Exception("NewTeam should not be None")
-        
         # Add tables to the new team
         tests.nwdb.nwdb.defineTables(newTeam)
 

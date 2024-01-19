@@ -19,23 +19,19 @@ class TestWorkspace(unittest.TestCase):
         
         self.assertEqual(eco, eco)
         
-        gzUSA : Optional[GovernanceZone] = eco.getZone("US")
-        if(gzUSA is None):
-            raise Exception("US zone not found")
+        gzUSA : GovernanceZone = eco.getZoneOrThrow("US")
         gzUSA.add(
                 TeamDeclaration("Test", GitRepository("gitrepo url", "module")),
                 DataPlatform("FastPlatform"),
                 DataPlatform("SlowPlatform")
         )
 
-        gzChina : Optional[GovernanceZone] = eco.getZone("China")
-        if(gzChina):
-            gzChina.add(
-                    # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
-                    LocalGovernanceManagedOnly("China Only", True)
-                )
-        else:
-            raise Exception("China zone not found")
+        gzChina : GovernanceZone = eco.getZoneOrThrow("China")
+        gzChina.add(
+                TeamDeclaration("China Team", GitRepository("gitrepo url", "module")),
+                # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
+                LocalGovernanceManagedOnly("China Only", True)
+            )
         return eco
 
     def test_SimpleWorkspace(self):
@@ -47,17 +43,13 @@ class TestWorkspace(unittest.TestCase):
             GovernanceZoneDeclaration(usZoneName, GitRepository("aa", "bb")),
             GovernanceZoneDeclaration(chinaZoneName, GitRepository("aa", "cc")))
         
-        gzUSA : Optional[GovernanceZone] = eco.getZone(usZoneName)
-        if(gzUSA is None):
-            raise Exception("US zone not found")
+        gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         gzUSA.add(
                 TeamDeclaration(testTeamName, GitRepository("gitrepo url", "module")),
                 DataPlatform("FastPlatform"),
                 DataPlatform("SlowPlatform")
                 )
-        gzChina : Optional[GovernanceZone] = eco.getZone(chinaZoneName)
-        if(gzChina is None):
-            raise Exception("China zone not found")
+        gzChina : GovernanceZone = eco.getZoneOrThrow(chinaZoneName)
         gzChina.add(
                 TeamDeclaration("China Team", GitRepository("git repo 2", "module")),
                                     LocalGovernanceManagedOnly("China Only", True)
@@ -76,9 +68,7 @@ class TestWorkspace(unittest.TestCase):
         # Check we can't get a team that wasnt declared in the GovernanceZone
         self.assertIsNone(gzUSA.getTeam("Undefined Team"))
 
-        t : Optional[Team] = gzUSA.getTeam(testTeamName)
-        if(t is None):
-            raise Exception("Team not found")
+        t : Team = gzUSA.getTeamOrThrow(testTeamName)
         t.add(
             Datastore("Store1",
                     Dataset("Dataset1",
@@ -273,9 +263,7 @@ class TestWorkspace(unittest.TestCase):
 
     def test_DatasetEquality(self):
         eco : Ecosystem = self.createEco()
-        china : Optional[GovernanceZone] = eco.getZone("China")
-        if(china is None):
-            raise Exception("China zone not found")
+        china : GovernanceZone = eco.getZoneOrThrow("China")
         
         d1 : Dataset = Dataset("Dataset1",
             DDLTable(
@@ -509,16 +497,11 @@ class TestWorkspace(unittest.TestCase):
     def test_TeamEquality(self):
         eco : Ecosystem = self.createEco()
 
-        gzUSA : Optional[GovernanceZone] = eco.getZone("US")
-        gzChina : Optional[GovernanceZone] = eco.getZone("China")
+        gzUSA : GovernanceZone = eco.getZoneOrThrow("US")
+        gzChina : GovernanceZone = eco.getZoneOrThrow("China")
 
-        if(gzUSA is None):
-            raise Exception("US zone not found")
-        if(gzChina is None):
-            raise Exception("China zone not found") 
-        
-        t1 : Optional[Team] = gzUSA.getTeam("Test")
-        t2 : Optional[Team] = gzChina.getTeam("China Team")
+        t1 : Team = gzUSA.getTeamOrThrow("Test")
+        t2 : Team = gzChina.getTeamOrThrow("China Team")
 
         self.assertEqual(t1, t1)
         self.assertEqual(t2, t2)
