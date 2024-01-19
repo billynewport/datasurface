@@ -10,7 +10,7 @@ from .Documentation import Documentation
 
 from .utils import ANSI_SQL_NamedObject, is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
 
 T = TypeVar('T')
@@ -982,6 +982,13 @@ class Ecosystem(GitControlledObject):
         zone : Optional[GovernanceZone] = self.zones.getObject(gz)
         return zone
     
+    def getZoneOrThrow(self, gz : str) -> 'GovernanceZone':
+        z : Optional[GovernanceZone] = self.getZone(gz)
+        if(z):
+            return z
+        else:
+            raise ObjectDoesntExistException(f"Unknown governance zone {gz}")            
+    
     def getTeam(self, gz : str, teamName : str) -> Optional['Team']:
         """Returns the team with the specified name in the specified zone"""
         zone : Optional[GovernanceZone] = self.getZone(gz)
@@ -1292,6 +1299,13 @@ class GovernanceZone(GitControlledObject):
 
     def getTeam(self, name : str) -> Optional[Team]:
         return self.teams.getObject(name)
+    
+    def getTeamOrThrow(self, name : str) -> Team:
+        t : Optional[Team] = self.getTeam(name)
+        if(t):
+            return t
+        else:
+            raise ObjectDoesntExistException(f"Unknown team {name}")
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, GovernanceZone):

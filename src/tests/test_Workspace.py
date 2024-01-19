@@ -347,50 +347,46 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(s1, s2)        
 
     def createSimpleEcosystem(self) -> Ecosystem:
+
+        # Make ecosystem and declare a single zone US
         e : Ecosystem = Ecosystem("BigCorp", TestRepository("a"),
             GovernanceZoneDeclaration("US", TestRepository("b")))
-        
-        gzUSA : Optional[GovernanceZone] = e.getZone("US")
 
-        if(gzUSA is None):
-            raise Exception("US zone not found")
+        # Define US zone and declare a single team Test        
+        gzUSA : GovernanceZone = e.getZoneOrThrow("US")
         gzUSA.add(TeamDeclaration("Test", TestRepository("c")))
 
-        t : Optional[Team] = gzUSA.getTeam("Test")
-        if(t is None):
-            raise Exception("Team not found")
-        
-        dataset1 : Dataset = Dataset("Dataset1",
-            DDLTable(
-                DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
-                DDLColumn    ("Col2", String(10)),
-                DDLColumn    ("Col3", Date())
-                )
-            )
-        dataset2 : Dataset = Dataset("Dataset2",
-            DDLTable(
-                DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
-                DDLColumn    ("Col2", String(10)),
-                DDLColumn    ("Col3", Date())
-                )
-            )
-        
-        store : Datastore = Datastore("Store1", dataset1, dataset2)
-        store.add(CDCCaptureIngestion())
-        t.add(store)
-
-        sink_dataset2 : DatasetSink = DatasetSink("Store1", "Dataset2")
-
-        ws : Workspace = Workspace(
-            "WK_A", 
-            DatasetGroup("FastStuff",
-                        WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
-                        DatasetSink("Store1", "Dataset1"),
-                        sink_dataset2
+        # Define the team with a single store with 2 datasets and a single Workspace using those datasets
+        t : Team = gzUSA.getTeamOrThrow("Test")
+        t.add(        
+            Datastore("Store1", 
+                CDCCaptureIngestion(),
+                Dataset("Dataset1",
+                    DDLTable(
+                        DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
+                        DDLColumn    ("Col2", String(10)),
+                        DDLColumn    ("Col3", Date())
                         )
-            )
+                ), 
+                Dataset("Dataset2",
+                    DDLTable(
+                        DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
+                        DDLColumn    ("Col2", String(10)),
+                        DDLColumn    ("Col3", Date())
+                        )
+                    )
+                ),
+            Workspace(
+                "WK_A", 
+                DatasetGroup("FastStuff",
+                            WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                            DatasetSink("Store1", "Dataset1"),
+                            DatasetSink("Store1", "Dataset2")
+                            )
+                )
+        )
 
-        t.add(ws)
+        # Prepare ecosystem and check no errors or issues
         tree : ValidationTree = e.lintAndHydrateCaches()
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasIssues())          
@@ -401,30 +397,22 @@ class TestWorkspace(unittest.TestCase):
 
         e : Ecosystem = self.createSimpleEcosystem()
 
-        gzUSA : Optional[GovernanceZone] = e.getZone("US")
-
-        if(gzUSA is None):
-            raise Exception("US zone not found")
-        t : Optional[Team] = gzUSA.getTeam("Test")
-        if(t is None):
-            raise Exception("Team not found")
-
+        # Make a dataset deprecated with a no deprecation allowed sink link in a workspace
         store : Datastore = e.cache_getDatastoreOrThrow("Store1")
         dataset2 : Dataset = store.datasets["Dataset2"]
         dataset2.deprecationStatus = DeprecationStatus.DEPRECATED
 
         ws : Workspace = e.cache_getWorkspaceOrThrow("WK_A")
-        sink_dataset2 : DatasetSink = ws.dsgs["FastStuff"].sinks["Store1:Dataset2"]
 
         eTree : ValidationTree = e.lintAndHydrateCaches()
         self.assertTrue(eTree.hasErrors())
         self.assertFalse(eTree.hasIssues())
 
-        # Mark Sink as allowing deprecated datasets and check again
+        # Mark Sink as allowing deprecated datasets and check again, should be good
+        sink_dataset2 : DatasetSink = ws.dsgs["FastStuff"].sinks["Store1:Dataset2"]
         sink_dataset2.deprecationsAllowed = DeprecationsAllowed.ALLOWED
 
         eTree = e.lintAndHydrateCaches()
-        eTree.printTree()
         self.assertFalse(eTree.hasErrors())
         self.assertTrue(eTree.hasIssues()) # Workspace using deprecated dataset
 
@@ -436,6 +424,7 @@ class TestWorkspace(unittest.TestCase):
         # Verify its clean
         self.assertFalse(eTree.hasErrors())
         self.assertFalse(eTree.hasIssues())
+
         # Make sure we checked the production status
         self.assertEqual(store.productionStatus, ProductionStatus.NOT_PRODUCTION)
         self.assertEqual(ws.productionStatus, ProductionStatus.NOT_PRODUCTION)
