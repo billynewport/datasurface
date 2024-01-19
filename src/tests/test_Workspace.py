@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DeprecationStatus, DeprecationsAllowed, TestRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DeprecationStatus, DeprecationsAllowed, ProductionStatus, TestRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -384,14 +384,16 @@ class TestWorkspace(unittest.TestCase):
 
         sink : DatasetSink = DatasetSink("Store1", "Dataset2")
 
-        t.add(Workspace("WK_A", 
+        ws : Workspace = Workspace(
+            "WK_A", 
             DatasetGroup("FastStuff",
                         WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                         DatasetSink("Store1", "Dataset1"),
                         sink
                         )
             )
-        )
+
+        t.add(ws)
 
         eTree : ValidationTree = e.lintAndHydrateCaches()
         self.assertTrue(eTree.hasErrors())
@@ -405,6 +407,20 @@ class TestWorkspace(unittest.TestCase):
         self.assertFalse(eTree.hasErrors())
         self.assertTrue(eTree.hasIssues()) # Workspace using deprecated dataset
 
+        # Move back to clean model
+        d2.deprecationStatus = DeprecationStatus.NOT_DEPRECATED
+        sink.deprecationsAllowed = DeprecationsAllowed.NEVER
+        eTree = e.lintAndHydrateCaches()
+        # Verify its clean
+        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.hasIssues())
+
+        # Should get warning that a non production store used in a production workspace
+        store.productionStatus = ProductionStatus.NOT_PRODUCTION
+        ws.productionStatus = ProductionStatus.PRODUCTION
+        eTree = e.lintAndHydrateCaches()
+        self.assertFalse(eTree.hasErrors())
+        self.assertTrue(eTree.hasIssues())
 
     def test_WorkspaceEquality(self):
         fastP : DataPlatform = DataPlatform("FastPlatform")

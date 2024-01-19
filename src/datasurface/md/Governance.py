@@ -18,11 +18,11 @@ T = TypeVar('T')
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
     PRODUCTION = 0
-    NON_PRODUCTION = 1
+    NOT_PRODUCTION = 1
 
 class DeprecationStatus(Enum):
     """This indicates whether the team is deprecated or not"""
-    ACTIVE = 0
+    NOT_DEPRECATED = 0
     DEPRECATED = 1
 
 class GitControlledObject(ABC):
@@ -56,6 +56,7 @@ class GitControlledObject(ABC):
 
     @abstractmethod    
     def checkIfChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
+        """This checks if the differences between the current and proposed objects are authorized by the specified change source"""
         raise NotImplementedError()
         
     def checkDictChangesAreAuthorized(self, current : Mapping[str, 'GitControlledObject'], proposed : Mapping[str, 'GitControlledObject'], changeSource : 'Repository', vTree : ValidationTree) -> None:
@@ -239,7 +240,7 @@ class StoragePolicy(ABC):
 
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.ACTIVE) -> None:
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
         super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -251,7 +252,7 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
 
 class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.ACTIVE) -> None:
+    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
         super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -435,7 +436,7 @@ class Dataset(ANSI_SQL_NamedObject):
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.documentation : Optional[Documentation] = None
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.ACTIVE
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
         self.add(*args)
 
     def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationStatus]) -> None:
@@ -716,8 +717,8 @@ class Datastore(ANSI_SQL_NamedObject):
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
-        self.productionStatus : ProductionStatus = ProductionStatus.NON_PRODUCTION
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.ACTIVE
+        self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
         self.add(*args)
 
@@ -1420,7 +1421,7 @@ class DatasetSink(object):
         else:
             return False
         
-    def lint(self, eco : Ecosystem, tree : ValidationTree):
+    def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         if(is_valid_sql_identifier(self.storeName) == False):
             tree.addProblem(f"DatasetSink store name {self.storeName} is not a valid SQL identifier")
         if(is_valid_sql_identifier(self.datasetName) == False):
@@ -1431,6 +1432,9 @@ class DatasetSink(object):
         else:
             store : Optional[Datastore] = eco.datastoreCache.get(self.storeName)
             if store:
+                # Production data in non production or vice versa should be noted
+                if(store.productionStatus != ws.productionStatus):
+                    tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using a datastore with a different production status", ProblemSeverity.WARNING)
                 if store.isDatasetDeprecated(dataset):
                     if self.deprecationsAllowed == DeprecationsAllowed.NEVER:
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is deprecated and deprecations are not allowed")
@@ -1465,12 +1469,12 @@ class DatasetGroup(object):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
     
-    def lint(self, eco : Ecosystem, tree : ValidationTree):
+    def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         if(is_valid_sql_identifier(self.name) == False):
             tree.addProblem(f"DatasetGroup name {self.name} is not a valid SQL identifier")
         for sink in self.datasets.values():
             sinkTree : ValidationTree = tree.createChild(sink)
-            sink.lint(eco, sinkTree)
+            sink.lint(eco, ws, sinkTree)
 
     def __str__(self) -> str:
         return f"DatasetGroup({self.name})"
@@ -1484,8 +1488,8 @@ class Workspace(object):
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
         self.documentation : Optional[Documentation] = None
-        self.productionStatus : ProductionStatus = ProductionStatus.NON_PRODUCTION
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.ACTIVE
+        self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
+        self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
         for arg in args:
             if(type(arg) is DatasetGroup):
                 dsg : DatasetGroup = arg
@@ -1521,7 +1525,7 @@ class Workspace(object):
         # Lint the DSGs
         for dsg in self.dsgs.values():
             dsgTree : ValidationTree = tree.createChild(dsg)
-            dsg.lint(eco, dsgTree)
+            dsg.lint(eco, self, dsgTree)
 
     def __str__(self) -> str:
         return f"Workspace({self.name})"    

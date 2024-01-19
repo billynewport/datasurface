@@ -6,14 +6,14 @@ toc::[]
 [IMPORTANT]
 .This is a work in progress
 ----
-Until I get this all working, the code below is imaginary only. This will end up in the multirepository scenario as something like this:
+Until I get this all working, the text/code snippets below are imaginary only. This will end up in the multirepository scenario as something like this:
 
 * Create a fork of the ecosystem repo called the governancezone repo
 * Update the governancezone repo using the main branch of the ecosystem repo
 * Check the governancezone repo out locally and make edits
 * Commit the changes to the governancezone repo
 * Push the changes to the governancezone repo
-* Create a pull request from the fork branch to the main branch of the ecosystem repo
+* Using github, Create a pull request from the fork branch to the main branch of the ecosystem repo
 
 It will be similar for making team model updates just replacing governancezone repo with team repo in the above.
 ----
