@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DatastoreInformation, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, TestRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DatastoreInformation, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, PolicyMandatedRule, ProductionStatus, TestRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -30,7 +30,7 @@ class TestWorkspace(unittest.TestCase):
         gzChina.add(
                 TeamDeclaration("China Team", GitRepository("gitrepo url", "module")),
                 # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
-                LocalGovernanceManagedOnly("China Only", True)
+                LocalGovernanceManagedOnly("China Only", PolicyMandatedRule.MANDATED_WITHIN_ZONE)
             )
         return eco
 
@@ -52,7 +52,7 @@ class TestWorkspace(unittest.TestCase):
         gzChina : GovernanceZone = eco.getZoneOrThrow(chinaZoneName)
         gzChina.add(
                 TeamDeclaration("China Team", GitRepository("git repo 2", "module")),
-                                    LocalGovernanceManagedOnly("China Only", True)
+                                    LocalGovernanceManagedOnly("China Only", PolicyMandatedRule.INDIVIDUALLY_MANDATED)
         )
         
 

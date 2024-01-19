@@ -156,13 +156,27 @@ def cyclic_safe_eq(a : object, b: object, visited : set[object]) -> bool:
 
     return True
 
-class EcosystemKey:
+class GenericKey(ABC):
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+    def __str__(self) -> str:
+        return "GenericKey()"
+    
+class EcosystemKey(GenericKey):
     """Soft link to an ecosystem"""
     def __init__(self, ecoName : str) -> None:
         self.ecoName : str = ecoName
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, EcosystemKey) and self.ecoName == __value.ecoName
+    
+    def __str__(self) -> str:
+        return f"Ecosystem({self.ecoName})"
+
+    def __hash__(self) -> int:
+        return hash(str(self))
 
 class GovernanceZoneKey(EcosystemKey):
     """Soft link to a governance zone"""
@@ -172,6 +186,12 @@ class GovernanceZoneKey(EcosystemKey):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, GovernanceZoneKey) and self.gzName == __value.gzName
+    
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+    def __str__(self) -> str:
+        return super().__str__() + f".GovernanceZone({self.gzName})"
 
 class StoragePolicyKey(GovernanceZoneKey):
     """Soft link to a storage policy"""
@@ -181,6 +201,12 @@ class StoragePolicyKey(GovernanceZoneKey):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, StoragePolicyKey) and self.policyName == __value.policyName
+    
+    def __str__(self) -> str:
+        return super().__str__() + f".StoragePolicy({self.policyName})"
+
+    def __hash__(self) -> int:
+        return hash(str(self))
 
 class InfrastructureVendorKey(GovernanceZoneKey):
     """Soft link to an infrastructure vendor"""
@@ -190,6 +216,12 @@ class InfrastructureVendorKey(GovernanceZoneKey):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, InfrastructureVendorKey) and self.ivName == __value.ivName
+    
+    def __str__(self) -> str:
+        return super().__str__() + f".InfrastructureVendor({self.ivName})"
+    
+    def __hash__(self) -> int:
+        return hash(str(self))
 
 class InfraLocationKey(InfrastructureVendorKey):
     """Soft link to an infrastructure location"""
@@ -199,6 +231,13 @@ class InfraLocationKey(InfrastructureVendorKey):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, InfraLocationKey) and self.locationPath == __value.locationPath
+    
+    def __str__(self) -> str:
+        return super().__str__() + f".InfraLocation({self.locationPath})"
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
 
 class TeamDeclarationKey(GovernanceZoneKey):
     """Soft link to a team declaration"""
@@ -209,6 +248,9 @@ class TeamDeclarationKey(GovernanceZoneKey):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TeamDeclarationKey) and self.tdName == __value.tdName
     
+    def __str__(self) -> str:
+        return super().__str__() + f".TeamDeclaration({self.tdName})"
+    
 class DatastoreKey(TeamDeclarationKey):
     """Soft link to a datastore"""
     def __init__(self, td : TeamDeclarationKey, ds : str) -> None:
@@ -217,14 +259,23 @@ class DatastoreKey(TeamDeclarationKey):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, DatastoreKey) and self.dsName == __value.dsName
+    
+    def __str__(self) -> str:
+        return super().__str__() + f".Datastore({self.dsName})"
+
+class PolicyMandatedRule(Enum):
+    MANDATED_WITHIN_ZONE = 0
+    """Policies with this are forcibly added to every dataset in the zone"""
+    INDIVIDUALLY_MANDATED = 1
+    """Policies with this are not added to datasets by default. They must be added individually to each dataset"""
 
 
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation], depStatus : DeprecationStatus) -> None:
+    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation], depStatus : DeprecationStatus) -> None:
         self.name : str = name
-        self.mandatory : bool = isMandatory
+        self.mandatory : PolicyMandatedRule = isMandatory
         self.key : Optional[StoragePolicyKey] = None
         self.documentation : Optional[Documentation] = doc
         self.deprecationStatus : DeprecationStatus = depStatus
@@ -249,7 +300,7 @@ class StoragePolicy(ABC):
 
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
+    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
         super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -261,7 +312,7 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
 
 class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
-    def __init__(self, name : str, isMandatory : bool, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
+    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
         super().__init__(name, isMandatory, doc, depStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
@@ -291,6 +342,17 @@ class InfraLocation:
         """These are the 'child' locations under this location. A state location would have city children for example"""
         """This specifies the parent location of this location. State is parent on city and so on"""
         self.add(*args)
+
+    def lint(self, tree : ValidationTree):
+        """This checks if the vendor is valid for the specified ecosystem, governance zone and team"""
+        if(self.key == None):
+            tree.addProblem("Location key not set")
+        if(self.documentation):
+            dTree : ValidationTree = tree.createChild(self.documentation)
+            self.documentation.lint(dTree)
+
+        for loc in self.locations.values():
+            loc.lint(tree)
 
     def setParentLocation(self, parent : InfraLocationKey) -> None:
         locList : list[str] = list(parent.locationPath)
@@ -373,6 +435,18 @@ class InfrastructureVendor:
         else:
             return False
         
+    def getLocationOrThrow(self, locationName : str) -> 'InfraLocation':
+        """Returns the location with the specified name or throws an exception"""
+        loc : Optional[InfraLocation] = self.locations.get(locationName)
+        if(loc):
+            return loc
+        else:
+            raise Exception(f"Location {locationName} not found")
+        
+    def getLocation(self, locationName : str) -> Optional['InfraLocation']:
+        """Returns the location with the specified name or None"""
+        return self.locations.get(locationName)
+    
     def findLocationUsingKey(self, locationPath : list[str]) -> Optional[InfraLocation]:
         """Returns the location using the path"""
         if(len(locationPath) == 0):
@@ -388,6 +462,18 @@ class InfrastructureVendor:
             else:
                 return None
 
+    def lint(self, tree : ValidationTree):
+        """This checks if the vendor is valid for the specified ecosystem, governance zone and team"""
+        if(self.key == None):
+            tree.addProblem("Vendor key not set")
+        if(self.documentation == None):
+            tree.addProblem("Vendor documentation not set")
+        else:
+            self.documentation.lint(tree)
+
+        for loc in self.locations.values():
+            lTree : ValidationTree = tree.createChild(loc)
+            loc.lint(lTree)
 
 class EncryptionSystem:
     """This describes"""
@@ -1074,6 +1160,13 @@ class Ecosystem(GitControlledObject):
         else:
             return None
         
+    def getTeamOrThrow(self, gz : str, teamName : str) -> 'Team':
+        t : Optional[Team] = self.getTeam(gz, teamName)
+        if(t):
+            return t
+        else:
+            raise ObjectDoesntExistException(f"Unknown team {teamName} in governance zone {gz}")
+        
     def __str__(self) -> str:
         return f"Ecosystem({self.name})"
 
@@ -1372,6 +1465,16 @@ class GovernanceZone(GitControlledObject):
         if self.vendors.get(iv.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Vendor {iv.name}")
         self.vendors[iv.name] = iv
+
+    def getVendor(self, name : str) -> Optional[InfrastructureVendor]:
+        return self.vendors.get(name)
+    
+    def getVendorOrThrow(self, name : str) -> InfrastructureVendor:
+        v : Optional[InfrastructureVendor] = self.getVendor(name)
+        if(v):
+            return v
+        else:
+            raise ObjectDoesntExistException(f"Unknown vendor {name}")
 
     def getTeam(self, name : str) -> Optional[Team]:
         return self.teams.getObject(name)
