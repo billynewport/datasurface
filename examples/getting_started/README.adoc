@@ -3,6 +3,21 @@
 
 toc::[]
 
+[IMPORTANT]
+.This is a work in progress
+----
+Until I get this all working, the code below is imaginary only. This will end up in the multirepository scenario as something like this:
+
+* Create a fork of the ecosystem repo called the governancezone repo
+* Update the governancezone repo using the main branch of the ecosystem repo
+* Check the governancezone repo out locally and make edits
+* Commit the changes to the governancezone repo
+* Push the changes to the governancezone repo
+* Create a pull request from the fork branch to the main branch of the ecosystem repo
+
+It will be similar for making team model updates just replacing governancezone repo with team repo in the above.
+----
+
 This folder contains examples of code to bootstrap a catalog using either multiple repositories responsible for different parts of the model or use a single repository which can modify the whole model. The single repo may be fine for development but for production it is recommended to use multiple repositories as different teams will want control on who can change different parts of the model.
 
 == Single Repository
@@ -52,6 +67,8 @@ git push -u origin main
 Once the GovernanceZone has been declared by the ecosystem repository, then we can define the GovernanceZone using changes source from the GovernanceZone repository. The multi_repo/Step2/eco.py file contains the eco.py with the GovernanceZone defined. Note, the authorization system is not file based, its object based. Any repository can change any file BUT, changes will only be accepted so long as the model is valid, backwards compatible AND the elements in the model which changed came from a repo authorized to change those elements.
 
 The newly defined GovernanceZone also declares the Team and specifies the repository the group managing that Team will use for making changes to the Team in the model.
+
+First setup a local folder to connect to the governancezone repo.
 
 [source, shell]
 ----
