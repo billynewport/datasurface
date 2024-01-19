@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from collections import OrderedDict
-from typing import Any, Callable, Iterable, Mapping, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, TypeVar, Union, cast
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from enum import Enum
@@ -872,6 +872,35 @@ class DatastoreInformation:
         self.datastore : Datastore = d
         self.team : Team = t
 
+class DependentWorkspaces:
+    """This tracks a Workspaces dependent on a datastore"""
+    def __init__(self, workSpace : 'Workspace'):
+        self.workspace : Workspace = workSpace
+        self.dependencies : set[DependentWorkspaces] = set()
+
+    def addDependency(self, dep : 'DependentWorkspaces') -> None:
+        self.dependencies.add(dep)
+
+    def flatten(self) -> set['Workspace']:
+        """Returns a flattened list of dependencies"""
+        rc : set[Workspace] = {self.workspace}
+        for dep in self.dependencies:
+            rc.update(dep.flatten())
+        return rc
+    
+    def __str__(self) -> str:
+        return f"Dependency({self.flatten()})"
+    
+    def __hash__(self) -> int:
+        return hash(self.workspace.name)
+    
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, DependentWorkspaces)):
+            return self.workspace.name == __value.workspace.name
+        else:
+            return False
+
+
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
 class Ecosystem(GitControlledObject):
@@ -978,6 +1007,28 @@ class Ecosystem(GitControlledObject):
         self.superLint(ecoTree)
         self.zones.lint(ecoTree)
         return ecoTree
+
+    def calculateDependenciesForDatastore(self, storeName : str, wsVisitedSet : set[str] = set()) -> Sequence[DependentWorkspaces]:
+        rc : list[DependentWorkspaces] = []
+        store : Datastore = self.datastoreCache[storeName].datastore
+
+        # If the store is used in any Workspace then thats a dependency
+        for w in self.workSpaceCache.values():
+            # Do not enter a cyclic loop
+            if(not w.workspace.name in wsVisitedSet):
+                if(w.workspace.isDatastoreUsed(store)):
+                    workspace : Workspace = w.workspace
+                    dep : DependentWorkspaces = DependentWorkspaces(workspace)
+                    rc.append(dep)
+                    # prevent cyclic loops
+                    wsVisitedSet.add(workspace.name)
+                    # If the workspace has a data transformer then the output store's dependencies are also dependencies
+                    if(workspace.dataTransformer != None):
+                        outputStore : Datastore = self.datastoreCache[workspace.dataTransformer.outputStoreName].datastore
+                        depList : Sequence[DependentWorkspaces] = self.calculateDependenciesForDatastore(outputStore.name, wsVisitedSet)
+                        for dep in depList:
+                            dep.addDependency(dep)
+        return rc
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         """This checks if the ecosystem top level has changed relative to the specified change source"""
@@ -1625,8 +1676,19 @@ class Workspace(ANSI_SQL_NamedObject):
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+    
+    def isDatastoreUsed(self, store : Datastore) -> bool:
+        """Returns true if the specified datastore is used by this workspace"""
+        for dsg in self.dsgs.values():
+            for sink in dsg.sinks.values():
+                if sink.storeName == store.name:
+                    return True
+        return False
     
     def lint(self, eco : Ecosystem, tree : ValidationTree):
         super().nameLint(tree)
@@ -1681,19 +1743,15 @@ class AssetSet(Asset):
             for c in a.containers.values():
                 self.containers[c.getName()] = c
 
-    def __init__(self, name : str, *args : Any) -> None:
+    def __init__(self, name : str, *args : Asset) -> None:
         super().__init__(name, [])
         self.activeAssetName : Optional[str] = None
         self.assets : dict[str, Asset] = OrderedDict()
         self.add(*args)
 
-    def add(self, *args : Any) -> None:
+    def add(self, *args : Asset) -> None:
         for arg in args:
-            if(isinstance(arg,Asset)):
-                a : Asset = arg
-                self.addAsset(a)
-            else:
-                raise UnknownArgumentException(f"Unknown argument {type(arg)}")
+                self.addAsset(arg)
         self.hydrateContainers()
 
     def addAsset(self, asset : Asset):

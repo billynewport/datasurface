@@ -1,11 +1,11 @@
-from typing import Optional
+from typing import Optional, Sequence
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, GitRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocalGovernanceManagedOnly
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DatastoreInformation, DeprecationStatus, DeprecationsAllowed, ProductionStatus, TestRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DatastoreInformation, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, TestRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -391,6 +391,14 @@ class TestWorkspace(unittest.TestCase):
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasIssues())          
         return e
+
+    def test_StoreDependants(self):
+        eco : Ecosystem = self.createSimpleEcosystem()
+
+        dep : Sequence[DependentWorkspaces] = eco.calculateDependenciesForDatastore("Store1")
+        self.assertEqual(len(dep), 1)
+
+        # Check that Transformers are included in the dependency list
 
     def test_DatasetDeprecation(self):
         """Make a Workspace using a deprecated dataset and check it fails linting, then allow deprecated datasets and check it passes but has a warning"""
