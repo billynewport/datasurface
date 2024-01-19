@@ -29,6 +29,10 @@ class DatastoreDoesntExistException(ObjectDoesntExistException):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
+class WorkspaceDoesntExistException(ObjectDoesntExistException):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
 class AssetDoesntExistException(ObjectDoesntExistException):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)

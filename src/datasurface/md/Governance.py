@@ -10,7 +10,7 @@ from .Documentation import Documentation
 
 from .utils import ANSI_SQL_NamedObject, is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
 
 T = TypeVar('T')
@@ -905,6 +905,14 @@ class Ecosystem(GitControlledObject):
             raise ObjectAlreadyExistsException(f"Duplicate data store {store.name}")
         self.datastoreCache[store.name] = store
 
+    def cache_getWorkspaceOrThrow(self, work : str) -> 'Workspace':
+        """This returns the named workspace if it exists"""
+        w : Optional[Workspace] = self.workSpaceCache.get(work)
+        if(w):
+            return w
+        else:
+            raise WorkspaceDoesntExistException(f"Unknown workspace {work}")
+        
     def cache_getDatastoreOrThrow(self, store : str):
         s : Optional[Datastore] = self.datastoreCache.get(store)
         if(s):
@@ -1012,7 +1020,7 @@ class Ecosystem(GitControlledObject):
         if eTree.hasErrors():
             return eTree
         
-        # Check if the proposed changes are backwards compatible
+        # Check if the proposed changes are backwards compatible this object
         proposed.checkIfChangesAreBackwardsCompatibleWith(self, eTree)
         return eTree
     
@@ -1451,13 +1459,13 @@ class DatasetGroup(object):
     def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig]) -> None:
         self.name : str = name
         self.platformMD : Optional[WorkspacePlatformConfig] = None
-        self.datasets : dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
+        self.sinks : dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
         for arg in args:
             if(type(arg) is DatasetSink):
                 sink : DatasetSink = arg
-                if(self.datasets.get(sink.key) != None):
+                if(self.sinks.get(sink.key) != None):
                     raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
-                self.datasets[sink.key] = sink
+                self.sinks[sink.key] = sink
             elif(type(arg) is WorkspacePlatformConfig):
                 if self.platformMD == None:
                     self.platformMD = arg
@@ -1472,7 +1480,7 @@ class DatasetGroup(object):
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         if(is_valid_sql_identifier(self.name) == False):
             tree.addProblem(f"DatasetGroup name {self.name} is not a valid SQL identifier")
-        for sink in self.datasets.values():
+        for sink in self.sinks.values():
             sinkTree : ValidationTree = tree.createChild(sink)
             sink.lint(eco, ws, sinkTree)
 
