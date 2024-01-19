@@ -4,6 +4,7 @@
 Data Surface Catalog Introduction
 
 toc::[]
+
 == Data surface Data Catalog
 Data surface uses a unique data catalog implementation. Data catalogs are used to describe data sources and their schemas in a database. There are controls implemented around the data catalog so that provenance can be established for the artifacts stored in the catalog:
 

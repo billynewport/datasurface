@@ -1,3 +1,8 @@
+:toc:
+:toc-placement!:
+
+toc::[]
+
 This folder contains examples of code to bootstrap a catalog using either multiple repositories responsible for different parts of the model or use a single repository which can modify the whole model. The single repo may be fine for development but for production it is recommended to use multiple repositories as different teams will want control on who can change different parts of the model.
 
 == Single Repository
@@ -11,6 +16,18 @@ GovernanceZones manage a set of StoragePolicies, DataPlatforms and Teams. Teams 
 Teams are used to manage Datastore and their associated Datasets as well as Workspaces. The repository associated with a team is the only source for changes to objects under that team.
 
 Here, we use a single file which contains a simple Ecosystem which declares a single GovernanceZone. The GovernanceZone has a single Team which defines a single Datastore with 2 Datasets. The Ecosystem, GovernanceZone and Team all use the same GitRepository as their source of truth. Thus any changes can be done from a single GIT repository.
+
+[source, shell]
+----
+cd ecofolder
+git init
+Edit the eco.py file
+git add .
+git commit -m "Define whole model in one commit"
+git remote add origin ecosystem_repo_url
+git push -u origin main
+----
+
 
 == Multiple Repositories
 We will define the same Ecosystem as the single repository case. The only difference is that the Ecosystem, GovernanceZone and Team each have their own GIT Repository. This allows different teams to manage different parts of the model. Each GIT repository would be configured with different people and possibly processes to manage changes to that repository.
