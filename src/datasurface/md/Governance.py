@@ -6,7 +6,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
 
-from datasurface.md import Documentation
+from .Documentation import Documentation
 
 from .utils import ANSI_SQL_NamedObject, is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
