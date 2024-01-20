@@ -530,6 +530,7 @@ class Dataset(ANSI_SQL_NamedObject):
         super().__init__(name)
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
+        # Explicit policies, note these need to be added to mandatory policies for the owning GZ
         self.documentation : Optional[Documentation] = None
         self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
         self.add(*args)
@@ -1529,6 +1530,15 @@ class GovernanceZone(GitControlledObject):
                 team.isBackwardsCompatibleWith(originTeam, tTree)
             else:
                 tTree.addProblem(f"Team {team.name} is missing from zone {originZone.name}")
+
+    def getDatasetStoragePolicies(self, dataset : Dataset) -> Sequence[StoragePolicy]:
+        """Returns the storage policies for the specified dataset including mandatory ones"""
+        rc : list[StoragePolicy] = []
+        rc.extend(dataset.policies.values())
+        for sp in self.storagePolicies.values():
+            if(sp.mandatory == PolicyMandatedRule.MANDATED_WITHIN_ZONE):
+                rc.append(sp)
+        return rc
 
 @dataclass
 class WorkspaceEntitlement:

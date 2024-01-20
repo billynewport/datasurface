@@ -1,13 +1,16 @@
 
 
+from typing import Sequence
 import unittest
 
-from datasurface.md.Governance import DataContainer, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraLocation, InfrastructureVendor, LocalGovernanceManagedOnly, PolicyMandatedRule, StoragePolicy, StoragePolicyAllowAnyContainer
+from datasurface.md.Governance import CDCCaptureIngestion, DataContainer, Dataset, Datastore, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraLocation, InfrastructureVendor, LocalGovernanceManagedOnly, PolicyMandatedRule, StoragePolicy, StoragePolicyAllowAnyContainer, Team, TeamDeclaration
+from datasurface.md.Lint import ValidationTree
+from datasurface.md.Schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, String
 from tests.nwdb.eco import createEcosystem
 
 
 class Test_StoragePolicies(unittest.TestCase):
-    def test_AllowAny(self):
+    def test_AllowAnyAndGzRestricted(self):
 
         eco : Ecosystem = createEcosystem()
 
@@ -48,6 +51,40 @@ class Test_StoragePolicies(unittest.TestCase):
             else:
                 self.fail("Beijing location has no key")
                 
+    def test_MandatoryPolicies(self):
+        # Here we add a manadory in zone policy and then check its present
+        # on a Dataset defined within that zone
+        eco : Ecosystem = createEcosystem()
 
+        eco.add(GovernanceZoneDeclaration("RestrictedGZ", eco.owningRepo))
+
+        gzRestricted : GovernanceZone = eco.getZoneOrThrow("RestrictedGZ")
+        sameZoneOnlyP : StoragePolicy = LocalGovernanceManagedOnly("Same zone only", PolicyMandatedRule.MANDATED_WITHIN_ZONE)
+        gzRestricted.add(
+            TeamDeclaration("RTeam", eco.owningRepo),
+            sameZoneOnlyP,
+            InfrastructureVendor("AWS-CN",
+                InfraLocation("Beijing"),
+                InfraLocation("Ningxia"))
+            )
+        
+        t : Team = gzRestricted.getTeamOrThrow("RTeam")
+        t.add(
+            Datastore("rStore1",
+                CDCCaptureIngestion(),
+                Dataset("RDataset1",
+                    DDLTable(
+                        DDLColumn("key", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                        DDLColumn("firstName", String(20))
+                    )))
+            )
+        eTree : ValidationTree = eco.lintAndHydrateCaches()
+        self.assertFalse(eTree.hasErrors())
+        
+        rDataset1 : Dataset = t.dataStores["rStore1"].datasets["RDataset1"]
+        datasetPolicies : Sequence[StoragePolicy] = gzRestricted.getDatasetStoragePolicies(rDataset1)
+        self.assertEqual(1, len(datasetPolicies))
+        
+        
 
         
