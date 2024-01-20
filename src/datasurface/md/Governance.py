@@ -25,6 +25,17 @@ class DeprecationStatus(Enum):
     NOT_DEPRECATED = 0
     DEPRECATED = 1
 
+class DeprecationInfo:
+    """This is the deprecation information for an object"""
+    def __init__(self, status : DeprecationStatus, reason : Optional[Documentation] = None) -> None:
+        self.status : DeprecationStatus = status
+        """If it deprecated or not"""
+        self.reason : Optional[Documentation] = reason
+        """If deprecated then this explains why and what an existing user should do, alternative dataset for example"""
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, DeprecationInfo) and self.status == __value.status and self.reason == __value.reason 
+
 class GitControlledObject(ABC):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo : 'Repository') -> None:
@@ -273,12 +284,12 @@ class PolicyMandatedRule(Enum):
 class StoragePolicy(ABC):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
-    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation], depStatus : DeprecationStatus) -> None:
+    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation], deprecationStatus : DeprecationInfo) -> None:
         self.name : str = name
         self.mandatory : PolicyMandatedRule = isMandatory
         self.key : Optional[StoragePolicyKey] = None
         self.documentation : Optional[Documentation] = doc
-        self.deprecationStatus : DeprecationStatus = depStatus
+        self.deprecationStatus : DeprecationInfo = deprecationStatus
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
@@ -300,8 +311,8 @@ class StoragePolicy(ABC):
 
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
-    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
-        super().__init__(name, isMandatory, doc, depStatus)
+    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)) -> None:
+        super().__init__(name, isMandatory, doc, deprecationStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
         return True
@@ -312,8 +323,8 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
 
 class LocalGovernanceManagedOnly(StoragePolicy):
     """A policy which only allows containers in the same governance zone as the policy"""
-    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, depStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED) -> None:
-        super().__init__(name, isMandatory, doc, depStatus)
+    def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)) -> None:
+        super().__init__(name, isMandatory, doc, deprecationStatus)
 
     def isCompatible(self, container : 'DataContainer') -> bool:
         """Only allow if the container locations are managed by the required zone"""
@@ -526,16 +537,16 @@ class DataContainer:
 
 class Dataset(ANSI_SQL_NamedObject):
     """This is a single collection of homogeneous records with a primary key"""
-    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationStatus]) -> None:
+    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo]) -> None:
         super().__init__(name)
         self.originalSchema : Optional[Schema] = None
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
         self.documentation : Optional[Documentation] = None
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
+        self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         self.add(*args)
 
-    def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationStatus]) -> None:
+    def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo]) -> None:
         for arg in args:
             if(isinstance(arg,Schema)):
                 s : Schema = arg
@@ -543,7 +554,7 @@ class Dataset(ANSI_SQL_NamedObject):
             elif(isinstance(arg, StoragePolicy)):
                 p : StoragePolicy = arg
                 self.addPolicy(p)
-            elif(isinstance(arg, DeprecationStatus)):
+            elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             else:
                 d : Documentation = arg
@@ -569,7 +580,7 @@ class Dataset(ANSI_SQL_NamedObject):
             else:
                 if(policy.key.gzName != gz.name):
                     tree.addProblem(f"Datasets must be governed by storage policies from its managing zone")
-                if(policy.deprecationStatus == DeprecationStatus.DEPRECATED):
+                if(policy.deprecationStatus.status == DeprecationStatus.DEPRECATED):
                     if(store.isDatasetDeprecated(self)):
                         tree.addProblem(f"Storage policy {policy.name} is deprecated", ProblemSeverity.WARNING)
                     else:
@@ -807,18 +818,18 @@ class SQLPullIngestion(CaptureMetaData):
 class Datastore(ANSI_SQL_NamedObject):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
-    def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationStatus]) -> None:
+    def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         super().__init__(name)
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.imd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
+        self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
         self.add(*args)
 
-    def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationStatus]) -> None:
+    def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         for arg in args:
             if(type(arg) is Dataset):
                 d : Dataset = arg
@@ -831,7 +842,7 @@ class Datastore(ANSI_SQL_NamedObject):
                 self.container = c
             elif(isinstance(arg, ProductionStatus)):
                 self.productionStatus = arg
-            elif(isinstance(arg, DeprecationStatus)):
+            elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             elif(isinstance(arg, Documentation)):
                 doc : Documentation = arg
@@ -845,7 +856,7 @@ class Datastore(ANSI_SQL_NamedObject):
 
     def isDatasetDeprecated(self, dataset : Dataset) -> bool:
         """Returns true if the datastore is deprecated OR dataset is deprecated"""
-        return self.deprecationStatus == DeprecationStatus.DEPRECATED or dataset.deprecationStatus == DeprecationStatus.DEPRECATED
+        return self.deprecationStatus.status == DeprecationStatus.DEPRECATED or dataset.deprecationStatus.status == DeprecationStatus.DEPRECATED
     
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Datastore):
@@ -1740,13 +1751,13 @@ class Workspace(ANSI_SQL_NamedObject):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
     it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationStatus, DataTransformer]) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
         super().__init__(name)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
         self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
-        self.deprecationStatus : DeprecationStatus = DeprecationStatus.NOT_DEPRECATED
+        self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         self.dataTransformer : Optional[DataTransformer] = None
         """This workspace is the input to a data transformer if set"""
         for arg in args:
@@ -1762,7 +1773,7 @@ class Workspace(ANSI_SQL_NamedObject):
                 self.asset = a
             elif(isinstance(arg, ProductionStatus)):
                 self.productionStatus = arg
-            elif(isinstance(arg, DeprecationStatus)):
+            elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             elif(isinstance(arg, Documentation)):
                 d : Documentation = arg

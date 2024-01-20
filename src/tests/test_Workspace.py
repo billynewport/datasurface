@@ -397,7 +397,7 @@ class TestWorkspace(unittest.TestCase):
         storeI : DatastoreInformation = e.cache_getDatastoreOrThrow("Store1")
         store : Datastore = storeI.datastore
         dataset2 : Dataset = store.datasets["Dataset2"]
-        dataset2.deprecationStatus = DeprecationStatus.DEPRECATED
+        dataset2.deprecationStatus.status = DeprecationStatus.DEPRECATED
 
         ws : Workspace = e.cache_getWorkspaceOrThrow("WK_A").workspace
 
@@ -414,7 +414,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertTrue(eTree.hasIssues()) # Workspace using deprecated dataset
 
         # Move back to clean model
-        dataset2.deprecationStatus = DeprecationStatus.NOT_DEPRECATED
+        dataset2.deprecationStatus.status = DeprecationStatus.NOT_DEPRECATED
         sink_dataset2.deprecationsAllowed = DeprecationsAllowed.NEVER
 
         eTree = e.lintAndHydrateCaches()
