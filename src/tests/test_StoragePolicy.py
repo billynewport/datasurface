@@ -18,7 +18,7 @@ class Test_StoragePolicies(unittest.TestCase):
 
         if(usEast1.key):
             allowAnyP : StoragePolicy = StoragePolicyAllowAnyContainer("Allow all", PolicyMandatedRule.INDIVIDUALLY_MANDATED)
-            gzUSA.addPolicy(allowAnyP)
+            gzUSA.add(allowAnyP)
             self.assertFalse(eco.lintAndHydrateCaches().hasErrors())
 
             usContainer : DataContainer = DataContainer(usEast1.key)
@@ -33,7 +33,7 @@ class Test_StoragePolicies(unittest.TestCase):
                 InfrastructureVendor("AWS-CN",
                     InfraLocation("Beijing"),
                     InfraLocation("Ningxia"))
-            )
+                )
             awsChina : InfrastructureVendor = gzRestricted.getVendorOrThrow("AWS-CN")
             beijing : InfraLocation = awsChina.getLocationOrThrow("Beijing")
             if(beijing.key):
@@ -41,7 +41,9 @@ class Test_StoragePolicies(unittest.TestCase):
 
                 self.assertFalse(eco.lintAndHydrateCaches().hasErrors())
 
+                # US container not allowed in restricted zone
                 self.assertFalse(sameZoneOnlyP.isCompatible(usContainer))
+                # Local container is allowed
                 self.assertTrue(sameZoneOnlyP.isCompatible(beijingContainer))
             else:
                 self.fail("Beijing location has no key")

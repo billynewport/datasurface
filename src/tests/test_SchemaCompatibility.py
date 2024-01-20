@@ -111,7 +111,7 @@ class TestSchemaCompatibility(unittest.TestCase):
         
         # Adding a nullable column is backwards compatible
         t2 : DDLTable = copy.deepcopy(t1)
-        t2.addColumn(DDLColumn("middleName", String(20), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK))
+        t2.add(DDLColumn("middleName", String(20), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK))
 
         t : ValidationTree = ValidationTree(t2)
         self.assertTrue(t2.isBackwardsCompatibleWith(t1, t))

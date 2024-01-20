@@ -677,7 +677,9 @@ class DDLTable(Schema):
         """Add a column or primary key list to the table"""
         for c in args:
             if(type(c) == DDLColumn):
-                self.addColumn(c)
+                if(self.columns.get(c.name) != None):
+                    raise Exception(f"Duplicate column {c.name}")
+                self.columns[c.name] = c
             elif(type(c) == PrimaryKeyList):
                 self.primaryKeyColumns = c
             elif(isinstance(c, Documentation)):
@@ -702,12 +704,6 @@ class DDLTable(Schema):
         """Returns the hub schema for this schema"""
         return self
     
-    def addColumn(self, col : DDLColumn):
-        """Add a column to the table"""
-        if(self.columns.get(col.name) != None):
-            raise Exception(f"Duplicate column {col.name}")
-        self.columns[col.name] = col
-
     def getColumnByName(self, name : str) -> Optional[DDLColumn]:
         """Returns a column by name"""
         col : DDLColumn = self.columns[name]

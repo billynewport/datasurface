@@ -1424,17 +1424,23 @@ class GovernanceZone(GitControlledObject):
     def add(self, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
         for arg in args:
             if(type(arg) is InfrastructureVendor):
-                vendor : InfrastructureVendor = arg
-                self.addVendor(vendor)
+                iv : InfrastructureVendor = arg
+                if self.vendors.get(iv.name) != None:
+                    raise ObjectAlreadyExistsException(f"Duplicate Vendor {iv.name}")
+                self.vendors[iv.name] = iv
             elif(isinstance(arg, StoragePolicy)):
-                s : StoragePolicy = arg
-                self.addPolicy(s)
+                sp : StoragePolicy = arg
+                if self.storagePolicies.get(sp.name) != None:
+                    raise Exception(f"Duplicate Storage Policy {sp.name}")
+                self.storagePolicies[sp.name] = sp
             elif(type(arg) is TeamDeclaration):
                 t : TeamDeclaration = arg
                 self.teams.addAuthorization(t)
             elif(isinstance(arg, DataPlatform)):
                 p : DataPlatform = arg
-                self.addPlatform(p)
+                if self.platforms.get(p.name) != None:
+                    raise ObjectAlreadyExistsException(f"Duplicate Platform {p.name}")
+                self.platforms[p.name] = p
             elif(isinstance(arg, Documentation)):
                 d : Documentation = arg
                 self.documentation = d
@@ -1447,24 +1453,6 @@ class GovernanceZone(GitControlledObject):
                 sp.setGovernanceZone(self)
             for td in self.teams.authorizedNames.values():
                 td.setGovernanceZone(self)
-
-    def addPlatform(self, p : 'DataPlatform'):
-        if self.platforms.get(p.name) != None:
-            raise ObjectAlreadyExistsException(f"Duplicate Platform {p.name}")
-        self.platforms[p.name] = p
-
-    def addPolicy(self, p : StoragePolicy):
-        if self.storagePolicies.get(p.name) != None:
-            raise Exception(f"Duplicate Storage Policy {p.name}")
-        self.storagePolicies[p.name] = p
-
-    def addAuthTeam(self, t : TeamDeclaration):
-        self.teams.addAuthorization(t)
-
-    def addVendor(self, iv : InfrastructureVendor):
-        if self.vendors.get(iv.name) != None:
-            raise ObjectAlreadyExistsException(f"Duplicate Vendor {iv.name}")
-        self.vendors[iv.name] = iv
 
     def getVendor(self, name : str) -> Optional[InfrastructureVendor]:
         return self.vendors.get(name)
