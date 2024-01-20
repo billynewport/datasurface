@@ -1,13 +1,31 @@
 import re
 import socket
 import ipaddress
-from urllib.parse import urlparse
 
 from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
 from datasurface.md.Lint import ValidationTree
 
+sql_reserved_words : list[str] = [
+    "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "INSERT", "UPDATE", "DELETE", 
+    "CREATE", "ALTER", "DROP", "TABLE", "DATABASE", "INDEX", "VIEW", "TRIGGER", 
+    "PROCEDURE", "FUNCTION", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "ON", 
+    "GROUP", "BY", "ORDER", "HAVING", "UNION", "EXCEPT", "INTERSECT", "CASE", 
+    "WHEN", "THEN", "ELSE", "END", "AS", "DISTINCT", "NULL", "IS", "BETWEEN", 
+    "LIKE", "IN", "EXISTS", "ALL", "ANY", "SOME", "CAST", "CONVERT", "COALESCE", 
+    "COUNT", "SUM", "AVG", "MIN", "MAX", "TOP", "LIMIT", "FETCH", "OFFSET", 
+    "ROW", "ROWS", "ONLY", "FIRST", "NEXT", "VALUE", "VALUES", "INTO", "SET", 
+    "OUTPUT", "DECLARE", "CURSOR", "FOR", "WHILE", "LOOP", "REPEAT", "IF", 
+    "ELSEIF", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "TRANSACTION", "TRY", 
+    "CATCH", "THROW", "USE", "USING", "COLLATE", "PLAN", "EXECUTE", "PREPARE", 
+    "DEALLOCATE", "ASC", "DESC"]
+
+sql_reserved_words_as_set : set[str] = set(sql_reserved_words)
+
 def is_valid_sql_identifier(identifier: str) -> bool:
     """This checks if the string is a valid SQL identifier"""
+    # Check for reserved words
+    if(identifier.upper() in sql_reserved_words_as_set):
+        return False
     # Regular expression for a valid SQL identifier
     pattern = r'^[a-zA-Z][a-zA-Z0-9_]{0,127}$'
     return bool(re.match(pattern, identifier))
@@ -28,28 +46,13 @@ def is_valid_hostname_or_ip(s : str) -> bool:
 
     try:
         # Check if it's a valid hostname
-        if s == socket.gethostbyname(s):
-            return True
+        socket.gethostbyname(s)
+        return True
     except socket.gaierror:
         pass
 
     return False    
         
-def is_valid_github_url(url: str) -> bool:
-    try:
-        result = urlparse(url)
-        if result.scheme in ['http', 'https']:
-            return result.netloc == 'github.com' and result.path.count('/') >= 2
-        elif result.scheme == '':
-            return result.netloc == 'github.com' and result.path.startswith(':') and result.path.count('/') == 1
-        else:
-            return False
-    except ValueError:
-        return False
-    
-def is_valid_github_module(module: str) -> bool:
-    return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', module))
-
 class ANSI_SQL_NamedObject:
     def __init__(self, name : str) -> None:
         self.name : str = name

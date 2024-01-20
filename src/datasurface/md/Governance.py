@@ -1,14 +1,16 @@
 from dataclasses import dataclass
 from collections import OrderedDict
+import re
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, TypeVar, Union, cast
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
+from urllib.parse import urlparse
 
 from .Documentation import Documentation
 
-from .utils import ANSI_SQL_NamedObject, is_valid_github_module, is_valid_github_url, is_valid_hostname_or_ip, is_valid_sql_identifier
+from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
@@ -948,11 +950,26 @@ class GitRepository(Repository):
     def __str__(self) -> str:
         return f"GitRepository({self.repoURL})"
     
+    def is_valid_github_url(self, url: str) -> bool:
+        try:
+            result = urlparse(url)
+            if result.scheme in ['http', 'https']:
+                return result.netloc == 'github.com' and result.path.count('/') >= 2
+            elif result.scheme == '':
+                return result.netloc == 'github.com' and result.path.startswith(':') and result.path.count('/') == 1
+            else:
+                return False
+        except ValueError:
+            return False
+        
+    def is_valid_github_module(self, module: str) -> bool:
+        return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', module))
+
     def lint(self, tree : ValidationTree):
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if(is_valid_github_url(self.repoURL) == False):
+        if(self.is_valid_github_url(self.repoURL) == False):
             tree.addProblem("Repository URL is not valid")
-        if(is_valid_github_module(self.moduleName) == False):
+        if(self.is_valid_github_module(self.moduleName) == False):
             tree.addProblem("Module name is not valid")
 
 class TeamInformation:
