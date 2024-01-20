@@ -901,6 +901,7 @@ class Datastore(ANSI_SQL_NamedObject):
         return f"Datastore({self.name})"
         
 class Repository(ABC):
+    """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc : Optional[Documentation]):
         self.documentation : Optional[Documentation] = doc
 
@@ -933,7 +934,7 @@ class TestRepository(Repository):
             return False
 
 class GitHubRepository(Repository):
-    """This represents a source of changes. All changes to objects in the ecosystem are gated to come from a specific repository"""
+    """This represents a GitHub Repository specifically"""
     def __init__(self, repo : str, moduleName : str, doc : Optional[Documentation] = None) -> None:
         super().__init__(doc)
         self.repoURL : str = repo
@@ -961,7 +962,7 @@ class GitHubRepository(Repository):
         return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', module))
 
     def lint(self, tree : ValidationTree):
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        """This checks if repository is valid syntaxically"""
         if(self.is_valid_github_url(self.repoURL) == False):
             tree.addProblem("Repository URL is not valid")
         if(self.is_valid_github_module(self.moduleName) == False):
