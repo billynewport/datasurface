@@ -1,13 +1,13 @@
 from typing import Optional
 from datasurface.md.Azure import AzureKeyVaultCredential
-from datasurface.md.Governance import CDCCaptureIngestion, Dataset, Datastore, Ecosystem, GitRepository, GovernanceZone, GovernanceZoneDeclaration, IngestionConsistencyType, PyOdbcSourceInfo, Team, TeamDeclaration
+from datasurface.md.Governance import CDCCaptureIngestion, Dataset, Datastore, Ecosystem, GitHubRepository, GovernanceZone, GovernanceZoneDeclaration, IngestionConsistencyType, PyOdbcSourceInfo, Team, TeamDeclaration
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import DDLColumn, DDLTable, DataClassification, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
 
 
 def createEcosystem() -> Ecosystem:
     # All changes will come from this repo
-    repo : GitRepository = GitRepository("https://github.com/billynewport/eco.git", "main")
+    repo : GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
 
     ecosys : Ecosystem = Ecosystem("Test Ecosystem", repo,
         GovernanceZoneDeclaration("USA", repo)

@@ -932,7 +932,7 @@ class TestRepository(Repository):
         else:
             return False
 
-class GitRepository(Repository):
+class GitHubRepository(Repository):
     """This represents a source of changes. All changes to objects in the ecosystem are gated to come from a specific repository"""
     def __init__(self, repo : str, moduleName : str, doc : Optional[Documentation] = None) -> None:
         super().__init__(doc)
@@ -942,7 +942,7 @@ class GitRepository(Repository):
         """The name of the root module contain a main function to declare the teams"""
 
     def __eq__(self, __value: object) -> bool:
-        if(isinstance(__value, GitRepository)):
+        if(isinstance(__value, GitHubRepository)):
             return super().__eq__(__value) and self.repoURL == __value.repoURL and self.moduleName == __value.moduleName
         else:
             return False
@@ -951,17 +951,11 @@ class GitRepository(Repository):
         return f"GitRepository({self.repoURL})"
     
     def is_valid_github_url(self, url: str) -> bool:
-        try:
-            result = urlparse(url)
-            if result.scheme in ['http', 'https']:
-                return result.netloc == 'github.com' and result.path.count('/') >= 2
-            elif result.scheme == '':
-                return result.netloc == 'github.com' and result.path.startswith(':') and result.path.count('/') == 1
-            else:
-                return False
-        except ValueError:
-            return False
+        https_pattern = r'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/?'
+        ssh_pattern = r'git@github\.com:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.git'
         
+        return re.match(https_pattern, url) is not None or re.match(ssh_pattern, url) is not None
+
     def is_valid_github_module(self, module: str) -> bool:
         return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', module))
 

@@ -1,6 +1,6 @@
 from typing import Optional, Sequence
 import unittest
-from datasurface.md import Ecosystem, TeamDeclaration, GitRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
+from datasurface.md import Ecosystem, TeamDeclaration, GitHubRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocalGovernanceManagedOnly
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
@@ -13,22 +13,22 @@ from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
 class TestWorkspace(unittest.TestCase):
 
     def createEco(self) -> Ecosystem:
-        eco : Ecosystem = Ecosystem("BigCorp", GitRepository("a", "b"),
-            GovernanceZoneDeclaration("US", GitRepository("aa", "bb")),
-            GovernanceZoneDeclaration("China", GitRepository("aa", "cc")))
+        eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
+            GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
+            GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")))
         
         self.assertEqual(eco, eco)
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow("US")
         gzUSA.add(
-                TeamDeclaration("Test", GitRepository("gitrepo url", "module")),
+                TeamDeclaration("Test", GitHubRepository("gitrepo url", "module")),
                 DataPlatform("FastPlatform"),
                 DataPlatform("SlowPlatform")
         )
 
         gzChina : GovernanceZone = eco.getZoneOrThrow("China")
         gzChina.add(
-                TeamDeclaration("China Team", GitRepository("gitrepo url", "module")),
+                TeamDeclaration("China Team", GitHubRepository("gitrepo url", "module")),
                 # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
                 LocalGovernanceManagedOnly("China Only", PolicyMandatedRule.MANDATED_WITHIN_ZONE)
             )
@@ -39,19 +39,19 @@ class TestWorkspace(unittest.TestCase):
         chinaZoneName : str = "China"
         testTeamName : str = "Test Team A"
         # First define an ecosystem with a single US zone and a single team
-        eco : Ecosystem = Ecosystem("BigCorp", GitRepository("a", "b"),
-            GovernanceZoneDeclaration(usZoneName, GitRepository("aa", "bb")),
-            GovernanceZoneDeclaration(chinaZoneName, GitRepository("aa", "cc")))
+        eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
+            GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
+            GovernanceZoneDeclaration(chinaZoneName, GitHubRepository("aa", "cc")))
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         gzUSA.add(
-                TeamDeclaration(testTeamName, GitRepository("gitrepo url", "module")),
+                TeamDeclaration(testTeamName, GitHubRepository("gitrepo url", "module")),
                 DataPlatform("FastPlatform"),
                 DataPlatform("SlowPlatform")
                 )
         gzChina : GovernanceZone = eco.getZoneOrThrow(chinaZoneName)
         gzChina.add(
-                TeamDeclaration("China Team", GitRepository("git repo 2", "module")),
+                TeamDeclaration("China Team", GitHubRepository("git repo 2", "module")),
                                     LocalGovernanceManagedOnly("China Only", PolicyMandatedRule.INDIVIDUALLY_MANDATED)
         )
         

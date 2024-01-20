@@ -1,7 +1,7 @@
 from typing import Optional
 import unittest
 
-from datasurface.md import InfrastructureVendor, InfraLocation, TeamDeclaration, GitRepository, Ecosystem
+from datasurface.md import InfrastructureVendor, InfraLocation, TeamDeclaration, GitHubRepository, Ecosystem
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
 
 class TestZones(unittest.TestCase):
@@ -15,12 +15,12 @@ class TestZones(unittest.TestCase):
         self.assertIsNotNone(child)
 
     def test_CreateUSAEco(self):
-        eco = Ecosystem("BigCorp", GitRepository("a", "b"))
+        eco = Ecosystem("BigCorp", GitHubRepository("a", "b"))
         self.assertEqual(eco.name, "BigCorp")
         self.assertEqual(eco.zones.getNumObjects(), 0)
         usZoneName : str = "US"
         eco.add(
-            GovernanceZoneDeclaration(usZoneName, GitRepository("aa", "bb")),
+            GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
         )
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         gzUSA.add(
@@ -54,10 +54,10 @@ class TestZones(unittest.TestCase):
                 ))
         gzUSA.add(
             TeamDeclaration("Billys team",
-                GitRepository("https://github.com/data-fracture/ecomgr.git", "module")
+                GitHubRepository("https://github.com/data-fracture/ecomgr.git", "module")
                 ),
             TeamDeclaration("Jacks team", 
-                GitRepository("git repo 2", "module2"))
+                GitHubRepository("git repo 2", "module2"))
             )
         self.assertEqual(eco.zones.getNumObjects(), 1)
         self.assertEqual(eco.getZone("US"), gzUSA)

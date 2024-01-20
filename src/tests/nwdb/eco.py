@@ -1,4 +1,4 @@
-from datasurface.md import Team, GovernanceZoneDeclaration, GitRepository, GovernanceZone, InfrastructureVendor, InfraLocation, TeamDeclaration, DataPlatform
+from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfraLocation, TeamDeclaration, DataPlatform
 from datasurface.md import Ecosystem
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
@@ -7,10 +7,10 @@ from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem(
         "Test", 
-        GitRepository("https://github.com/billynewport/eco.git", "main"),
-        GovernanceZoneDeclaration("USA", GitRepository("https://github.com/billynewport/gzUSA.git", "main")),
-        GovernanceZoneDeclaration("EU", GitRepository("https://github.com/billynewport/gzEU.git", "main")),
-        GovernanceZoneDeclaration("UK", GitRepository("https://github.com/billynewport/gzUK.git", "main"))
+        GitHubRepository("https://github.com/billynewport/eco.git", "main"),
+        GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main")),
+        GovernanceZoneDeclaration("EU", GitHubRepository("https://github.com/billynewport/gzEU.git", "main")),
+        GovernanceZoneDeclaration("UK", GitHubRepository("https://github.com/billynewport/gzUK.git", "main"))
     )
 
     gzUSA : GovernanceZone = ecosys.getZoneOrThrow("USA")
@@ -36,10 +36,10 @@ def createEcosystem() -> Ecosystem:
                     InfraLocation("West US 3")), # Arizona
             ),
 
-            TeamDeclaration("FrontOffice", GitRepository("https://github.com/billynewport/fo.git", "main")),
-            TeamDeclaration("MiddleOffice", GitRepository("https://github.com/billynewport/mo.git", "main")),
-            TeamDeclaration("NorthWindTeam", GitRepository("https://github.com/billynewport/nwTeam.git", "main")),
-            TeamDeclaration("BackOffice", GitRepository("https://github.com/billynewport/bo.git", "main")),
+            TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
+            TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
+            TeamDeclaration("NorthWindTeam", GitHubRepository("https://github.com/billynewport/nwTeam.git", "main")),
+            TeamDeclaration("BackOffice", GitHubRepository("https://github.com/billynewport/bo.git", "main")),
 
             DataPlatform("DataGlide@1.0")
         )
@@ -49,9 +49,9 @@ def createEcosystem() -> Ecosystem:
                 InfraLocation("eu-central-1"), # Frankfurt
                 InfraLocation("eu-west-3")), # Paris
 
-            TeamDeclaration("FrontOffice", GitRepository("https://github.com/billynewport/fo.git", "main")),
-            TeamDeclaration("MiddleOffice", GitRepository("https://github.com/billynewport/mo.git", "main")),
-            TeamDeclaration("BackOffice", GitRepository("https://github.com/billynewport/bo.git", "main")),
+            TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
+            TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
+            TeamDeclaration("BackOffice", GitHubRepository("https://github.com/billynewport/bo.git", "main")),
 
             DataPlatform("DataGlide@1.0")
             )
@@ -65,9 +65,9 @@ def createEcosystem() -> Ecosystem:
             InfraLocation("London"),
             InfraLocation("Cambridge")),
 
-        TeamDeclaration("FrontOffice", GitRepository("https://github.com/billynewport/fo.git", "main")),
-        TeamDeclaration("MiddleOffice", GitRepository("https://github.com/billynewport/mo.git", "main")),
-        TeamDeclaration("BackOffice", GitRepository("https://github.com/billynewport/bo.git", "main")),
+        TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
+        TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
+        TeamDeclaration("BackOffice", GitHubRepository("https://github.com/billynewport/bo.git", "main")),
 
         DataPlatform("DataGlide@1.0")
     )

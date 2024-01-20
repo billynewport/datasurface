@@ -2,7 +2,7 @@ import copy
 from typing import Optional
 import unittest
 
-from datasurface.md.Governance import Ecosystem, GitRepository, GovernanceZone, Repository
+from datasurface.md.Governance import Ecosystem, GitHubRepository, GovernanceZone, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 from datasurface.md.Lint import ValidationTree
 import tests.nwdb.eco
@@ -11,9 +11,9 @@ import tests.nwdb.nwdb
 
 class TestGitEquals(unittest.TestCase):
     def test_git_equals(self):
-        r1 : Repository = GitRepository("repo", "moduleNameA")
-        r2 : Repository = GitRepository("repo", "moduleNameB")
-        r3 : Repository = GitRepository("repoA", "moduleNameA")
+        r1 : Repository = GitHubRepository("repo", "moduleNameA")
+        r2 : Repository = GitHubRepository("repo", "moduleNameB")
+        r3 : Repository = GitHubRepository("repoA", "moduleNameA")
 
         self.assertTrue(r1 == r1)
         self.assertTrue(r2 == r2)
@@ -70,7 +70,7 @@ class TestEcoNameChange(unittest.TestCase):
 
         # Authorize a new team with its repo. Team has to be authorized
         # by the gz repo and later edited with the team repo. Must be 2 steps
-        gzUSA.add(TeamDeclaration("NewTeam", GitRepository("ssh://u@local:/v1/source/nt", "newTeamRepo")))
+        gzUSA.add(TeamDeclaration("NewTeam", GitHubRepository("ssh://u@local:/v1/source/nt", "newTeamRepo")))
 
         # Should be allowed from gz repo
         eTree = ValidationTree(e_other)
@@ -169,7 +169,7 @@ class TestEcoNameChange(unittest.TestCase):
         e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # First, add authorization for china gz
-        gitChina : Repository = GitRepository("ssh://u@local:/v1/source/gz_china", "main")
+        gitChina : Repository = GitHubRepository("ssh://u@local:/v1/source/gz_china", "main")
         e_other.add(GovernanceZoneDeclaration("China", gitChina))
 
         # eco repo can add a zone authorization

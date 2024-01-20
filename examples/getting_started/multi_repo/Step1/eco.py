@@ -1,10 +1,10 @@
-from datasurface.md.Governance import Ecosystem, GitRepository, GovernanceZoneDeclaration
+from datasurface.md.Governance import Ecosystem, GitHubRepository, GovernanceZoneDeclaration
 
 def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem(
         "Test Ecosystem", 
-        GitRepository("https://github.com/billynewport/eco.git", "main"),
-        GovernanceZoneDeclaration("USA", GitRepository("https://github.com/billynewport/gzUSA.git", "main"))
+        GitHubRepository("https://github.com/billynewport/eco.git", "main"),
+        GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main"))
     )
     return ecosys
 

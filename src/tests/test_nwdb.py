@@ -1,5 +1,5 @@
 import unittest
-from datasurface.md.Governance import GitRepository, Repository
+from datasurface.md.Governance import GitHubRepository, Repository
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
@@ -91,7 +91,7 @@ def test_eq_ecosystem():
     e : Ecosystem = tests.nwdb.eco.createEcosystem()
     e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
 
-    diffR : Repository = GitRepository("ssh://u@local:/v1/source/eco", "main_other")
+    diffR : Repository = GitHubRepository("ssh://u@local:/v1/source/eco", "main_other")
 
     assert e == e2
 

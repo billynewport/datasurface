@@ -1,5 +1,5 @@
 import unittest
-from datasurface.md.Governance import GitRepository
+from datasurface.md.Governance import GitHubRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier
@@ -33,11 +33,12 @@ class Test_Utils(unittest.TestCase):
     def test_GitHubUrl(self):
         # Valid SSH GitHub URLs
         valid_URLs : list[str] = [ 
-            "https://github.com/billynewport/datasurface.git"
+            "https://github.com/billynewport/datasurface.git",
+            "git@github.com:billynewport/datasurface.git"
             ]
 
         for url in valid_URLs:
-            r : GitRepository = GitRepository(url, "moduleName")
+            r : GitHubRepository = GitHubRepository(url, "moduleName")
             tree : ValidationTree = ValidationTree(r)
             r.lint(tree)
             self.assertFalse(tree.hasErrors())
