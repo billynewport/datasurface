@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DatastoreInformation, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, PolicyMandatedRule, ProductionStatus, TestRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, PolicyMandatedRule, ProductionStatus, TestRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -394,7 +394,7 @@ class TestWorkspace(unittest.TestCase):
         e : Ecosystem = self.createSimpleEcosystem()
 
         # Make a dataset deprecated with a no deprecation allowed sink link in a workspace
-        storeI : DatastoreInformation = e.cache_getDatastoreOrThrow("Store1")
+        storeI : DatastoreCacheEntry = e.cache_getDatastoreOrThrow("Store1")
         store : Datastore = storeI.datastore
         dataset2 : Dataset = store.datasets["Dataset2"]
         dataset2.deprecationStatus.status = DeprecationStatus.DEPRECATED

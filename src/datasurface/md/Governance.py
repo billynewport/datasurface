@@ -951,6 +951,7 @@ class GitHubRepository(Repository):
         return f"GitRepository({self.repoURL})"
     
     def is_valid_github_url(self, url: str) -> bool:
+        """This validates a github url"""
         https_pattern = r'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/?'
         ssh_pattern = r'git@github\.com:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.git'
         
@@ -966,17 +967,20 @@ class GitHubRepository(Repository):
         if(self.is_valid_github_module(self.moduleName) == False):
             tree.addProblem("Module name is not valid")
 
-class TeamInformation:
+class TeamCacheEntry:
+    """This is used by Ecosystem to cache teams"""
     def __init__(self, t : 'Team', td : 'TeamDeclaration') -> None:
         self.team : Team = t
         self.declaration : TeamDeclaration = td
 
-class WorkspaceInformation:
+class WorkspaceCacheEntry:
+    """This is used by Ecosystem to cache workspaces"""
     def __init__(self, w : 'Workspace', t : 'Team') -> None:
         self.workspace : Workspace = w
         self.team : Team = t
 
-class DatastoreInformation:
+class DatastoreCacheEntry:
+    """This is used by Ecosystem to cache datastores"""
     def __init__(self, d : 'Datastore', t : 'Team') -> None:
         self.datastore : Datastore = d
         self.team : Team = t
@@ -1032,11 +1036,11 @@ class Ecosystem(GitControlledObject):
 
     def resetCaches(self) -> None:
         """Empties the caches"""
-        self.datastoreCache : dict[str, DatastoreInformation] = {}
+        self.datastoreCache : dict[str, DatastoreCacheEntry] = {}
         """This is a cache of all data stores in the ecosystem"""
-        self.workSpaceCache : dict[str, WorkspaceInformation] = {}
+        self.workSpaceCache : dict[str, WorkspaceCacheEntry] = {}
         """This is a cache of all workspaces in the ecosystem"""
-        self.teamCache : dict[str, TeamInformation] = {}
+        self.teamCache : dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
     def add(self, *args : 'GovernanceZoneDeclaration') -> None:
@@ -1053,30 +1057,30 @@ class Ecosystem(GitControlledObject):
         if(self.teamCache.get(td.name) != None):
             if(self.teamCache.get(td.name) != None):
                 raise ObjectAlreadyExistsException(f"Duplicate Team {td.name}")
-            self.teamCache[td.name] = TeamInformation(t, td)
+            self.teamCache[td.name] = TeamCacheEntry(t, td)
 
     def cache_addWorkspace(self, team : 'Team', work : 'Workspace'):
         """This adds a workspace to the eco cache and flags duplicates"""
         if(self.workSpaceCache.get(work.name) != None):
             raise ObjectAlreadyExistsException(f"Duplicate workspace {work.name}")
-        self.workSpaceCache[work.name] = WorkspaceInformation(work, team)
+        self.workSpaceCache[work.name] = WorkspaceCacheEntry(work, team)
 
     def cache_addDatastore(self, store : 'Datastore', t : 'Team'):
         """This adds a store to the eco cache and flags duplicates"""
         if(self.datastoreCache.get(store.name) != None):
             raise ObjectAlreadyExistsException(f"Duplicate data store {store.name}")
-        self.datastoreCache[store.name] = DatastoreInformation(store, t)
+        self.datastoreCache[store.name] = DatastoreCacheEntry(store, t)
 
-    def cache_getWorkspaceOrThrow(self, work : str) -> WorkspaceInformation:
+    def cache_getWorkspaceOrThrow(self, work : str) -> WorkspaceCacheEntry:
         """This returns the named workspace if it exists"""
-        w : Optional[WorkspaceInformation] = self.workSpaceCache.get(work)
+        w : Optional[WorkspaceCacheEntry] = self.workSpaceCache.get(work)
         if(w):
             return w
         else:
             raise WorkspaceDoesntExistException(f"Unknown workspace {work}")
         
-    def cache_getDatastoreOrThrow(self, store : str) -> DatastoreInformation:
-        s : Optional[DatastoreInformation] = self.datastoreCache.get(store)
+    def cache_getDatastoreOrThrow(self, store : str) -> DatastoreCacheEntry:
+        s : Optional[DatastoreCacheEntry] = self.datastoreCache.get(store)
         if(s):
             return s
         else:
@@ -1084,7 +1088,7 @@ class Ecosystem(GitControlledObject):
 
     def cache_getDataset(self, storeName : str, datasetName : str) -> Optional[Dataset]:
         """This returns the named dataset if it exists"""
-        s : Optional[DatastoreInformation] = self.datastoreCache.get(storeName)
+        s : Optional[DatastoreCacheEntry] = self.datastoreCache.get(storeName)
         if(s):
             dataset = s.datastore.datasets.get(datasetName)
             return dataset
@@ -1654,7 +1658,7 @@ class DatasetSink(object):
         if(dataset == None):
             tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
         else:
-            storeI : Optional[DatastoreInformation] = eco.datastoreCache.get(self.storeName)
+            storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.storeName)
             if storeI:
                 store : Datastore = storeI.datastore
                 # Production data in non production or vice versa should be noted
@@ -1746,14 +1750,14 @@ class DataTransformer(ANSI_SQL_NamedObject):
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         super().nameLint(tree)
         # Does store exist
-        storeI : Optional[DatastoreInformation] = eco.datastoreCache.get(self.outputStoreName)
+        storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.outputStoreName)
         if(storeI == None):
             tree.addProblem(f"Unknown datastore {self.outputStoreName}")
         else:
             if(storeI.datastore.productionStatus != ws.productionStatus):
                 tree.addProblem(f"DataTransformer {self.name} is using a datastore with a different production status", ProblemSeverity.WARNING)
             
-            workSpaceI : WorkspaceInformation = eco.cache_getWorkspaceOrThrow(ws.name)
+            workSpaceI : WorkspaceCacheEntry = eco.cache_getWorkspaceOrThrow(ws.name)
             if(workSpaceI.team != storeI.team):
                 tree.addProblem(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR)
 
