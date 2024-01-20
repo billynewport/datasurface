@@ -20,7 +20,7 @@ def get_metadata():
     return metadata
 
 
-def notest_get_metadata():
+def test_get_metadata():
     """This test assumes a local postgres database with the northwind database loaded in the postgres database."""
     metadata = get_metadata()
     store : Datastore = convertSQLAlchemyTableSetToDatastore("Test_Store", list(metadata.tables.values()))

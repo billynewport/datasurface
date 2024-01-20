@@ -544,15 +544,20 @@ class PrimaryKeyStatus(Enum):
     PK = 1
     """Part of the primary key"""
 
+DEFAULT_classification : DataClassification = DataClassification.PC3
+DEFAULT_primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
+DEFAULT_nullable : NullableStatus = NullableStatus.NULLABLE
 
 class DDLColumn(ANSI_SQL_NamedObject):
+
+
     """Column definition for a table"""
     def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         super().__init__(name)
         self.type : DataType = dataType
-        self.primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
-        self.classification : DataClassification = DataClassification.PC3
-        self.nullable : NullableStatus = NullableStatus.NULLABLE
+        self.primaryKey : PrimaryKeyStatus = DEFAULT_primaryKey
+        self.classification : DataClassification = DEFAULT_classification
+        self.nullable : NullableStatus = DEFAULT_nullable
         self.documentation : Optional[Documentation] = None
         for arg in args:
             if(type(arg) == NullableStatus):

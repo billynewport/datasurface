@@ -2,7 +2,7 @@ import decimal
 from typing import Any, List, Optional, Sequence, TypeVar
 from datasurface.md import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, VarChar, NVarChar, DDLColumn
 import sqlalchemy
-from datasurface.md import Dataset, DDLTable, DataType, DataClassification, Datastore
+from datasurface.md import Dataset, DDLTable, DataType, Datastore
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
 
 
@@ -125,7 +125,7 @@ def convertSQLAlchemyTableToDataset(table : sqlalchemy.Table) -> Dataset:
             if(getValueOrThrow(al_col.primary_key)):
                 pk = PrimaryKeyStatus.PK
 
-            columns.append(DDLColumn(al_col.name, newType, n, DataClassification.PUB, pk))
+            columns.append(DDLColumn(al_col.name, newType, n, pk))
         else:
             raise Exception(f"Unknown data type {al_col.name} : {colType}")
 

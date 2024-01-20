@@ -9,7 +9,7 @@ def defineTables(t : Team):
             Dataset("{{dataset.name}}",
                 DDLTable(
 {%-      for column in columns %}
-                    DDLColumn("{{column.name}}", {{column.type}}, {{column.nullable}}, {{column.classification}}, {{column.primaryKey}}){{ "," if not loop.last else "" }}
+                    DDLColumn("{{column.name}}", {{column.type}}{{convertColumnAttributesToString(column)}}){{ "," if not loop.last else "" }}
 {%-      endfor %}
                 )
             ){{ "," if not loop.last else "" }}

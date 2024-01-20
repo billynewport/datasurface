@@ -59,10 +59,9 @@ class Test_StoragePolicies(unittest.TestCase):
         eco.add(GovernanceZoneDeclaration("RestrictedGZ", eco.owningRepo))
 
         gzRestricted : GovernanceZone = eco.getZoneOrThrow("RestrictedGZ")
-        sameZoneOnlyP : StoragePolicy = LocalGovernanceManagedOnly("Same zone only", PolicyMandatedRule.MANDATED_WITHIN_ZONE)
         gzRestricted.add(
             TeamDeclaration("RTeam", eco.owningRepo),
-            sameZoneOnlyP,
+            LocalGovernanceManagedOnly("Same zone only", PolicyMandatedRule.MANDATED_WITHIN_ZONE),
             InfrastructureVendor("AWS-CN",
                 InfraLocation("Beijing"),
                 InfraLocation("Ningxia"))
@@ -84,6 +83,7 @@ class Test_StoragePolicies(unittest.TestCase):
         rDataset1 : Dataset = t.dataStores["rStore1"].datasets["RDataset1"]
         datasetPolicies : Sequence[StoragePolicy] = gzRestricted.getDatasetStoragePolicies(rDataset1)
         self.assertEqual(1, len(datasetPolicies))
+        self.assertTrue(isinstance(datasetPolicies[0], LocalGovernanceManagedOnly))
         
         
 
