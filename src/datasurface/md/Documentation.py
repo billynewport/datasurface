@@ -15,7 +15,6 @@ class Documentation(ABC):
             return False
         return self.description == other.description and self.tags == other.tags
 
-    @abstractmethod
     def __str__(self) -> str:
         return f"Documentation()"
     
@@ -23,6 +22,19 @@ class Documentation(ABC):
     def lint(self, tree : ValidationTree):
         pass
     
+
+class PlainTextDocumentation(Documentation):
+    def __init__(self, description : str, tags : Optional[OrderedDict[str, str]] = None) -> None:
+        super().__init__(description, tags)
+
+    def __eq__(self, other : object):
+        if(not isinstance(other, PlainTextDocumentation)):
+            return False
+        return super().__eq__(other)
+    
+    def lint(self, tree : ValidationTree):
+        pass
+
 class MarkdownDocumentation(Documentation):
     def __init__(self, description : str, markdown : str, tags : Optional[OrderedDict[str, str]] = None) -> None:
         super().__init__(description, tags)

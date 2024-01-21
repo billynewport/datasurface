@@ -1,5 +1,6 @@
 from datasurface.md import *
 from datasurface.md.Azure import AzureKeyVaultCredential
+from datasurface.md.Documentation import PlainTextDocumentation
 
 def defineTables(t : Team):
     t.add(
@@ -24,6 +25,8 @@ def defineTables(t : Team):
                 )
             ),
             Dataset("customers",
+                DataClassification.PC3,
+                PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
                 DDLTable(
                     DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),

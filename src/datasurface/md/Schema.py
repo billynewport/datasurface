@@ -530,6 +530,22 @@ class DataClassification(Enum):
     PC3 = 7
     """Personal confidential information, social security numbers, credit card numbers, etc."""
 
+class DataClassificationChecker:
+    def __init__(self, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
+        self.allowed : Optional[set[DataClassification]] = allowed
+        self.notAllowed : Optional[set[DataClassification]] = notAllowed
+
+    def isClassificationAllowed(self, classification : DataClassification) -> bool:
+        if self.allowed and not classification in self.allowed:
+            return False
+        if self.notAllowed and classification in self.notAllowed:
+            return False
+        return True
+
+class VerifyNoPrivacyDataVerify(DataClassificationChecker):
+    def __init__(self) -> None:
+        super().__init__(None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
+
 class NullableStatus(Enum):
     """Specifies whether a column is nullable"""
     NOT_NULLABLE = 0
@@ -657,7 +673,12 @@ class Schema(ABC):
         if(self.ingestionPartitionColumns != other.ingestionPartitionColumns):
             vTree.addProblem(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}")
         return vTree.hasErrors() == False
-    
+
+    @abstractmethod
+    def checkClassificationsAreOnly(self, verifier : DataClassificationChecker) -> bool:
+        """Returns true if all columns in this schema have the specified classification"""
+        raise NotImplementedError()
+        
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:
         """This method performs linting on this schema"""
@@ -678,6 +699,13 @@ class DDLTable(Schema):
         self.documentation : Optional[Documentation] = None
         self.add(*args)
 
+    def checkClassificationsAreOnly(self, verifier: DataClassificationChecker) -> bool:
+        """Check all columns comply with the verifier"""
+        for col in self.columns.values():
+            if(not verifier.isClassificationAllowed(col.classification)):
+                return False
+        return True
+    
     def add(self, *args : Union[DDLColumn, PrimaryKeyList, Documentation]):
         """Add a column or primary key list to the table"""
         for c in args:

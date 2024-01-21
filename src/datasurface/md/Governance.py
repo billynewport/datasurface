@@ -6,12 +6,11 @@ from abc import ABC, abstractmethod
 from datetime import timedelta
 from enum import Enum
 from typing import Optional, TypeVar, Generic
-from urllib.parse import urlparse
 
 from .Documentation import Documentation
 
 from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_identifier
-from .Schema import Schema
+from .Schema import DataClassification, DataClassificationChecker, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
 
@@ -539,16 +538,18 @@ class DataContainer:
 
 class Dataset(ANSI_SQL_NamedObject):
     """This is a single collection of homogeneous records with a primary key"""
-    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo]) -> None:
+    def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
         super().__init__(name)
         self.originalSchema : Optional[Schema] = None
-        self.policies : dict[str, StoragePolicy] = OrderedDict()
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
+        self.policies : dict[str, StoragePolicy] = OrderedDict()
+        self.classification : Optional[DataClassification] = None
+        """This is the classification of the data in the dataset. The overrides any classifications on the schema"""
         self.documentation : Optional[Documentation] = None
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         self.add(*args)
 
-    def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo]) -> None:
+    def add(self, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
         for arg in args:
             if(isinstance(arg,Schema)):
                 s : Schema = arg
@@ -558,6 +559,8 @@ class Dataset(ANSI_SQL_NamedObject):
                 self.addPolicy(p)
             elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
+            elif(isinstance(arg, DataClassification)):
+                self.classification = arg
             else:
                 d : Documentation = arg
                 self.documentation = d
@@ -570,7 +573,8 @@ class Dataset(ANSI_SQL_NamedObject):
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Dataset):
             return super().__eq__(__value) and self.name == __value.name and self.originalSchema == __value.originalSchema and \
-                self.policies == __value.policies and self.documentation == __value.documentation
+                self.policies == __value.policies and self.documentation == __value.documentation and \
+                self.deprecationStatus == __value.deprecationStatus and self.classification == __value.classification
         return False
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', store : 'Datastore', tree : ValidationTree) -> None:
@@ -592,6 +596,18 @@ class Dataset(ANSI_SQL_NamedObject):
         else:
             tree.addProblem("Original schema not set")
 
+    def checkClassificationsAreOnly(self, verifier : DataClassificationChecker) -> bool:
+        """This checks if the dataset only has the specified classifications"""
+
+        # Dataset level classification overrides schema level classification
+        if(self.classification):
+            return verifier.isClassificationAllowed(self.classification)
+        else:
+            if self.originalSchema:
+                # check schema attribute classifications are good
+                return self.originalSchema.checkClassificationsAreOnly(verifier)
+            else:
+                return True
 
     def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
@@ -934,17 +950,18 @@ class TestRepository(Repository):
             return False
 
 class GitHubRepository(Repository):
-    """This represents a GitHub Repository specifically"""
-    def __init__(self, repo : str, moduleName : str, doc : Optional[Documentation] = None) -> None:
+    """This represents a GitHub Repository specifically, this branch should have an eco.py files in the root
+    folder. The eco.py file should contain an ecosystem object which is used to construct the ecosystem"""
+    def __init__(self, repo : str, branchName : str, doc : Optional[Documentation] = None) -> None:
         super().__init__(doc)
         self.repoURL : str = repo
         """The name of the git repository from which changes to Team objects are authorized"""
-        self.moduleName : str = moduleName
-        """The name of the root module contain a main function to declare the teams"""
+        self.branchName : str = branchName
+        """The name of the branch containing an eco.py to construct an ecosystem"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, GitHubRepository)):
-            return super().__eq__(__value) and self.repoURL == __value.repoURL and self.moduleName == __value.moduleName
+            return super().__eq__(__value) and self.repoURL == __value.repoURL and self.branchName == __value.branchName
         else:
             return False
         
@@ -958,15 +975,37 @@ class GitHubRepository(Repository):
         
         return re.match(https_pattern, url) is not None or re.match(ssh_pattern, url) is not None
 
-    def is_valid_github_module(self, module: str) -> bool:
-        return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', module))
+    def is_valid_github_branch(self, branch: str) -> bool:
+        # Branch names cannot contain the sequence ..
+        if '..' in branch:
+            return False
 
+        # Branch names cannot have a . at the end
+        if branch.endswith('.'):
+            return False
+
+        # Branch names cannot have multiple consecutive . characters
+        if '..' in branch:
+            return False
+
+        # Branch names cannot contain any of the following characters: ~ ^ : \ * ? [ ] /
+        if any(char in branch for char in ['~', '^', ':', '\\', '*', '?', '[', ']', '/']):
+            return False
+
+        # Branch names cannot start with -
+        if branch.startswith('-'):
+            return False
+
+        # Branch names can only contain alphanumeric characters, ., -, and _
+        pattern = r'^[a-zA-Z0-9_.-]+$'
+        return re.match(pattern, branch) is not None
+    
     def lint(self, tree : ValidationTree):
         """This checks if repository is valid syntaxically"""
         if(self.is_valid_github_url(self.repoURL) == False):
             tree.addProblem("Repository URL is not valid")
-        if(self.is_valid_github_module(self.moduleName) == False):
-            tree.addProblem("Module name is not valid")
+        if(self.is_valid_github_branch(self.branchName) == False):
+            tree.addProblem("Branch name is not valid")
 
 class TeamCacheEntry:
     """This is used by Ecosystem to cache teams"""
@@ -1670,6 +1709,12 @@ class DatasetSink(object):
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is deprecated and deprecations are not allowed")
                     elif(self.deprecationsAllowed == DeprecationsAllowed.ALLOWED):
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using deprecated dataset", ProblemSeverity.WARNING)
+                dataset : Optional[Dataset] = store.datasets.get(self.datasetName)
+                if(dataset == None):
+                    tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
+                else:
+                    if(ws.classificationVerifier and not dataset.checkClassificationsAreOnly(ws.classificationVerifier)):
+                        tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} has unexpected classifications")
             else:
                 tree.addProblem(f"Unknown datastore {self.storeName}")
 
@@ -1767,7 +1812,7 @@ class Workspace(ANSI_SQL_NamedObject):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
     it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, DataClassificationChecker, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
         super().__init__(name)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
@@ -1775,6 +1820,9 @@ class Workspace(ANSI_SQL_NamedObject):
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         self.dataTransformer : Optional[DataTransformer] = None
+        # This is the set of classifications expected in the Workspace. Linting fails
+        # if any datsets/attributes found with classifications different than these
+        self.classificationVerifier : Optional[DataClassificationChecker] = None
         """This workspace is the input to a data transformer if set"""
         for arg in args:
             if(type(arg) is DatasetGroup):
@@ -1782,6 +1830,8 @@ class Workspace(ANSI_SQL_NamedObject):
                 if(self.dsgs.get(dsg.name) != None):
                     raise ObjectAlreadyExistsException(f"Duplicate DatasetGroup {dsg.name}")
                 self.dsgs[dsg.name] = dsg
+            elif(isinstance(arg, DataClassificationChecker)):
+                self.classificationVerifier = arg
             elif(isinstance(arg, Asset)):
                 a : 'Asset' = arg
                 if(self.asset != None and self.asset != a):
