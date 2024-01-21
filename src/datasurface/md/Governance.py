@@ -1337,6 +1337,14 @@ class Team(GitControlledObject):
             else:
                 eco.cache_addWorkspace(self, w)
 
+                # Check all classification allows policies from gz are satisfied on every sink
+                for dcc in gz.classificationPolicies:
+                    for dsg in w.dsgs.values():
+                        for sink in dsg.sinks.values():
+                            store : Datastore = eco.cache_getDatastoreOrThrow(sink.storeName).datastore
+                            dataset : Dataset = store.datasets[sink.datasetName]
+                            if(dataset.checkClassificationsAreOnly(dcc) == False):
+                                teamTree.addProblem(f"Sink {sink} has classification which is not allowed by policy {dcc}")
         self.superLint(teamTree)
 
     def __str__(self) -> str:
@@ -1471,7 +1479,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
+    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationChecker, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
         super().__init__(ownerRepo)
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
@@ -1479,6 +1487,7 @@ class GovernanceZone(GitControlledObject):
         self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
+        self.classificationPolicies : set[DataClassificationChecker] = set[DataClassificationChecker]()
         self.documentation : Optional[Documentation] = None
         self.add(*args)
 
@@ -1488,13 +1497,16 @@ class GovernanceZone(GitControlledObject):
 
         self.add()
 
-    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
+    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationChecker, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
         for arg in args:
             if(type(arg) is InfrastructureVendor):
                 iv : InfrastructureVendor = arg
                 if self.vendors.get(iv.name) != None:
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {iv.name}")
                 self.vendors[iv.name] = iv
+            elif(isinstance(arg, DataClassificationChecker)):
+                dcc : DataClassificationChecker = arg
+                self.classificationPolicies.add(dcc)
             elif(isinstance(arg, StoragePolicy)):
                 sp : StoragePolicy = arg
                 if self.storagePolicies.get(sp.name) != None:

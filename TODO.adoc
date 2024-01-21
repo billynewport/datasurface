@@ -1,0 +1,4 @@
+
+
+* Add tests for ClassificationChecker on Workspaces
+* Put a default checker on gz which is manadory on contained workspaces or on teams in the declaration
