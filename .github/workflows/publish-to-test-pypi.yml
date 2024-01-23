@@ -105,6 +105,7 @@ jobs:
             url: https://test.pypi.org/p/datasurface
 
         permissions:
+            contents: read  # IMPORTANT: mandatory for making pypi Releases
             id-token: write  # IMPORTANT: mandatory for trusted publishing
 
         steps:
