@@ -1,6 +1,8 @@
+from abc import ABC, abstractmethod
 import re
 import socket
 import ipaddress
+from typing import Generic, TypeVar
 
 from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
 from datasurface.md.Lint import ValidationTree
@@ -77,3 +79,14 @@ class ANSI_SQL_NamedObject:
     def nameLint(self, tree : ValidationTree) -> None:
         if not is_valid_sql_identifier(self.name):
             tree.addProblem(f"Name {self.name} is not a valid ANSI SQL identifier")
+
+T = TypeVar('T')
+
+class Policy(ABC, Generic[T]):
+    """Base class for all policies"""
+    
+    @abstractmethod
+    def isCompatible(self, obj : T) -> bool:
+        """Check if obj meets the policy"""
+        raise NotImplementedError()
+

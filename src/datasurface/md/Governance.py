@@ -9,12 +9,10 @@ from typing import Optional, TypeVar, Generic
 
 from .Documentation import Documentation
 
-from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_identifier
-from .Schema import DataClassification, DataClassificationChecker, Schema
+from .utils import ANSI_SQL_NamedObject, Policy, is_valid_hostname_or_ip, is_valid_sql_identifier
+from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
-
-T = TypeVar('T')
 
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
@@ -282,7 +280,7 @@ class PolicyMandatedRule(Enum):
     """Policies with this are not added to datasets by default. They must be added individually to each dataset"""
 
 
-class StoragePolicy(ABC):
+class StoragePolicy(Policy['DataContainer']):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
     def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation], deprecationStatus : DeprecationInfo) -> None:
@@ -302,8 +300,7 @@ class StoragePolicy(ABC):
             raise Exception("GovernanceZone key not set")
         self.key = StoragePolicyKey(gz.key, self.name)
 
-    @abstractmethod
-    def isCompatible(self, container : 'DataContainer') -> bool:
+    def isCompatible(self, obj : 'DataContainer') -> bool:
         '''This returns true if the container is compatible with the policy. This is used to determine whether data tagged with a policy can be stored in a specific container.'''
         return False
     
@@ -315,7 +312,7 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
     def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)) -> None:
         super().__init__(name, isMandatory, doc, deprecationStatus)
 
-    def isCompatible(self, container : 'DataContainer') -> bool:
+    def isCompatible(self, obj : 'DataContainer') -> bool:
         return True
     
     def __eq__(self, __value: object) -> bool:
@@ -327,11 +324,11 @@ class LocalGovernanceManagedOnly(StoragePolicy):
     def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)) -> None:
         super().__init__(name, isMandatory, doc, deprecationStatus)
 
-    def isCompatible(self, container : 'DataContainer') -> bool:
+    def isCompatible(self, obj : 'DataContainer') -> bool:
         """Only allow if the container locations are managed by the required zone"""
         if(self.key == None):
             raise Exception("Policy Key not set")
-        for loc in container.locations:
+        for loc in obj.locations:
             if(loc.gzName != self.key.gzName):
                 return False
         return True
@@ -596,12 +593,12 @@ class Dataset(ANSI_SQL_NamedObject):
         else:
             tree.addProblem("Original schema not set")
 
-    def checkClassificationsAreOnly(self, verifier : DataClassificationChecker) -> bool:
+    def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         """This checks if the dataset only has the specified classifications"""
 
         # Dataset level classification overrides schema level classification
         if(self.classification):
-            return verifier.isClassificationAllowed(self.classification)
+            return verifier.isCompatible(self.classification)
         else:
             if self.originalSchema:
                 # check schema attribute classifications are good
@@ -1479,7 +1476,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationChecker, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
+    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationPolicy, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
         super().__init__(ownerRepo)
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
@@ -1487,7 +1484,7 @@ class GovernanceZone(GitControlledObject):
         self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
-        self.classificationPolicies : set[DataClassificationChecker] = set[DataClassificationChecker]()
+        self.classificationPolicies : set[DataClassificationPolicy] = set[DataClassificationPolicy]()
         self.documentation : Optional[Documentation] = None
         self.add(*args)
 
@@ -1497,15 +1494,15 @@ class GovernanceZone(GitControlledObject):
 
         self.add()
 
-    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationChecker, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
+    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationPolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
         for arg in args:
             if(type(arg) is InfrastructureVendor):
                 iv : InfrastructureVendor = arg
                 if self.vendors.get(iv.name) != None:
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {iv.name}")
                 self.vendors[iv.name] = iv
-            elif(isinstance(arg, DataClassificationChecker)):
-                dcc : DataClassificationChecker = arg
+            elif(isinstance(arg, DataClassificationPolicy)):
+                dcc : DataClassificationPolicy = arg
                 self.classificationPolicies.add(dcc)
             elif(isinstance(arg, StoragePolicy)):
                 sp : StoragePolicy = arg
@@ -1824,7 +1821,7 @@ class Workspace(ANSI_SQL_NamedObject):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
     it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, DataClassificationChecker, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
         super().__init__(name)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.asset : Optional['Asset'] = None
@@ -1834,7 +1831,7 @@ class Workspace(ANSI_SQL_NamedObject):
         self.dataTransformer : Optional[DataTransformer] = None
         # This is the set of classifications expected in the Workspace. Linting fails
         # if any datsets/attributes found with classifications different than these
-        self.classificationVerifier : Optional[DataClassificationChecker] = None
+        self.classificationVerifier : Optional[DataClassificationPolicy] = None
         """This workspace is the input to a data transformer if set"""
         for arg in args:
             if(type(arg) is DatasetGroup):
@@ -1842,7 +1839,7 @@ class Workspace(ANSI_SQL_NamedObject):
                 if(self.dsgs.get(dsg.name) != None):
                     raise ObjectAlreadyExistsException(f"Duplicate DatasetGroup {dsg.name}")
                 self.dsgs[dsg.name] = dsg
-            elif(isinstance(arg, DataClassificationChecker)):
+            elif(isinstance(arg, DataClassificationPolicy)):
                 self.classificationVerifier = arg
             elif(isinstance(arg, Asset)):
                 a : 'Asset' = arg

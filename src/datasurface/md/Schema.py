@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 
 from .Lint import ValidationTree
-from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
+from .utils import ANSI_SQL_NamedObject, Policy, is_valid_sql_identifier
 from .Documentation import Documentation
 
 class DataType(ABC):
@@ -530,19 +530,20 @@ class DataClassification(Enum):
     PC3 = 7
     """Personal confidential information, social security numbers, credit card numbers, etc."""
 
-class DataClassificationChecker:
+class DataClassificationPolicy(Policy[DataClassification]):
+    """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
     def __init__(self, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
         self.allowed : Optional[set[DataClassification]] = allowed
         self.notAllowed : Optional[set[DataClassification]] = notAllowed
 
-    def isClassificationAllowed(self, classification : DataClassification) -> bool:
-        if self.allowed and not classification in self.allowed:
+    def isCompatible(self, obj : DataClassification) -> bool:
+        if self.allowed and not obj in self.allowed:
             return False
-        if self.notAllowed and classification in self.notAllowed:
+        if self.notAllowed and obj in self.notAllowed:
             return False
         return True
 
-class VerifyNoPrivacyDataVerify(DataClassificationChecker):
+class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
     def __init__(self) -> None:
         super().__init__(None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
 
@@ -675,7 +676,7 @@ class Schema(ABC):
         return vTree.hasErrors() == False
 
     @abstractmethod
-    def checkClassificationsAreOnly(self, verifier : DataClassificationChecker) -> bool:
+    def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         """Returns true if all columns in this schema have the specified classification"""
         raise NotImplementedError()
         
@@ -699,10 +700,10 @@ class DDLTable(Schema):
         self.documentation : Optional[Documentation] = None
         self.add(*args)
 
-    def checkClassificationsAreOnly(self, verifier: DataClassificationChecker) -> bool:
+    def checkClassificationsAreOnly(self, verifier: DataClassificationPolicy) -> bool:
         """Check all columns comply with the verifier"""
         for col in self.columns.values():
-            if(not verifier.isClassificationAllowed(col.classification)):
+            if(not verifier.isCompatible(col.classification)):
                 return False
         return True
     
