@@ -75,7 +75,7 @@ def createEcosystem() -> Ecosystem:
 
     # Fill out the NorthWindTeam managed by the USA governance zone
     nw_team : Team = ecosys.getTeamOrThrow("USA", "NorthWindTeam")
-    defineNWTeamTables(nw_team)
+    defineNWTeamTables(ecosys, gzUSA, nw_team)
     defineNWTeamWorkspaces(nw_team)
     
     tree : ValidationTree = ecosys.lintAndHydrateCaches()

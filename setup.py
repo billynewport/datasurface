@@ -9,7 +9,7 @@ with open('requirements.txt') as f:
 setup(
     name='datasurface',
     version='0.0.2',
-    license='Mongo',
+    license='Server Side License V1',
     description='The DSL code for building a datasurface catalog in github',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -26,5 +26,5 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     include_package_data=True,
-    install_requires=requirements,
+    install_requires=requirements
 )

@@ -2,13 +2,14 @@ from datasurface.md import *
 from datasurface.md.Azure import AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 
-def defineTables(t : Team):
+def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     t.add(
         Datastore("NW_Data",
             CDCCaptureIngestion(
                 IngestionConsistencyType.MULTI,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
                 PyOdbcSourceInfo(
+                    gz.getLocationOrThrow("Azure", ["USA", "East US"]), # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
                     driver="{ODBC Driver 17 for SQL Server}",

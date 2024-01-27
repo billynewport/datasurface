@@ -113,7 +113,7 @@ class TestEcoNameChange(unittest.TestCase):
         newTeam : Team = gzUSA.getTeamOrThrow("NewTeam")
 
         # Add tables to the new team
-        tests.nwdb.nwdb.defineTables(newTeam)
+        tests.nwdb.nwdb.defineTables(e_other, gzUSA, newTeam)
 
         # Check the unchanged team has no changes
         eTree = ValidationTree(eco_baseline)

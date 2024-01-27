@@ -553,7 +553,9 @@ class Dataset(ANSI_SQL_NamedObject):
                 self.originalSchema = s
             elif(isinstance(arg, StoragePolicy)):
                 p : StoragePolicy = arg
-                self.addPolicy(p)
+                if self.policies.get(p.name) != None:
+                    raise Exception(f"Duplicate policy {p.name}")
+                self.policies[p.name] = p
             elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             elif(isinstance(arg, DataClassification)):
@@ -562,11 +564,6 @@ class Dataset(ANSI_SQL_NamedObject):
                 d : Documentation = arg
                 self.documentation = d
     
-    def addPolicy(self, s : StoragePolicy) -> None:
-        if self.policies.get(s.name) != None:
-            raise Exception(f"Duplicate policy {s.name}")
-        self.policies[s.name] = s
-
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Dataset):
             return super().__eq__(__value) and self.name == __value.name and self.originalSchema == __value.originalSchema and \
@@ -647,7 +644,7 @@ class Credential(ABC):
             return False
     
     @abstractmethod
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         raise NotImplementedError()
 
@@ -663,7 +660,7 @@ class FileSecretCredential(Credential):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is FileSecretCredential and self.secretFilePath == __value.secretFilePath
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         # TODO This needs to be better
         if(self.secretFilePath == ""):
@@ -684,8 +681,9 @@ class ClearTextCredential(Credential):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is ClearTextCredential and self.username == __value.username and self.password == __value.password
     
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        tree.addProblem("ClearText credential found", ProblemSeverity.WARNING)
         if(self.username == ""):
             tree.addProblem("Username is empty")
         if(self.password == ""):
@@ -704,12 +702,13 @@ class LocalJDBCConnection(DataSourceConnection):
         return super().__eq__(__value) and type(__value) is LocalJDBCConnection and self.jdbcUrl == __value.jdbcUrl and self.credential == __value.credential
 
 class CaptureSourceInfo(ABC):
-    """Describes how an IMD can connect to the database or similar to ingest data"""
-    def __init__(self) -> None:
-        pass
+    """Describes how an CMD can connect to the database or similar to ingest data. The location is critical
+    as it acts like a filter for which Dataplatforms can work with this data store"""
+    def __init__(self, loc : InfraLocation) -> None:
+        self.location : InfraLocation = loc
 
     def __eq__(self, __value: object) -> bool:
-        if(isinstance(__value, CaptureSourceInfo)):
+        if(isinstance(__value, CaptureSourceInfo) and self.location == __value.location):
             return True
         else:
             return False
@@ -717,12 +716,13 @@ class CaptureSourceInfo(ABC):
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        raise NotImplementedError()
+        cTree : ValidationTree = tree.createChild(self.location)
+        self.location.lint(cTree)
 
 class PyOdbcSourceInfo(CaptureSourceInfo):
     """This describes how to connect to a database using pyodbc"""
-    def __init__(self, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
-        super().__init__()
+    def __init__(self, loc : InfraLocation, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
+        super().__init__(loc)
         self.serverHost : str = serverHost
         self.databaseName : str = databaseName
         self.driver : str = driver
@@ -836,7 +836,7 @@ class Datastore(ANSI_SQL_NamedObject):
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         super().__init__(name)
         self.datasets : dict[str, Dataset] = OrderedDict()
-        self.imd : Optional[CaptureMetaData] = None
+        self.cmd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
@@ -851,7 +851,7 @@ class Datastore(ANSI_SQL_NamedObject):
                 self.addDataset(d)
             elif(isinstance(arg, CaptureMetaData)):
                 i : CaptureMetaData = arg
-                self.imd = i
+                self.cmd = i
             elif(isinstance(arg, DataContainer)):
                 c : DataContainer = arg
                 self.container = c
@@ -875,7 +875,7 @@ class Datastore(ANSI_SQL_NamedObject):
     
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Datastore):
-            return super().__eq__(__value) and self.datasets == __value.datasets and self.imd == __value.imd and \
+            return super().__eq__(__value) and self.datasets == __value.datasets and self.cmd == __value.cmd and \
                 self.container == __value.container and self.documentation == __value.documentation and \
                 self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus
         return False
@@ -886,9 +886,9 @@ class Datastore(ANSI_SQL_NamedObject):
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
 
-        if(self.imd):
-            imdTree : ValidationTree = storeTree.createChild(self.imd)
-            self.imd.lint(eco, gz, t, self, imdTree)
+        if(self.cmd):
+            imdTree : ValidationTree = storeTree.createChild(self.cmd)
+            self.cmd.lint(eco, gz, t, self, imdTree)
         else:
             storeTree.addProblem("IMD not set")
     
@@ -1542,6 +1542,20 @@ class GovernanceZone(GitControlledObject):
 
     def getTeam(self, name : str) -> Optional[Team]:
         return self.teams.getObject(name)
+
+    def getLocation(self, vendorName : str, locKey : list[str]) -> Optional[InfraLocation]:    
+        vendor : Optional[InfrastructureVendor] = self.getVendor(vendorName)
+        loc : Optional[InfraLocation] = None
+        if vendor:
+            loc : Optional[InfraLocation] = vendor.findLocationUsingKey(locKey)
+        return loc
+
+    def getLocationOrThrow(self, vendorName : str, locKey : list[str]) -> InfraLocation:
+        vendor : InfrastructureVendor = self.getVendorOrThrow(vendorName)
+        loc : Optional[InfraLocation] = vendor.findLocationUsingKey(locKey)
+        if(loc is None):
+            raise ObjectDoesntExistException(f"Unknown location vendor: {vendor.name}/{locKey} ")
+        return loc
     
     def getTeamOrThrow(self, name : str) -> Team:
         t : Optional[Team] = self.getTeam(name)
@@ -1627,7 +1641,7 @@ class EventSink:
 class Deliverable:
     pass
 
-class DataPlatform(object):
+class DataPlatform(ABC):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name : str) -> None:
         self.name : str = name
@@ -1644,6 +1658,7 @@ class DataLatency(Enum):
     HOURS = 3
     """Up to 24 hours"""
     DAYS = 4 
+    """A day or more"""
 
 class DataRetentionPolicy(Enum):
     """Client indicates whether the data is live or forensic"""
@@ -1768,9 +1783,12 @@ class DatasetGroup(ANSI_SQL_NamedObject):
 class TransformerTrigger:
     pass
 
-class CodeArtifact:
+class CodeArtifact(ABC):
     """This defines a piece of code which can be used to transform data in a workspace"""
-    pass
+
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
+        pass
 
 class PythonCodeArtifact(CodeArtifact):
     """This describes a python job and its dependencies"""
@@ -1779,9 +1797,19 @@ class PythonCodeArtifact(CodeArtifact):
         self.envVars : dict[str, str] = envVars
         self.requiredVersion : str = requiredVersion
 
-class CodeExecutionEnvironment:
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
+        # TODO more
+        pass
+
+
+class CodeExecutionEnvironment(ABC):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
     pass
+
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
+        pass
+
 
 class KubernetesEnvironment(CodeExecutionEnvironment):
     """This is a Kubernetes environment"""
@@ -1790,6 +1818,14 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
         """This is the hostname of the Kubernetes cluster"""
         self.credential : Credential = cred
         """This is the credential used to access the Kubernetes cluster"""
+
+    def lint(self, eco : 'Ecosystem', tree : ValidationTree):
+        super().lint(eco, tree)
+        if not is_valid_hostname_or_ip(self.hostName):
+            tree.addProblem("Invalid host name")
+        cTree : ValidationTree = tree.createChild(self.credential)
+        self.credential.lint(eco, cTree)
+
 
 class DataTransformer(ANSI_SQL_NamedObject):
     """This allows new data to be produced from existing data. The inputs to the transformer are the
@@ -1815,6 +1851,11 @@ class DataTransformer(ANSI_SQL_NamedObject):
             workSpaceI : WorkspaceCacheEntry = eco.cache_getWorkspaceOrThrow(ws.name)
             if(workSpaceI.team != storeI.team):
                 tree.addProblem(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR)
+        codeEnvTree : ValidationTree = tree.createChild(self.codeEnv)
+        self.codeEnv.lint(eco, codeEnvTree)
+        codeTree : ValidationTree = tree.createChild(self.codeEnv)
+        self.code.lint(eco, codeTree)
+
 
 
 class Workspace(ANSI_SQL_NamedObject):
