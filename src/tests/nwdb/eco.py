@@ -1,5 +1,6 @@
-from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfraLocation, TeamDeclaration, DataPlatform
+from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfralocationKey, TeamDeclaration, DataPlatform
 from datasurface.md import Ecosystem
+from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
@@ -16,24 +17,27 @@ def createEcosystem() -> Ecosystem:
     gzUSA : GovernanceZone = ecosys.getZoneOrThrow("USA")
 
     gzUSA.add(InfrastructureVendor("AWS",
-                InfraLocation("us-east-1"), # Virginia
-                InfraLocation("us-west-1")), # California
+                PlainTextDocumentation("Amazon AWS"),
+                InfralocationKey("us-east-1"), # Virginia
+                InfralocationKey("us-west-1")), # California
             InfrastructureVendor("MyCorp",
-                InfraLocation("NJ_1"),
-                InfraLocation("NY_1")),
+                PlainTextDocumentation("Private USA company data centers"),
+                InfralocationKey("NJ_1"),
+                InfralocationKey("NY_1")),
             
             InfrastructureVendor("Azure",
-                InfraLocation("USA",
-                    InfraLocation("Central US"), # Iowa
-                    InfraLocation("East US"), # Virginia
-                    InfraLocation("East US 2"), # Virginia
+                PlainTextDocumentation("Microsoft Azure"),
+                InfralocationKey("USA",
+                    InfralocationKey("Central US"), # Iowa
+                    InfralocationKey("East US"), # Virginia
+                    InfralocationKey("East US 2"), # Virginia
     #                InfraLocation("East US 3"), # Georgia
     #                InfraLocation("North Central US"), # Illinois
-                    InfraLocation("South Central US"), # Texas
+                    InfralocationKey("South Central US"), # Texas
     #                InfraLocation("West Central US"), # Wyoming
     #                InfraLocation("West US"), # California
-                    InfraLocation("West US 2"), # Washington
-                    InfraLocation("West US 3")), # Arizona
+                    InfralocationKey("West US 2"), # Washington
+                    InfralocationKey("West US 3")), # Arizona
             ),
 
             TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
@@ -46,8 +50,9 @@ def createEcosystem() -> Ecosystem:
 
     gzEU : GovernanceZone = ecosys.getZoneOrThrow("EU")
     gzEU.add(InfrastructureVendor("AWS",
-                InfraLocation("eu-central-1"), # Frankfurt
-                InfraLocation("eu-west-3")), # Paris
+                PlainTextDocumentation("Amazon AWS"),
+                InfralocationKey("eu-central-1"), # Frankfurt
+                InfralocationKey("eu-west-3")), # Paris
 
             TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
             TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
@@ -59,11 +64,13 @@ def createEcosystem() -> Ecosystem:
     gzUK : GovernanceZone = ecosys.getZoneOrThrow("UK")
     gzUK.add(
         InfrastructureVendor("AWS",
-            InfraLocation("eu-west-1"), # Ireland
-            InfraLocation("eu-west-2")), # London
+            PlainTextDocumentation("Amazon AWS UK"),
+            InfralocationKey("eu-west-1"), # Ireland
+            InfralocationKey("eu-west-2")), # London
         InfrastructureVendor("MyCorp",
-            InfraLocation("London"),
-            InfraLocation("Cambridge")),
+            PlainTextDocumentation("Private UK Data centers"),
+            InfralocationKey("London"),
+            InfralocationKey("Cambridge")),
 
         TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
         TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
@@ -80,6 +87,7 @@ def createEcosystem() -> Ecosystem:
     
     tree : ValidationTree = ecosys.lintAndHydrateCaches()
     if(tree.hasErrors()):
+        tree.printTree()
         raise Exception("Ecosystem validation failed")
     return ecosys
 
