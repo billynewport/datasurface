@@ -931,7 +931,8 @@ class Repository(ABC):
         else:
             return False
 
-class TestRepository(Repository):
+class FakeRepository(Repository):
+    """Fake implementation for test cases only"""
     def __init__(self, name : str, doc : Optional[Documentation] = None) -> None:
         super().__init__(doc)
         self.name = name
@@ -943,7 +944,7 @@ class TestRepository(Repository):
         return f"TestRepository({self.name})"
     
     def __eq__(self, __value: object) -> bool:
-        if(isinstance(__value, TestRepository)):
+        if(isinstance(__value, FakeRepository)):
             return super().__eq__(__value) and self.name == __value.name
         else:
             return False

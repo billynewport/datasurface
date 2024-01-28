@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, PolicyMandatedRule, ProductionStatus, TestRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, PolicyMandatedRule, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -337,12 +337,12 @@ class TestWorkspace(unittest.TestCase):
     def createSimpleEcosystem(self) -> Ecosystem:
 
         # Make ecosystem and declare a single zone US
-        e : Ecosystem = Ecosystem("BigCorp", TestRepository("a"),
-            GovernanceZoneDeclaration("US", TestRepository("b")))
+        e : Ecosystem = Ecosystem("BigCorp", FakeRepository("a"),
+            GovernanceZoneDeclaration("US", FakeRepository("b")))
 
         # Define US zone and declare a single team Test        
         gzUSA : GovernanceZone = e.getZoneOrThrow("US")
-        gzUSA.add(TeamDeclaration("Test", TestRepository("c")))
+        gzUSA.add(TeamDeclaration("Test", FakeRepository("c")))
 
         # Define the team with a single store with 2 datasets and a single Workspace using those datasets
         t : Team = gzUSA.getTeamOrThrow("Test")
