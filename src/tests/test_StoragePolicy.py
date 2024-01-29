@@ -123,7 +123,6 @@ class TestPlatformPolicy(unittest.TestCase):
         # Add AWS as ONLY allowed Vendor
         gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
         v : InfrastructureVendor = gzUSA.getVendorOrThrow("AWS")
-        print(v)
         p : InfraStructureVendorPolicy = InfraStructureVendorPolicy({v})
         gzUSA.add(p)
 
@@ -131,7 +130,7 @@ class TestPlatformPolicy(unittest.TestCase):
         tree : ValidationTree = eco.lintAndHydrateCaches()
         self.assertTrue(tree.hasErrors())
 
-        # Now, allow Azure
+        # Now, allow Azure, passes
         eco = createEcosystem()
         p = InfraStructureVendorPolicy({gzUSA.getVendorOrThrow("Azure")})
         gzUSA = eco.getZoneOrThrow("USA")

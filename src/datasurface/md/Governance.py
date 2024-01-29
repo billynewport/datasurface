@@ -658,17 +658,6 @@ class Dataset(ANSI_SQL_NamedObject):
     def __str__(self) -> str:
         return f"Dataset({self.name})"
     
-# TODO Add lint to this.
-class DataSourceConnection:
-    def __init__(self, name : str) -> None:
-        self.name : str = name
-
-    def __eq__(self, __value: object) -> bool:
-        if(type(__value) is DataSourceConnection):
-            return self.name == __value.name
-        else:
-            return False
-
 class Credential(ABC):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
@@ -729,14 +718,6 @@ class ClearTextCredential(Credential):
     def __str__(self) -> str:
         return f"ClearTextCredential({self.username})"
 
-class LocalJDBCConnection(DataSourceConnection):
-    def __init__(self, name: str, jdbcUrl : str, cred : Credential) -> None:
-        super().__init__(name)
-        self.jdbcUrl : str = jdbcUrl
-        self.credential : Credential = cred
-
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is LocalJDBCConnection and self.jdbcUrl == __value.jdbcUrl and self.credential == __value.credential
 
 class CaptureSourceInfo(ABC):
     """Describes how an CMD can connect to the database or similar to ingest data. The location is critical
