@@ -34,3 +34,7 @@ class AzureDataplatform(DataPlatform):
     def lint(self, eco : 'Ecosystem', tree : ValidationTree):
         cTree = tree.createChild(self)
         self.platformCredential.lint(eco, cTree)
+
+class AzureDataPlatform(DataPlatform):
+    def __init__(self):
+        pass

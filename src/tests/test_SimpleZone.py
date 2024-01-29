@@ -1,13 +1,13 @@
 from typing import Optional
 import unittest
 
-from datasurface.md import InfrastructureVendor, InfralocationKey, TeamDeclaration, GitHubRepository, Ecosystem
+from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDeclaration, GitHubRepository, Ecosystem
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
 
 class TestZones(unittest.TestCase):
 
-    def checkChildLocation(self, parent : InfralocationKey, childName : str, vendor : InfrastructureVendor):
-        child : Optional[InfralocationKey] = parent.locations.get(childName)
+    def checkChildLocation(self, parent : InfrastructureLocation, childName : str, vendor : InfrastructureVendor):
+        child : Optional[InfrastructureLocation] = parent.locations.get(childName)
         if(child is None):
             raise Exception("Child location {} not found in parent {}".format(childName, parent.name))
         self.assertIsNotNone(child)
@@ -25,31 +25,31 @@ class TestZones(unittest.TestCase):
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         gzUSA.add(
                 InfrastructureVendor("AWS",
-                    InfralocationKey("USA",
-                        InfralocationKey("us-east-1"),
-                        InfralocationKey("us-east-2"),
-                        InfralocationKey("us-west-1"),
-                        InfralocationKey("us-west-2")
+                    InfrastructureLocation("USA",
+                        InfrastructureLocation("us-east-1"),
+                        InfrastructureLocation("us-east-2"),
+                        InfrastructureLocation("us-west-1"),
+                        InfrastructureLocation("us-west-2")
                         ),
-                    InfralocationKey("Europe",
-                        InfralocationKey("eu-west-1"),
-                        InfralocationKey("eu-west-2")
+                    InfrastructureLocation("Europe",
+                        InfrastructureLocation("eu-west-1"),
+                        InfrastructureLocation("eu-west-2")
                         ),
                 ))
         
         gzUSA.add(
             InfrastructureVendor("AZURE",
-                InfralocationKey("USA",
-                    InfralocationKey("Central US"),
-                    InfralocationKey("North Central US"),
-                    InfralocationKey("South Central US"),
-                    InfralocationKey("West Central US"),
-                    InfralocationKey("West US"),
-                    InfralocationKey("West US 2"),
-                    InfralocationKey("West US 3"),
-                    InfralocationKey("East US"),
-                    InfralocationKey("East US 2"),
-                    InfralocationKey("East US 3")
+                InfrastructureLocation("USA",
+                    InfrastructureLocation("Central US"),
+                    InfrastructureLocation("North Central US"),
+                    InfrastructureLocation("South Central US"),
+                    InfrastructureLocation("West Central US"),
+                    InfrastructureLocation("West US"),
+                    InfrastructureLocation("West US 2"),
+                    InfrastructureLocation("West US 3"),
+                    InfrastructureLocation("East US"),
+                    InfrastructureLocation("East US 2"),
+                    InfrastructureLocation("East US 3")
                     ),
                 ))
         gzUSA.add(
@@ -70,7 +70,7 @@ class TestZones(unittest.TestCase):
             raise Exception("Vendor AWS not found")
         self.assertIsNotNone(aws)
         self.assertEqual(len(aws.locations), 2)
-        awsUSA : Optional[InfralocationKey] = aws.locations.get("USA")
+        awsUSA : Optional[InfrastructureLocation] = aws.locations.get("USA")
         if(awsUSA is None):
             raise Exception("Location USA not found")
         self.assertIsNotNone(awsUSA)
@@ -78,7 +78,7 @@ class TestZones(unittest.TestCase):
          
         for locName in ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2']:
             self.checkChildLocation(awsUSA, locName, aws)
-        awsEurope : Optional[InfralocationKey] = aws.locations.get("Europe")
+        awsEurope : Optional[InfrastructureLocation] = aws.locations.get("Europe")
         if(awsEurope is None):
             self.assertIsNotNone(awsEurope)
             raise Exception("Location Europe not found")
@@ -92,7 +92,7 @@ class TestZones(unittest.TestCase):
             raise Exception("Vendor AZURE not found") 
         self.assertIsNotNone(azure)
         self.assertEqual(len(azure.locations), 1)
-        azureUSA : Optional[InfralocationKey] = azure.locations.get("USA")
+        azureUSA : Optional[InfrastructureLocation] = azure.locations.get("USA")
         if(azureUSA is None):
             raise Exception("Location USA not found")
         self.assertIsNotNone(azureUSA)

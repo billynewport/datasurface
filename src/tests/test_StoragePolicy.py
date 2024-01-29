@@ -4,7 +4,7 @@ from typing import Sequence
 import unittest
 from datasurface.md.Documentation import PlainTextDocumentation
 
-from datasurface.md.Governance import CDCCaptureIngestion, DataContainer, Dataset, Datastore, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfralocationKey, InfrastructureVendor, LocalGovernanceManagedOnly, PolicyMandatedRule, StoragePolicy, StoragePolicyAllowAnyContainer, Team, TeamDeclaration
+from datasurface.md.Governance import CDCCaptureIngestion, DataContainer, Dataset, Datastore, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfraVendorPolicy, InfrastructureLocation, InfrastructureVendor, LocalGovernanceManagedOnly, PolicyMandatedRule, StoragePolicy, StoragePolicyAllowAnyContainer, Team, TeamDeclaration
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, String
 from tests.nwdb.eco import createEcosystem
@@ -18,7 +18,7 @@ class Test_StoragePolicies(unittest.TestCase):
         gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
 
         awsVendor : InfrastructureVendor = gzUSA.getVendorOrThrow("AWS")
-        usEast1 : InfralocationKey = awsVendor.getLocationOrThrow("us-east-1")
+        usEast1 : InfrastructureLocation = awsVendor.getLocationOrThrow("us-east-1")
 
         if(usEast1.key):
             allowAnyP : StoragePolicy = StoragePolicyAllowAnyContainer("Allow all", PolicyMandatedRule.INDIVIDUALLY_MANDATED)
@@ -36,11 +36,11 @@ class Test_StoragePolicies(unittest.TestCase):
                 sameZoneOnlyP,
                 InfrastructureVendor("AWS-CN",
                     PlainTextDocumentation("Amazon AWS China"),
-                    InfralocationKey("Beijing"),
-                    InfralocationKey("Ningxia"))
+                    InfrastructureLocation("Beijing"),
+                    InfrastructureLocation("Ningxia"))
                 )
             awsChina : InfrastructureVendor = gzRestricted.getVendorOrThrow("AWS-CN")
-            beijing : InfralocationKey = awsChina.getLocationOrThrow("Beijing")
+            beijing : InfrastructureLocation = awsChina.getLocationOrThrow("Beijing")
             if(beijing.key):
                 beijingContainer : DataContainer = DataContainer(beijing.key)
 
@@ -66,8 +66,8 @@ class Test_StoragePolicies(unittest.TestCase):
             LocalGovernanceManagedOnly("Same zone only", PolicyMandatedRule.MANDATED_WITHIN_ZONE),
             InfrastructureVendor("AWS-CN",
                 PlainTextDocumentation("Amazon AWS China"),
-                InfralocationKey("Beijing"),
-                InfralocationKey("Ningxia"))
+                InfrastructureLocation("Beijing"),
+                InfrastructureLocation("Ningxia"))
             )
         
         t : Team = gzRestricted.getTeamOrThrow("RTeam")
@@ -88,6 +88,37 @@ class Test_StoragePolicies(unittest.TestCase):
         self.assertEqual(1, len(datasetPolicies))
         self.assertTrue(isinstance(datasetPolicies[0], LocalGovernanceManagedOnly))
         
+class TestPlatformPolicy(unittest.TestCase):
+
+    def test_InfraVendorPolicy(self):
+
+        eco : Ecosystem = createEcosystem()
+
+        gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
+        aws : InfrastructureVendor = gzUSA.getVendorOrThrow("AWS")
+        azure : InfrastructureVendor = gzUSA.getVendorOrThrow("Azure")
+
+        p : InfraVendorPolicy = InfraVendorPolicy({aws})
+
+        self.assertTrue(p.isCompatible(aws))
+        self.assertFalse(p.isCompatible(azure))
+
+    def test_InfraLocationPolicy(self):
+        eco : Ecosystem = createEcosystem()
+
+        gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
+        aws : InfrastructureVendor = gzUSA.getVendorOrThrow("AWS")
+        awsLocation : InfrastructureLocation = aws.getLocationOrThrow("us-east-1")
+        azure : InfrastructureVendor = gzUSA.getVendorOrThrow("Azure")
+        azureLocation : InfrastructureLocation = azure.getLocationOrThrow("USA").getLocationOrThrow("Central US")
+
+        p : InfraStructureLocationPolicy = InfraStructureLocationPolicy({awsLocation})
+
+        self.assertTrue(p.isCompatible(awsLocation))
+        self.assertFalse(p.isCompatible(azureLocation))
+
+
+
         
 
         

@@ -1,4 +1,4 @@
-from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfralocationKey, TeamDeclaration, DataPlatform
+from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration, DataPlatform
 from datasurface.md import Ecosystem
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.Lint import ValidationTree
@@ -18,26 +18,26 @@ def createEcosystem() -> Ecosystem:
 
     gzUSA.add(InfrastructureVendor("AWS",
                 PlainTextDocumentation("Amazon AWS"),
-                InfralocationKey("us-east-1"), # Virginia
-                InfralocationKey("us-west-1")), # California
+                InfrastructureLocation("us-east-1"), # Virginia
+                InfrastructureLocation("us-west-1")), # California
             InfrastructureVendor("MyCorp",
                 PlainTextDocumentation("Private USA company data centers"),
-                InfralocationKey("NJ_1"),
-                InfralocationKey("NY_1")),
+                InfrastructureLocation("NJ_1"),
+                InfrastructureLocation("NY_1")),
             
             InfrastructureVendor("Azure",
                 PlainTextDocumentation("Microsoft Azure"),
-                InfralocationKey("USA",
-                    InfralocationKey("Central US"), # Iowa
-                    InfralocationKey("East US"), # Virginia
-                    InfralocationKey("East US 2"), # Virginia
+                InfrastructureLocation("USA",
+                    InfrastructureLocation("Central US"), # Iowa
+                    InfrastructureLocation("East US"), # Virginia
+                    InfrastructureLocation("East US 2"), # Virginia
     #                InfraLocation("East US 3"), # Georgia
     #                InfraLocation("North Central US"), # Illinois
-                    InfralocationKey("South Central US"), # Texas
+                    InfrastructureLocation("South Central US"), # Texas
     #                InfraLocation("West Central US"), # Wyoming
     #                InfraLocation("West US"), # California
-                    InfralocationKey("West US 2"), # Washington
-                    InfralocationKey("West US 3")), # Arizona
+                    InfrastructureLocation("West US 2"), # Washington
+                    InfrastructureLocation("West US 3")), # Arizona
             ),
 
             TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
@@ -51,8 +51,8 @@ def createEcosystem() -> Ecosystem:
     gzEU : GovernanceZone = ecosys.getZoneOrThrow("EU")
     gzEU.add(InfrastructureVendor("AWS",
                 PlainTextDocumentation("Amazon AWS"),
-                InfralocationKey("eu-central-1"), # Frankfurt
-                InfralocationKey("eu-west-3")), # Paris
+                InfrastructureLocation("eu-central-1"), # Frankfurt
+                InfrastructureLocation("eu-west-3")), # Paris
 
             TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
             TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
@@ -65,12 +65,12 @@ def createEcosystem() -> Ecosystem:
     gzUK.add(
         InfrastructureVendor("AWS",
             PlainTextDocumentation("Amazon AWS UK"),
-            InfralocationKey("eu-west-1"), # Ireland
-            InfralocationKey("eu-west-2")), # London
+            InfrastructureLocation("eu-west-1"), # Ireland
+            InfrastructureLocation("eu-west-2")), # London
         InfrastructureVendor("MyCorp",
             PlainTextDocumentation("Private UK Data centers"),
-            InfralocationKey("London"),
-            InfralocationKey("Cambridge")),
+            InfrastructureLocation("London"),
+            InfrastructureLocation("Cambridge")),
 
         TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
         TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),

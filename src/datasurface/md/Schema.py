@@ -1,4 +1,4 @@
-from typing import List, Optional, OrderedDict, Union, cast
+from typing import List, Optional, OrderedDict, TypeVar, Union, cast
 from abc import ABC, abstractmethod
 from enum import Enum
 
@@ -530,18 +530,25 @@ class DataClassification(Enum):
     PC3 = 7
     """Personal confidential information, social security numbers, credit card numbers, etc."""
 
-class DataClassificationPolicy(Policy[DataClassification]):
-    """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
-    def __init__(self, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
-        self.allowed : Optional[set[DataClassification]] = allowed
-        self.notAllowed : Optional[set[DataClassification]] = notAllowed
+P = TypeVar('P')
 
-    def isCompatible(self, obj : DataClassification) -> bool:
+class AllowDisallowPolicy(Policy[P]):
+    """This checks whether an object is explicitly allowed or explicitly forbidden"""
+    def __init__(self, allowed : Optional[set[P]] = None, notAllowed : Optional[set[P]] = None) -> None:
+        self.allowed : Optional[set[P]] = allowed
+        self.notAllowed : Optional[set[P]] = notAllowed
+
+    def isCompatible(self, obj : P) -> bool:
         if self.allowed and not obj in self.allowed:
             return False
         if self.notAllowed and obj in self.notAllowed:
             return False
         return True
+
+class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
+    """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
+    def __init__(self, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
+        super().__init__(allowed, notAllowed)
 
 class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
     def __init__(self) -> None:

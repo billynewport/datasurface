@@ -10,7 +10,7 @@ from typing import Optional, TypeVar, Generic
 from .Documentation import Documentation
 
 from .utils import ANSI_SQL_NamedObject, Policy, is_valid_hostname_or_ip, is_valid_sql_identifier
-from .Schema import DataClassification, DataClassificationPolicy, Schema
+from .Schema import AllowDisallowPolicy, DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
 
@@ -337,20 +337,27 @@ class LocalGovernanceManagedOnly(StoragePolicy):
         return super().__eq__(__value) and type(__value) is LocalGovernanceManagedOnly and \
             self.name == __value.name and self.mandatory == __value.mandatory
 
-class InfralocationKey:
+
+class InfrastructureLocation:
     """This is a location within a vendors physical location hierarchy. This object
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
-    def __init__(self, name: str, *args: Union[Documentation, 'InfralocationKey']) -> None:
+    def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
         self.name: str = name
         self.key : Optional[InfraLocationKey] = None
         self.documentation : Optional[Documentation] = None
 
-        self.locations: dict[str, 'InfralocationKey'] = OrderedDict()
+        self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
         """These are the 'child' locations under this location. A state location would have city children for example"""
         """This specifies the parent location of this location. State is parent on city and so on"""
         self.add(*args)
+
+    def __hash__(self) -> int:
+        if(self.key):
+            return hash(self.key)
+        else:
+            raise Exception("self.key is none")
 
     def lint(self, tree : ValidationTree):
         """This checks if the vendor is valid for the specified ecosystem, governance zone and team"""
@@ -369,9 +376,9 @@ class InfralocationKey:
         self.key = InfraLocationKey(parent, locList)
         self.add()
 
-    def add(self, *args : Union[Documentation, 'InfralocationKey']) -> None:
+    def add(self, *args : Union[Documentation, 'InfrastructureLocation']) -> None:
         for loc in args:
-            if(isinstance(loc, InfralocationKey)):
+            if(isinstance(loc, InfrastructureLocation)):
                 self.addLocation(loc)
             else:
                 self.documentation = loc
@@ -379,24 +386,36 @@ class InfralocationKey:
             for loc in self.locations.values():
                 loc.setParentLocation(self.key)
 
-    def addLocation(self, loc : 'InfralocationKey'):
+    def addLocation(self, loc : 'InfrastructureLocation'):
         if self.locations.get(loc.name) != None:
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
 
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, InfralocationKey):
+        if isinstance(__value, InfrastructureLocation):
             return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
                 self.documentation == __value.documentation
         return False
     
-    def findLocationUsingKey(self, locationPath : list[str]) -> Optional['InfralocationKey']:
+    def getLocationOrThrow(self, locationName : str) -> 'InfrastructureLocation':
+        """Returns the location with the specified name or throws an exception"""
+        loc : Optional[InfrastructureLocation] = self.locations.get(locationName)
+        if(loc):
+            return loc
+        else:
+            raise Exception(f"Location {locationName} not found")
+        
+    def getLocation(self, locationName : str) -> Optional['InfrastructureLocation']:
+        """Returns the location with the specified name or None"""
+        return self.locations.get(locationName)
+    
+    def findLocationUsingKey(self, locationPath : list[str]) -> Optional['InfrastructureLocation']:
         """Returns the location using the path"""
         if(len(locationPath) == 0):
             return None
         else:
             locName : str = locationPath[0]
-            loc : Optional[InfralocationKey] = self.locations.get(locName)
+            loc : Optional[InfrastructureLocation] = self.locations.get(locName)
             if(loc):
                 if(len(locationPath) == 1):
                     return loc
@@ -407,13 +426,16 @@ class InfralocationKey:
 
 class InfrastructureVendor:
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an enterprise or an external cloud provider"""
-    def __init__(self, name : str, *args : Union[InfralocationKey, Documentation]) -> None:
+    def __init__(self, name : str, *args : Union[InfrastructureLocation, Documentation]) -> None:
         self.name : str = name
         self.key : Optional[InfrastructureVendorKey] = None
-        self.locations : dict[str, 'InfralocationKey'] = OrderedDict()
+        self.locations : dict[str, 'InfrastructureLocation'] = OrderedDict()
         self.documentation : Optional[Documentation] = None
         self.add(*args)
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
     def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
         if gz.key == None:
             raise Exception("GovernanceZone key not set")
@@ -421,9 +443,9 @@ class InfrastructureVendor:
 
         self.add()
 
-    def add(self, *args : Union['InfralocationKey', Documentation]) -> None:
+    def add(self, *args : Union['InfrastructureLocation', Documentation]) -> None:
         for loc in args:
-            if(isinstance(loc, InfralocationKey)):
+            if(isinstance(loc, InfrastructureLocation)):
                 self.addLocation(loc)
             else:
                 self.documentation = loc
@@ -432,7 +454,7 @@ class InfrastructureVendor:
             for loc in self.locations.values():
                 loc.setParentLocation(topLocationKey)
 
-    def addLocation(self, loc : 'InfralocationKey'):
+    def addLocation(self, loc : 'InfrastructureLocation'):
         if self.locations.get(loc.name) != None:
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
@@ -444,25 +466,25 @@ class InfrastructureVendor:
         else:
             return False
         
-    def getLocationOrThrow(self, locationName : str) -> 'InfralocationKey':
+    def getLocationOrThrow(self, locationName : str) -> 'InfrastructureLocation':
         """Returns the location with the specified name or throws an exception"""
-        loc : Optional[InfralocationKey] = self.locations.get(locationName)
+        loc : Optional[InfrastructureLocation] = self.locations.get(locationName)
         if(loc):
             return loc
         else:
             raise Exception(f"Location {locationName} not found")
         
-    def getLocation(self, locationName : str) -> Optional['InfralocationKey']:
+    def getLocation(self, locationName : str) -> Optional['InfrastructureLocation']:
         """Returns the location with the specified name or None"""
         return self.locations.get(locationName)
     
-    def findLocationUsingKey(self, locationPath : list[str]) -> Optional[InfralocationKey]:
+    def findLocationUsingKey(self, locationPath : list[str]) -> Optional[InfrastructureLocation]:
         """Returns the location using the path"""
         if(len(locationPath) == 0):
             return None
         else:
             locName : str = locationPath[0]
-            loc : Optional[InfralocationKey] = self.locations.get(locName)
+            loc : Optional[InfrastructureLocation] = self.locations.get(locName)
             if(loc):
                 if(len(locationPath) == 1):
                     return loc
@@ -487,7 +509,14 @@ class InfrastructureVendor:
     def __str__(self) -> str:
         return f"InfrastructureVendor({self.name})"
 
+class InfraVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
+    def __init__(self, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
+        super().__init__(allowed, notAllowed)
 
+class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
+    def __init__(self, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
+        super().__init__(allowed, notAllowed)
+        
 class EncryptionSystem:
     """This describes"""
     def __init__(self) -> None:
@@ -708,8 +737,8 @@ class LocalJDBCConnection(DataSourceConnection):
 class CaptureSourceInfo(ABC):
     """Describes how an CMD can connect to the database or similar to ingest data. The location is critical
     as it acts like a filter for which Dataplatforms can work with this data store"""
-    def __init__(self, loc : InfralocationKey) -> None:
-        self.location : InfralocationKey = loc
+    def __init__(self, loc : InfrastructureLocation) -> None:
+        self.location : InfrastructureLocation = loc
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, CaptureSourceInfo) and self.location == __value.location):
@@ -723,7 +752,7 @@ class CaptureSourceInfo(ABC):
 
 class PyOdbcSourceInfo(CaptureSourceInfo):
     """This describes how to connect to a database using pyodbc"""
-    def __init__(self, loc : InfralocationKey, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
+    def __init__(self, loc : InfrastructureLocation, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
         super().__init__(loc)
         self.serverHost : str = serverHost
         self.databaseName : str = databaseName
@@ -1546,16 +1575,16 @@ class GovernanceZone(GitControlledObject):
     def getTeam(self, name : str) -> Optional[Team]:
         return self.teams.getObject(name)
 
-    def getLocation(self, vendorName : str, locKey : list[str]) -> Optional[InfralocationKey]:    
+    def getLocation(self, vendorName : str, locKey : list[str]) -> Optional[InfrastructureLocation]:    
         vendor : Optional[InfrastructureVendor] = self.getVendor(vendorName)
-        loc : Optional[InfralocationKey] = None
+        loc : Optional[InfrastructureLocation] = None
         if vendor:
-            loc : Optional[InfralocationKey] = vendor.findLocationUsingKey(locKey)
+            loc : Optional[InfrastructureLocation] = vendor.findLocationUsingKey(locKey)
         return loc
 
-    def getLocationOrThrow(self, vendorName : str, locKey : list[str]) -> InfralocationKey:
+    def getLocationOrThrow(self, vendorName : str, locKey : list[str]) -> InfrastructureLocation:
         vendor : InfrastructureVendor = self.getVendorOrThrow(vendorName)
-        loc : Optional[InfralocationKey] = vendor.findLocationUsingKey(locKey)
+        loc : Optional[InfrastructureLocation] = vendor.findLocationUsingKey(locKey)
         if(loc is None):
             raise ObjectDoesntExistException(f"Unknown location vendor: {vendor.name}/{locKey} ")
         return loc
