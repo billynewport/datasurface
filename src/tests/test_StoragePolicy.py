@@ -4,7 +4,7 @@ from typing import Sequence
 import unittest
 from datasurface.md.Documentation import PlainTextDocumentation
 
-from datasurface.md.Governance import CDCCaptureIngestion, DataContainer, Dataset, Datastore, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfraVendorPolicy, InfrastructureLocation, InfrastructureVendor, LocalGovernanceManagedOnly, PolicyMandatedRule, StoragePolicy, StoragePolicyAllowAnyContainer, Team, TeamDeclaration
+from datasurface.md.Governance import CDCCaptureIngestion, DataContainer, Dataset, Datastore, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, LocalGovernanceManagedOnly, PolicyMandatedRule, StoragePolicy, StoragePolicyAllowAnyContainer, Team, TeamDeclaration
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, String
 from tests.nwdb.eco import createEcosystem
@@ -98,7 +98,7 @@ class TestPlatformPolicy(unittest.TestCase):
         aws : InfrastructureVendor = gzUSA.getVendorOrThrow("AWS")
         azure : InfrastructureVendor = gzUSA.getVendorOrThrow("Azure")
 
-        p : InfraVendorPolicy = InfraVendorPolicy({aws})
+        p : InfraStructureVendorPolicy = InfraStructureVendorPolicy({aws})
 
         self.assertTrue(p.isCompatible(aws))
         self.assertFalse(p.isCompatible(azure))
@@ -116,6 +116,46 @@ class TestPlatformPolicy(unittest.TestCase):
 
         self.assertTrue(p.isCompatible(awsLocation))
         self.assertFalse(p.isCompatible(azureLocation))
+
+    def test_VendorRestriction(self):
+        eco : Ecosystem = createEcosystem()
+
+        # Add AWS as ONLY allowed Vendor
+        gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
+        v : InfrastructureVendor = gzUSA.getVendorOrThrow("AWS")
+        print(v)
+        p : InfraStructureVendorPolicy = InfraStructureVendorPolicy({v})
+        gzUSA.add(p)
+
+        # The NW Store uses Azure, this should fail lint
+        tree : ValidationTree = eco.lintAndHydrateCaches()
+        self.assertTrue(tree.hasErrors())
+
+        # Now, allow Azure
+        eco = createEcosystem()
+        p = InfraStructureVendorPolicy({gzUSA.getVendorOrThrow("Azure")})
+        gzUSA = eco.getZoneOrThrow("USA")
+        gzUSA.add(p)
+        tree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+
+        # Now, disallow AWS, it only uses Azure so should be fine
+        eco = createEcosystem()
+        p = InfraStructureVendorPolicy(None, {gzUSA.getVendorOrThrow("AWS")})
+        gzUSA = eco.getZoneOrThrow("USA")
+        gzUSA.add(p)
+        tree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+
+        # Now, disallow Azure, it only uses Azure so should fail
+        eco = createEcosystem()
+        p = InfraStructureVendorPolicy(None, {gzUSA.getVendorOrThrow("Azure")})
+        gzUSA = eco.getZoneOrThrow("USA")
+        gzUSA.add(p)
+        tree = eco.lintAndHydrateCaches()
+        self.assertTrue(tree.hasErrors())
+
+
 
 
 

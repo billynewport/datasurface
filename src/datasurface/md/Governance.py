@@ -509,13 +509,16 @@ class InfrastructureVendor:
     def __str__(self) -> str:
         return f"InfrastructureVendor({self.name})"
 
-class InfraVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
+class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
     def __init__(self, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
         super().__init__(allowed, notAllowed)
 
 class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
     def __init__(self, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
         super().__init__(allowed, notAllowed)
+
+    def __str__(self):
+        return f"InfrastructureLocationPolicy()"
         
 class EncryptionSystem:
     """This describes"""
@@ -655,6 +658,7 @@ class Dataset(ANSI_SQL_NamedObject):
     def __str__(self) -> str:
         return f"Dataset({self.name})"
     
+# TODO Add lint to this.
 class DataSourceConnection:
     def __init__(self, name : str) -> None:
         self.name : str = name
@@ -749,6 +753,18 @@ class CaptureSourceInfo(ABC):
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        if self.location.key == None:
+            tree.addProblem("Location key is None")
+        else:
+            # Verify that the location on the ingestion metadata doesn't violate
+            # the governance zone policies for vendor or location
+            for location in gz.locationPolicies:
+                if not location.isCompatible(self.location):
+                    tree.addProblem(f"Location not compatible with gz location policy {location}")
+            for vendor in gz.vendorPolicies:
+                v : InfrastructureVendor = gz.getVendorOrThrow(self.location.key.ivName)
+                if not vendor.isCompatible(v):
+                    tree.addProblem(f"Vendor not compatible with gz policy {vendor}")
 
 class PyOdbcSourceInfo(CaptureSourceInfo):
     """This describes how to connect to a database using pyodbc"""
@@ -764,8 +780,10 @@ class PyOdbcSourceInfo(CaptureSourceInfo):
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if(not is_valid_hostname_or_ip(self.serverHost)):
-            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
+        super().lint(eco, gz, t, tree)
+        # TODO validate the server string, its not just a host name
+#        if(not is_valid_hostname_or_ip(self.serverHost)):
+#            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
 
     def __str__(self) -> str:
         return f"PyOdbcSourceInfo({self.serverHost})"
@@ -825,7 +843,7 @@ class CDCCaptureIngestion(CaptureMetaData):
         super().__init__(*args)
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
-        pass
+        super().lint(eco, gz, t, d, tree)
 
     def __str__(self) -> str:
         return f"CDCCaptureIngestion()"
@@ -1508,15 +1526,19 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationPolicy, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
+    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureVendor, StoragePolicy, DataClassificationPolicy, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
         super().__init__(ownerRepo)
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
         self.platforms : dict[str, 'DataPlatform'] = OrderedDict[str, 'DataPlatform']()
         self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
+
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         self.classificationPolicies : set[DataClassificationPolicy] = set[DataClassificationPolicy]()
+        self.vendorPolicies : set[InfraStructureVendorPolicy] = set[InfraStructureVendorPolicy]()
+        self.locationPolicies : set[InfraStructureLocationPolicy] = set[InfraStructureLocationPolicy]()
+
         self.documentation : Optional[Documentation] = None
         self.add(*args)
 
@@ -1526,7 +1548,7 @@ class GovernanceZone(GitControlledObject):
 
         self.add()
 
-    def add(self, *args : Union[InfrastructureVendor, StoragePolicy, DataClassificationPolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
+    def add(self, *args : Union[InfraStructureVendorPolicy, InfraStructureLocationPolicy, InfrastructureVendor, StoragePolicy, DataClassificationPolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
         for arg in args:
             if(type(arg) is InfrastructureVendor):
                 iv : InfrastructureVendor = arg
@@ -1536,6 +1558,10 @@ class GovernanceZone(GitControlledObject):
             elif(isinstance(arg, DataClassificationPolicy)):
                 dcc : DataClassificationPolicy = arg
                 self.classificationPolicies.add(dcc)
+            elif(isinstance(arg, InfraStructureLocationPolicy)):
+                self.locationPolicies.add(arg)
+            elif(isinstance(arg, InfraStructureVendorPolicy)):
+                self.vendorPolicies.add(arg)
             elif(isinstance(arg, StoragePolicy)):
                 sp : StoragePolicy = arg
                 if self.storagePolicies.get(sp.name) != None:

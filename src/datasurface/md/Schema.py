@@ -544,6 +544,9 @@ class AllowDisallowPolicy(Policy[P]):
         if self.notAllowed and obj in self.notAllowed:
             return False
         return True
+    
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.allowed},{self.notAllowed})"
 
 class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
     """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
