@@ -9,7 +9,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 IngestionConsistencyType.MULTI,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
                 PyOdbcSourceInfo(
-                    gz.getLocationOrThrow("Azure", ["USA", "East US"]), # Where is the database
+                    eco.getLocationOrThrow("Azure", ["USA", "East US"]), # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
                     driver="{ODBC Driver 17 for SQL Server}",
@@ -171,19 +171,21 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     )
 
 
-def defineWorkspaces(t : Team):
-    t.add(
-        Workspace("ProductLiveAdhocReporting",
-            DatasetGroup("LiveProducts",
-                WorkspacePlatformConfig(
-                    ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
-                        DataLatency.MINUTES, # Minutes of latency is acceptable
-                        None, # Regulator
-                        None) # Data used here has no retention requirement due to this use case
-                    ),
-                DatasetSink("NW_Data", "products"),
-                DatasetSink("NW_Data", "customers"),
-                DatasetSink("NW_Data", "suppliers")
-            )
-        )
-    )
+def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
+    """Create a Workspace and an asset if a location is provided"""
+    w : Workspace = Workspace("ProductLiveAdhocReporting",
+        DatasetGroup("LiveProducts",
+            WorkspacePlatformConfig(
+                ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
+                    DataLatency.MINUTES, # Minutes of latency is acceptable
+                    None, # Regulator
+                    None) # Data used here has no retention requirement due to this use case
+                ),
+            DatasetSink("NW_Data", "products"),
+            DatasetSink("NW_Data", "customers"),
+            DatasetSink("NW_Data", "suppliers")
+        ))
+    if loc:
+        if(loc.key):
+            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
+            w.add(asset)

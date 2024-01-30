@@ -23,7 +23,7 @@ class TestZones(unittest.TestCase):
             GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
         )
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
-        gzUSA.add(
+        eco.add(
                 InfrastructureVendor("AWS",
                     InfrastructureLocation("USA",
                         InfrastructureLocation("us-east-1"),
@@ -37,7 +37,7 @@ class TestZones(unittest.TestCase):
                         ),
                 ))
         
-        gzUSA.add(
+        eco.add(
             InfrastructureVendor("AZURE",
                 InfrastructureLocation("USA",
                     InfrastructureLocation("Central US"),
@@ -63,9 +63,9 @@ class TestZones(unittest.TestCase):
         self.assertEqual(eco.getZone("US"), gzUSA)
 
         self.assertEqual(gzUSA.name, usZoneName)
-        self.assertEqual(len(gzUSA.vendors), 2)
+        self.assertEqual(len(eco.vendors), 2)
 
-        aws : Optional[InfrastructureVendor] = gzUSA.vendors.get("AWS")
+        aws : Optional[InfrastructureVendor] = eco.vendors.get("AWS")
         if(aws is None):
             raise Exception("Vendor AWS not found")
         self.assertIsNotNone(aws)
@@ -87,7 +87,7 @@ class TestZones(unittest.TestCase):
         for locName in ['eu-west-1', 'eu-west-2']:
             self.checkChildLocation(awsEurope, locName, aws)
                          
-        azure : Optional[InfrastructureVendor] = gzUSA.vendors.get("AZURE")
+        azure : Optional[InfrastructureVendor] = eco.vendors.get("AZURE")
         if(azure is None):
             raise Exception("Vendor AZURE not found") 
         self.assertIsNotNone(azure)

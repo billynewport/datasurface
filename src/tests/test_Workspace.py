@@ -1,11 +1,11 @@
 from typing import Optional, Sequence
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, GitHubRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
-from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocalGovernanceManagedOnly
+from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, PolicyMandatedRule, ProductionStatus, FakeRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -28,9 +28,8 @@ class TestWorkspace(unittest.TestCase):
 
         gzChina : GovernanceZone = eco.getZoneOrThrow("China")
         gzChina.add(
-                TeamDeclaration("China Team", GitHubRepository("gitrepo url", "module")),
+                TeamDeclaration("China Team", GitHubRepository("gitrepo url", "module"))
                 # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
-                LocalGovernanceManagedOnly("China Only", PolicyMandatedRule.MANDATED_WITHIN_ZONE)
             )
         return eco
 
@@ -51,8 +50,7 @@ class TestWorkspace(unittest.TestCase):
                 )
         gzChina : GovernanceZone = eco.getZoneOrThrow(chinaZoneName)
         gzChina.add(
-                TeamDeclaration("China Team", GitHubRepository("git repo 2", "module")),
-                                    LocalGovernanceManagedOnly("China Only", PolicyMandatedRule.INDIVIDUALLY_MANDATED)
+                TeamDeclaration("China Team", GitHubRepository("git repo 2", "module"))
         )
         
 
@@ -262,16 +260,13 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(len(t2.columns), 4)
 
     def test_DatasetEquality(self):
-        eco : Ecosystem = self.createEco()
-        china : GovernanceZone = eco.getZoneOrThrow("China")
         
         d1 : Dataset = Dataset("Dataset1",
             DDLTable(
                 DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK),
                 DDLColumn    ("Col2", String(10)),
                 DDLColumn    ("Col3", Date())
-                ),
-            china.storagePolicies["China Only"]
+                )
             )
         d2 : Dataset = Dataset("Dataset2",
             DDLTable(
@@ -283,9 +278,6 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(d1.name, "Dataset1")
         self.assertEqual(d1,d1)
         self.assertEqual(d2.name, "Dataset2")
-        self.assertNotEqual(d1,d2)
-        d2.name = d1.name
-        # Now, the difference is no longer the name, but the storage policy
         self.assertNotEqual(d1,d2)
 
     def test_DatastoreEquality(self):
