@@ -506,12 +506,23 @@ class TestWorkspace(unittest.TestCase):
         depGraph : list[DependentWorkspaces] = list(eco.calculateDependenciesForDatastore("NW_Data"))
 
         # One Workspace and a Transformer Workspace
-        self.assertEqual(2, len(depGraph))
-        self.assertEqual(depGraph[0].workspace.name, "ProductLiveAdhocReporting")
+        ws_set : set[Workspace] = set()
+        for dep in depGraph:
+            ws_set.update(dep.flatten())
+
+        ws_names : set[str] = set()
+        for ws in ws_set:
+            ws_names.add(ws.name)
+
+        self.assertEqual(3, len(ws_names))
+        self.assertTrue("ProductLiveAdhocReporting" in ws_names)
+        self.assertTrue("MaskCustomersWorkSpace" in ws_names)
+        self.assertTrue("WorkspaceUsingTransformerOutput" in ws_names)
 
     def test_TransformerLinting(self):
         eco : Ecosystem = createEcosystem()
 
+        # Change the output Datastore cmd workspace name to AAA which doesn't exist
         t : Team = eco.getTeamOrThrow("USA", "NorthWindTeam")
         store : Datastore = t.getStoreOrThrow("Masked_NW_Data")
         cmd : DataTransformerOutput = cast(DataTransformerOutput, store.cmd)

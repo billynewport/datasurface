@@ -225,3 +225,20 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
             asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
             w.add(asset)
     t.add(w)
+
+
+    w = Workspace("WorkspaceUsingTransformerOutput",
+        DatasetGroup("UseMaskedCustomers",
+            WorkspacePlatformConfig(
+                ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
+                    DataLatency.MINUTES, # Minutes of latency is acceptable
+                    None, # Regulator
+                    None) # Data used here has no retention requirement due to this use case
+                ),
+            DatasetSink("Masked_NW_Data", "employees")
+        ))
+    if loc:
+        if(loc.key):
+            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
+            w.add(asset)
+    t.add(w)

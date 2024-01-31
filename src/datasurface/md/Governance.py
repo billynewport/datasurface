@@ -1320,8 +1320,8 @@ class Ecosystem(GitControlledObject):
                     if(workspace.dataTransformer != None):
                         outputStore : Datastore = workspace.dataTransformer.outputDatastore
                         depList : Sequence[DependentWorkspaces] = self.calculateDependenciesForDatastore(outputStore.name, wsVisitedSet)
-                        for dep in depList:
-                            dep.addDependency(dep)
+                        for dep2 in depList:
+                            dep.addDependency(dep2)
         return rc
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
