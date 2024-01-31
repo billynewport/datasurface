@@ -5,6 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
+from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
@@ -17,8 +18,8 @@ class TestWorkspace(unittest.TestCase):
         eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
-            DataPlatform("FastPlatform"),
-            DataPlatform("SlowPlatform")
+            AmazonAWSDataPlatform("FastPlatform"),
+            AmazonAWSDataPlatform("SlowPlatform")
             )
         
         self.assertEqual(eco, eco)
@@ -43,8 +44,8 @@ class TestWorkspace(unittest.TestCase):
         eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
             GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration(chinaZoneName, GitHubRepository("aa", "cc")),
-                DataPlatform("FastPlatform"),
-                DataPlatform("SlowPlatform")
+                AmazonAWSDataPlatform("FastPlatform"),
+                AmazonAWSDataPlatform("SlowPlatform")
             )
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
@@ -424,8 +425,8 @@ class TestWorkspace(unittest.TestCase):
         self.assertTrue(eTree.hasIssues())
 
     def test_WorkspaceEquality(self):
-        fastP : DataPlatform = DataPlatform("FastPlatform")
-        slowP : DataPlatform = DataPlatform("SlowPlatform")
+        fastP : DataPlatform = AmazonAWSDataPlatform("FastPlatform")
+        slowP : DataPlatform = AmazonAWSDataPlatform("SlowPlatform")
 
         self.assertEqual(fastP, fastP)
         self.assertNotEqual(fastP, slowP)
@@ -505,7 +506,7 @@ class TestWorkspace(unittest.TestCase):
 
         depGraph : list[DependentWorkspaces] = list(eco.calculateDependenciesForDatastore("NW_Data"))
 
-        # One Workspace and a Transformer Workspace
+        # One Workspace and a Transformer Workspace and a Workspace using the transformer output store
         ws_set : set[Workspace] = set()
         for dep in depGraph:
             ws_set.update(dep.flatten())

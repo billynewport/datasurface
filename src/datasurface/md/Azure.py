@@ -1,3 +1,4 @@
+from datasurface.md.Governance import InfrastructureVendor
 from .Governance import Credential, DataPlatform, EncryptionSystem, Ecosystem
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
@@ -34,12 +35,16 @@ class AzureKeyVault(EncryptionSystem):
 class AzureDataplatform(DataPlatform):
     """This platform manages pipelines for resources within Azure"""
     def __init__(self, name : str, platformCredential : AzureKeyVaultCredential):
+        super().__init__(name)
         self.platformCredential = platformCredential
 
     def lint(self, eco : 'Ecosystem', tree : ValidationTree):
         cTree = tree.createChild(self)
         self.platformCredential.lint(eco, cTree)
 
-class AzureDataPlatform(DataPlatform):
-    def __init__(self):
-        pass
+    def getSupportedVendors(self, eco : Ecosystem) -> set[InfrastructureVendor]:
+        rc : set[InfrastructureVendor] = set()
+        iv : InfrastructureVendor = eco.getVendorOrThrow("Azure")
+        rc.add(iv)
+        return rc
+

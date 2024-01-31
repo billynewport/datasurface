@@ -1827,7 +1827,14 @@ class DataPlatform(ABC):
         self.name : str = name
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        return isinstance(__value, DataPlatform) and self.name == __value.name
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    @abstractmethod
+    def getSupportedVendors(self, eco : Ecosystem) -> set[InfrastructureVendor]:
+        raise NotImplemented()
 
 class DataLatency(Enum):
     """Specifies the acceptable latency range from a consumer"""
@@ -2060,7 +2067,7 @@ class DataTransformer(ANSI_SQL_NamedObject):
     will be triggered using the specified trigger policy"""
     def __init__(self, name : str, store : Datastore, trigger : TransformerTrigger, code : CodeArtifact, codeEnv : CodeExecutionEnvironment) -> None:
         super().__init__(name)
-        # This must be a datastore defined in the same Team as the Workspace with this transformer
+        # This Datastore is defined here and has a CaptureMetaData automatically added. Do not specify a CMD in the Datastore
         self.outputDatastore : Datastore = store
         self.trigger : TransformerTrigger = trigger
         self.code : CodeArtifact = code

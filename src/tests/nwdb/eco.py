@@ -1,5 +1,7 @@
-from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration, DataPlatform
+from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem
+from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
+from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.Governance import InfraStructureLocationPolicy
 from datasurface.md.Lint import ValidationTree
@@ -10,7 +12,8 @@ def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem(
         "Test", 
         GitHubRepository("https://github.com/billynewport/eco.git", "main"),
-        DataPlatform("DataGlide@1.0"),
+        AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred")),
+        AmazonAWSDataPlatform("Azure Platform"),
         GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main")),
         GovernanceZoneDeclaration("EU", GitHubRepository("https://github.com/billynewport/gzEU.git", "main")),
         GovernanceZoneDeclaration("UK", GitHubRepository("https://github.com/billynewport/gzUK.git", "main")),

@@ -1,7 +1,8 @@
 import copy
 import unittest
+from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import DataPlatform, GitHubRepository, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfrastructureLocation, InfrastructureVendor, Repository, TeamDeclaration
+from datasurface.md.Governance import GitHubRepository, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfrastructureLocation, InfrastructureVendor, Repository, TeamDeclaration
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
@@ -90,7 +91,7 @@ class TestEcosystemValidation(unittest.TestCase):
         self.assertNoIssue(Date())
 
     def test_equality(self):
-        self.assertEqual(DataPlatform("name"), DataPlatform("name"))
+        self.assertEqual(AmazonAWSDataPlatform("name"), AmazonAWSDataPlatform("name"))
 
         ghr : GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
         self.assertEqual(ghr, ghr)
