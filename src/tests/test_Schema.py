@@ -35,6 +35,8 @@ class TestSchemaCreation(unittest.TestCase):
             DDLColumn("firstName", String(20)),
             DDLColumn("lastName", String(20)))
         
+        self.assertEqual(t, t)
+        
         self.assertIsNotNone(t.primaryKeyColumns)
         if(t.primaryKeyColumns == None):
             raise Exception("PrimaryKeyColumns is None")

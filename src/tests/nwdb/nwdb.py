@@ -189,3 +189,4 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
         if(loc.key):
             asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
             w.add(asset)
+    t.add(w)

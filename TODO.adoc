@@ -1,7 +1,7 @@
 
 
-* Add tests for ClassificationChecker on Workspaces
 * Should gz classification check vet producer datasets also
 * Update docs about gz policies
 * Make docker container to run action handler
+* GZ Vendor and Location policies check use of their Datasets in other GZ Workspaces
 

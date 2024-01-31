@@ -16,7 +16,7 @@ class TestPlatformPolicy(unittest.TestCase):
         aws : InfrastructureVendor = eco.getVendorOrThrow("AWS")
         azure : InfrastructureVendor = eco.getVendorOrThrow("Azure")
 
-        p : InfraStructureVendorPolicy = InfraStructureVendorPolicy({aws})
+        p : InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only AWS", {aws})
 
         self.assertTrue(p.isCompatible(aws))
         self.assertFalse(p.isCompatible(azure))
@@ -27,10 +27,15 @@ class TestPlatformPolicy(unittest.TestCase):
         awsLocation : InfrastructureLocation = eco.getLocationOrThrow("AWS", ["USA", "us-east-1"])
         azureLocation : InfrastructureLocation = eco.getLocationOrThrow("Azure", ["USA", "Central US"])
 
-        p : InfraStructureLocationPolicy = InfraStructureLocationPolicy({awsLocation})
+        p : InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", {awsLocation})
 
         self.assertTrue(p.isCompatible(awsLocation))
         self.assertFalse(p.isCompatible(azureLocation))
+
+        s : set[InfraStructureLocationPolicy] = set()
+        s.add(p)
+        self.assertEqual(s, s)
+
 
     def test_VendorRestriction(self):
         # No policies allow all
@@ -40,7 +45,7 @@ class TestPlatformPolicy(unittest.TestCase):
 
         # Add AWS to GZ USA as ONLY allowed Vendor
         gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
-        p : InfraStructureVendorPolicy = InfraStructureVendorPolicy({eco.getVendorOrThrow("AWS")})
+        p : InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only AWS", {eco.getVendorOrThrow("AWS")})
         gzUSA.add(p)
 
         # The NW Store uses Azure, this should fail lint
@@ -49,7 +54,7 @@ class TestPlatformPolicy(unittest.TestCase):
 
         # Now reset and allow Azure, passes
         eco = createEcosystem()
-        p = InfraStructureVendorPolicy({eco.getVendorOrThrow("Azure")})
+        p = InfraStructureVendorPolicy("Only Azure", {eco.getVendorOrThrow("Azure")})
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
@@ -57,7 +62,7 @@ class TestPlatformPolicy(unittest.TestCase):
 
         # Now, disallow AWS, it only uses Azure so should be fine
         eco = createEcosystem()
-        p = InfraStructureVendorPolicy(None, {eco.getVendorOrThrow("AWS")})
+        p = InfraStructureVendorPolicy("AWS Not Allowed", None, {eco.getVendorOrThrow("AWS")})
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
@@ -65,7 +70,7 @@ class TestPlatformPolicy(unittest.TestCase):
 
         # Now, disallow Azure, it only uses Azure so should fail
         eco = createEcosystem()
-        p = InfraStructureVendorPolicy(None, {eco.getVendorOrThrow("Azure")})
+        p = InfraStructureVendorPolicy("Azure not allowed", None, {eco.getVendorOrThrow("Azure")})
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()

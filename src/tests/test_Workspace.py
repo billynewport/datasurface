@@ -1,4 +1,4 @@
-from typing import Optional, Sequence
+from typing import Sequence, cast
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, GitHubRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone
@@ -9,21 +9,23 @@ from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, 
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
+from tests.nwdb.eco import createEcosystem
 
 class TestWorkspace(unittest.TestCase):
 
     def createEco(self) -> Ecosystem:
         eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
-            GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")))
+            GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
+            DataPlatform("FastPlatform"),
+            DataPlatform("SlowPlatform")
+            )
         
         self.assertEqual(eco, eco)
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow("US")
         gzUSA.add(
-                TeamDeclaration("Test", GitHubRepository("gitrepo url", "module")),
-                DataPlatform("FastPlatform"),
-                DataPlatform("SlowPlatform")
+                TeamDeclaration("Test", GitHubRepository("gitrepo url", "module"))
         )
 
         gzChina : GovernanceZone = eco.getZoneOrThrow("China")
@@ -40,29 +42,25 @@ class TestWorkspace(unittest.TestCase):
         # First define an ecosystem with a single US zone and a single team
         eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
             GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
-            GovernanceZoneDeclaration(chinaZoneName, GitHubRepository("aa", "cc")))
+            GovernanceZoneDeclaration(chinaZoneName, GitHubRepository("aa", "cc")),
+                DataPlatform("FastPlatform"),
+                DataPlatform("SlowPlatform")
+            )
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         gzUSA.add(
                 TeamDeclaration(testTeamName, GitHubRepository("gitrepo url", "module")),
-                DataPlatform("FastPlatform"),
-                DataPlatform("SlowPlatform")
                 )
         gzChina : GovernanceZone = eco.getZoneOrThrow(chinaZoneName)
         gzChina.add(
                 TeamDeclaration("China Team", GitHubRepository("git repo 2", "module"))
         )
-        
-
         self.assertEqual(eco.zones.getNumObjects(), 2)
 
-        fastP : Optional[DataPlatform] = gzUSA.platforms.get("FastPlatform")
-        self.assertIsNotNone(fastP)
-        slowP : (DataPlatform | None) = gzUSA.platforms.get("SlowPlatform")
-        self.assertIsNotNone(slowP)
+        # Test Dataplatforms can be found
+        eco.getDataPlatformOrThrow("FastPlatform")
+        eco.getDataPlatformOrThrow("SlowPlatform")
 
-        if(fastP is None or slowP is None):
-            raise Exception("Fast or Slow platform not found")
         # Check we can't get a team that wasnt declared in the GovernanceZone
         self.assertIsNone(gzUSA.getTeam("Undefined Team"))
 
@@ -453,13 +451,15 @@ class TestWorkspace(unittest.TestCase):
         
         self.assertEqual(w1, w1)
 
-        w1_fastP : Optional[WorkspacePlatformConfig] = w1.dsgs["FastStuff"].platformMD
-        w1_slowP : Optional[WorkspacePlatformConfig] = w1.dsgs["SlowESMA_Stuff"].platformMD
+        w1_fastChooser : WorkspacePlatformConfig = cast(WorkspacePlatformConfig, w1.dsgs["FastStuff"].platformMD)
+        w1_slowChooser : WorkspacePlatformConfig = cast(WorkspacePlatformConfig, w1.dsgs["SlowESMA_Stuff"].platformMD)
 
-        if(w1_fastP is None or w1_slowP is None):
-            raise Exception("Fast or Slow platform not found")
-        retFast : ConsumerRetentionRequirements = w1_fastP.retention
-        retSlow : ConsumerRetentionRequirements = w1_slowP.retention
+# TODO Not implemented yet
+#        w1_fastP : Optional[DataPlatform] = w1_fastChooser.choooseDataPlatform()
+#        w1_slowP : Optional[DataPlatform] = w1_slowChooser.choooseDataPlatform()        
+
+        retFast : ConsumerRetentionRequirements = w1_fastChooser.retention
+        retSlow : ConsumerRetentionRequirements = w1_slowChooser.retention
 
         self.assertEqual(retFast, retFast)
         self.assertEqual(retSlow, retSlow)
@@ -500,6 +500,10 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(t1, t2)
         self.assertNotEqual(t2, t1)
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_StoreDependencies(self):
+        eco : Ecosystem = createEcosystem()
 
+        depGraph : list[DependentWorkspaces] = list(eco.calculateDependenciesForDatastore("NW_Data"))
+
+        self.assertEqual(1, len(depGraph))
+        self.assertEqual(depGraph[0].workspace.name, "ProductLiveAdhocReporting")

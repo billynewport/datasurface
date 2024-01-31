@@ -534,7 +534,8 @@ P = TypeVar('P')
 
 class AllowDisallowPolicy(Policy[P]):
     """This checks whether an object is explicitly allowed or explicitly forbidden"""
-    def __init__(self, allowed : Optional[set[P]] = None, notAllowed : Optional[set[P]] = None) -> None:
+    def __init__(self, name : str, allowed : Optional[set[P]] = None, notAllowed : Optional[set[P]] = None) -> None:
+        super().__init__(name)
         self.allowed : Optional[set[P]] = allowed
         self.notAllowed : Optional[set[P]] = notAllowed
 
@@ -545,17 +546,31 @@ class AllowDisallowPolicy(Policy[P]):
             return False
         return True
     
+    def __hash__(self) -> int:
+        return hash(self.name)
+      
     def __str__(self):
-        return f"{self.__class__.__name__}({self.allowed},{self.notAllowed})"
+        return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
+    
 
 class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
     """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
-    def __init__(self, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
-        super().__init__(allowed, notAllowed)
+    def __init__(self, name : str, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
+        super().__init__(name, allowed, notAllowed)
+
+    def __eq__(self, v : object) -> bool:
+        return super().__eq__(v) and isinstance(v, DataClassificationPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
+    
+    def __hash__(self) -> int:
+        return super().__hash__()
+
 
 class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
     def __init__(self) -> None:
-        super().__init__(None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
+        super().__init__("No privacy classification allowed", None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
+
+    def __hash__(self) -> int:
+        return super().__hash__()
 
 class NullableStatus(Enum):
     """Specifies whether a column is nullable"""

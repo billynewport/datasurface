@@ -78,9 +78,20 @@ T = TypeVar('T')
 
 class Policy(ABC, Generic[T]):
     """Base class for all policies"""
+    def __init__(self, name : str):
+        self.name : str = name
     
     @abstractmethod
     def isCompatible(self, obj : T) -> bool:
         """Check if obj meets the policy"""
         raise NotImplementedError()
+    
+    def __eq__(self, v : object) -> bool:
+        return isinstance(v, Policy) and self.name == v.name
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __str__(self) -> str:
+        return f"Policy({self.name})"
 

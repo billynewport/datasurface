@@ -347,10 +347,7 @@ class InfrastructureLocation:
         self.add(*args)
 
     def __hash__(self) -> int:
-        if(self.key):
-            return hash(self.key)
-        else:
-            raise Exception("self.key is none")
+        return hash(self.name)
 
     def lint(self, tree : ValidationTree):
         """This checks if the vendor is valid for the specified ecosystem, governance zone and team"""
@@ -501,16 +498,52 @@ class InfrastructureVendor:
         return f"InfrastructureVendor({self.name})"
 
 class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
-    def __init__(self, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
-        super().__init__(allowed, notAllowed)
-
-class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
-    def __init__(self, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
-        super().__init__(allowed, notAllowed)
+    def __init__(self, name : str, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
+        super().__init__(name, allowed, notAllowed)
 
     def __str__(self):
-        return f"InfrastructureLocationPolicy()"
-        
+        return f"InfraStructureVendorPolicy({self.name})"
+    
+    def __eq__(self, v : object) -> bool:
+        return super().__eq__(v) and isinstance(v, InfraStructureVendorPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
+    
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
+    def __init__(self, name : str, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
+        super().__init__(name, allowed, notAllowed)
+
+    def __str__(self):
+        return f"InfrastructureLocationPolicy({self.name})"
+
+    def __eq__(self, v : object) -> bool:
+        rc : bool = super().__eq__(v)
+        rc = rc and isinstance(v, InfraStructureLocationPolicy)
+        other : InfraStructureLocationPolicy  = cast(InfraStructureLocationPolicy, v)
+        rc = rc and self.allowed == other.allowed
+        rc = rc and self.notAllowed == other.notAllowed
+        rc = rc and self.name == other.name
+        return rc
+    
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
+class DataPlatformPolicy(AllowDisallowPolicy['DataPlatform']):
+    def __init__(self, name : str, allowed : Optional[set['DataPlatform']] = None, notAllowed : Optional[set['DataPlatform']] = None):
+        super().__init__(name, allowed, notAllowed)
+
+    def __str__(self):
+        return f"DataPlatformPolicy({self.name})"
+
+    def __eq__(self, v : object) -> bool:
+        return super().__eq__(v) and isinstance(v, DataPlatformPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed and self.name == v.name
+    
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
 class EncryptionSystem:
     """This describes"""
     def __init__(self) -> None:
@@ -750,7 +783,7 @@ class PyOdbcSourceInfo(CaptureSourceInfo):
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         super().lint(eco, gz, t, tree)
-        # TODO validate the server string, its not just a host name
+# TODO validate the server string, its not just a host name
 #        if(not is_valid_hostname_or_ip(self.serverHost)):
 #            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
 
@@ -854,6 +887,7 @@ class Datastore(ANSI_SQL_NamedObject):
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         super().__init__(name)
         self.datasets : dict[str, Dataset] = OrderedDict()
+        self.key : Optional[DatastoreKey] = None
         self.cmd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
@@ -861,6 +895,9 @@ class Datastore(ANSI_SQL_NamedObject):
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
         self.add(*args)
+
+    def setTeam(self, tdKey : TeamDeclarationKey):
+        self.key = DatastoreKey(tdKey, self.name)
 
     def add(self, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         for arg in args:
@@ -895,11 +932,14 @@ class Datastore(ANSI_SQL_NamedObject):
         if isinstance(__value, Datastore):
             return super().__eq__(__value) and self.datasets == __value.datasets and self.cmd == __value.cmd and \
                 self.container == __value.container and self.documentation == __value.documentation and \
-                self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus
+                self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus and \
+                self.key == __value.key
         return False
     
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
         self.nameLint(storeTree)
+        if(self.key == None):
+            storeTree.addProblem(f"{self} has no key")
         for dataset in self.datasets.values():
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
@@ -1079,7 +1119,7 @@ class Ecosystem(GitControlledObject):
         gz.setEcosystem(self)
         return gz
     
-    def __init__(self, name : str, repo : Repository, *args : Union[InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def __init__(self, name : str, repo : Repository, *args : Union['DataPlatform', InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         super().__init__(repo)
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
@@ -1088,6 +1128,7 @@ class Ecosystem(GitControlledObject):
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
+        self.dataPlatforms : dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
         self.resetCaches()
         self.add(*args)
 
@@ -1100,14 +1141,17 @@ class Ecosystem(GitControlledObject):
         self.teamCache : dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def add(self, *args : Union[InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def add(self, *args : Union['DataPlatform', InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
                 if self.vendors.get(arg.name) != None:
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {arg.name}")
                 self.vendors[arg.name] = arg
+            elif isinstance(arg, DataPlatform):
+                self.dataPlatforms[arg.name] = arg
             else:
-                self.addZoneDef(arg)
+                self.zones.addAuthorization(arg)
+                arg.key = GovernanceZoneKey(self.key, arg.name)
 
         for vendor in self.vendors.values():
             vendor.setEcosystem(self)
@@ -1123,6 +1167,16 @@ class Ecosystem(GitControlledObject):
         else:
             raise ObjectDoesntExistException(f"Unknown vendor {name}")
 
+    def getDataPlatform(self, name : str) -> Optional['DataPlatform']:
+        return self.dataPlatforms.get(name)
+    
+    def getDataPlatformOrThrow(self, name : str) -> 'DataPlatform':
+        p : Optional['DataPlatform'] = self.getDataPlatform(name)
+        if(p):
+            return p
+        else:
+            raise ObjectDoesntExistException(f"Unknown data platform {name}")
+
     def getLocation(self, vendorName : str, locKey : list[str]) -> Optional[InfrastructureLocation]:    
         vendor : Optional[InfrastructureVendor] = self.getVendor(vendorName)
         loc : Optional[InfrastructureLocation] = None
@@ -1137,16 +1191,18 @@ class Ecosystem(GitControlledObject):
             raise ObjectDoesntExistException(f"Unknown location vendor: {vendor.name}/{locKey} ")
         return loc
     
-    def addZoneDef(self, z : 'GovernanceZoneDeclaration') -> None:
-        """Adds a zone def to the ecosystem and sets the zone to this ecosystem"""
-        self.zones.addAuthorization(z)
-        z.key = GovernanceZoneKey(self.key, z.name)
-
+    def getAllChildLocations(self, vendorName : str, locKey : list[str]) -> set[InfrastructureLocation]:
+        """Returns all child locations. Typically used to return all locations within a country for example"""
+        rc : set[InfrastructureLocation] = set(self.getLocationOrThrow(vendorName, locKey).locations.values())
+        return rc
+    
     def cache_addTeam(self, td : 'TeamDeclaration', t : 'Team'):
-        if(self.teamCache.get(td.name) != None):
-            if(self.teamCache.get(td.name) != None):
-                raise ObjectAlreadyExistsException(f"Duplicate Team {td.name}")
-            self.teamCache[td.name] = TeamCacheEntry(t, td)
+        if td.key == None:
+            raise Exception("{td} key is None")
+        globalTeamName : str = td.key.gzName + "/" + t.name
+        if(self.teamCache.get(globalTeamName) != None):
+            raise ObjectAlreadyExistsException(f"Duplicate Team {globalTeamName}")
+        self.teamCache[globalTeamName] = TeamCacheEntry(t, td)
 
     def cache_addWorkspace(self, team : 'Team', work : 'Workspace'):
         """This adds a workspace to the eco cache and flags duplicates"""
@@ -1363,8 +1419,11 @@ class Team(GitControlledObject):
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Team):
-            return self.name == __value.name and self.workspaces == __value.workspaces and \
-                self.dataStores == __value.dataStores and self.documentation == __value.documentation
+            rc : bool = self.name == __value.name
+            rc = rc and self.workspaces == __value.workspaces
+            rc = rc and self.dataStores == __value.dataStores
+            rc = rc and self.documentation == __value.documentation
+            return rc
         return False
     
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
@@ -1376,7 +1435,7 @@ class Team(GitControlledObject):
 
         self.checkTopLevelAttributeChangesAreAuthorized(prop_Team, changeSource, vTree)
     
-    def lint(self, eco : Ecosystem, gz: 'GovernanceZone', teamTree : ValidationTree) -> None:
+    def lint(self, eco : Ecosystem, gz: 'GovernanceZone', td : 'TeamDeclaration', teamTree : ValidationTree) -> None:
         """This validates a single team declaration and populates the datastore cache with that team's stores"""
         for s in self.dataStores.values():
             if eco.datastoreCache.get(s.name) is not None:
@@ -1384,6 +1443,8 @@ class Team(GitControlledObject):
             else:
                 storeTree : ValidationTree = teamTree.createChild(s)
                 eco.cache_addDatastore(s, self)
+                if(td.key):
+                    s.setTeam(td.key)
                 s.lint(eco, gz, self, storeTree)
 
         # Iterate over the workspaces to populate the cache but dont lint them yet
@@ -1461,6 +1522,11 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
             raise ObjectAlreadyExistsException(f"Duplicate authorization {t.name}")
         self.authorizedNames[t.name] = t
 
+    def defineAllObjects(self) -> None:
+        """This 'defines' all declared objects"""
+        for n in self.authorizedNames.values():
+            self.getObject(n.name)
+
     def getObject(self, name : str) -> Optional[G]:
         """This returns a managed object for the specified name. Users can then fill out the attributes 
         of the returned object."""
@@ -1476,7 +1542,9 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
     def __eq__(self, __value: object) -> bool:
         if(super().__eq__(__value) and isinstance(__value, AuthorizedObjectManager)):
             a : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], __value)
-            return self.authorizedNames == a.authorizedNames and self.authorizedObjects == a.authorizedObjects
+            rc : bool = self.authorizedNames == a.authorizedNames
+            rc = rc and self.authorizedObjects == a.authorizedObjects
+            return rc
         else:
             return False
 
@@ -1541,11 +1609,10 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfraStructureLocationPolicy, InfraStructureVendorPolicy, StoragePolicy, DataClassificationPolicy, TeamDeclaration, Documentation, 'DataPlatform']) -> None:
+    def __init__(self, name : str, ownerRepo : Repository, *args : Union[InfraStructureLocationPolicy, InfraStructureVendorPolicy, StoragePolicy, DataClassificationPolicy, TeamDeclaration, Documentation, DataPlatformPolicy]) -> None:
         super().__init__(ownerRepo)
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
-        self.platforms : dict[str, 'DataPlatform'] = OrderedDict[str, 'DataPlatform']()
         self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
 
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
@@ -1555,6 +1622,7 @@ class GovernanceZone(GitControlledObject):
         self.vendorPolicies : set[InfraStructureVendorPolicy] = set[InfraStructureVendorPolicy]()
         # Only these locations are allowed within this GZ (Datastore and Workspaces)
         self.locationPolicies : set[InfraStructureLocationPolicy] = set[InfraStructureLocationPolicy]()
+        self.dataplatformPolicies : set[DataPlatformPolicy] = set[DataPlatformPolicy]()
 
         self.documentation : Optional[Documentation] = None
         self.add(*args)
@@ -1580,7 +1648,7 @@ class GovernanceZone(GitControlledObject):
             tree.addProblem(f"Location has no key {loc}")
             
 
-    def add(self, *args : Union[InfraStructureVendorPolicy, InfraStructureLocationPolicy, StoragePolicy, DataClassificationPolicy, TeamDeclaration, 'DataPlatform', Documentation]) -> None:
+    def add(self, *args : Union[InfraStructureVendorPolicy, InfraStructureLocationPolicy, StoragePolicy, DataClassificationPolicy, TeamDeclaration, DataPlatformPolicy, Documentation]) -> None:
         for arg in args:
             if(isinstance(arg, DataClassificationPolicy)):
                 dcc : DataClassificationPolicy = arg
@@ -1597,11 +1665,8 @@ class GovernanceZone(GitControlledObject):
             elif(type(arg) is TeamDeclaration):
                 t : TeamDeclaration = arg
                 self.teams.addAuthorization(t)
-            elif(isinstance(arg, DataPlatform)):
-                p : DataPlatform = arg
-                if self.platforms.get(p.name) != None:
-                    raise ObjectAlreadyExistsException(f"Duplicate Platform {p.name}")
-                self.platforms[p.name] = p
+            elif(isinstance(arg, DataPlatformPolicy)):
+                self.dataplatformPolicies.add(arg)
             elif(isinstance(arg, Documentation)):
                 d : Documentation = arg
                 self.documentation = d
@@ -1625,17 +1690,22 @@ class GovernanceZone(GitControlledObject):
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, GovernanceZone):
-            return super().__eq__(__value) and self.name == __value.name and self.platforms == __value.platforms and \
-                self.teams == __value.teams and self.storagePolicies == __value.storagePolicies and \
-                self.documentation == __value.documentation and self.vendorPolicies == __value.vendorPolicies and \
-                self.locationPolicies == __value.locationPolicies
+            rc : bool = super().__eq__(__value)
+            rc = rc and self.name == __value.name
+            rc = rc and self.dataplatformPolicies == __value.dataplatformPolicies
+            rc = rc and self.teams == __value.teams
+            rc = rc and self.storagePolicies == __value.storagePolicies
+            rc = rc and self.documentation == __value.documentation
+            rc = rc and self.vendorPolicies == __value.vendorPolicies
+            rc = rc and self.locationPolicies == __value.locationPolicies
+            return rc
         return False
 
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         """Just check the not git controlled attributes"""
         if not(super().eq_toplevel(proposed) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
-        return self.storagePolicies == proposed.storagePolicies and self.platforms == proposed.platforms and \
+        return self.storagePolicies == proposed.storagePolicies and self.dataplatformPolicies == proposed.dataplatformPolicies and \
             self.vendorPolicies == proposed.vendorPolicies and self.locationPolicies == proposed.locationPolicies and \
             self.teams.eq_toplevel(proposed.teams)
     
@@ -1652,14 +1722,22 @@ class GovernanceZone(GitControlledObject):
 
     def lint(self, eco : Ecosystem, govTree : ValidationTree) -> None:
         """This validates a GovernanceZone and populates the teamcache with the zones teams"""
+
+        # Make sure each Team is defined
+        self.teams.defineAllObjects()
+
         for team in self.teams.authorizedObjects.values():
             td : TeamDeclaration = self.teams.authorizedNames[team.name]
-            if(eco.teamCache.get(team.name) != None):
-                govTree.addProblem(f"Duplicate TeamDeclaration {team.name}")
+            if(td.key == None):
+                govTree.addProblem(F"{td} has no key")
             else:
-                eco.cache_addTeam(td, team)
-                teamTree : ValidationTree = govTree.createChild(team)
-                team.lint(eco, self, teamTree)
+                # Add Team to eco level cache, check for dup Teams and lint
+                if(eco.teamCache.get(team.name) != None):
+                    govTree.addProblem(f"Duplicate TeamDeclaration {team.name}")
+                else:
+                    eco.cache_addTeam(td, team)
+                    teamTree : ValidationTree = govTree.createChild(team)
+                    team.lint(eco, self, td, teamTree)
         self.superLint(govTree)
         self.teams.lint(govTree)
         if(self.key == None):
@@ -1744,7 +1822,32 @@ class ConsumerRetentionRequirements:
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
 
-class WorkspacePlatformConfig(object):
+class DataPlatformChooser(ABC):
+    """Subclasses of this choose a DataPlatform to render the pipeline for moving data from a producer to a Workspace possibly
+    through intermediate Workspaces"""
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def choooseDataPlatform(self) -> Optional[DataPlatform]:
+        raise NotImplemented()
+    
+    def __str__(self) -> str:
+        return f"DataPlatformChooser()"
+    
+
+    
+class FixedDataPlatform(DataPlatformChooser):
+    def __init__(self, dp : DataPlatform):
+        self.fixedDataPlatform : DataPlatform = dp
+
+    def choooseDataPlatform(self) -> Optional[DataPlatform]:
+        return self.fixedDataPlatform
+    
+    def __eq__(self, __value : object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, FixedDataPlatform) and self.fixedDataPlatform == __value.fixedDataPlatform
+    
+class WorkspacePlatformConfig(DataPlatformChooser):
     """This allows a Workspace to specify per pipeline hints for behavior, i.e.
     allowed latency and so on"""
     def __init__(self, hist : ConsumerRetentionRequirements) -> None:
@@ -1753,6 +1856,9 @@ class WorkspacePlatformConfig(object):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
 
+    def choooseDataPlatform(self) -> Optional[DataPlatform]:
+        raise NotImplemented()
+    
 class DeprecationsAllowed(Enum):
     """This specifies if deprecations are allowed for a specific dataset in a workspace dsg"""
     NEVER = 0
@@ -1775,6 +1881,7 @@ class DatasetSink(object):
             return False
         
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
+        """Check the DatasetSink meets all policy checks"""
         if(is_valid_sql_identifier(self.storeName) == False):
             tree.addProblem(f"DatasetSink store name {self.storeName} is not a valid SQL identifier")
         if(is_valid_sql_identifier(self.datasetName) == False):
@@ -1786,6 +1893,14 @@ class DatasetSink(object):
             storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.storeName)
             if storeI:
                 store : Datastore = storeI.datastore
+                # Check Workspace asset locations are compatible with the Datastore gz policies
+                if(store.key):
+                    gzStore : GovernanceZone = eco.getZoneOrThrow(store.key.gzName)
+                    if(ws.asset):
+                        ws.asset.checkLocationsAreCompatible(eco, gzStore, tree)
+                else:
+                    tree.addProblem(f"{store} key is None")
+
                 # Production data in non production or vice versa should be noted
                 if(store.productionStatus != ws.productionStatus):
                     tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using a datastore with a different production status", ProblemSeverity.WARNING)
@@ -1811,7 +1926,7 @@ class DatasetGroup(ANSI_SQL_NamedObject):
     ANSI SQL compliant because it could be used as part of a SQL View/Table name in a Workspace database"""
     def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig]) -> None:
         super().__init__(name)
-        self.platformMD : Optional[WorkspacePlatformConfig] = None
+        self.platformMD : Optional[DataPlatformChooser] = None
         self.sinks : dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
         for arg in args:
             if(type(arg) is DatasetSink):
@@ -1943,34 +2058,28 @@ class Workspace(ANSI_SQL_NamedObject):
         
     def add(self, *args : Union[DatasetGroup, 'Asset', Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]):
         for arg in args:
-            if(type(arg) is DatasetGroup):
-                dsg : DatasetGroup = arg
-                if(self.dsgs.get(dsg.name) != None):
-                    raise ObjectAlreadyExistsException(f"Duplicate DatasetGroup {dsg.name}")
-                self.dsgs[dsg.name] = dsg
+            if(isinstance(arg, DatasetGroup)):
+                if(self.dsgs.get(arg.name) != None):
+                    raise ObjectAlreadyExistsException(f"Duplicate DatasetGroup {arg.name}")
+                self.dsgs[arg.name] = arg
             elif(isinstance(arg, DataClassificationPolicy)):
                 self.classificationVerifier = arg
             elif(isinstance(arg, Asset)):
-                a : 'Asset' = arg
-                if(self.asset != None and self.asset != a):
+                if(self.asset != None and self.asset != arg):
                     raise AttributeAlreadySetException("Asset")
-                self.asset = a
+                self.asset = arg
             elif(isinstance(arg, ProductionStatus)):
                 self.productionStatus = arg
             elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             elif(isinstance(arg, Documentation)):
-                d : Documentation = arg
-                if(self.documentation != None and self.documentation != d):
+                if(self.documentation != None and self.documentation != arg):
                     raise AttributeAlreadySetException("Documentation")
-                self.documentation = d
-            elif(isinstance(arg, DataTransformer)):
-                dt : DataTransformer = arg
-                if(self.dataTransformer != None and self.dataTransformer != dt):
-                    raise AttributeAlreadySetException("DataTransformer")
-                self.dataTransformer = dt
+                self.documentation = arg
             else:
-                raise UnknownArgumentException(f"Unknown argument {type(arg)}")
+                if(self.dataTransformer != None and self.dataTransformer != arg):
+                    raise AttributeAlreadySetException("DataTransformer")
+                self.dataTransformer = arg
 
 
     def __hash__(self) -> int:
@@ -2031,6 +2140,13 @@ class Asset:
         if self.consumers.get(consumer.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate consumer {consumer.name}")
         self.consumers[consumer.name] = consumer
+
+    def checkLocationsAreCompatible(self, eco : Ecosystem, gz : GovernanceZone, tree : ValidationTree):
+        """Check the locations associated with the asset are compatible with a gz"""
+        for con in self.containers.values():
+            for locKey in con.locations:
+                loc : InfrastructureLocation = eco.getLocationOrThrow(locKey.ivName, locKey.locationPath)
+                gz.checkLocationIsAllowed(eco, loc, tree)
 
 class PlatformStyle(Enum):
     OLTP = 0

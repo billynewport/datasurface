@@ -3,9 +3,31 @@ import unittest
 
 from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDeclaration, GitHubRepository, Ecosystem
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
+from datasurface.md.Lint import ValidationTree
+from tests.nwdb.eco import createEcosystem
 
 class TestZones(unittest.TestCase):
 
+    def test_DuplicateTeamNames(self):
+        eco : Ecosystem = createEcosystem()
+
+        gzUSA : GovernanceZone = eco.getZoneOrThrow("USA")
+        self.assertEqual(eco.getTeamOrThrow("USA", "FrontOffice"), gzUSA.getTeamOrThrow("FrontOffice"))
+        self.assertEqual(eco.getTeamOrThrow("USA", "MiddleOffice"), gzUSA.getTeamOrThrow("MiddleOffice"))
+        self.assertEqual(eco.getTeamOrThrow("USA", "BackOffice"), gzUSA.getTeamOrThrow("BackOffice"))
+
+        tree : ValidationTree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+
+        gzEU : GovernanceZone = eco.getZoneOrThrow("EU")
+        self.assertEqual(eco.getTeamOrThrow("EU", "FrontOffice"), gzEU.getTeamOrThrow("FrontOffice"))
+        self.assertEqual(eco.getTeamOrThrow("EU", "MiddleOffice"), gzEU.getTeamOrThrow("MiddleOffice"))
+        self.assertEqual(eco.getTeamOrThrow("EU", "BackOffice"), gzEU.getTeamOrThrow("BackOffice"))
+
+        tree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+        
+        
     def checkChildLocation(self, parent : InfrastructureLocation, childName : str, vendor : InfrastructureVendor):
         child : Optional[InfrastructureLocation] = parent.locations.get(childName)
         if(child is None):

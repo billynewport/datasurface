@@ -1,5 +1,7 @@
+import copy
 import unittest
-from datasurface.md.Governance import GitHubRepository, Repository
+from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md.Governance import DataPlatform, GitHubRepository, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfrastructureLocation, InfrastructureVendor, Repository, TeamDeclaration
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
@@ -87,33 +89,78 @@ class TestEcosystemValidation(unittest.TestCase):
 
         self.assertNoIssue(Date())
 
-    
-def test_eq_ecosystem():
-    e : Ecosystem = tests.nwdb.eco.createEcosystem()
-    e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
+    def test_equality(self):
+        self.assertEqual(DataPlatform("name"), DataPlatform("name"))
 
-    diffR : Repository = GitHubRepository("ssh://u@local:/v1/source/eco", "main_other")
+        ghr : GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
+        self.assertEqual(ghr, ghr)
 
-    assert e == e2
+        gzd : GovernanceZoneDeclaration = GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main"))
+        self.assertEqual(gzd, gzd)
 
-    # No changes
-    problems : ValidationTree = ValidationTree(e)
-    e.checkIfChangesAreAuthorized(e2, e.owningRepo, problems)
-    assert problems.hasErrors() == False
+        ptd : PlainTextDocumentation = PlainTextDocumentation("Amazon AWS")
+        self.assertEqual(ptd, ptd)
 
-    e2.name = "Test2"
-    # Test name cannot be changed from another repo
-    # Verify they are not equal, the name was changed
-    assert e != e2
+        ifl : InfrastructureLocation = InfrastructureLocation("L", ptd)
+        self.assertEqual(ifl, ifl)
 
-    # Verify that the change is not authorized
-    problems = ValidationTree(e)
-    e.checkIfChangesAreAuthorized(e2, diffR, problems)
-    assert problems.hasErrors()
+        ifl2 = copy.deepcopy(ifl)
+        ifl2.add(InfrastructureLocation("L2"))
+        self.assertEqual(ifl2, ifl2)
+        self.assertNotEqual(ifl, ifl2)
 
-    e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
+        iv : InfrastructureVendor = InfrastructureVendor("V")
+        self.assertEqual(iv, iv)
+        iv2 : InfrastructureVendor = copy.deepcopy(iv)
+        self.assertEqual(iv, iv2)
+        iv2.add(ifl)
+        self.assertNotEqual(iv, iv2)
 
-    assert e == e2
-    e2.zones.removeDefinition("USA")
-    assert e != e2
+        gz : GovernanceZone = GovernanceZone("GZ", ghr)
+        self.assertEqual(gz, gz)
+
+        td : TeamDeclaration = TeamDeclaration("TD", ghr)
+        self.assertEqual(td, td)
+
+        gz.add(td)
+        self.assertEqual(gz, gz)
+
+        islp : InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", {ifl2}, None)
+        self.assertEqual(islp, islp)
+
+        eco : Ecosystem = Ecosystem("E", ghr, iv2, gzd)
+        self.assertEqual(eco, eco)
+
+
+
+
+    def test_eq_ecosystem(self):
+        e : Ecosystem = tests.nwdb.eco.createEcosystem()
+        e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
+
+        diffR : Repository = GitHubRepository("ssh://u@local:/v1/source/eco", "main_other")
+        self.assertEqual(diffR, diffR)
+
+        self.assertEqual(e, e2)
+
+        # No changes
+        problems : ValidationTree = ValidationTree(e)
+        e.checkIfChangesAreAuthorized(e2, e.owningRepo, problems)
+        self.assertFalse(problems.hasErrors())
+
+        e2.name = "Test2"
+        # Test name cannot be changed from another repo
+        # Verify they are not equal, the name was changed
+        self.assertNotEqual(e, e2)
+
+        # Verify that the change is not authorized
+        problems = ValidationTree(e)
+        e.checkIfChangesAreAuthorized(e2, diffR, problems)
+        self.assertTrue(problems.hasErrors())
+
+        e2 : Ecosystem = tests.nwdb.eco.createEcosystem()
+
+        self.assertEqual(e, e2)
+        e2.zones.removeDefinition("USA")
+        self.assertNotEqual(e, e2)
 
