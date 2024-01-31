@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.Governance import CDCCaptureIngestion, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, FakeRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -505,5 +505,20 @@ class TestWorkspace(unittest.TestCase):
 
         depGraph : list[DependentWorkspaces] = list(eco.calculateDependenciesForDatastore("NW_Data"))
 
-        self.assertEqual(1, len(depGraph))
+        # One Workspace and a Transformer Workspace
+        self.assertEqual(2, len(depGraph))
         self.assertEqual(depGraph[0].workspace.name, "ProductLiveAdhocReporting")
+
+    def test_TransformerLinting(self):
+        eco : Ecosystem = createEcosystem()
+
+        t : Team = eco.getTeamOrThrow("USA", "NorthWindTeam")
+        store : Datastore = t.getStoreOrThrow("Masked_NW_Data")
+        cmd : DataTransformerOutput = cast(DataTransformerOutput, store.cmd)
+        cmd.workSpaceName = "AAA"
+
+        tree : ValidationTree = eco.lintAndHydrateCaches()
+        self.assertTrue(tree.hasErrors())
+
+        # Change Datastore refiner 
+        

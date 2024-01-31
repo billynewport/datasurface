@@ -190,3 +190,37 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
             asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
             w.add(asset)
     t.add(w)
+
+    # Define Workspace with Refiner to mask customer table
+    trigger : TransformerTrigger = TransformerTrigger()
+    code : CodeArtifact = PythonCodeArtifact([], {}, "3.11")
+    cred : Credential = AzureKeyVaultCredential("myvault", "Kubernetes_Creds")
+
+    codeEnv : CodeExecutionEnvironment = KubernetesEnvironment("kubcluster.here.com", cred)
+    w : Workspace = Workspace("MaskCustomersWorkSpace",
+        DatasetGroup("MaskCustomers",
+            WorkspacePlatformConfig(
+                ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
+                    DataLatency.MINUTES, # Minutes of latency is acceptable
+                    None, # Regulator
+                    None) # Data used here has no retention requirement due to this use case
+                ),
+            DatasetSink("NW_Data", "customers")),
+            DataTransformer(
+                "MaskCustomers",         
+                Datastore("Masked_NW_Data",
+                    Dataset("employees",
+                        DDLTable(
+                            PlainTextDocumentation("Masked version of employees table with privacy data removed"),
+                            DDLColumn("employee_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                            DDLColumn("last_name", VarChar(20), NullableStatus.NOT_NULLABLE),
+                            DDLColumn("first_name", VarChar(10), NullableStatus.NOT_NULLABLE),
+                            DDLColumn("country", VarChar(15))
+                        ))),
+                trigger, code, codeEnv)
+        )
+    if loc:
+        if(loc.key):
+            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
+            w.add(asset)
+    t.add(w)

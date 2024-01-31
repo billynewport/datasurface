@@ -692,8 +692,7 @@ class Credential(ABC):
     
     @abstractmethod
     def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        raise NotImplementedError()
+        pass
 
 
 class FileSecretCredential(Credential):
@@ -801,6 +800,38 @@ class IngestionConsistencyType(Enum):
     MULTI = 1
 
 class CaptureMetaData(ABC):
+
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
+        pass
+
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, CaptureMetaData)
+
+class DataTransformerOutput(CaptureMetaData):
+    """Specifies this datastore is ingested whenever a Datatransformer executes"""
+    def __init__(self, workSpaceName : str) -> None:
+        self.workSpaceName = workSpaceName
+
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
+        w : Optional[Workspace] = t.workspaces.get(self.workSpaceName)
+
+        if(w == None):
+            tree.addProblem(f"Unknown workspace {self.workSpaceName}")
+        else:
+            if(w.dataTransformer == None):
+                tree.addProblem(f"Workspace {self.workSpaceName} must have dataTransformer")
+            else:
+                if(w.dataTransformer.outputDatastore.name != d.name):
+                    tree.addProblem(f"Specified Workspace {self.workSpaceName} output store name {w.dataTransformer.outputDatastore.name} doesnt match referring datastore {d.name}")
+
+    def __str__(self):
+        return f"RefinerOutput({self.workSpaceName})"
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, DataTransformerOutput) and self.workSpaceName == o.workSpaceName
+
+class IngestionMetadata(CaptureMetaData):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
@@ -827,7 +858,7 @@ class CaptureMetaData(ABC):
                 self.captureSource.append(i)
             
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, CaptureMetaData):
+        if isinstance(__value, IngestionMetadata):
             return self.credential == __value.credential and self.SingleOrMultiDatasetIngestion == __value.SingleOrMultiDatasetIngestion and \
                 self.captureSource == __value.captureSource
         return False
@@ -839,7 +870,7 @@ class CaptureMetaData(ABC):
             capTree : ValidationTree = tree.createChild(cap)
             cap.lint(eco, gz, t, capTree)
 
-class CDCCaptureIngestion(CaptureMetaData):
+class CDCCaptureIngestion(IngestionMetadata):
     """This indicates CDC can be used to capture deltas from the source"""
     def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
         super().__init__(*args)
@@ -854,7 +885,7 @@ class CDCCaptureIngestion(CaptureMetaData):
         return super().__eq__(__value) and type(__value) is CDCCaptureIngestion
     
         
-class SQLPullIngestion(CaptureMetaData):
+class SQLPullIngestion(IngestionMetadata):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
@@ -903,9 +934,13 @@ class Datastore(ANSI_SQL_NamedObject):
         for arg in args:
             if(type(arg) is Dataset):
                 d : Dataset = arg
-                self.addDataset(d)
+                if self.datasets.get(d.name) != None:
+                    raise ObjectAlreadyExistsException(f"Duplicate Dataset {d.name}")
+                self.datasets[d.name] = d
             elif(isinstance(arg, CaptureMetaData)):
                 i : CaptureMetaData = arg
+                if(self.cmd):
+                    raise AttributeAlreadySetException("CMD")
                 self.cmd = i
             elif(isinstance(arg, DataContainer)):
                 c : DataContainer = arg
@@ -917,12 +952,6 @@ class Datastore(ANSI_SQL_NamedObject):
             elif(isinstance(arg, Documentation)):
                 doc : Documentation = arg
                 self.documentation = doc
-
-    def addDataset(self, item : Dataset) -> None:
-        """Add a named dataset"""
-        if self.datasets.get(item.name) != None:
-            raise ObjectAlreadyExistsException(f"Duplicate Dataset {item.name}")
-        self.datasets[item.name] = item
 
     def isDatasetDeprecated(self, dataset : Dataset) -> bool:
         """Returns true if the datastore is deprecated OR dataset is deprecated"""
@@ -945,10 +974,10 @@ class Datastore(ANSI_SQL_NamedObject):
             dataset.lint(eco, gz, t, self, dTree)
 
         if(self.cmd):
-            imdTree : ValidationTree = storeTree.createChild(self.cmd)
-            self.cmd.lint(eco, gz, t, self, imdTree)
+            cmdTree : ValidationTree = storeTree.createChild(self.cmd)
+            self.cmd.lint(eco, gz, t, self, cmdTree)
         else:
-            storeTree.addProblem("IMD not set")
+            storeTree.addProblem("CaptureMetaData not set")
     
     def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
@@ -1289,7 +1318,7 @@ class Ecosystem(GitControlledObject):
                     wsVisitedSet.add(workspace.name)
                     # If the workspace has a data transformer then the output store's dependencies are also dependencies
                     if(workspace.dataTransformer != None):
-                        outputStore : Datastore = self.datastoreCache[workspace.dataTransformer.outputStoreName].datastore
+                        outputStore : Datastore = workspace.dataTransformer.outputDatastore
                         depList : Sequence[DependentWorkspaces] = self.calculateDependenciesForDatastore(outputStore.name, wsVisitedSet)
                         for dep in depList:
                             dep.addDependency(dep)
@@ -1416,6 +1445,11 @@ class Team(GitControlledObject):
         if self.workspaces.get(w.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate Workspace {w.name}")
         self.workspaces[w.name] = w
+        if(w.dataTransformer):
+            oStore : Datastore = w.dataTransformer.outputDatastore
+            # Set CMD for Refiner output store
+            oStore.add(DataTransformerOutput(w.name))
+            self.addStore(w.dataTransformer.outputDatastore)
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Team):
@@ -1426,6 +1460,13 @@ class Team(GitControlledObject):
             return rc
         return False
     
+    def getStoreOrThrow(self, storeName : str) -> Datastore:
+        rc : Optional[Datastore] = self.dataStores.get(storeName)
+        if rc:
+            return rc
+        else:
+            raise ObjectDoesntExistException(f"Unknown datastore {storeName}")
+        
     def eq_toplevel(self, proposed: GitControlledObject) -> bool:
         return super().eq_toplevel(proposed) and type(proposed) is Team and self.dataStores == proposed.dataStores and self.workspaces == proposed.workspaces
     
@@ -1977,6 +2018,16 @@ class PythonCodeArtifact(CodeArtifact):
         # TODO more
         pass
 
+    def __eq__(self, o : object) -> bool:
+        if isinstance(o, PythonCodeArtifact):
+            rc : bool = self.requiredVersion == o.requiredVersion
+            rc = rc and self.requirements == o.requirements 
+            rc = rc and self.envVars == o.envVars
+            return rc
+        else:
+            return False
+    
+
 
 class CodeExecutionEnvironment(ABC):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
@@ -1998,7 +2049,7 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
     def lint(self, eco : 'Ecosystem', tree : ValidationTree):
         super().lint(eco, tree)
         if not is_valid_hostname_or_ip(self.hostName):
-            tree.addProblem("Invalid host name")
+            tree.addProblem(f"Invalid host name <{self.hostName}>")
         cTree : ValidationTree = tree.createChild(self.credential)
         self.credential.lint(eco, cTree)
 
@@ -2006,10 +2057,11 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
 class DataTransformer(ANSI_SQL_NamedObject):
     """This allows new data to be produced from existing data. The inputs to the transformer are the
     datasets in the workspace and the output is a Datastore associated with the transformer. The transformer
-    will be triggered when needed"""
-    def __init__(self, name : str, outputStoreName : str, trigger : TransformerTrigger, code : CodeArtifact, codeEnv : CodeExecutionEnvironment) -> None:
+    will be triggered using the specified trigger policy"""
+    def __init__(self, name : str, store : Datastore, trigger : TransformerTrigger, code : CodeArtifact, codeEnv : CodeExecutionEnvironment) -> None:
         super().__init__(name)
-        self.outputStoreName : str = outputStoreName
+        # This must be a datastore defined in the same Team as the Workspace with this transformer
+        self.outputDatastore : Datastore = store
         self.trigger : TransformerTrigger = trigger
         self.code : CodeArtifact = code
         self.codeEnv : CodeExecutionEnvironment = codeEnv
@@ -2017,9 +2069,9 @@ class DataTransformer(ANSI_SQL_NamedObject):
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         super().nameLint(tree)
         # Does store exist
-        storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.outputStoreName)
+        storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.outputDatastore.name)
         if(storeI == None):
-            tree.addProblem(f"Unknown datastore {self.outputStoreName}")
+            tree.addProblem(f"Unknown datastore {self.outputDatastore.name}")
         else:
             if(storeI.datastore.productionStatus != ws.productionStatus):
                 tree.addProblem(f"DataTransformer {self.name} is using a datastore with a different production status", ProblemSeverity.WARNING)
