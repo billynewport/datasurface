@@ -48,3 +48,8 @@ class AzureDataplatform(DataPlatform):
         rc.add(iv)
         return rc
 
+    def __eq__(self, __value : object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, AzureDataplatform)
+    
+    def _str__(self) -> str:
+        return f"AzureDataPlatform({self.name})"

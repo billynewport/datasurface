@@ -1,6 +1,7 @@
 
 
 from datasurface.md.Governance import DataPlatform, Ecosystem, InfrastructureVendor
+from datasurface.md.Lint import ValidationTree
 
 
 class AmazonAWSDataPlatform(DataPlatform):
@@ -16,3 +17,8 @@ class AmazonAWSDataPlatform(DataPlatform):
     def _str__(self) -> str:
         return f"AmazonAWSDataPlatform({self.name})"
     
+    def __eq__(self, __value : object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, AmazonAWSDataPlatform)
+    
+    def lint(self, eco : Ecosystem, tree : ValidationTree):
+        pass

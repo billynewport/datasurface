@@ -1285,6 +1285,14 @@ class Ecosystem(GitControlledObject):
 
         """All caches should now be populated"""
 
+        for vendor in self.vendors.values():
+            vTree : ValidationTree = ecoTree.createChild(vendor)
+            vendor.lint(vTree)
+            
+        for pl in self.dataPlatforms.values():
+            platTree : ValidationTree = ecoTree.createChild(pl)
+            pl.lint(self, platTree)
+            
         # Now lint the workspaces
         for workInfo in self.workSpaceCache.values():
             work = workInfo.workspace
@@ -1293,9 +1301,6 @@ class Ecosystem(GitControlledObject):
                 gz : GovernanceZone = self.getZoneOrThrow(work.key.gzName)
                 work.lint(self, gz, workTree)
 
-        for vendor in self.vendors.values():
-            vTree : ValidationTree = ecoTree.createChild(vendor)
-            vendor.lint(vTree)
 
         self.superLint(ecoTree)
         self.zones.lint(ecoTree)
@@ -1835,6 +1840,10 @@ class DataPlatform(ABC):
     @abstractmethod
     def getSupportedVendors(self, eco : Ecosystem) -> set[InfrastructureVendor]:
         raise NotImplemented()
+    
+    @abstractmethod
+    def lint(self, eco : Ecosystem, tree : ValidationTree):
+        pass
 
 class DataLatency(Enum):
     """Specifies the acceptable latency range from a consumer"""
