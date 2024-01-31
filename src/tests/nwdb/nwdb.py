@@ -192,11 +192,6 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
     t.add(w)
 
     # Define Workspace with Refiner to mask customer table
-    trigger : TransformerTrigger = TransformerTrigger()
-    code : CodeArtifact = PythonCodeArtifact([], {}, "3.11")
-    cred : Credential = AzureKeyVaultCredential("myvault", "Kubernetes_Creds")
-
-    codeEnv : CodeExecutionEnvironment = KubernetesEnvironment("kubcluster.here.com", cred)
     w : Workspace = Workspace("MaskCustomersWorkSpace",
         DatasetGroup("MaskCustomers",
             WorkspacePlatformConfig(
@@ -217,8 +212,14 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
                             DDLColumn("first_name", VarChar(10), NullableStatus.NOT_NULLABLE),
                             DDLColumn("country", VarChar(15))
                         ))),
-                trigger, code, codeEnv)
-        )
+                TransformerTrigger(),
+                PythonCodeArtifact([], {}, "3.11"),
+                KubernetesEnvironment(
+                    "kubcluster.here.com", 
+                    AzureKeyVaultCredential("myvault", "Kubernetes_Creds")
+                    )
+                )
+            )
     if loc:
         if(loc.key):
             asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
