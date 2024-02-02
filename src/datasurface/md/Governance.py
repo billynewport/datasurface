@@ -11,7 +11,8 @@ from .Documentation import Documentation
 
 from .utils import ANSI_SQL_NamedObject, Policy, is_valid_hostname_or_ip, is_valid_sql_identifier
 from .Schema import AllowDisallowPolicy, DataClassification, DataClassificationPolicy, Schema
-from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException, UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
+from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
+from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree
 
 class ProductionStatus(Enum):
@@ -1413,8 +1414,6 @@ class Ecosystem(GitControlledObject):
         # Check if the proposed changes are backwards compatible this object
         proposed.checkIfChangesAreBackwardsCompatibleWith(self, eTree)
         return eTree
-    
-
 
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have

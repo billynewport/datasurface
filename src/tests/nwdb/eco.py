@@ -12,11 +12,17 @@ def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem(
         "Test", 
         GitHubRepository("https://github.com/billynewport/eco.git", "main"),
+
+        # Data Platforms
         AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred")),
         AmazonAWSDataPlatform("Azure Platform"),
+
+        # GovernanceZones
         GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main")),
         GovernanceZoneDeclaration("EU", GitHubRepository("https://github.com/billynewport/gzEU.git", "main")),
         GovernanceZoneDeclaration("UK", GitHubRepository("https://github.com/billynewport/gzUK.git", "main")),
+
+        # Infra Vendors and locations
         InfrastructureVendor("AWS",
             PlainTextDocumentation("Amazon AWS"),
             InfrastructureLocation("USA",
