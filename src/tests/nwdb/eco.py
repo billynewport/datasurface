@@ -3,7 +3,7 @@ from datasurface.md import Ecosystem
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import InfraStructureLocationPolicy
+from datasurface.md.Governance import DefaultDataPlatform, InfraStructureLocationPolicy
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
@@ -14,8 +14,8 @@ def createEcosystem() -> Ecosystem:
         GitHubRepository("https://github.com/billynewport/eco.git", "main"),
 
         # Data Platforms
-        AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred")),
-        AmazonAWSDataPlatform("Azure Platform"),
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform"),
 
         # GovernanceZones
         GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main")),
@@ -86,7 +86,7 @@ def createEcosystem() -> Ecosystem:
     # Fill out the NorthWindTeam managed by the USA governance zone
     nw_team : Team = ecosys.getTeamOrThrow("USA", "NorthWindTeam")
     defineNWTeamTables(ecosys, gzUSA, nw_team)
-    defineNWTeamWorkspaces(nw_team, ecosys.getLocationOrThrow("Azure", ["USA", "Central US"]))
+    defineNWTeamWorkspaces(ecosys, nw_team, ecosys.getLocationOrThrow("Azure", ["USA", "Central US"]))
     
     tree : ValidationTree = ecosys.lintAndHydrateCaches()
     if(tree.hasErrors()):

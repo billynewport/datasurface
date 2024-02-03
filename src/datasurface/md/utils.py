@@ -74,6 +74,9 @@ class ANSI_SQL_NamedObject:
         if not is_valid_sql_identifier(self.name):
             tree.addProblem(f"Name {self.name} is not a valid ANSI SQL identifier")
 
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
+
 T = TypeVar('T')
 
 class Policy(ABC, Generic[T]):

@@ -6,8 +6,6 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     t.add(
         Datastore("NW_Data",
             CDCCaptureIngestion(
-                IngestionConsistencyType.MULTI,
-                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
                 PyOdbcSourceInfo(
                     eco.getLocationOrThrow("Azure", ["USA", "East US"]), # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
@@ -15,6 +13,8 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                     driver="{ODBC Driver 17 for SQL Server}",
                     connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
                 ),
+                IngestionConsistencyType.MULTI,
+                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
             ),
 
             Dataset("us_states",
@@ -171,7 +171,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     )
 
 
-def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
+def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocation):
     """Create a Workspace and an asset if a location is provided"""
     w : Workspace = Workspace("ProductLiveAdhocReporting",
         DatasetGroup("LiveProducts",
@@ -185,10 +185,11 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
             DatasetSink("NW_Data", "customers"),
             DatasetSink("NW_Data", "suppliers")
         ))
-    if loc:
-        if(loc.key):
-            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
-            w.add(asset)
+    if(location.key):
+        asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)])
+        w.add(asset)
+    else:
+        raise Exception("loc.key is none")
     t.add(w)
 
     # Define Workspace with Refiner to mask customer table
@@ -216,14 +217,16 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
                 PythonCodeArtifact([], {}, "3.11"),
                 KubernetesEnvironment(
                     "kubcluster.here.com", 
-                    AzureKeyVaultCredential("myvault", "Kubernetes_Creds")
+                    AzureKeyVaultCredential("myvault", "Kubernetes_Creds"),
+                    location
                     )
                 )
             )
-    if loc:
-        if(loc.key):
-            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
-            w.add(asset)
+    if(location.key):
+        asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)])
+        w.add(asset)
+    else:
+        raise Exception("loc.key is none")
     t.add(w)
 
 
@@ -237,8 +240,8 @@ def defineWorkspaces(t : Team, loc : Optional[InfrastructureLocation]):
                 ),
             DatasetSink("Masked_NW_Data", "employees")
         ))
-    if loc:
-        if(loc.key):
-            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", loc.key)])
+    if location:
+        if(location.key):
+            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)])
             w.add(asset)
     t.add(w)

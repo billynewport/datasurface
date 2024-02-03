@@ -1,5 +1,5 @@
 from datasurface.md.Governance import InfrastructureVendor
-from .Governance import Credential, DataPlatform, EncryptionSystem, Ecosystem
+from .Governance import CaptureSourceInfo, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
 
@@ -38,6 +38,9 @@ class AzureDataplatform(DataPlatform):
         super().__init__(name)
         self.platformCredential = platformCredential
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
     def lint(self, eco : 'Ecosystem', tree : ValidationTree):
         cTree = tree.createChild(self)
         self.platformCredential.lint(eco, cTree)
@@ -53,3 +56,20 @@ class AzureDataplatform(DataPlatform):
     
     def _str__(self) -> str:
         return f"AzureDataPlatform({self.name})"
+
+class AzureDatabaseResource(CaptureSourceInfo):
+    def __init__(self, name : str, hostname : str, loc : InfrastructureLocation):
+        super().__init__(loc)
+        self.name : str = name
+        self.hostname : str = hostname
+
+    def __str__(self) -> str:
+        return f"AzureDatabaseResource({self.name})"
+    
+    def lint(self, eco : Ecosystem, gz : GovernanceZone, t : Team, tree : ValidationTree) -> None:
+        super().lint(eco, gz, t, tree)
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, AzureDatabaseResource) and \
+            self.name == o.name and self.hostname == o.hostname
+    

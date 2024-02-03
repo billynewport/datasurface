@@ -14,6 +14,9 @@ class AmazonAWSDataPlatform(DataPlatform):
         rc.add(iv)
         return rc
     
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
     def _str__(self) -> str:
         return f"AmazonAWSDataPlatform({self.name})"
     

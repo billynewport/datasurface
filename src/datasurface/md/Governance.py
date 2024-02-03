@@ -297,7 +297,7 @@ class StoragePolicy(Policy['DataContainer']):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
     def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation], deprecationStatus : DeprecationInfo) -> None:
-        self.name : str = name
+        super().__init__(name)
         self.mandatory : PolicyMandatedRule = isMandatory
         self.key : Optional[StoragePolicyKey] = None
         self.documentation : Optional[Documentation] = doc
@@ -499,6 +499,7 @@ class InfrastructureVendor:
         return f"InfrastructureVendor({self.name})"
 
 class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
+    """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
     def __init__(self, name : str, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
         super().__init__(name, allowed, notAllowed)
 
@@ -512,6 +513,7 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
         return super().__hash__()
 
 class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
+    """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
     def __init__(self, name : str, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
         super().__init__(name, allowed, notAllowed)
 
@@ -755,11 +757,9 @@ class CaptureSourceInfo(ABC):
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if self.location.key == None:
-            tree.addProblem("Location key is None")
-        else:
-            # Verify that the location on the ingestion metadata doesn't violate
-            # the governance zone policies for vendor or location
+        # Verify that the location on the ingestion metadata doesn't violate
+        # the governance zone policies for vendor or location
+        if(self.location.key):
             for location in gz.locationPolicies:
                 if not location.isCompatible(self.location):
                     tree.addProblem(f"Location not compatible with gz location policy {location}")
@@ -767,6 +767,8 @@ class CaptureSourceInfo(ABC):
                 v : InfrastructureVendor = eco.getVendorOrThrow(self.location.key.ivName)
                 if not vendor.isCompatible(v):
                     tree.addProblem(f"Vendor not compatible with gz policy {vendor}")
+        else:
+            tree.addProblem(f"CaptureSourceInfo location has no key")
 
 class PyOdbcSourceInfo(CaptureSourceInfo):
     """This describes how to connect to a database using pyodbc"""
@@ -801,6 +803,7 @@ class IngestionConsistencyType(Enum):
     MULTI = 1
 
 class CaptureMetaData(ABC):
+    """This describes how a platform can pull data for a Datastore"""
 
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
@@ -836,13 +839,13 @@ class IngestionMetadata(CaptureMetaData):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
-    def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
         self.credential : Optional[Credential] = None
         self.SingleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
-        self.captureSource : list[CaptureSourceInfo] = []
+        self.captureSource : CaptureSourceInfo = captureSourceInfo
         self.add(*args)
 
-    def add(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
+    def add(self, *args : Union[Credential, IngestionConsistencyType]) -> None:
         for arg in args:
             if(isinstance(arg, Credential)):
                 c : Credential = arg
@@ -854,9 +857,6 @@ class IngestionMetadata(CaptureMetaData):
                     raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
                 sm : IngestionConsistencyType = arg
                 self.SingleOrMultiDatasetIngestion = sm
-            elif(isinstance(arg, CaptureSourceInfo)):
-                i : CaptureSourceInfo = arg
-                self.captureSource.append(i)
             
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, IngestionMetadata):
@@ -867,14 +867,14 @@ class IngestionMetadata(CaptureMetaData):
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        for cap in self.captureSource:
-            capTree : ValidationTree = tree.createChild(cap)
-            cap.lint(eco, gz, t, capTree)
+        if(self.captureSource):
+            capTree : ValidationTree = tree.createChild(self.captureSource)
+            self.captureSource.lint(eco, gz, t, capTree)
 
 class CDCCaptureIngestion(IngestionMetadata):
     """This indicates CDC can be used to capture deltas from the source"""
-    def __init__(self, *args : Union[Credential, CaptureSourceInfo, IngestionConsistencyType]) -> None:
-        super().__init__(*args)
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
+        super().__init__(captureSourceInfo, *args)
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         super().lint(eco, gz, t, d, tree)
@@ -890,8 +890,8 @@ class SQLPullIngestion(IngestionMetadata):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, *args : Union[Credential, CaptureSourceInfo]) -> None:
-        super().__init__(*args)
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
+        super().__init__(captureSourceInfo, *args)
         self.variableNames : list[str] = []
         """The names of state variables produced by snapshot and delta sql strings"""
         self.snapshotSQL : dict[str, str] = OrderedDict()
@@ -1139,6 +1139,9 @@ class DependentWorkspaces:
         else:
             return False
 
+class DefaultDataPlatform:
+    def __init__(self, p : 'DataPlatform'):
+        self.defaultPlatform = p
 
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
@@ -1149,7 +1152,7 @@ class Ecosystem(GitControlledObject):
         gz.setEcosystem(self)
         return gz
     
-    def __init__(self, name : str, repo : Repository, *args : Union['DataPlatform', InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def __init__(self, name : str, repo : Repository, *args : Union['DataPlatform', DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         super().__init__(repo)
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
@@ -1159,6 +1162,7 @@ class Ecosystem(GitControlledObject):
 
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.dataPlatforms : dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
+        self.defaultDataPlatform :Optional[DataPlatform] = None
         self.resetCaches()
         self.add(*args)
 
@@ -1171,7 +1175,7 @@ class Ecosystem(GitControlledObject):
         self.teamCache : dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def add(self, *args : Union['DataPlatform', InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def add(self, *args : Union['DataPlatform', DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
                 if self.vendors.get(arg.name) != None:
@@ -1179,6 +1183,12 @@ class Ecosystem(GitControlledObject):
                 self.vendors[arg.name] = arg
             elif isinstance(arg, DataPlatform):
                 self.dataPlatforms[arg.name] = arg
+            elif isinstance(arg, DefaultDataPlatform):
+                if(self.defaultDataPlatform != None):
+                    raise AttributeAlreadySetException("Default DataPlatform already specified")
+                else:
+                    self.defaultDataPlatform = arg.defaultPlatform
+                    self.dataPlatforms[self.defaultDataPlatform.name] = self.defaultDataPlatform
             else:
                 self.zones.addAuthorization(arg)
                 arg.key = GovernanceZoneKey(self.key, arg.name)
@@ -1186,6 +1196,12 @@ class Ecosystem(GitControlledObject):
         for vendor in self.vendors.values():
             vendor.setEcosystem(self)
 
+    def getDefaultDataPlatform(self) -> 'DataPlatform':
+        """This returns the default DataPlatform or throws an Exception if it has not been specified"""
+        if(self.defaultDataPlatform):
+            return self.defaultDataPlatform
+        else:
+            raise Exception("No default data platform specified")
 
     def getVendor(self, name : str) -> Optional[InfrastructureVendor]:
         return self.vendors.get(name)
@@ -1451,6 +1467,9 @@ class Team(GitControlledObject):
         self.workspaces[w.name] = w
         if(w.dataTransformer):
             oStore : Datastore = w.dataTransformer.outputDatastore
+            if oStore.cmd:
+                raise AttributeAlreadySetException("Transformer {w.dataTransformer} Datastore CMD is set automatically, do not set manually")
+
             # Set CMD for Refiner output store
             oStore.add(DataTransformerOutput(w.name))
             self.addStore(w.dataTransformer.outputDatastore)
@@ -1885,7 +1904,7 @@ class DataPlatformChooser(ABC):
         pass
 
     @abstractmethod
-    def choooseDataPlatform(self) -> Optional[DataPlatform]:
+    def choooseDataPlatform(self, eco : Ecosystem) -> Optional[DataPlatform]:
         raise NotImplemented()
     
     def __str__(self) -> str:
@@ -1897,7 +1916,7 @@ class FixedDataPlatform(DataPlatformChooser):
     def __init__(self, dp : DataPlatform):
         self.fixedDataPlatform : DataPlatform = dp
 
-    def choooseDataPlatform(self) -> Optional[DataPlatform]:
+    def choooseDataPlatform(self, eco : Ecosystem) -> Optional[DataPlatform]:
         return self.fixedDataPlatform
     
     def __eq__(self, __value : object) -> bool:
@@ -1912,9 +1931,20 @@ class WorkspacePlatformConfig(DataPlatformChooser):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
 
-    def choooseDataPlatform(self) -> Optional[DataPlatform]:
-        raise NotImplemented()
+    def choooseDataPlatform(self, eco : Ecosystem) -> Optional[DataPlatform]:
+        """For now, just return default"""
+        return eco.getDefaultDataPlatform()
+
+class WorkspaceFixedDataPlatform(DataPlatformChooser):
+    def __init__(self, dp : DataPlatform):
+        self.dataPlatform : DataPlatform = dp
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, WorkspaceFixedDataPlatform) and self.dataPlatform == o.dataPlatform
     
+    def choooseDataPlatform(self, eco : Ecosystem) -> Optional[DataPlatform]:
+        return self.dataPlatform
+        
 class DeprecationsAllowed(Enum):
     """This specifies if deprecations are allowed for a specific dataset in a workspace dsg"""
     NEVER = 0
@@ -2046,16 +2076,21 @@ class PythonCodeArtifact(CodeArtifact):
 
 class CodeExecutionEnvironment(ABC):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
-    pass
+    def __init__(self, loc : InfrastructureLocation):
+        self.location : InfrastructureLocation = loc
+
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, CodeExecutionEnvironment) and self.location == o.location
 
     @abstractmethod
     def lint(self, eco : 'Ecosystem', tree : ValidationTree) -> None:
-        pass
+        self.location.lint(tree)
 
 
 class KubernetesEnvironment(CodeExecutionEnvironment):
     """This is a Kubernetes environment"""
-    def __init__(self, hostName : str, cred : Credential) -> None:
+    def __init__(self, hostName : str, cred : Credential, loc : InfrastructureLocation) -> None:
+        super().__init__(loc)
         self.hostName : str = hostName
         """This is the hostname of the Kubernetes cluster"""
         self.credential : Credential = cred
@@ -2255,4 +2290,38 @@ class AssetSet(Asset):
             self.activeAssetName = assetName
         else:
             raise AssetDoesntExistException(f"Unknown asset {assetName}")
+
+class DSGRootNode:
+    def __init__(self, w : Workspace, dsg : DatasetGroup):
+        self.workspace : Workspace = w
+        self.dsg : DatasetGroup = dsg
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+    
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, DSGRootNode) and self.workspace == o.workspace and self.dsg == o.dsg
+    
+    def __str__(self) -> str:
+        return f"{self.workspace.name}/{self.dsg.name}"
+
+class DataPlatformGraph:
+    def __init__(self, eco : Ecosystem):
+        self.eco : Ecosystem = eco
+
+        # Store for each DP, the set of DSGRootNodes
+        self.roots : dict[DataPlatform, set[DSGRootNode]] = dict()
+
+        # Scan workspaces/dsg pairs, split by DataPlatform
+        for w in eco.workSpaceCache.values():
+            for dsg in w.workspace.dsgs.values():
+                if dsg.platformMD:
+                    p : Optional[DataPlatform] = dsg.platformMD.choooseDataPlatform(self.eco)
+                    if p:
+                        root : DSGRootNode = DSGRootNode(w.workspace, dsg)
+                        if self.roots.get(p) == None:
+                            self.roots[p] = set()
+                        roots : set[DSGRootNode] = self.roots[p]
+                        roots.add(root)
+
 

@@ -6,7 +6,9 @@ from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, D
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, ProductionStatus, FakeRepository
+from datasurface.md.Azure import AzureDatabaseResource
+from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -328,8 +330,12 @@ class TestWorkspace(unittest.TestCase):
     def createSimpleEcosystem(self) -> Ecosystem:
 
         # Make ecosystem and declare a single zone US
-        e : Ecosystem = Ecosystem("BigCorp", FakeRepository("a"),
-            GovernanceZoneDeclaration("US", FakeRepository("b")))
+        e : Ecosystem = Ecosystem(
+                "BigCorp", FakeRepository("a"),
+                InfrastructureVendor("Azure",
+                    PlainTextDocumentation("Azure test vendor"),
+                    InfrastructureLocation("FL")),
+                GovernanceZoneDeclaration("US", FakeRepository("b")))
 
         # Define US zone and declare a single team Test        
         gzUSA : GovernanceZone = e.getZoneOrThrow("US")
@@ -339,7 +345,9 @@ class TestWorkspace(unittest.TestCase):
         t : Team = gzUSA.getTeamOrThrow("Test")
         t.add(        
             Datastore("Store1", 
-                CDCCaptureIngestion(),
+                CDCCaptureIngestion(
+                    AzureDatabaseResource("Test", "mysqlserver.database.windows.net", e.getLocationOrThrow("Azure", ["FL"]))
+                ),
                 Dataset("Dataset1",
                     DDLTable(
                         DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
