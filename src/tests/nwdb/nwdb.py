@@ -13,6 +13,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                     driver="{ODBC Driver 17 for SQL Server}",
                     connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
                 ),
+                CronTrigger("NW_Data Every 5 mins", "*/5 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
             ),

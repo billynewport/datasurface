@@ -802,11 +802,29 @@ class IngestionConsistencyType(Enum):
     SINGLE_DATASET = 0
     MULTI_DATASET = 1
 
+class CaptureTrigger:
+    """Ingestion is driven in pulses triggered by these."""
+    def __init__(self, name : str):
+        self.name : str = name
+
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, CaptureTrigger) and self.name == o.name
+
+class CronTrigger(CaptureTrigger):
+    """This allows the ingestion pules to be specified using a cron string"""
+    def __init__(self, name : str, cron : str):
+        super().__init__(name)
+        self.cron : str = cron
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, CronTrigger) and self.cron == o.cron
+
 class CaptureMetaData(ABC):
     """This describes how a platform can pull data for a Datastore"""
 
-    def __init__(self):
+    def __init__(self, captureTrigger : Optional[CaptureTrigger] = None):
         self.singleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
+        self.captureTrigger : Optional[CaptureTrigger] = None
 
 
     @abstractmethod
@@ -847,19 +865,23 @@ class IngestionMetadata(CaptureMetaData):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
         super().__init__()
         self.credential : Optional[Credential] = None
         self.captureSource : CaptureSourceInfo = captureSourceInfo
         self.add(*args)
 
-    def add(self, *args : Union[Credential, IngestionConsistencyType]) -> None:
+    def add(self, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
         for arg in args:
             if(isinstance(arg, Credential)):
                 c : Credential = arg
                 if(self.credential != None):
                     raise AttributeAlreadySetException("Credential already set")
                 self.credential = c
+            elif(isinstance(arg, CaptureTrigger)):
+                if(self.captureTrigger != None):
+                    raise AttributeAlreadySetException("CaptureTrigger already set")
+                self.captureTrigger = arg
             elif(type(arg) == IngestionConsistencyType):
                 if(self.singleOrMultiDatasetIngestion != None):
                     raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
@@ -883,7 +905,7 @@ class IngestionMetadata(CaptureMetaData):
 
 class CDCCaptureIngestion(IngestionMetadata):
     """This indicates CDC can be used to capture deltas from the source"""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
         super().__init__(captureSourceInfo, *args)
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
@@ -900,7 +922,7 @@ class SQLPullIngestion(IngestionMetadata):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
         super().__init__(captureSourceInfo, *args)
         self.variableNames : list[str] = []
         """The names of state variables produced by snapshot and delta sql strings"""
@@ -1943,9 +1965,11 @@ class WorkspacePlatformConfig(DataPlatformChooser):
 
     def choooseDataPlatform(self, eco : Ecosystem) -> Optional[DataPlatform]:
         """For now, just return default"""
+        # TODO This should evaluate the parameters provide and choose the 'best' DataPlatform
         return eco.getDefaultDataPlatform()
 
 class WorkspaceFixedDataPlatform(DataPlatformChooser):
+    """This specifies a fixed DataPlatform for a Workspace"""
     def __init__(self, dp : DataPlatform):
         self.dataPlatform : DataPlatform = dp
 
@@ -2358,16 +2382,17 @@ class ExportNode(PipelineNode):
             self.storeName == o.storeName and self.datasetName == o.datasetName
 
 class IngestionNode(PipelineNode):
-    def __init__(self, name : str, platform : DataPlatform, storeName : str):
+    def __init__(self, name : str, platform : DataPlatform, storeName : str, captureTrigger : Optional[CaptureTrigger]):
         super().__init__(name, platform)
         self.storeName : str = storeName
+        self.captureTrigger : Optional[CaptureTrigger] = captureTrigger
 
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName
+        return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName and self.captureTrigger == o.captureTrigger
 
 class IngestionMultiNode(IngestionNode):
-    def __init__(self, platform : DataPlatform, storeName : str):
-        super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName)
+    def __init__(self, platform : DataPlatform, storeName : str, captureTrigger : Optional[CaptureTrigger]):
+        super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName, captureTrigger)
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -2376,8 +2401,8 @@ class IngestionMultiNode(IngestionNode):
         return super().__eq__(o) and isinstance(o, IngestionMultiNode)
 
 class IngestionSingleNode(IngestionNode):
-    def __init__(self, platform : DataPlatform, storeName : str, dataset : str):
-        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName)
+    def __init__(self, platform : DataPlatform, storeName : str, dataset : str, captureTrigger : Optional[CaptureTrigger]):
+        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName, captureTrigger)
         self.dataset : str = dataset
 
     def __hash__(self) -> int:
@@ -2493,9 +2518,9 @@ class PlatformPipelineGraph:
         if store.cmd:
             if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
                 for datasetName in store.datasets.keys():
-                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName))
+                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName, store.cmd.captureTrigger))
             else: # MULTI_DATASET
-                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName))
+                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName, store.cmd.captureTrigger))
         else:
             raise Exception("Store {storeName} cmd is None")
     
@@ -2509,9 +2534,9 @@ class PlatformPipelineGraph:
             ingestionStep : Optional[PipelineNode] = None
             # Create a step for a single or multi dataset ingestion
             if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
-                ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName)
+                ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.captureTrigger)
             else: # MULTI_DATASET
-                ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName)
+                ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.captureTrigger)
             ingestionStep = self.findExistingOrCreateStep(ingestionStep)
 
             ingestionStep.addRightHandNode(exportStep)
@@ -2524,7 +2549,7 @@ class PlatformPipelineGraph:
                     dtStep : DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
                     triggerStep : TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
                     # Add ingestion for transfomer
-                    dtIngestStep : PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName))
+                    dtIngestStep : PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None))
                     dtStep.addRightHandNode(dtIngestStep)
                     # Ingesting Transformer causes Export
                     dtIngestStep.addRightHandNode(exportStep)
