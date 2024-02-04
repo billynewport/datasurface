@@ -21,9 +21,15 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         self.assertEqual(len(pi.assetExports), 1)
 
+        # Left hand side of pipeline graph should just be ingestions
         ingestionRoots : set[PipelineStep] = pi.getIngestionRoots()
         for ir in ingestionRoots:
             self.assertTrue(str(ir).startswith("Ingest"))
+
+        # Right hand side of pipeline graph should be exports to assets
+        rightHandLeafs : set[PipelineStep] = pi.getFinalSteps()
+        for rh in rightHandLeafs:
+            self.assertTrue(str(rh).startswith("Export"))
             
 
 

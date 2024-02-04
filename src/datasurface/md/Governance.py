@@ -2523,13 +2523,20 @@ class PlatformInformation:
                                 dsrExportStep.triggersStep(triggerStep)
 
     def getIngestionRoots(self) -> set[PipelineStep]:
-        """This returns ingestions which don't depend on anything else"""
+        """This returns ingestions which don't depend on anything else, the left end of a pipeline"""
         rc : set[PipelineStep] = set()
         for step in self.steps.values():
             if len(step.dependsOnPriorSteps) == 0:
                 rc.add(step)
         return rc
 
+    def getFinalSteps(self) -> set[PipelineStep]:
+        """This returns steps which does have other steps depending on them, the right end of a pipeline"""
+        rc : set[PipelineStep] = set()
+        for step in self.steps.values():
+            if len(step.triggersNextSteps) == 0:
+                rc.add(step)
+        return rc
 
 
                 
