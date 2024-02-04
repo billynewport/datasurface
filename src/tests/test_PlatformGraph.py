@@ -1,12 +1,12 @@
 import unittest
-from datasurface.md.Governance import DataPlatform, DataPlatformGraph, DataTransformerStep, Ecosystem, ExportStep, IngestionStep, PipelineStep, PlatformInformation, TriggerStep
+from datasurface.md.Governance import DataPlatform, DataPlatformGraph, DataTransformerStep, Ecosystem, ExportStep, IngestionStep, PipelineStep, PlatformPipelineGraph, TriggerStep
 
 from tests.nwdb.eco import createEcosystem
 
 
 class Test_PlatformGraphs(unittest.TestCase):
 
-    def test_CreateGraph(self):
+    def test_PipelineGraph(self):
         eco : Ecosystem = createEcosystem()
 
         azurePlatform : DataPlatform = eco.getDataPlatformOrThrow("Azure Platform")
@@ -16,7 +16,7 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         self.assertIsNotNone(graph.roots.get(azurePlatform))
 
-        pi : PlatformInformation = graph.roots[azurePlatform]
+        pi : PlatformPipelineGraph = graph.roots[azurePlatform]
         self.assertEqual(len(pi.workspaces), 3)
 
         self.assertEqual(len(pi.assetExports), 1)

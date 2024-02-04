@@ -2411,7 +2411,7 @@ class DSGRootNode:
     def __str__(self) -> str:
         return f"{self.workspace.name}/{self.dsg.name}"
 
-class PlatformInformation:
+class PlatformPipelineGraph:
     """This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include
     provisioning Workspace views, provisioning asset tables. Exporting data to asset tables. Ingesting data from datastores,
     executing data transformers"""
@@ -2559,7 +2559,7 @@ class DataPlatformGraph:
         self.eco : Ecosystem = eco
 
         # Store for each DP, the set of DSGRootNodes
-        self.roots : dict[DataPlatform, PlatformInformation] = dict()
+        self.roots : dict[DataPlatform, PlatformPipelineGraph] = dict()
 
         # Scan workspaces/dsg pairs, split by DataPlatform
         for w in eco.workSpaceCache.values():
@@ -2569,7 +2569,7 @@ class DataPlatformGraph:
                     if p:
                         root : DSGRootNode = DSGRootNode(w.workspace, dsg)
                         if self.roots.get(p) == None:
-                            self.roots[p] = PlatformInformation(eco, p)
+                            self.roots[p] = PlatformPipelineGraph(eco, p)
                         self.roots[p].roots.add(root)
                         # Collect Workspaces using the platform
                         if(self.roots[p].workspaces.get(w.workspace.name) == None):
