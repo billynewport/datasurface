@@ -6,9 +6,9 @@ from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, D
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.md.Azure import AzureDatabaseResource
+from datasurface.md.Azure import AzureDatabaseResource, AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus, FakeRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -332,6 +332,9 @@ class TestWorkspace(unittest.TestCase):
         # Make ecosystem and declare a single zone US
         e : Ecosystem = Ecosystem(
                 "BigCorp", FakeRepository("a"),
+                DefaultDataPlatform(
+                    AzureDataplatform("Azure", AzureKeyVaultCredential("keyvault", "aa"))
+                    ),
                 InfrastructureVendor("Azure",
                     PlainTextDocumentation("Azure test vendor"),
                     InfrastructureLocation("FL")),

@@ -2051,6 +2051,13 @@ class DatasetGroup(ANSI_SQL_NamedObject):
         for sink in self.sinks.values():
             sinkTree : ValidationTree = tree.createChild(sink)
             sink.lint(eco, ws, sinkTree)
+        if(self.platformMD):
+            platform : Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
+            if(platform == None):
+                tree.addProblem("DSG doesnt choose a dataplatform")
+        else:
+            tree.addProblem("DSG has no data platform chooser")
+
 
     def __str__(self) -> str:
         return f"DatasetGroup({self.name})"
@@ -2557,7 +2564,8 @@ class PlatformPipelineGraph:
                         return False
         return True
 
-class DataPlatformGraph:
+class EcosystemPipelineGraph:
+    """This is the total graph for an Ecosystem. It's a list of graphs keyed by DataPlatforms in use. One graph per DataPlatform"""
     def __init__(self, eco : Ecosystem):
         self.eco : Ecosystem = eco
 
