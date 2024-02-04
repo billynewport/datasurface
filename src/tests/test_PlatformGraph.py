@@ -1,5 +1,5 @@
 import unittest
-from datasurface.md.Governance import DataPlatform, DataPlatformGraph, DataTransformerStep, Ecosystem, ExportStep, IngestionStep, PipelineStep, PlatformPipelineGraph, TriggerStep
+from datasurface.md.Governance import DataPlatform, DataPlatformGraph, DataTransformerNode, Ecosystem, ExportNode, IngestionNode, PipelineNode, PlatformPipelineGraph, TriggerNode
 
 from tests.nwdb.eco import createEcosystem
 
@@ -22,23 +22,23 @@ class Test_PlatformGraphs(unittest.TestCase):
         self.assertEqual(len(pi.assetExports), 1)
 
         # Left hand side of pipeline graph should just be ingestions
-        ingestionRoots : set[PipelineStep] = pi.getLeftSideOfGraph()
+        ingestionRoots : set[PipelineNode] = pi.getLeftSideOfGraph()
         for ir in ingestionRoots:
             self.assertTrue(str(ir).startswith("Ingest"))
 
         # Right hand side of pipeline graph should be exports to assets
-        rightHandLeafs : set[PipelineStep] = pi.getRightSideOfGraph()
+        rightHandLeafs : set[PipelineNode] = pi.getRightSideOfGraph()
         for rh in rightHandLeafs:
             self.assertTrue(str(rh).startswith("Export"))
 
         # Check every ingest is followed by an export
-        self.assertTrue(pi.checkNextStepsForStepType(IngestionStep, ExportStep))
+        self.assertTrue(pi.checkNextStepsForStepType(IngestionNode, ExportNode))
         # Check exports are only followed by a trigger
-        self.assertTrue(pi.checkNextStepsForStepType(ExportStep, TriggerStep))
+        self.assertTrue(pi.checkNextStepsForStepType(ExportNode, TriggerNode))
         # Check triggers are only followed by a datatransformer
-        self.assertTrue(pi.checkNextStepsForStepType(TriggerStep, DataTransformerStep))
+        self.assertTrue(pi.checkNextStepsForStepType(TriggerNode, DataTransformerNode))
         # Check DataTransformers are followed by ingestion
-        self.assertTrue(pi.checkNextStepsForStepType(DataTransformerStep, IngestionStep))
+        self.assertTrue(pi.checkNextStepsForStepType(DataTransformerNode, IngestionNode))
             
 
 

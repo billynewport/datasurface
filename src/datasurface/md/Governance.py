@@ -2314,25 +2314,29 @@ class AssetSet(Asset):
         else:
             raise AssetDoesntExistException(f"Unknown asset {assetName}")
 
-class PipelineStep:
+class PipelineNode:
+    """This is a named node in the pipeline graph. It stores node common information and which nodes this node depends on and those that depend on this node"""
     def __init__(self, name : str, platform : DataPlatform):
         self.name : str = name
         self.platform : DataPlatform = platform
-        self.dependsOnPriorSteps : dict[str, PipelineStep] = dict()
-        self.triggersNextSteps : dict[str, PipelineStep] = dict()
+        # This node depends on this set of nodes
+        self.leftHandNodes : dict[str, PipelineNode] = dict()
+        # This set of nodes depend on this node
+        self.rightHandNodes : dict[str, PipelineNode] = dict()
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}/{self.name}"
     
     def __eq__(self, o : object) -> bool:
-        return isinstance(o, PipelineStep) and self.name == o.name and self.dependsOnPriorSteps == o.dependsOnPriorSteps and self.triggersNextSteps == o.triggersNextSteps
+        return isinstance(o, PipelineNode) and self.name == o.name and self.leftHandNodes == o.leftHandNodes and self.rightHandNodes == o.rightHandNodes
     
-    def triggersStep(self, nextStep : 'PipelineStep'):
-        self.triggersNextSteps[str(nextStep)] = nextStep
-        nextStep.dependsOnPriorSteps[str(self)] = self
+    def addRightHandNode(self, rhNode : 'PipelineNode'):
+        """This records a node that depends on this node"""
+        self.rightHandNodes[str(rhNode)] = rhNode
+        rhNode.leftHandNodes[str(self)] = self
     
 
-class ExportStep(PipelineStep):
+class ExportNode(PipelineNode):
     def __init__(self, platform : DataPlatform, asset : Asset, storeName : str, datasetName : str):
         super().__init__(f"Export/{platform.name}/{asset.name}/{storeName}/{datasetName}", platform)
         self.asset : Asset = asset
@@ -2343,18 +2347,18 @@ class ExportStep(PipelineStep):
         return hash(self.name)
     
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, ExportStep) and self.asset == o.asset and \
+        return super().__eq__(o) and isinstance(o, ExportNode) and self.asset == o.asset and \
             self.storeName == o.storeName and self.datasetName == o.datasetName
 
-class IngestionStep(PipelineStep):
+class IngestionNode(PipelineNode):
     def __init__(self, name : str, platform : DataPlatform, storeName : str):
         super().__init__(name, platform)
         self.storeName : str = storeName
 
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, IngestionStep) and self.storeName == o.storeName
+        return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName
 
-class IngestionMultiStep(IngestionStep):
+class IngestionMultiNode(IngestionNode):
     def __init__(self, platform : DataPlatform, storeName : str):
         super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName)
 
@@ -2362,9 +2366,9 @@ class IngestionMultiStep(IngestionStep):
         return hash(self.name)
     
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, IngestionMultiStep)
+        return super().__eq__(o) and isinstance(o, IngestionMultiNode)
 
-class IngestionSingleStep(IngestionStep):
+class IngestionSingleNode(IngestionNode):
     def __init__(self, platform : DataPlatform, storeName : str, dataset : str):
         super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName)
         self.dataset : str = dataset
@@ -2373,9 +2377,9 @@ class IngestionSingleStep(IngestionStep):
         return hash(self.name)
     
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, IngestionSingleStep) and self.dataset == o.dataset
+        return super().__eq__(o) and isinstance(o, IngestionSingleNode) and self.dataset == o.dataset
 
-class TriggerStep(PipelineStep):
+class TriggerNode(PipelineNode):
     def __init__(self, w : Workspace, platform : DataPlatform):
         super().__init__(f"Trigger{w.name}", platform)
         self.workspace : Workspace = w
@@ -2384,9 +2388,9 @@ class TriggerStep(PipelineStep):
         return hash(self.name)
     
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, TriggerStep) and self.workspace == o.workspace
+        return super().__eq__(o) and isinstance(o, TriggerNode) and self.workspace == o.workspace
 
-class DataTransformerStep(PipelineStep):
+class DataTransformerNode(PipelineNode):
     def __init__(self, ws : Workspace, platform : DataPlatform):
         super().__init__(f"DataTransfomer/{ws.name}", platform)
         self.workspace : Workspace = ws
@@ -2395,7 +2399,7 @@ class DataTransformerStep(PipelineStep):
         return hash(self.name)
     
     def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, DataTransformerStep) and self.workspace == o.workspace
+        return super().__eq__(o) and isinstance(o, DataTransformerNode) and self.workspace == o.workspace
 
 class DSGRootNode:
     def __init__(self, w : Workspace, dsg : DatasetGroup):
@@ -2424,11 +2428,17 @@ class PlatformPipelineGraph:
         # All Datasets to be exported per asset per platform
         # Views need to be aliased on top providing the Workspace/DSG named object for consumers to query
         self.assetExports : dict[Asset, set[DatasetSink]] = dict()
+
+        # These are all the datastores used in the pipelinegraph for this platform. Note, this may be
+        # a subset of the datastores in total in the ecosystem
         self.storesToIngest : set[str] = set()
 
-        self.steps : dict[str, PipelineStep] = dict()
+        # This is the set of ALL nodes in this platforms pipeline graph
+        self.nodes : dict[str, PipelineNode] = dict()
 
-    def explode(self):
+    def generateGraph(self):
+        """This generates the pipeline graph for the platform. This is a directed graph with nodes representing
+        ingestion, export, trigger, and data transformation operations"""
         self.assetExports = dict()
 
         # Split DSGs by Asset hosting Workspaces
@@ -2454,18 +2464,18 @@ class PlatformPipelineGraph:
         for asset in self.assetExports.keys():
             exports = self.assetExports[asset]
             for export in exports:
-                exportStep : PipelineStep = ExportStep(self.platform, asset, export.storeName, export.datasetName)
+                exportStep : PipelineNode = ExportNode(self.platform, asset, export.storeName, export.datasetName)
                 # If export doesn't already exist then create and add to ingestion job
-                if(self.steps.get(str(exportStep)) == None):
-                    self.steps[str(exportStep)] = exportStep
+                if(self.nodes.get(str(exportStep)) == None):
+                    self.nodes[str(exportStep)] = exportStep
                     self.addExportToPriorIngestion(exportStep)
 
-    def findExistingOrCreateStep(self, step : PipelineStep) -> PipelineStep:
+    def findExistingOrCreateStep(self, step : PipelineNode) -> PipelineNode:
         """This finds an existing step or adds it to the set of steps in the graph"""
-        if self.steps.get(str(step)) == None:
-            self.steps[str(step)] = step
+        if self.nodes.get(str(step)) == None:
+            self.nodes[str(step)] = step
         else:
-            step = self.steps[str(step)]
+            step = self.nodes[str(step)]
         return step
     
     def createIngestionStep(self, storeName : str):
@@ -2476,83 +2486,76 @@ class PlatformPipelineGraph:
         if store.cmd:
             if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
                 for datasetName in store.datasets.keys():
-                    self.findExistingOrCreateStep(IngestionSingleStep(self.platform, storeName, datasetName))
+                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName))
             else: # MULTI_DATASET
-                self.findExistingOrCreateStep(IngestionMultiStep(self.platform, storeName))
+                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName))
         else:
             raise Exception("Store {storeName} cmd is None")
     
-    def addExportToPriorIngestion(self, exportStep : ExportStep):
+    def addExportToPriorIngestion(self, exportStep : ExportNode):
         """This makes sure the ingestion steps for a the datasets in an export step exist"""
-        assert(self.steps.get(str(exportStep)) != None)
+        assert(self.nodes.get(str(exportStep)) != None)
         """Work backwards from export step. The normal chain is INGEST -> EXPORT. In the case of exporting a store from
         a transformer then it is INGEST -> EXPORT -> TRIGGER -> TRANSFORM -> INGEST -> EXPORT"""
         store : Datastore = self.eco.cache_getDatastoreOrThrow(exportStep.storeName).datastore
         if(store.cmd):
-            ingestionStep : Optional[PipelineStep] = None
+            ingestionStep : Optional[PipelineNode] = None
             # Create a step for a single or multi dataset ingestion
             if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
-                ingestionStep = IngestionSingleStep(exportStep.platform, exportStep.storeName, exportStep.datasetName)
+                ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName)
             else: # MULTI_DATASET
-                ingestionStep = IngestionMultiStep(exportStep.platform, exportStep.storeName)
+                ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName)
             ingestionStep = self.findExistingOrCreateStep(ingestionStep)
 
-            ingestionStep.triggersStep(exportStep)
+            ingestionStep.addRightHandNode(exportStep)
             # If this store is a transformer then we need to create the transformer job
             if isinstance(store.cmd, DataTransformerOutput):
                 dt : DataTransformerOutput = store.cmd
                 w : Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
                 if w.asset:
                     # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
-                    dtStep : DataTransformerStep = cast(DataTransformerStep, self.findExistingOrCreateStep(DataTransformerStep(w, self.platform)))
-                    triggerStep : TriggerStep = cast(TriggerStep, self.findExistingOrCreateStep(TriggerStep(w, self.platform)))
+                    dtStep : DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
+                    triggerStep : TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
                     # Add ingestion for transfomer
-                    dtIngestStep : PipelineStep = self.findExistingOrCreateStep(IngestionMultiStep(self.platform, exportStep.storeName))
-                    dtStep.triggersStep(dtIngestStep)
+                    dtIngestStep : PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName))
+                    dtStep.addRightHandNode(dtIngestStep)
                     # Ingesting Transformer causes Export
-                    dtIngestStep.triggersStep(exportStep)
+                    dtIngestStep.addRightHandNode(exportStep)
                     # Trigger calls Transformer Step
-                    triggerStep.triggersStep(dtStep)
+                    triggerStep.addRightHandNode(dtStep)
                     # Add Exports to call trigger
                     for dsgR in self.roots:
                         if dsgR.workspace == w:
                             for sink in dsgR.dsg.sinks.values():
-                                dsrExportStep : ExportStep = cast(ExportStep, self.findExistingOrCreateStep(ExportStep(self.platform, w.asset, sink.storeName, sink.datasetName)))
+                                dsrExportStep : ExportNode = cast(ExportNode, self.findExistingOrCreateStep(ExportNode(self.platform, w.asset, sink.storeName, sink.datasetName)))
                                 self.addExportToPriorIngestion(dsrExportStep)
                                 # Add Trigger for DT after export
-                                dsrExportStep.triggersStep(triggerStep)
+                                dsrExportStep.addRightHandNode(triggerStep)
 
-    def getLeftSideOfGraph(self) -> set[PipelineStep]:
+    def getLeftSideOfGraph(self) -> set[PipelineNode]:
         """This returns ingestions which don't depend on anything else, the left end of a pipeline"""
-        rc : set[PipelineStep] = set()
-        for step in self.steps.values():
-            if len(step.dependsOnPriorSteps) == 0:
+        rc : set[PipelineNode] = set()
+        for step in self.nodes.values():
+            if len(step.leftHandNodes) == 0:
                 rc.add(step)
         return rc
 
-    def getRightSideOfGraph(self) -> set[PipelineStep]:
+    def getRightSideOfGraph(self) -> set[PipelineNode]:
         """This returns steps which does have other steps depending on them, the right end of a pipeline"""
-        rc : set[PipelineStep] = set()
-        for step in self.steps.values():
-            if len(step.triggersNextSteps) == 0:
+        rc : set[PipelineNode] = set()
+        for step in self.nodes.values():
+            if len(step.rightHandNodes) == 0:
                 rc.add(step)
         return rc
     
-    def checkNextStepsForStepType(self, filterStep : Type[PipelineStep], targetStep : Type[PipelineStep]) -> bool:
+    def checkNextStepsForStepType(self, filterStep : Type[PipelineNode], targetStep : Type[PipelineNode]) -> bool:
         """This finds steps of a certain type and then checks that ALL follow on steps from it are a certain type"""
-        for s in self.steps:
+        for s in self.nodes:
             if isinstance(s, filterStep):
-                for nextS in s.triggersNextSteps:
+                for nextS in s.rightHandNodes:
                     if not isinstance(nextS, targetStep):
                         return False
         return True
-
-
-
-                
-
-
-
 
 class DataPlatformGraph:
     def __init__(self, eco : Ecosystem):
@@ -2579,4 +2582,4 @@ class DataPlatformGraph:
         # For each platform what DSGs need to be exported to a given Asset
         for platform in self.roots.keys():
             pinfo = self.roots[platform]
-            pinfo.explode()
+            pinfo.generateGraph()
