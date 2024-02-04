@@ -8,7 +8,7 @@ from datetime import timedelta
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDatabaseResource
 from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, ProductionStatus, FakeRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus, FakeRepository
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
@@ -346,7 +346,8 @@ class TestWorkspace(unittest.TestCase):
         t.add(        
             Datastore("Store1", 
                 CDCCaptureIngestion(
-                    AzureDatabaseResource("Test", "mysqlserver.database.windows.net", e.getLocationOrThrow("Azure", ["FL"]))
+                    AzureDatabaseResource("Test", "mysqlserver.database.windows.net", e.getLocationOrThrow("Azure", ["FL"])),
+                    IngestionConsistencyType.MULTI_DATASET
                 ),
                 Dataset("Dataset1",
                     DDLTable(

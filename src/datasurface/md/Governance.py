@@ -799,15 +799,20 @@ class CaptureType(Enum):
 class IngestionConsistencyType(Enum):
     """This determines whether data is ingested in consistent groups across multiple datasets or
     whether each dataset is ingested independently"""
-    SINGLE = 0
-    MULTI = 1
+    SINGLE_DATASET = 0
+    MULTI_DATASET = 1
 
 class CaptureMetaData(ABC):
     """This describes how a platform can pull data for a Datastore"""
 
+    def __init__(self):
+        self.singleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
+
+
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
-        pass
+        if(self.singleOrMultiDatasetIngestion == None):
+            tree.addProblem("Single Or Multi ingestion not specified")
 
     def __eq__(self, o : object) -> bool:
         return isinstance(o, CaptureMetaData)
@@ -815,9 +820,12 @@ class CaptureMetaData(ABC):
 class DataTransformerOutput(CaptureMetaData):
     """Specifies this datastore is ingested whenever a Datatransformer executes"""
     def __init__(self, workSpaceName : str) -> None:
+        super().__init__()
         self.workSpaceName = workSpaceName
+        self.singleOrMultiDatasetIngestion = IngestionConsistencyType.MULTI_DATASET
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
+        super().lint(eco, gz, t, d, tree)
         w : Optional[Workspace] = t.workspaces.get(self.workSpaceName)
 
         if(w == None):
@@ -840,8 +848,8 @@ class IngestionMetadata(CaptureMetaData):
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
     def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, IngestionConsistencyType]) -> None:
+        super().__init__()
         self.credential : Optional[Credential] = None
-        self.SingleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
         self.captureSource : CaptureSourceInfo = captureSourceInfo
         self.add(*args)
 
@@ -853,14 +861,14 @@ class IngestionMetadata(CaptureMetaData):
                     raise AttributeAlreadySetException("Credential already set")
                 self.credential = c
             elif(type(arg) == IngestionConsistencyType):
-                if(self.SingleOrMultiDatasetIngestion != None):
+                if(self.singleOrMultiDatasetIngestion != None):
                     raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
                 sm : IngestionConsistencyType = arg
-                self.SingleOrMultiDatasetIngestion = sm
+                self.singleOrMultiDatasetIngestion = sm
             
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, IngestionMetadata):
-            return self.credential == __value.credential and self.SingleOrMultiDatasetIngestion == __value.SingleOrMultiDatasetIngestion and \
+            return self.credential == __value.credential and self.singleOrMultiDatasetIngestion == __value.singleOrMultiDatasetIngestion and \
                 self.captureSource == __value.captureSource
         return False
     
@@ -870,6 +878,8 @@ class IngestionMetadata(CaptureMetaData):
         if(self.captureSource):
             capTree : ValidationTree = tree.createChild(self.captureSource)
             self.captureSource.lint(eco, gz, t, capTree)
+        super().lint(eco, gz, t, d, tree)
+
 
 class CDCCaptureIngestion(IngestionMetadata):
     """This indicates CDC can be used to capture deltas from the source"""
@@ -2304,47 +2314,88 @@ class AssetSet(Asset):
         else:
             raise AssetDoesntExistException(f"Unknown asset {assetName}")
 
-class RenderJob:
-    def __init__(self, name : str):
+class PipelineStep:
+    def __init__(self, name : str, platform : DataPlatform):
         self.name : str = name
-        self.dependsOn : dict[str, RenderJob] = dict()
-        self.triggersJobs : dict[str, RenderJob] = dict()
+        self.platform : DataPlatform = platform
+        self.dependsOnPriorSteps : dict[str, PipelineStep] = dict()
+        self.triggersNextSteps : dict[str, PipelineStep] = dict()
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}/{self.name}"
     
     def __eq__(self, o : object) -> bool:
-        return isinstance(o, RenderJob) and self.name == o.name and self.dependsOn == o.dependsOn and self.triggersJobs == o.triggersJobs
+        return isinstance(o, PipelineStep) and self.name == o.name and self.dependsOnPriorSteps == o.dependsOnPriorSteps and self.triggersNextSteps == o.triggersNextSteps
+    
+    def triggersStep(self, nextStep : 'PipelineStep'):
+        self.triggersNextSteps[str(nextStep)] = nextStep
+        nextStep.dependsOnPriorSteps[str(self)] = self
     
 
-class RenderExportJob(RenderJob):
+class ExportStep(PipelineStep):
     def __init__(self, platform : DataPlatform, asset : Asset, storeName : str, datasetName : str):
-        super().__init__(f"Export/{platform.name}/{asset.name}/{storeName}/{datasetName}")
-        self.platform : DataPlatform = platform
+        super().__init__(f"Export/{platform.name}/{asset.name}/{storeName}/{datasetName}", platform)
         self.asset : Asset = asset
         self.storeName : str = storeName
         self.datasetName : str = datasetName
 
-class RenderIngestionMultiJob(RenderJob):
-    def __init__(self, platform : DataPlatform, storeName : str):
-        super().__init__(f"Ingest/{platform.name}/{storeName}")
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, ExportStep) and self.asset == o.asset and \
+            self.storeName == o.storeName and self.datasetName == o.datasetName
+
+class IngestionStep(PipelineStep):
+    def __init__(self, name : str, platform : DataPlatform, storeName : str):
+        super().__init__(name, platform)
         self.storeName : str = storeName
 
-class RenderIngestionSingleJob(RenderJob):
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, IngestionStep) and self.storeName == o.storeName
+
+class IngestionMultiStep(IngestionStep):
+    def __init__(self, platform : DataPlatform, storeName : str):
+        super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName)
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, IngestionMultiStep)
+
+class IngestionSingleStep(IngestionStep):
     def __init__(self, platform : DataPlatform, storeName : str, dataset : str):
-        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}")
-        self.platform : DataPlatform = platform
-        self.storeName : str = storeName
+        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName)
         self.dataset : str = dataset
 
-class RenderTriggerJob(RenderJob):
-    def __init__(self, name : str):
-        super().__init__(name)
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, IngestionSingleStep) and self.dataset == o.dataset
 
-class RenderTransformerJob(RenderJob):
-    def __init__(self, ws : Workspace):
-        super().__init__(f"DataTransfomer/{ws.name}")
+class TriggerStep(PipelineStep):
+    def __init__(self, w : Workspace, platform : DataPlatform):
+        super().__init__(f"Trigger{w.name}", platform)
+        self.workspace : Workspace = w
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, TriggerStep) and self.workspace == o.workspace
+
+class DataTransformerStep(PipelineStep):
+    def __init__(self, ws : Workspace, platform : DataPlatform):
+        super().__init__(f"DataTransfomer/{ws.name}", platform)
         self.workspace : Workspace = ws
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, DataTransformerStep) and self.workspace == o.workspace
 
 class DSGRootNode:
     def __init__(self, w : Workspace, dsg : DatasetGroup):
@@ -2364,17 +2415,18 @@ class PlatformInformation:
     """This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include
     provisioning Workspace views, provisioning asset tables. Exporting data to asset tables. Ingesting data from datastores,
     executing data transformers"""
-    def __init__(self, platform : DataPlatform):
+    def __init__(self, eco : Ecosystem, platform : DataPlatform):
         self.platform : DataPlatform = platform
+        self.eco : Ecosystem = eco
         self.workspaces : dict[str, Workspace] = dict()
-       # All DSGs per Platform
+        # All DSGs per Platform
         self.roots : set[DSGRootNode] = set()
         # All Datasets to be exported per asset per platform
         # Views need to be aliased on top providing the Workspace/DSG named object for consumers to query
         self.assetExports : dict[Asset, set[DatasetSink]] = dict()
         self.storesToIngest : set[str] = set()
 
-        self.jobs : dict[str, RenderJob] = dict()
+        self.steps : dict[str, PipelineStep] = dict()
 
     def explode(self):
         self.assetExports = dict()
@@ -2388,26 +2440,102 @@ class PlatformInformation:
                 sinks : set[DatasetSink] = self.assetExports[asset]
                 for sink in dsg.dsg.sinks.values():
                     sinks.add(sink)
-                    exportJob : RenderJob = RenderExportJob(self.platform, asset, sink.storeName, sink.datasetName)
-                    if(self.jobs.get(str(exportJob))):
-                        self.jobs[str(exportJob)] = exportJob
-                        # If workspace has DataTransformer, connect trigger to export
-                        # Create Ingestion job, connect to export
-
-
         # Now collect stores to ingest per platform
         self.storesToIngest = set()
         for sinkset in self.assetExports.values():
             for sink in sinkset:
                 self.storesToIngest.add(sink.storeName)
 
-    def renderJobGraph(self) -> dict[str, RenderJob]:
-        jobs : dict[str, RenderJob] = dict()
+        # Make ingestion steps for every store used by platform
+        for store in self.storesToIngest:
+            self.createIngestionStep(store)
 
+        # Now build pipeline graph backwards from workspaces used by platform and stores used by platform
+        for asset in self.assetExports.keys():
+            exports = self.assetExports[asset]
+            for export in exports:
+                exportStep : PipelineStep = ExportStep(self.platform, asset, export.storeName, export.datasetName)
+                # If export doesn't already exist then create and add to ingestion job
+                if(self.steps.get(str(exportStep)) == None):
+                    self.steps[str(exportStep)] = exportStep
+                    self.addExportToPriorIngestion(exportStep)
 
+    def renderJobGraph(self) -> dict[str, PipelineStep]:
+        steps : dict[str, PipelineStep] = dict()
 
-        return jobs
+        return steps
+
+    def findExistingOrCreateStep(self, step : PipelineStep) -> PipelineStep:
+        if self.steps.get(str(step)) == None:
+            self.steps[str(step)] = step
+        else:
+            step = self.steps[str(step)]
+        return step
     
+    def createIngestionStep(self, storeName : str):
+        store : Datastore = self.eco.cache_getDatastoreOrThrow(storeName).datastore
+
+        if store.cmd:
+            if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
+                for datasetName in store.datasets.keys():
+                    self.findExistingOrCreateStep(IngestionSingleStep(self.platform, storeName, datasetName))
+            else: # MULTI_DATASET
+                self.findExistingOrCreateStep(IngestionMultiStep(self.platform, storeName))
+        else:
+            raise Exception("Store {storeName} cmd is None")
+    
+    def addExportToPriorIngestion(self, exportStep : ExportStep):
+        """Work backwards from export step. The normal chain is INGEST -> EXPORT. In the case of exporting a store from
+        a transformer then it is INGEST -> EXPORT -> TRIGGER -> TRANSFORM -> INGEST -> EXPORT"""
+        store : Datastore = self.eco.cache_getDatastoreOrThrow(exportStep.storeName).datastore
+        if(store.cmd):
+            ingestionStep : Optional[PipelineStep] = None
+            # Create a step for a single or multi dataset ingestion
+            if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
+                ingestionStep = IngestionSingleStep(exportStep.platform, exportStep.storeName, exportStep.datasetName)
+            else: # MULTI_DATASET
+                ingestionStep = IngestionMultiStep(exportStep.platform, exportStep.storeName)
+            ingestionStep = self.findExistingOrCreateStep(ingestionStep)
+
+            ingestionStep.triggersStep(exportStep)
+            # If this store is a transformer then we need to create the transformer job
+            if isinstance(store.cmd, DataTransformerOutput):
+                dt : DataTransformerOutput = store.cmd
+                w : Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
+                if w.asset:
+                    # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
+                    dtStep : DataTransformerStep = cast(DataTransformerStep, self.findExistingOrCreateStep(DataTransformerStep(w, self.platform)))
+                    triggerStep : TriggerStep = cast(TriggerStep, self.findExistingOrCreateStep(TriggerStep(w, self.platform)))
+                    # Add ingestion for transfomer
+                    dtIngestStep : PipelineStep = self.findExistingOrCreateStep(IngestionMultiStep(self.platform, exportStep.storeName))
+                    dtStep.triggersStep(dtIngestStep)
+                    # Ingesting Transformer causes Export
+                    dtIngestStep.triggersStep(exportStep)
+                    # Trigger calls Transformer Step
+                    triggerStep.triggersStep(dtStep)
+                    # Add Exports to call trigger
+                    for dsgR in self.roots:
+                        if dsgR.workspace == w:
+                            for sink in dsgR.dsg.sinks.values():
+                                dsrExportStep : ExportStep = cast(ExportStep, self.findExistingOrCreateStep(ExportStep(self.platform, w.asset, sink.storeName, sink.datasetName)))
+                                self.addExportToPriorIngestion(dsrExportStep)
+                                # Add Trigger for DT after export
+                                dsrExportStep.triggersStep(triggerStep)
+
+    def getIngestionRoots(self) -> set[PipelineStep]:
+        """This returns ingestions which don't depend on anything else"""
+        rc : set[PipelineStep] = set()
+        for step in self.steps.values():
+            if len(step.dependsOnPriorSteps) == 0:
+                rc.add(step)
+        return rc
+
+
+
+                
+
+
+
 
 class DataPlatformGraph:
     def __init__(self, eco : Ecosystem):
@@ -2424,7 +2552,7 @@ class DataPlatformGraph:
                     if p:
                         root : DSGRootNode = DSGRootNode(w.workspace, dsg)
                         if self.roots.get(p) == None:
-                            self.roots[p] = PlatformInformation(p)
+                            self.roots[p] = PlatformInformation(eco, p)
                         self.roots[p].roots.add(root)
                         # Collect Workspaces using the platform
                         if(self.roots[p].workspaces.get(w.workspace.name) == None):

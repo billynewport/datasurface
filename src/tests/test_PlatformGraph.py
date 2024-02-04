@@ -1,5 +1,5 @@
 import unittest
-from datasurface.md.Governance import DataPlatform, DataPlatformGraph, DatasetSink, Ecosystem, PlatformInformation
+from datasurface.md.Governance import DataPlatform, DataPlatformGraph, Ecosystem, PipelineStep, PlatformInformation
 
 from tests.nwdb.eco import createEcosystem
 
@@ -21,9 +21,9 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         self.assertEqual(len(pi.assetExports), 1)
 
-        for asset in pi.assetExports.keys():
-            s : set[DatasetSink] = pi.assetExports[asset]
-            print(str(s))
+        ingestionRoots : set[PipelineStep] = pi.getIngestionRoots()
+        for ir in ingestionRoots:
+            self.assertTrue(str(ir).startswith("Ingest"))
             
 
 

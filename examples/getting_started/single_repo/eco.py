@@ -28,7 +28,7 @@ def createEcosystem() -> Ecosystem:
     t.add(
         Datastore("NW_Data",
             CDCCaptureIngestion(
-                IngestionConsistencyType.MULTI,
+                IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds"),
                 PyOdbcSourceInfo(
                     serverHost="tcp:nwdb.database.windows.net,1433",
