@@ -1966,6 +1966,9 @@ class DatasetSink(object):
         else:
             return False
         
+    def __hash__(self) -> int:
+        return hash(f"{self.storeName}/{self.datasetName}")
+        
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         """Check the DatasetSink meets all policy checks"""
         if(is_valid_sql_identifier(self.storeName) == False):
@@ -2238,6 +2241,16 @@ class Asset:
             self.containers[container.getName()] = container
         self.consumers : dict[str, Workspace] = OrderedDict()
 
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, Asset) and self.name == o.name and self.containers == o.containers \
+            and self.consumers == o.consumers
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def __str__(self) -> str:
+        return f"Asset({self.name})"
+
     def addConsumer(self, consumer : Workspace):
         if self.consumers.get(consumer.name) != None:
             raise ObjectAlreadyExistsException(f"Duplicate consumer {consumer.name}")
@@ -2291,6 +2304,48 @@ class AssetSet(Asset):
         else:
             raise AssetDoesntExistException(f"Unknown asset {assetName}")
 
+class RenderJob:
+    def __init__(self, name : str):
+        self.name : str = name
+        self.dependsOn : dict[str, RenderJob] = dict()
+        self.triggersJobs : dict[str, RenderJob] = dict()
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}/{self.name}"
+    
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, RenderJob) and self.name == o.name and self.dependsOn == o.dependsOn and self.triggersJobs == o.triggersJobs
+    
+
+class RenderExportJob(RenderJob):
+    def __init__(self, platform : DataPlatform, asset : Asset, storeName : str, datasetName : str):
+        super().__init__(f"Export/{platform.name}/{asset.name}/{storeName}/{datasetName}")
+        self.platform : DataPlatform = platform
+        self.asset : Asset = asset
+        self.storeName : str = storeName
+        self.datasetName : str = datasetName
+
+class RenderIngestionMultiJob(RenderJob):
+    def __init__(self, platform : DataPlatform, storeName : str):
+        super().__init__(f"Ingest/{platform.name}/{storeName}")
+        self.storeName : str = storeName
+
+class RenderIngestionSingleJob(RenderJob):
+    def __init__(self, platform : DataPlatform, storeName : str, dataset : str):
+        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}")
+        self.platform : DataPlatform = platform
+        self.storeName : str = storeName
+        self.dataset : str = dataset
+
+class RenderTriggerJob(RenderJob):
+    def __init__(self, name : str):
+        super().__init__(name)
+
+class RenderTransformerJob(RenderJob):
+    def __init__(self, ws : Workspace):
+        super().__init__(f"DataTransfomer/{ws.name}")
+        self.workspace : Workspace = ws
+
 class DSGRootNode:
     def __init__(self, w : Workspace, dsg : DatasetGroup):
         self.workspace : Workspace = w
@@ -2305,12 +2360,60 @@ class DSGRootNode:
     def __str__(self) -> str:
         return f"{self.workspace.name}/{self.dsg.name}"
 
+class PlatformInformation:
+    """This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include
+    provisioning Workspace views, provisioning asset tables. Exporting data to asset tables. Ingesting data from datastores,
+    executing data transformers"""
+    def __init__(self, platform : DataPlatform):
+        self.platform : DataPlatform = platform
+        self.workspaces : dict[str, Workspace] = dict()
+       # All DSGs per Platform
+        self.roots : set[DSGRootNode] = set()
+        # All Datasets to be exported per asset per platform
+        # Views need to be aliased on top providing the Workspace/DSG named object for consumers to query
+        self.assetExports : dict[Asset, set[DatasetSink]] = dict()
+        self.storesToIngest : set[str] = set()
+
+        self.jobs : dict[str, RenderJob] = dict()
+
+    def explode(self):
+        self.assetExports = dict()
+
+        # Split DSGs by Asset hosting Workspaces
+        for dsg in self.roots:
+            if dsg.workspace.asset:
+                asset : Asset = dsg.workspace.asset
+                if self.assetExports.get(asset) == None:
+                    self.assetExports[asset] = set()
+                sinks : set[DatasetSink] = self.assetExports[asset]
+                for sink in dsg.dsg.sinks.values():
+                    sinks.add(sink)
+                    exportJob : RenderJob = RenderExportJob(self.platform, asset, sink.storeName, sink.datasetName)
+                    if(self.jobs.get(str(exportJob))):
+                        self.jobs[str(exportJob)] = exportJob
+                        # If workspace has DataTransformer, connect trigger to export
+                        # Create Ingestion job, connect to export
+
+
+        # Now collect stores to ingest per platform
+        self.storesToIngest = set()
+        for sinkset in self.assetExports.values():
+            for sink in sinkset:
+                self.storesToIngest.add(sink.storeName)
+
+    def renderJobGraph(self) -> dict[str, RenderJob]:
+        jobs : dict[str, RenderJob] = dict()
+
+
+        return jobs
+    
+
 class DataPlatformGraph:
     def __init__(self, eco : Ecosystem):
         self.eco : Ecosystem = eco
 
         # Store for each DP, the set of DSGRootNodes
-        self.roots : dict[DataPlatform, set[DSGRootNode]] = dict()
+        self.roots : dict[DataPlatform, PlatformInformation] = dict()
 
         # Scan workspaces/dsg pairs, split by DataPlatform
         for w in eco.workSpaceCache.values():
@@ -2320,8 +2423,14 @@ class DataPlatformGraph:
                     if p:
                         root : DSGRootNode = DSGRootNode(w.workspace, dsg)
                         if self.roots.get(p) == None:
-                            self.roots[p] = set()
-                        roots : set[DSGRootNode] = self.roots[p]
-                        roots.add(root)
+                            self.roots[p] = PlatformInformation(p)
+                        self.roots[p].roots.add(root)
+                        # Collect Workspaces using the platform
+                        if(self.roots[p].workspaces.get(w.workspace.name) == None):
+                            self.roots[p].workspaces[w.workspace.name] = w.workspace
 
-
+        # Now track DSGs per Asset
+        # For each platform what DSGs need to be exported to a given Asset
+        for platform in self.roots.keys():
+            pinfo = self.roots[platform]
+            pinfo.explode()

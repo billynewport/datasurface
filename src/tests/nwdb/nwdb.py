@@ -173,7 +173,10 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
 
 def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocation):
     """Create a Workspace and an asset if a location is provided"""
+    if location.key == None:
+        raise Exception("location key is none")
     w : Workspace = Workspace("ProductLiveAdhocReporting",
+        Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)]),                            
         DatasetGroup("LiveProducts",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -185,15 +188,11 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
             DatasetSink("NW_Data", "customers"),
             DatasetSink("NW_Data", "suppliers")
         ))
-    if(location.key):
-        asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)])
-        w.add(asset)
-    else:
-        raise Exception("loc.key is none")
     t.add(w)
 
     # Define Workspace with Refiner to mask customer table
     w : Workspace = Workspace("MaskCustomersWorkSpace",
+        Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)]),
         DatasetGroup("MaskCustomers",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -222,15 +221,11 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
                     )
                 )
             )
-    if(location.key):
-        asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)])
-        w.add(asset)
-    else:
-        raise Exception("loc.key is none")
     t.add(w)
 
 
     w = Workspace("WorkspaceUsingTransformerOutput",
+        Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)]),
         DatasetGroup("UseMaskedCustomers",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -240,8 +235,4 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
                 ),
             DatasetSink("Masked_NW_Data", "employees")
         ))
-    if location:
-        if(location.key):
-            asset : Asset = Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)])
-            w.add(asset)
     t.add(w)
