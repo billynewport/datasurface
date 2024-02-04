@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from collections import OrderedDict
 import re
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, TypeVar, Union, cast
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Type, TypeVar, Union, cast
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from enum import Enum
@@ -2460,12 +2460,8 @@ class PlatformInformation:
                     self.steps[str(exportStep)] = exportStep
                     self.addExportToPriorIngestion(exportStep)
 
-    def renderJobGraph(self) -> dict[str, PipelineStep]:
-        steps : dict[str, PipelineStep] = dict()
-
-        return steps
-
     def findExistingOrCreateStep(self, step : PipelineStep) -> PipelineStep:
+        """This finds an existing step or adds it to the set of steps in the graph"""
         if self.steps.get(str(step)) == None:
             self.steps[str(step)] = step
         else:
@@ -2473,6 +2469,8 @@ class PlatformInformation:
         return step
     
     def createIngestionStep(self, storeName : str):
+        """This creates a step to ingest data for a datastore. This results in either a single step for a multi-dataset store
+        or one step per dataset in the single dataset stores"""
         store : Datastore = self.eco.cache_getDatastoreOrThrow(storeName).datastore
 
         if store.cmd:
@@ -2485,6 +2483,8 @@ class PlatformInformation:
             raise Exception("Store {storeName} cmd is None")
     
     def addExportToPriorIngestion(self, exportStep : ExportStep):
+        """This makes sure the ingestion steps for a the datasets in an export step exist"""
+        assert(self.steps.get(str(exportStep)) != None)
         """Work backwards from export step. The normal chain is INGEST -> EXPORT. In the case of exporting a store from
         a transformer then it is INGEST -> EXPORT -> TRIGGER -> TRANSFORM -> INGEST -> EXPORT"""
         store : Datastore = self.eco.cache_getDatastoreOrThrow(exportStep.storeName).datastore
@@ -2522,7 +2522,7 @@ class PlatformInformation:
                                 # Add Trigger for DT after export
                                 dsrExportStep.triggersStep(triggerStep)
 
-    def getIngestionRoots(self) -> set[PipelineStep]:
+    def getLeftSideOfGraph(self) -> set[PipelineStep]:
         """This returns ingestions which don't depend on anything else, the left end of a pipeline"""
         rc : set[PipelineStep] = set()
         for step in self.steps.values():
@@ -2530,13 +2530,23 @@ class PlatformInformation:
                 rc.add(step)
         return rc
 
-    def getFinalSteps(self) -> set[PipelineStep]:
+    def getRightSideOfGraph(self) -> set[PipelineStep]:
         """This returns steps which does have other steps depending on them, the right end of a pipeline"""
         rc : set[PipelineStep] = set()
         for step in self.steps.values():
             if len(step.triggersNextSteps) == 0:
                 rc.add(step)
         return rc
+    
+    def checkNextStepsForStepType(self, filterStep : Type[PipelineStep], targetStep : Type[PipelineStep]) -> bool:
+        """This finds steps of a certain type and then checks that ALL follow on steps from it are a certain type"""
+        for s in self.steps:
+            if isinstance(s, filterStep):
+                for nextS in s.triggersNextSteps:
+                    if not isinstance(nextS, targetStep):
+                        return False
+        return True
+
 
 
                 
