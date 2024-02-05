@@ -802,15 +802,15 @@ class IngestionConsistencyType(Enum):
     SINGLE_DATASET = 0
     MULTI_DATASET = 1
 
-class CaptureTrigger:
-    """Ingestion is driven in pulses triggered by these."""
+class StepTrigger:
+    """A step such as ingestion is driven in pulses triggered by these."""
     def __init__(self, name : str):
         self.name : str = name
 
     def __eq__(self, o : object) -> bool:
-        return isinstance(o, CaptureTrigger) and self.name == o.name
+        return isinstance(o, StepTrigger) and self.name == o.name
 
-class CronTrigger(CaptureTrigger):
+class CronTrigger(StepTrigger):
     """This allows the ingestion pules to be specified using a cron string"""
     def __init__(self, name : str, cron : str):
         super().__init__(name)
@@ -822,18 +822,24 @@ class CronTrigger(CaptureTrigger):
 class CaptureMetaData(ABC):
     """This describes how a platform can pull data for a Datastore"""
 
-    def __init__(self, captureTrigger : Optional[CaptureTrigger] = None):
+    def __init__(self, stepTrigger : Optional[StepTrigger] = None):
         self.singleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
-        self.captureTrigger : Optional[CaptureTrigger] = None
+        self.stepTrigger : Optional[StepTrigger] = None
 
 
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         if(self.singleOrMultiDatasetIngestion == None):
             tree.addProblem("Single Or Multi ingestion not specified")
+# TODO Not sure yet
+#        if(self.stepTrigger == None):
+#            tree.addProblem("No step trigger specified")
 
     def __eq__(self, o : object) -> bool:
         return isinstance(o, CaptureMetaData)
+    
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}()"
 
 class DataTransformerOutput(CaptureMetaData):
     """Specifies this datastore is ingested whenever a Datatransformer executes"""
@@ -856,7 +862,7 @@ class DataTransformerOutput(CaptureMetaData):
                     tree.addProblem(f"Specified Workspace {self.workSpaceName} output store name {w.dataTransformer.outputDatastore.name} doesnt match referring datastore {d.name}")
 
     def __str__(self):
-        return f"RefinerOutput({self.workSpaceName})"
+        return f"DataTransformerOutput({self.workSpaceName})"
     
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, DataTransformerOutput) and self.workSpaceName == o.workSpaceName
@@ -865,23 +871,23 @@ class IngestionMetadata(CaptureMetaData):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__()
         self.credential : Optional[Credential] = None
         self.captureSource : CaptureSourceInfo = captureSourceInfo
         self.add(*args)
 
-    def add(self, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
+    def add(self, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         for arg in args:
             if(isinstance(arg, Credential)):
                 c : Credential = arg
                 if(self.credential != None):
                     raise AttributeAlreadySetException("Credential already set")
                 self.credential = c
-            elif(isinstance(arg, CaptureTrigger)):
-                if(self.captureTrigger != None):
+            elif(isinstance(arg, StepTrigger)):
+                if(self.stepTrigger != None):
                     raise AttributeAlreadySetException("CaptureTrigger already set")
-                self.captureTrigger = arg
+                self.stepTrigger = arg
             elif(type(arg) == IngestionConsistencyType):
                 if(self.singleOrMultiDatasetIngestion != None):
                     raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
@@ -905,7 +911,7 @@ class IngestionMetadata(CaptureMetaData):
 
 class CDCCaptureIngestion(IngestionMetadata):
     """This indicates CDC can be used to capture deltas from the source"""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(captureSourceInfo, *args)
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
@@ -922,7 +928,7 @@ class SQLPullIngestion(IngestionMetadata):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, CaptureTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(captureSourceInfo, *args)
         self.variableNames : list[str] = []
         """The names of state variables produced by snapshot and delta sql strings"""
@@ -2087,7 +2093,24 @@ class DatasetGroup(ANSI_SQL_NamedObject):
         return f"DatasetGroup({self.name})"
 
 class TransformerTrigger:
-    pass
+    def __init__(self, name : str):
+        self.name : str = name
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
+    
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, TransformerTrigger) and self.name == o.name
+    
+
+class TimedTransformerTrigger(TransformerTrigger):
+    def __init__(self, name : str, transformerTrigger : StepTrigger):
+        super().__init__(name)
+        self.trigger : StepTrigger = transformerTrigger
+
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, TimedTransformerTrigger) and self.trigger == o.trigger and super().__eq__(o)
+
 
 class CodeArtifact(ABC):
     """This defines a piece of code which can be used to transform data in a workspace"""
@@ -2275,6 +2298,8 @@ class Workspace(ANSI_SQL_NamedObject):
         return f"Workspace({self.name})"    
     
 class Asset:
+    """An asset of a data container which host data for one or more Workspaces. Users query the data they asked
+    for in their Workspace using Workspace-specific VIEW objects or similr on the Asset."""
     def __init__(self, name : str, containers : Iterable[DataContainer]) -> None:
         self.name : str = name
         self.containers : dict[str, 'DataContainer'] = OrderedDict()
@@ -2382,16 +2407,16 @@ class ExportNode(PipelineNode):
             self.storeName == o.storeName and self.datasetName == o.datasetName
 
 class IngestionNode(PipelineNode):
-    def __init__(self, name : str, platform : DataPlatform, storeName : str, captureTrigger : Optional[CaptureTrigger]):
+    def __init__(self, name : str, platform : DataPlatform, storeName : str, captureTrigger : Optional[StepTrigger]):
         super().__init__(name, platform)
         self.storeName : str = storeName
-        self.captureTrigger : Optional[CaptureTrigger] = captureTrigger
+        self.captureTrigger : Optional[StepTrigger] = captureTrigger
 
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName and self.captureTrigger == o.captureTrigger
 
 class IngestionMultiNode(IngestionNode):
-    def __init__(self, platform : DataPlatform, storeName : str, captureTrigger : Optional[CaptureTrigger]):
+    def __init__(self, platform : DataPlatform, storeName : str, captureTrigger : Optional[StepTrigger]):
         super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName, captureTrigger)
 
     def __hash__(self) -> int:
@@ -2401,7 +2426,7 @@ class IngestionMultiNode(IngestionNode):
         return super().__eq__(o) and isinstance(o, IngestionMultiNode)
 
 class IngestionSingleNode(IngestionNode):
-    def __init__(self, platform : DataPlatform, storeName : str, dataset : str, captureTrigger : Optional[CaptureTrigger]):
+    def __init__(self, platform : DataPlatform, storeName : str, dataset : str, captureTrigger : Optional[StepTrigger]):
         super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName, captureTrigger)
         self.dataset : str = dataset
 
@@ -2518,9 +2543,9 @@ class PlatformPipelineGraph:
         if store.cmd:
             if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
                 for datasetName in store.datasets.keys():
-                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName, store.cmd.captureTrigger))
+                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName, store.cmd.stepTrigger))
             else: # MULTI_DATASET
-                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName, store.cmd.captureTrigger))
+                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName, store.cmd.stepTrigger))
         else:
             raise Exception("Store {storeName} cmd is None")
     
@@ -2534,9 +2559,9 @@ class PlatformPipelineGraph:
             ingestionStep : Optional[PipelineNode] = None
             # Create a step for a single or multi dataset ingestion
             if(store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
-                ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.captureTrigger)
+                ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger)
             else: # MULTI_DATASET
-                ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.captureTrigger)
+                ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.stepTrigger)
             ingestionStep = self.findExistingOrCreateStep(ingestionStep)
 
             ingestionStep.addRightHandNode(exportStep)

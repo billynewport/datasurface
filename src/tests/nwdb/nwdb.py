@@ -213,7 +213,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
                             DDLColumn("first_name", VarChar(10), NullableStatus.NOT_NULLABLE),
                             DDLColumn("country", VarChar(15))
                         ))),
-                TransformerTrigger(),
+                TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 5 mins", "*/5 * * * *")),
                 PythonCodeArtifact([], {}, "3.11"),
                 KubernetesEnvironment(
                     "kubcluster.here.com", 
