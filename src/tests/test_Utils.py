@@ -2,7 +2,7 @@ import unittest
 from datasurface.md.Governance import GitHubRepository
 from datasurface.md.Lint import ValidationTree
 
-from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier
+from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
 
 class Test_Utils(unittest.TestCase):
     def test_Valid_IP_Address(self):
@@ -48,3 +48,25 @@ class Test_Utils(unittest.TestCase):
             self.assertFalse(tree.hasErrors())
             
         # Valid HTTPS GitHub URLs        
+
+class TestCronStringValidator(unittest.TestCase):
+    def test_valid_cron_strings(self):
+        self.assertTrue(validate_cron_string('* * * * *'))
+        self.assertTrue(validate_cron_string('0 0 1 1 *'))
+        self.assertTrue(validate_cron_string('1,15,30 * * * *'))
+        self.assertTrue(validate_cron_string('0-59 0-23 1-31 1-12 0-7'))
+        self.assertTrue(validate_cron_string('*/5 * * * *'))  # Every 5 notation supported
+
+    def test_invalid_cron_strings(self):
+        self.assertFalse(validate_cron_string('invalid cron string'))
+        self.assertFalse(validate_cron_string('* * * *'))  # Not enough fields
+        self.assertFalse(validate_cron_string('* * * * * *'))  # Too many fields
+        self.assertFalse(validate_cron_string('60 * * * *'))  # Minute out of range
+        self.assertFalse(validate_cron_string('* 24 * * *'))  # Hour out of range
+        self.assertFalse(validate_cron_string('* * 32 * *'))  # Day of month out of range
+        self.assertFalse(validate_cron_string('* * * 13 *'))  # Month out of range
+        self.assertFalse(validate_cron_string('* * * * 8'))  # Day of week out of range
+        self.assertFalse(validate_cron_string('1-2-3 * * * *'))  # Invalid range
+        self.assertFalse(validate_cron_string('1,2,3, * * * *'))  # Invalid list
+        self.assertFalse(validate_cron_string('*/60 * * * *'))  # Minute out of range
+

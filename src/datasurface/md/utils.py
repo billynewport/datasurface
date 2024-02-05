@@ -123,8 +123,18 @@ def validate_cron_string(cron_string : str):
 
         # Check each value
         for value in values:
+            if '/' in value:
+                dashList : list[str] = value.split('/')
+                if(len(dashList) != 2):
+                    return False
+                start : str = dashList[0]
+                if(start != '*'):
+                    return False
+                end : str = dashList[1]
+                if not end.isdigit() or not end.isdigit() or not (min_value <= int(end) <= max_value):
+                    return False
             # If the value contains a '-', it's a range
-            if '-' in value:
+            elif '-' in value:
                 dashList : list[str] = value.split('-')
                 if(len(dashList) != 2):
                     return False
