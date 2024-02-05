@@ -98,3 +98,45 @@ class Policy(ABC, Generic[T]):
     def __str__(self) -> str:
         return f"Policy({self.name})"
 
+def validate_cron_string(cron_string : str):
+    # Split the cron string into fields
+    fields : list[str] = cron_string.split()
+
+    # Check that there are exactly 5 fields
+    if len(fields) != 5:
+        return False
+
+    # Define the valid ranges for each field
+    ranges = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]
+
+    # Check each field
+    for field, (min_value, max_value) in zip(fields, ranges):
+        # If the field is a '*', it's valid
+        if field == '*':
+            continue
+
+        # If the field contains a ',', it's a list of values
+        if ',' in field:
+            values : list[str]= field.split(',')
+        else:
+            values : list[str] = [field]
+
+        # Check each value
+        for value in values:
+            # If the value contains a '-', it's a range
+            if '-' in value:
+                dashList : list[str] = value.split('-')
+                if(len(dashList) != 2):
+                    return False
+                start : str = dashList[0]
+                end : str = dashList[1]
+                if not start.isdigit() or not end.isdigit() or not (min_value <= int(start) <= int(end) <= max_value):
+                    return False
+            else:
+                # The value should be a single number
+                if not value.isdigit() or not (min_value <= int(value) <= max_value):
+                    return False
+
+    # If we've made it this far, the cron string is valid
+    return True
+

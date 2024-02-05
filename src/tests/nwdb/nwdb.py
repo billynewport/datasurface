@@ -13,7 +13,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                     driver="{ODBC Driver 17 for SQL Server}",
                     connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
                 ),
-                CronTrigger("NW_Data Every 5 mins", "*/5 * * * *"),
+                CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
             ),
@@ -213,7 +213,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
                             DDLColumn("first_name", VarChar(10), NullableStatus.NOT_NULLABLE),
                             DDLColumn("country", VarChar(15))
                         ))),
-                TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 5 mins", "*/5 * * * *")),
+                TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "0,10,20,30,40,50 * * * *")),
                 PythonCodeArtifact([], {}, "3.11"),
                 KubernetesEnvironment(
                     "kubcluster.here.com", 

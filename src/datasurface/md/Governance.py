@@ -9,7 +9,7 @@ from typing import Optional, TypeVar, Generic
 
 from .Documentation import Documentation
 
-from .utils import ANSI_SQL_NamedObject, Policy, is_valid_hostname_or_ip, is_valid_sql_identifier
+from .utils import ANSI_SQL_NamedObject, Policy, is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
 from .Schema import AllowDisallowPolicy, DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
@@ -802,7 +802,7 @@ class IngestionConsistencyType(Enum):
     SINGLE_DATASET = 0
     MULTI_DATASET = 1
 
-class StepTrigger:
+class StepTrigger(ABC):
     """A step such as ingestion is driven in pulses triggered by these."""
     def __init__(self, name : str):
         self.name : str = name
@@ -810,14 +810,23 @@ class StepTrigger:
     def __eq__(self, o : object) -> bool:
         return isinstance(o, StepTrigger) and self.name == o.name
 
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
+        pass
+
 class CronTrigger(StepTrigger):
-    """This allows the ingestion pules to be specified using a cron string"""
+    """This allows the ingestion pulses to be specified using a cron string"""
     def __init__(self, name : str, cron : str):
         super().__init__(name)
         self.cron : str = cron
 
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, CronTrigger) and self.cron == o.cron
+    
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        if not validate_cron_string(self.cron):
+            tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 class CaptureMetaData(ABC):
     """This describes how a platform can pull data for a Datastore"""
@@ -831,9 +840,9 @@ class CaptureMetaData(ABC):
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         if(self.singleOrMultiDatasetIngestion == None):
             tree.addProblem("Single Or Multi ingestion not specified")
-# TODO Not sure yet
-#        if(self.stepTrigger == None):
-#            tree.addProblem("No step trigger specified")
+
+        if(self.stepTrigger):
+            self.stepTrigger.lint(eco, gz, t, tree)
 
     def __eq__(self, o : object) -> bool:
         return isinstance(o, CaptureMetaData)
