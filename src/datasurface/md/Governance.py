@@ -1322,15 +1322,16 @@ class Ecosystem(GitControlledObject):
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
-    def __init__(self, name : str, repo : Repository, *args : Union[Datastore, 'Workspace', Documentation]) -> None:
+    def __init__(self, name : str, repo : Repository, *args : Union[Datastore, 'Workspace', Documentation, 'Asset']) -> None:
         super().__init__(repo)
         self.name : str = name
         self.workspaces : dict[str, Workspace] = OrderedDict()
         self.dataStores : dict[str, Datastore] = OrderedDict()
         self.documentation : Optional[Documentation] = None
+        self.assets : set[Asset] = set()
         self.add(*args)
 
-    def add(self, *args : Union[Datastore, 'Workspace', Documentation]) -> None:
+    def add(self, *args : Union[Datastore, 'Workspace', Documentation, 'Asset']) -> None:
         """Adds a workspace, datastore or gitrepository to the team"""
         for arg in args:
             if(isinstance(arg, Datastore)):
@@ -1339,6 +1340,8 @@ class Team(GitControlledObject):
             elif(isinstance(arg, Workspace)):
                 w : Workspace = arg
                 self.addWorkspace(w)
+            elif(isinstance(arg, Asset)):
+                self.assets.add(arg)
             else:
                 d : Documentation = arg
                 self.documentation = d
@@ -2117,8 +2120,6 @@ class Workspace(ANSI_SQL_NamedObject):
     
     def lint(self, eco : Ecosystem, gz : GovernanceZone, tree : ValidationTree):
         super().nameLint(tree)
-        if not is_valid_sql_identifier(self.name):
-            tree.addProblem(f"Workspace name {self.name} is not a valid SQL identifier")
 
         if(self.key == None):
             tree.addProblem("Workspace key is none")

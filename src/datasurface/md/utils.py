@@ -4,6 +4,9 @@ from typing import Generic, TypeVar
 
 from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
 from datasurface.md.Lint import ValidationTree
+from typing import Callable, TypeVar, Tuple, Dict, Generic
+
+
 
 sql_reserved_words : list[str] = [
     "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "INSERT", "UPDATE", "DELETE", 
@@ -150,3 +153,22 @@ def validate_cron_string(cron_string : str):
     # If we've made it this far, the cron string is valid
     return True
 
+R = TypeVar('R')
+A = TypeVar('A')
+
+class Memoize(Generic[A, R]):
+    """Decorator to cache previous calls to a method"""
+    def __init__(self, func: Callable[[A], R]) -> None:
+        self.func = func
+        self.cache: Dict[Tuple[A, ...], R] = {}
+
+    def __call__(self, *args: A) -> R:
+        if args in self.cache:
+            return self.cache[args]
+
+        result = self.func(*args)
+        self.cache[args] = result
+        return result
+
+def memoize(func: Callable[[A], R]) -> Memoize[A, R]:
+    return Memoize(func)

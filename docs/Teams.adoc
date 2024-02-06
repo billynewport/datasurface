@@ -1,8 +1,0 @@
-== What is a team
-A team is a group of people working together who own some of the following aspects of a data ecosystem within a firm.
-
-* DataStore
-* Workspace
-* Data Transformer
-
-Typically the metadata for the above is describing using the projects python DSL in files within a github repository. This repository is the authorative location for editing the metadata for this team.
