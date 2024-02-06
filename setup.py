@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='datasurface',
-    version='0.0.2',
+    version='0.0.3',
     license='Server Side License V1',
     description='The DSL code for building a datasurface catalog in github',
     long_description=long_description,

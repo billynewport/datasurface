@@ -78,7 +78,7 @@ The `eco.py` module must be at the root level and must have a method called `def
 
 The main branch defines the steady state integrated model of the system into which changes are pushed using other repositories with authorization to change various parts of the model/ecosystem such as governance zones and teams. Other git repositories can be defined on branches or even separate repositories. Ownership of a subset of the model is assigned to these branches or repositories. When changes are pulled into the main branch, handlers make sure that the changes result in a consistent model AND that any model changes were made from a git branch or repository that is authorized to make those changes. The system doesn't care which files were modified by which repository. It only cares that the model is consistent and that the model objects were only modified by an authorized repository. Thus, a repository can refactor how the ecosystem is constructed from the `eco.py` file to a different file structure. The ecosystem branch will only check that the model is consistent and that the objects are only modified by authorized repositories.
 
-## How changes are merged into the main repository
+## How changes are merged in to the main repository
 
 An action handler associated with the main repository will perform the following checks before allowing changes to be merged into the main branch:
 
