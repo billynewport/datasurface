@@ -20,6 +20,9 @@ class Repository(ABC):
             return self.documentation == __value.documentation
         else:
             return False
+        
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}()"
 
 
 
@@ -103,7 +106,7 @@ class FakeRepository(Repository):
         pass
 
     def __str__(self) -> str:
-        return f"TestRepository({self.name})"
+        return f"FakeRepository({self.name})"
     
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, FakeRepository)):
