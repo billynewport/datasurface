@@ -1,6 +1,6 @@
 from typing import Sequence, cast
 import unittest
-from datasurface.md import Ecosystem, TeamDeclaration, GitHubRepository, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
+from datasurface.md import Ecosystem, TeamDeclaration, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
@@ -8,7 +8,8 @@ from datetime import timedelta
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDatabaseResource, AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus, FakeRepository
+from datasurface.md.GitOps import FakeRepository, GitHubRepository
+from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus

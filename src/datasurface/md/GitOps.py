@@ -1,0 +1,170 @@
+from abc import ABC, abstractmethod
+import re
+from typing import Mapping, Optional
+
+from datasurface.md import Documentation
+from datasurface.md.Lint import ValidationTree
+
+class Repository(ABC):
+    """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
+    def __init__(self, doc : Optional[Documentation]):
+        self.documentation : Optional[Documentation] = doc
+
+    @abstractmethod
+    def lint(self, tree : ValidationTree) -> None:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        raise NotImplementedError()
+    
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, Repository)):
+            return self.documentation == __value.documentation
+        else:
+            return False
+
+
+
+class GitControlledObject(ABC):
+    """This is the base class for all objects which are controlled by a git repository"""
+    def __init__(self, repo : 'Repository') -> None:
+        self.owningRepo : Repository = repo
+        """This is the repository which is authorized to make changes to this object"""
+
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, GitControlledObject)):
+            return self.owningRepo == __value.owningRepo
+        else:
+            return False
+        
+    @abstractmethod
+    def eq_toplevel(self, proposed : 'GitControlledObject') -> bool:
+        """This should compare attributes which are locally authorized only"""
+        return True
+    
+    def superLint(self, tree : ValidationTree):
+        rTree : ValidationTree = tree.createChild(self.owningRepo)
+        self.owningRepo.lint(rTree)
+    
+    def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
+        """This checks if the local attributes of the object have been modified by the authorized change source"""
+        # Check if the ecosystem has been modified at all
+        if(self == proposed):
+            return
+        elif(not self.eq_toplevel(proposed) and self.owningRepo != changeSource):
+            vTree.addProblem(f"{self} top level has been modified by an unauthorized source")
+
+    @abstractmethod    
+    def checkIfChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
+        """This checks if the differences between the current and proposed objects are authorized by the specified change source"""
+        raise NotImplementedError()
+        
+    def checkDictChangesAreAuthorized(self, current : Mapping[str, 'GitControlledObject'], proposed : Mapping[str, 'GitControlledObject'], changeSource : 'Repository', vTree : ValidationTree) -> None:
+        """This checks if the current dict has been modified relative to the specified change source"""
+        """This checks if any objects has been added or removed relative to e"""
+
+
+        # Get the object keys from the current main ecosystem
+        current_keys : set[str] = set(current)
+
+        # Get the object keys from the proposed ecosystem
+        proposed_keys : set[str] = set(proposed.keys())
+
+        deleted_keys : set[str] = current_keys - proposed_keys
+        added_keys : set[str] = proposed_keys - current_keys
+
+        # first check any top level objects have been added or removed by the correct change sources
+        for key in deleted_keys:
+            # Check if the object was deleted by the authoized change source
+            obj : Optional[GitControlledObject] = current[key]
+            if(obj.owningRepo != changeSource):
+                vTree.addProblem(f"Key {key} has been deleted by an unauthorized source")
+        
+        for key in added_keys:
+            # Check if the object was added by the specified change source
+            obj : Optional[GitControlledObject] = proposed[key]
+            if(obj.owningRepo != changeSource):
+                vTree.addProblem(f"Key {key} has been added by an unauthorized source")
+
+        # Now check each common object for changes
+        common_keys : set[str] = current_keys.intersection(proposed_keys)
+        for key in common_keys:
+            prop : Optional[GitControlledObject] = proposed[key]
+            curr : Optional[GitControlledObject] = current[key]
+            # Check prop against curr for unauthorized changes
+            cTree : ValidationTree = vTree.createChild(curr)
+            curr.checkIfChangesAreAuthorized(prop, changeSource, cTree)
+
+class FakeRepository(Repository):
+    """Fake implementation for test cases only"""
+    def __init__(self, name : str, doc : Optional[Documentation] = None) -> None:
+        super().__init__(doc)
+        self.name = name
+
+    def lint(self, tree : ValidationTree) -> None:
+        pass
+
+    def __str__(self) -> str:
+        return f"TestRepository({self.name})"
+    
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, FakeRepository)):
+            return super().__eq__(__value) and self.name == __value.name
+        else:
+            return False
+
+class GitHubRepository(Repository):
+    """This represents a GitHub Repository specifically, this branch should have an eco.py files in the root
+    folder. The eco.py file should contain an ecosystem object which is used to construct the ecosystem"""
+    def __init__(self, repo : str, branchName : str, doc : Optional[Documentation] = None) -> None:
+        super().__init__(doc)
+        self.repoURL : str = repo
+        """The name of the git repository from which changes to Team objects are authorized"""
+        self.branchName : str = branchName
+        """The name of the branch containing an eco.py to construct an ecosystem"""
+
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, GitHubRepository)):
+            return super().__eq__(__value) and self.repoURL == __value.repoURL and self.branchName == __value.branchName
+        else:
+            return False
+        
+    def __str__(self) -> str:
+        return f"GitRepository({self.repoURL})"
+    
+    def is_valid_github_url(self, url: str) -> bool:
+        """This validates a github url"""
+        https_pattern = r'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/?'
+        ssh_pattern = r'git@github\.com:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.git'
+        
+        return re.match(https_pattern, url) is not None or re.match(ssh_pattern, url) is not None
+
+    def is_valid_github_branch(self, branch: str) -> bool:
+        # Branch names cannot contain the sequence ..
+        if '..' in branch:
+            return False
+
+        # Branch names cannot have a . at the end
+        if branch.endswith('.'):
+            return False
+
+        # Branch names cannot have multiple consecutive . characters
+        if '..' in branch:
+            return False
+
+        # Branch names cannot contain any of the following characters: ~ ^ : \ * ? [ ] /
+        if any(char in branch for char in ['~', '^', ':', '\\', '*', '?', '[', ']', '/']):
+            return False
+
+        # Branch names cannot start with -
+        if branch.startswith('-'):
+            return False
+
+        # Branch names can only contain alphanumeric characters, ., -, and _
+        pattern = r'^[a-zA-Z0-9_.-]+$'
+        return re.match(pattern, branch) is not None
+    
+    def lint(self, tree : ValidationTree):
+        """This checks if repository is valid syntaxically"""
+        if(self.is_valid_github_url(self.repoURL) == False):
+            tree.addProblem("Repository URL is not valid")
+        if(self.is_valid_github_branch(self.branchName) == False):
+            tree.addProblem("Branch name is not valid")

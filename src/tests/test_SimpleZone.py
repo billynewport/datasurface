@@ -1,8 +1,9 @@
 from typing import Optional
 import unittest
 
-from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDeclaration, GitHubRepository, Ecosystem
+from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDeclaration, Ecosystem
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
+from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.eco import createEcosystem
 

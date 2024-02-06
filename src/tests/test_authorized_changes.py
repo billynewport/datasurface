@@ -1,8 +1,9 @@
 import copy
 from typing import Optional
 import unittest
+from datasurface.md.GitOps import GitHubRepository
 
-from datasurface.md.Governance import Ecosystem, GitHubRepository, GovernanceZone, Repository
+from datasurface.md.Governance import Ecosystem, GovernanceZone, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 from datasurface.md.Lint import ValidationTree
 import tests.nwdb.eco

@@ -1,6 +1,6 @@
 import unittest
+from datasurface.md.GitOps import GitHubRepository
 
-from datasurface.md.Governance import GitHubRepository
 from datasurface.md.Lint import ProblemSeverity, ValidationTree
 
 class TestLint(unittest.TestCase):

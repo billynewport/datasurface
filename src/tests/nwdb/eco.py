@@ -1,8 +1,9 @@
-from datasurface.md import Team, GovernanceZoneDeclaration, GitHubRepository, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
+from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Governance import DefaultDataPlatform, InfraStructureLocationPolicy
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
