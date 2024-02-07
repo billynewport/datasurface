@@ -4,8 +4,9 @@ This is meant to describe all data producers and consumers within an enterprise.
 
 An ecosystem is responsible for:
 
-- A set of approved GovernanceZones
 - A set of infrastructure vendors and locations that can be used within the ecosystem
+- A set of DataPlatforms that are available to service consumers needs
+- A set of approved GovernanceZones
 
 ## Governance Zones
 

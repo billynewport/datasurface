@@ -9,13 +9,14 @@ with open('requirements.txt') as f:
 setup(
     name='datasurface',
     version='0.0.3',
-    license='Server Side License V1',
+    license='Apache License 2.0',
     description='The DSL code for building a datasurface catalog in github',
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='Billy Newport',
     author_email='billy@billynewport.com',
     classifiers=[
+        'License :: OSI Approved :: Apache Software License',
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',

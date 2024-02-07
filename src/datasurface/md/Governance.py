@@ -530,7 +530,7 @@ class Dataset(ANSI_SQL_NamedObject):
         self.originalSchema : Optional[Schema] = None
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
         self.policies : dict[str, StoragePolicy] = OrderedDict()
-        self.classification : Optional[DataClassification] = None
+        self.dataClassificationOverride : Optional[DataClassification] = None
         """This is the classification of the data in the dataset. The overrides any classifications on the schema"""
         self.documentation : Optional[Documentation] = None
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
@@ -549,7 +549,7 @@ class Dataset(ANSI_SQL_NamedObject):
             elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             elif(isinstance(arg, DataClassification)):
-                self.classification = arg
+                self.dataClassificationOverride = arg
             else:
                 d : Documentation = arg
                 self.documentation = d
@@ -558,7 +558,7 @@ class Dataset(ANSI_SQL_NamedObject):
         if isinstance(__value, Dataset):
             return super().__eq__(__value) and self.name == __value.name and self.originalSchema == __value.originalSchema and \
                 self.policies == __value.policies and self.documentation == __value.documentation and \
-                self.deprecationStatus == __value.deprecationStatus and self.classification == __value.classification
+                self.deprecationStatus == __value.deprecationStatus and self.dataClassificationOverride == __value.dataClassificationOverride
         return False
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', store : 'Datastore', tree : ValidationTree) -> None:
@@ -584,8 +584,8 @@ class Dataset(ANSI_SQL_NamedObject):
         """This checks if the dataset only has the specified classifications"""
 
         # Dataset level classification overrides schema level classification
-        if(self.classification):
-            return verifier.isCompatible(self.classification)
+        if(self.dataClassificationOverride):
+            return verifier.isCompatible(self.dataClassificationOverride)
         else:
             if self.originalSchema:
                 # check schema attribute classifications are good
