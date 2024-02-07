@@ -2,7 +2,7 @@ from typing import List, Optional, OrderedDict, Union, cast
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from datasurface.md.Policy import AllowDisallowPolicy
+from datasurface.md.Policy import DataClassification, DataClassificationPolicy
 
 from .Lint import ValidationTree
 from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
@@ -513,43 +513,6 @@ class Vector(DataType):
                 super().isBackwardsCompatibleWith(other, vTree)
         return vTree.hasErrors() == False
 
-class DataClassification(Enum):
-    """This is the privacy classification of the data"""
-    PUB = 0
-    """Publicly available data"""
-    IP = 1
-    """Internal public information"""
-    PC1 = 2
-    """Personal confidential information"""
-    PC2 = 3
-    """Personal confidential information"""
-    """Names, addresses, phone numbers, etc."""
-    CPI = 4
-    MNPI = 5
-    """Non material public information"""
-    CSI = 6
-    """Sensitive confidential information"""
-    PC3 = 7
-    """Personal confidential information, social security numbers, credit card numbers, etc."""
-
-class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
-    """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
-    def __init__(self, name : str, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
-        super().__init__(name, allowed, notAllowed)
-
-    def __eq__(self, v : object) -> bool:
-        return super().__eq__(v) and isinstance(v, DataClassificationPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
-    
-    def __hash__(self) -> int:
-        return super().__hash__()
-
-
-class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
-    def __init__(self) -> None:
-        super().__init__("No privacy classification allowed", None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
-
-    def __hash__(self) -> int:
-        return super().__hash__()
 
 class NullableStatus(Enum):
     """Specifies whether a column is nullable"""
@@ -570,9 +533,7 @@ DEFAULT_primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
 DEFAULT_nullable : NullableStatus = NullableStatus.NULLABLE
 
 class DDLColumn(ANSI_SQL_NamedObject):
-
-
-    """Column definition for a table"""
+    """This is an individual attribute within a DDLTable schema"""
     def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         super().__init__(name)
         self.type : DataType = dataType
@@ -635,7 +596,7 @@ class AttributeList:
                 tree.addProblem(f"Column name {col} is not a valid ANSI SQL identifier")
 
     def __str__(self) -> str:
-        return f"AttributeList({self.colNames})"
+        return f"{self.__class__.__name__}({self.colNames})"
 
 class PrimaryKeyList(AttributeList):
     """A list of columns to be used as the primary key"""
@@ -645,21 +606,24 @@ class PrimaryKeyList(AttributeList):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, PrimaryKeyList)
     
-    def __str__(self) -> str:
-        return f"PrimaryKeyList({self.colNames})"
+class PartitionKeyList(AttributeList):
+    """A list of column names used for partitioning ingested data"""
+    def __init__(self, colNames: list[str]) -> None:
+        super().__init__(colNames)
 
-# TODO Switch from PK flag to PK column name list
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, PartitionKeyList)
+
 class Schema(ABC):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
-        self.defaultDataClassification : DataClassification = DataClassification.PC3
         self.primaryKeyColumns : Optional[PrimaryKeyList] = None 
-        self.ingestionPartitionColumns : Optional[AttributeList] = None
+        self.ingestionPartitionColumns : Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, Schema)):
-            return self.defaultDataClassification == __value.defaultDataClassification and self.primaryKeyColumns == __value.primaryKeyColumns and self.ingestionPartitionColumns == __value.ingestionPartitionColumns
+            return self.primaryKeyColumns == __value.primaryKeyColumns and self.ingestionPartitionColumns == __value.ingestionPartitionColumns
         else:
             return False
     
@@ -697,7 +661,7 @@ class Schema(ABC):
 class DDLTable(Schema):
     """Table definition"""
 
-    def __init__(self, *args : Union[DDLColumn, PrimaryKeyList, Documentation]) -> None:
+    def __init__(self, *args : Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]) -> None:
         super().__init__()
         self.columns : dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
         self.primaryKeyColumns : Optional[PrimaryKeyList] = None
@@ -711,7 +675,7 @@ class DDLTable(Schema):
                 return False
         return True
     
-    def add(self, *args : Union[DDLColumn, PrimaryKeyList, Documentation]):
+    def add(self, *args : Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]):
         """Add a column or primary key list to the table"""
         for c in args:
             if(type(c) == DDLColumn):
@@ -720,6 +684,8 @@ class DDLTable(Schema):
                 self.columns[c.name] = c
             elif(type(c) == PrimaryKeyList):
                 self.primaryKeyColumns = c
+            elif(isinstance(c, PartitionKeyList)):
+                self.ingestionPartitionColumns = c
             elif(isinstance(c, Documentation)):
                 self.documentation = c
         self.calculateKeys()
