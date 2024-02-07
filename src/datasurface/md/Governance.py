@@ -7,11 +7,12 @@ from enum import Enum
 from typing import Optional, TypeVar, Generic
 
 from datasurface.md.GitOps import GitControlledObject, Repository
+from datasurface.md.Policy import AllowDisallowPolicy, Policy
 
 from .Documentation import Documentation
 
-from .utils import ANSI_SQL_NamedObject, Policy, is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
-from .Schema import AllowDisallowPolicy, DataClassification, DataClassificationPolicy, Schema
+from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
+from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
 from .Lint import ProblemSeverity, ValidationTree

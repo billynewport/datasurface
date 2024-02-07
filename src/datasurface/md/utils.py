@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 import re
 from typing import Generic, TypeVar
 
@@ -77,27 +76,6 @@ class ANSI_SQL_NamedObject:
         if not is_valid_sql_identifier(self.name):
             tree.addProblem(f"Name {self.name} is not a valid ANSI SQL identifier")
 
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.name})"
-
-T = TypeVar('T')
-
-class Policy(ABC, Generic[T]):
-    """Base class for all policies"""
-    def __init__(self, name : str):
-        self.name : str = name
-    
-    @abstractmethod
-    def isCompatible(self, obj : T) -> bool:
-        """Check if obj meets the policy"""
-        raise NotImplementedError()
-    
-    def __eq__(self, v : object) -> bool:
-        return isinstance(v, Policy) and self.name == v.name
-    
-    def __hash__(self) -> int:
-        return hash(self.name)
-    
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 

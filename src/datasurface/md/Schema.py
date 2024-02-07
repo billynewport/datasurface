@@ -1,9 +1,11 @@
-from typing import List, Optional, OrderedDict, TypeVar, Union, cast
+from typing import List, Optional, OrderedDict, Union, cast
 from abc import ABC, abstractmethod
 from enum import Enum
 
+from datasurface.md.Policy import AllowDisallowPolicy
+
 from .Lint import ValidationTree
-from .utils import ANSI_SQL_NamedObject, Policy, is_valid_sql_identifier
+from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
 from .Documentation import Documentation
 
 class DataType(ABC):
@@ -529,29 +531,6 @@ class DataClassification(Enum):
     """Sensitive confidential information"""
     PC3 = 7
     """Personal confidential information, social security numbers, credit card numbers, etc."""
-
-P = TypeVar('P')
-
-class AllowDisallowPolicy(Policy[P]):
-    """This checks whether an object is explicitly allowed or explicitly forbidden"""
-    def __init__(self, name : str, allowed : Optional[set[P]] = None, notAllowed : Optional[set[P]] = None) -> None:
-        super().__init__(name)
-        self.allowed : Optional[set[P]] = allowed
-        self.notAllowed : Optional[set[P]] = notAllowed
-
-    def isCompatible(self, obj : P) -> bool:
-        if self.allowed and not obj in self.allowed:
-            return False
-        if self.notAllowed and obj in self.notAllowed:
-            return False
-        return True
-    
-    def __hash__(self) -> int:
-        return hash(self.name)
-      
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
-    
 
 class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
     """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
