@@ -99,7 +99,7 @@ class Policy(ABC, Generic[T]):
         return hash(self.name)
     
     def __str__(self) -> str:
-        return f"Policy({self.name})"
+        return f"{self.__class__.__name__}({self.name})"
 
 def validate_cron_string(cron_string : str):
     # Split the cron string into fields

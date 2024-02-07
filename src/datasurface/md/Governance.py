@@ -249,9 +249,6 @@ class StoragePolicy(Policy['DataContainer']):
         '''This returns true if the container is compatible with the policy. This is used to determine whether data tagged with a policy can be stored in a specific container.'''
         return False
     
-    def __str__(self) -> str:
-        return f"StoragePolicy({self.name})"
-
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
     def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation] = None, deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)) -> None:

@@ -57,6 +57,11 @@ class AzureDataplatform(DataPlatform):
     def _str__(self) -> str:
         return f"AzureDataPlatform({self.name})"
 
+
+class AzureBatchDataPlatform(AzureDataplatform):
+    def __init__(self, name : str, platformCredential : AzureKeyVaultCredential):
+        super().__init__(name, platformCredential)
+
 class AzureDatabaseResource(CaptureSourceInfo):
     def __init__(self, name : str, hostname : str, loc : InfrastructureLocation):
         super().__init__(loc)

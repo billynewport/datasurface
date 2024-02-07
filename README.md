@@ -2,30 +2,41 @@
 
 This is meant to describe all data producers and consumers within an enterprise. It is organized into a collection of Governance Zones. The metadata describing the entire ecosystem is stored in a single git repository. This repository is the official version of the ecosystem surface. Changes to this repository are tightly controlled using GitHub handlers and pull requests.
 
+An ecosystem is responsible for:
+
+- A set of approved GovernanceZones
+- A set of infrastructure vendors and locations that can be used within the ecosystem
+
 ## Governance Zones
 
 A governance zone is responsible for:
 
-- A set of vetted infrastructure vendors
-- A set of vetted data platforms for moving data between producers and consumers
+- Filters which infrastructure vendors can be used within the zone
+- Filters what types of data can be used within this zone (privacy data)
+- Filters which data platforms are allowed to be used within the zone
 - A collection of teams under its control
 - A set of storage policies governing data produced by teams in the zone
+- A set of teams which can be used within this zone
 
 Each GovernanceZone is associated with its own GitHub repository. The ecosystem repository will only accept pull requests which change objects in a GovernanceZone from the GovernanceZones GitHub repository.
 
 Teams must be first declared in a GovernanceZone before the Team can define them.
 
-## Storage Policies
+### Data platform filters
+
+This allows a GZ to restrict the set of dataplatforms that can be used by Workspaces. This could be used to have a sensitive data GZ and a non sensitive data GZ. GZs in different juristictions may also limit the vendors to legally compatible vendors.
+
+### Storage Policies
 
 These are defined by a zone and are used to police data at rest. Before data owned by a zone can be stored in a data container, the data container must pass all policies defined by the zone owning the data. Policies can change over time and existing data containers can be revetted which could result in data being removed/moved to a compatible container.
 
-## Teams
+### Teams
 
 A team is a collection of people responsible for managing the subset of the surface represented by their producers and consumers. A team makes changes using a team-specific git repository. Changes to Team metadata are only allowed in this repository. The changes are propagated to the primary git repository using pull requests.
 
 The Team manages a set of Data Producers and Data Consumers.
 
-## Data Producers
+### Data Producers
 
 These are the actors that own data. The data is stored in some kind of data container. A producer can describe how to ingest the data from that container. The platform can then use that ingestion description to get the data from the producer without the producer having to write code or manage the pipeline. The description ideally uses CDC (change data capture) but can also use SQL definitions OR FTP servers and so on. Legacy systems are important and the system can describe those also for ingestion.
 
@@ -35,13 +46,13 @@ A Datastore is a collection of datasets with a common ingestion description. An 
 - Capture metadata describing how to ingest this datastore. Where is it, how can we get it, what credential should be used to ingest it, etc.
 - A set of policies that govern the data in the datastore. These policies are defined by the zone owning the data.
 
-## Data Consumers
+### Data Consumers
 
 Data consumers consume data exposed in the ecosystem using a Workspace. A Workspace is a collection of datasets of interest to the consumer. The consumer specifies metadata about the workspace indicating how they want to consume the data. For example, a particular style of data engine (OLAP, Lakehouse with Spark containers, OLTP database, etc). The ecosystem's job is to make sure the data is available in the workspace in the format requested by the consumer. How the ecosystem does this is up to the ecosystem. The consumer just stated their requirements. The producers of that data also specify their ingestion metadata and the ecosystem can join the dots.
 
 The consumer can then use the data in the workspace to do their job. A data consumer can also produce derivative data from the workspace. They would then be both consumers and producers of data. If they produce data then we call them a Data Refiner to distinguish them from a pure consumer.
 
-## Data Refiners
+### Data Refiners
 
 A data refiner is a consumer that produces derivative data from the Workspace and stores it in a new Datastore in the ecosystem. This new datastore can then be used by other consumers.
 
