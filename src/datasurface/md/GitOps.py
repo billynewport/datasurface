@@ -131,7 +131,7 @@ class GitHubRepository(Repository):
             return False
         
     def __str__(self) -> str:
-        return f"GitRepository({self.repositoryName})"
+        return f"GitRepository({self.repositoryName}/{self.branchName})"
     
     def is_valid_github_repo_name(self, name : str):
         if not 1 <= len(name) <= 100:

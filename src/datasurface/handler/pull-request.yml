@@ -33,7 +33,7 @@ jobs:
         pip install -r requirements.txt
 
     - name: Run check script
-      run: python check_pr.py ${{ github.workspace }}/main ${{ github.workspace }}/pr
+      run: python action.py ${{ github.workspace }}/main ${{ github.workspace }}/pr
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
           BASE_REPOSITORY: ${{ github.repository }}

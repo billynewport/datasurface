@@ -2,6 +2,7 @@
 import importlib
 import os
 import sys
+from types import ModuleType
 from typing import Optional
 
 from datasurface.md.Governance import Ecosystem
@@ -9,7 +10,26 @@ from datasurface.md.GitOps import GitHubRepository, Repository
 from datasurface.md.Lint import ValidationTree
 
 
+def getEcosystem(path : str) -> Ecosystem:
+    """This tries to bootstrap an Ecosystem from the file eco.py on a specific path"""
+    origSystemPath : list[str] = sys.path
+    try:
+        sys.path.append(path)
+
+        module : ModuleType = importlib.import_module("eco")
+        function = getattr(module, "createEcosystem")
+        sys.path = origSystemPath
+
+        # This should now point to createEcosystem() -> Ecosystem in the eco.py file on the path specified
+        eco : Ecosystem = function() 
+        return eco
+    except:
+        sys.path = origSystemPath
+        raise Exception("Cannot load ecosystem from path {path}")
+
 def verifyPullRequest():
+    """This is the actual github action handler"""
+    origSystemPath : list[str] = sys.path
     mainFolder : str = sys.argv[1]
     prFolder : str = sys.argv[2]
 
@@ -21,29 +41,20 @@ def verifyPullRequest():
     prRepo : Repository = GitHubRepository(head_Repository, head_Branch)
 
     origSystemPath : list[str] = sys.path
-    # Add mainFolder to system path and then load the eco.py which has a main and returns an Ecosystem
-    sys.path.append(mainFolder)
 
-    module = importlib.import_module("eco")
-    function = getattr(module, "createEcosystem")
+    # Main branch Ecosystem, we compare pull request against this
+    ecoMain : Ecosystem = getEcosystem(mainFolder)
 
-    ecoMain : Ecosystem = function()
-
-    # Reset system path
-    sys.path = origSystemPath
-    # Add prFolder to system path and then load the eco.py which has a main and returns an Ecosystem
-    sys.path.append(prFolder)
-
-    module = importlib.import_module("eco")
-    function = getattr(module, "createEcosystem")
-
-    ecoPR : Ecosystem = function()
+    # Pull request ecosystem
+    ecoPR : Ecosystem = getEcosystem(prFolder)
 
     sys.path = origSystemPath
+
+    # Check if all changes in ecoPR are valid, consistent, authorized from the pull request repo
     tree : ValidationTree = ecoMain.checkIfChangesCanBeMerged(ecoPR, prRepo)
 
+    # Need to create github comments for top 20 problems and indicate if there are more
     if(tree.hasErrors()):
         raise Exception(f"Pull request not allowed: {tree}")
-
 
     
