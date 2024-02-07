@@ -58,3 +58,5 @@ def verifyPullRequest():
         raise Exception(f"Pull request not allowed: {tree}")
 
     
+if __name__ == "__main__":
+    verifyPullRequest()
