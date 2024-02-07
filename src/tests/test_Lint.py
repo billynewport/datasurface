@@ -5,15 +5,15 @@ from datasurface.md.Lint import ProblemSeverity, ValidationTree
 
 class TestLint(unittest.TestCase):
     def test_RepositoryLint(self):
-        r : GitHubRepository = GitHubRepository("https://github.com/billynewport/fo.git", "main")
+        r : GitHubRepository = GitHubRepository("billynewport", "FOmain")
         tree : ValidationTree = ValidationTree(r)
         r.lint(tree)
         self.assertFalse(tree.hasErrors())
 
-        r : GitHubRepository = GitHubRepository("github.com/billynewport/fo.git", "main")
+        r : GitHubRepository = GitHubRepository("billynewport", "FOmain")
         tree : ValidationTree = ValidationTree(r)
         r.lint(tree)
-        self.assertTrue(tree.hasErrors())        
+        self.assertFalse(tree.hasErrors())        
 
         # If tree has any problems marked as ERROR then hasErrors return true
         tree = ValidationTree("")

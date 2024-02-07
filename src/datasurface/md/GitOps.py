@@ -119,26 +119,26 @@ class GitHubRepository(Repository):
     folder. The eco.py file should contain an ecosystem object which is used to construct the ecosystem"""
     def __init__(self, repo : str, branchName : str, doc : Optional[Documentation] = None) -> None:
         super().__init__(doc)
-        self.repoURL : str = repo
+        self.repositoryName : str = repo
         """The name of the git repository from which changes to Team objects are authorized"""
         self.branchName : str = branchName
         """The name of the branch containing an eco.py to construct an ecosystem"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, GitHubRepository)):
-            return super().__eq__(__value) and self.repoURL == __value.repoURL and self.branchName == __value.branchName
+            return super().__eq__(__value) and self.repositoryName == __value.repositoryName and self.branchName == __value.branchName
         else:
             return False
         
     def __str__(self) -> str:
-        return f"GitRepository({self.repoURL})"
+        return f"GitRepository({self.repositoryName})"
     
-    def is_valid_github_url(self, url: str) -> bool:
-        """This validates a github url"""
-        https_pattern = r'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/?'
-        ssh_pattern = r'git@github\.com:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.git'
-        
-        return re.match(https_pattern, url) is not None or re.match(ssh_pattern, url) is not None
+    def is_valid_github_repo_name(self, name : str):
+        if not 1 <= len(name) <= 100:
+            return False
+        if name[0] == '-' or name[-1] == '-':
+            return False
+        return re.fullmatch(r'[a-zA-Z0-9_.-]+', name) is not None
 
     def is_valid_github_branch(self, branch: str) -> bool:
         # Branch names cannot contain the sequence ..
@@ -167,7 +167,7 @@ class GitHubRepository(Repository):
     
     def lint(self, tree : ValidationTree):
         """This checks if repository is valid syntaxically"""
-        if(self.is_valid_github_url(self.repoURL) == False):
-            tree.addProblem("Repository URL is not valid")
+        if(self.is_valid_github_repo_name(self.repositoryName) == False):
+            tree.addProblem("Repository name is not valid")
         if(self.is_valid_github_branch(self.branchName) == False):
             tree.addProblem("Branch name is not valid")

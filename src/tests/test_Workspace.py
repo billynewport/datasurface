@@ -29,12 +29,12 @@ class TestWorkspace(unittest.TestCase):
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow("US")
         gzUSA.add(
-                TeamDeclaration("Test", GitHubRepository("gitrepo url", "module"))
+                TeamDeclaration("Test", GitHubRepository("gitrepo", "module"))
         )
 
         gzChina : GovernanceZone = eco.getZoneOrThrow("China")
         gzChina.add(
-                TeamDeclaration("China Team", GitHubRepository("gitrepo url", "module"))
+                TeamDeclaration("China Team", GitHubRepository("gitrepo", "module"))
                 # Mandatory policy that ALL data must be stored within vendors/assets declared in this zone
             )
         return eco

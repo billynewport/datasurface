@@ -12,16 +12,16 @@ from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 def createEcosystem() -> Ecosystem:
     ecosys : Ecosystem = Ecosystem(
         "Test", 
-        GitHubRepository("https://github.com/billynewport/eco.git", "main"),
+        GitHubRepository("billynewport", "ECOmain"),
 
         # Data Platforms
         DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
         AmazonAWSDataPlatform("AWS Platform"),
 
         # GovernanceZones
-        GovernanceZoneDeclaration("USA", GitHubRepository("https://github.com/billynewport/gzUSA.git", "main")),
-        GovernanceZoneDeclaration("EU", GitHubRepository("https://github.com/billynewport/gzEU.git", "main")),
-        GovernanceZoneDeclaration("UK", GitHubRepository("https://github.com/billynewport/gzUK.git", "main")),
+        GovernanceZoneDeclaration("USA", GitHubRepository("billynewport", "USAmain")),
+        GovernanceZoneDeclaration("EU", GitHubRepository("billynewport", "EUmain")),
+        GovernanceZoneDeclaration("UK", GitHubRepository("billynewportt", "UKmain")),
 
         # Infra Vendors and locations
         InfrastructureVendor("AWS",
@@ -61,26 +61,26 @@ def createEcosystem() -> Ecosystem:
     gzUSA : GovernanceZone = ecosys.getZoneOrThrow("USA")
 
     gzUSA.add(
-            TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
-            TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
-            TeamDeclaration("NorthWindTeam", GitHubRepository("https://github.com/billynewport/nwTeam.git", "main")),
-            TeamDeclaration("BackOffice", GitHubRepository("https://github.com/billynewport/bo.git", "main")),
+            TeamDeclaration("FrontOffice", GitHubRepository("billynewport", "FOmain")),
+            TeamDeclaration("MiddleOffice", GitHubRepository("billynewport", "MOmain")),
+            TeamDeclaration("NorthWindTeam", GitHubRepository("billynewport", "NWmain")),
+            TeamDeclaration("BackOffice", GitHubRepository("billynewport", "BOmain")),
 #            InfraStructureLocationPolicy("AWS USA Only", ecosys.getAllChildLocations("AWS", ["USA"]), None)
             InfraStructureLocationPolicy("Azure USA Only", ecosys.getAllChildLocations("Azure", ["USA"]), None)
         )
 
     gzEU : GovernanceZone = ecosys.getZoneOrThrow("EU")
     gzEU.add(
-            TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
-            TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
-            TeamDeclaration("BackOffice", GitHubRepository("https://github.com/billynewport/bo.git", "main"))
+            TeamDeclaration("FrontOffice", GitHubRepository("billynewportt", "FOmain")),
+            TeamDeclaration("MiddleOffice", GitHubRepository("billynewport", "MOmain")),
+            TeamDeclaration("BackOffice", GitHubRepository("billynewport", "BOmain"))
             )
 
     gzUK : GovernanceZone = ecosys.getZoneOrThrow("UK")
     gzUK.add(
-        TeamDeclaration("FrontOffice", GitHubRepository("https://github.com/billynewport/fo.git", "main")),
-        TeamDeclaration("MiddleOffice", GitHubRepository("https://github.com/billynewport/mo.git", "main")),
-        TeamDeclaration("BackOffice", GitHubRepository("https://github.com/billynewport/bo.git", "main"))
+        TeamDeclaration("FrontOffice", GitHubRepository("billynewport", "FOmain")),
+        TeamDeclaration("MiddleOffice", GitHubRepository("billynewport", "MOmain")),
+        TeamDeclaration("BackOffice", GitHubRepository("billynewport", "BOmain"))
     )
 
 
