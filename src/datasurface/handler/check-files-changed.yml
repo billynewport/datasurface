@@ -1,0 +1,22 @@
+name: Check Changed Files
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0  # Fetch all history so we can compare with the previous commit
+
+    - name: Check changed files
+      run: |
+        changed_files=$(git diff --name-only HEAD^ HEAD)
+        for file in $changed_files; do
+          if [[ ! $file =~ ^allowed_directory/ ]]; then
+            echo "Error: Changes have been made outside of the allowed directory"
+            exit 1
+          fi
+        done
+        

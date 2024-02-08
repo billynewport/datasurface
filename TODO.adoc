@@ -5,3 +5,4 @@
 * Make docker container to run action handler
 * GZ Vendor and Location policies check use of their Datasets in other GZ Workspaces
 
+* Need to make sure pull requests cannot change non py artifacts in main repo

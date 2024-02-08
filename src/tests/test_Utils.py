@@ -37,7 +37,7 @@ class Test_Utils(unittest.TestCase):
     def test_GitHubUrl(self):
         # Valid SSH GitHub URLs
         valid_URLs : list[str] = [ 
-            "billynewport"
+            "billynewport/repo"
             ]
 
         for url in valid_URLs:

@@ -318,6 +318,14 @@ class InfrastructureLocation:
                 self.documentation == __value.documentation
         return False
     
+    def getEveryChildLocation(self) -> set['InfrastructureLocation']:
+        """This returns every child location of this location"""
+        rc : set[InfrastructureLocation] = set()
+        for loc in self.locations.values():
+            rc.add(loc)
+            rc = rc.union(loc.getEveryChildLocation())
+        return rc
+
     def getLocationOrThrow(self, locationName : str) -> 'InfrastructureLocation':
         """Returns the location with the specified name or throws an exception"""
         loc : Optional[InfrastructureLocation] = self.locations.get(locationName)
@@ -1306,6 +1314,8 @@ class Ecosystem(GitControlledObject):
         # Any errors make us fail immediately
         # But we want warnings and infos to accumulate for the caller
         if eTree.hasErrors():
+            # TODO how to output erros
+            eTree.printTree()
             return eTree
         
         # Check if the proposed changes being made by an authorized repository

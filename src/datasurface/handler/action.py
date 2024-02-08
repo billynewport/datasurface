@@ -1,9 +1,12 @@
 
+import copy
 import importlib
 import os
 import sys
 from types import ModuleType
 from typing import Optional
+
+#import github
 
 from datasurface.md.Governance import Ecosystem
 from datasurface.md.GitOps import GitHubRepository, Repository
@@ -12,7 +15,7 @@ from datasurface.md.Lint import ValidationTree
 
 def getEcosystem(path : str) -> Ecosystem:
     """This tries to bootstrap an Ecosystem from the file eco.py on a specific path"""
-    origSystemPath : list[str] = sys.path
+    origSystemPath : list[str] = copy.deepcopy(sys.path)
     try:
         sys.path.append(path)
 
@@ -23,9 +26,8 @@ def getEcosystem(path : str) -> Ecosystem:
         # This should now point to createEcosystem() -> Ecosystem in the eco.py file on the path specified
         eco : Ecosystem = function() 
         return eco
-    except:
+    finally:
         sys.path = origSystemPath
-        raise Exception("Cannot load ecosystem from path {path}")
 
 def verifyPullRequest():
     """This is the actual github action handler"""
@@ -38,8 +40,16 @@ def verifyPullRequest():
     if(head_Repository == None or head_Branch == None):
         raise Exception("Git arguments not found")
 
+    # Connect to GitHub
+    gitToken : Optional[str] = os.environ.get('GITHUB_TOKEN')
+    if(gitToken == None):
+        raise Exception("GITHUB_TOKEN not in the environment")
+    
+#    gitHub : github.Github = github.Github(gitToken)
+
     prRepo : Repository = GitHubRepository(head_Repository, head_Branch)
 
+    # Backup current sys.path
     origSystemPath : list[str] = sys.path
 
     # Main branch Ecosystem, we compare pull request against this

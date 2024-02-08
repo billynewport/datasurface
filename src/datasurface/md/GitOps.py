@@ -133,12 +133,24 @@ class GitHubRepository(Repository):
     def __str__(self) -> str:
         return f"GitRepository({self.repositoryName}/{self.branchName})"
     
-    def is_valid_github_repo_name(self, name : str):
+    def is_valid_github_repo_name(self, name: str) -> bool:
         if not 1 <= len(name) <= 100:
             return False
+        owner, repo = name.split('/')
+        if(owner == '' or repo == ''):
+            return False
+        
         if name[0] == '-' or name[-1] == '-':
             return False
-        return re.fullmatch(r'[a-zA-Z0-9_.-]+', name) is not None
+        if '..' in name:
+            return False
+        if '/' not in name:
+            return False
+        owner, repo = name.split('/')
+        if not owner or not repo:
+            return False
+        pattern = r'^[a-zA-Z0-9_.-]+$'
+        return re.match(pattern, owner) is not None and re.match(pattern, repo) is not None
 
     def is_valid_github_branch(self, branch: str) -> bool:
         # Branch names cannot contain the sequence ..
@@ -168,6 +180,6 @@ class GitHubRepository(Repository):
     def lint(self, tree : ValidationTree):
         """This checks if repository is valid syntaxically"""
         if(self.is_valid_github_repo_name(self.repositoryName) == False):
-            tree.addProblem("Repository name is not valid")
+            tree.addProblem("Repository name <{self.repositoryName}> is not valid")
         if(self.is_valid_github_branch(self.branchName) == False):
-            tree.addProblem("Branch name is not valid")
+            tree.addProblem("Branch name <{self.branchName}> is not valid")
