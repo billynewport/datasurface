@@ -1774,10 +1774,9 @@ class GovernanceZone(GitControlledObject):
         for team in self.teams.authorizedObjects.values():
             tTree : ValidationTree = tree.createChild(team)
             originTeam : Optional[Team] = originZone.getTeam(team.name)
+            # if team exists in old zone then check it, otherwise, it's a new team and we don't care
             if originTeam:
                 team.isBackwardsCompatibleWith(originTeam, tTree)
-            else:
-                tTree.addProblem(f"Team {team.name} is missing from zone {originZone.name}")
 
     def getDatasetStoragePolicies(self, dataset : Dataset) -> Sequence[StoragePolicy]:
         """Returns the storage policies for the specified dataset including mandatory ones"""

@@ -6,6 +6,7 @@ import sys
 import unittest
 
 from datasurface.handler.action import verifyPullRequest
+from datasurface.md.Lint import ValidationTree
 
 class Test_ActionHandler(unittest.TestCase):
     def test_Step2(self):
@@ -20,7 +21,10 @@ class Test_ActionHandler(unittest.TestCase):
         os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
         os.environ.setdefault("HEAD_BRANCH", 'EUmain')
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        verifyPullRequest( )
+        tree : ValidationTree = verifyPullRequest( )
+        if(tree.hasErrors()):
+            tree.printTree()
+            self.fail("Tree has errors")
 
         # Now that the EU change is commited and the new baseline, lets see if the USA
         # pull request is valid
@@ -30,7 +34,10 @@ class Test_ActionHandler(unittest.TestCase):
         os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
         os.environ.setdefault("HEAD_BRANCH", 'USAmain')
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        verifyPullRequest()
+        tree = verifyPullRequest()
+        if(tree.hasErrors()):
+            tree.printTree()
+            self.fail("Tree has errors")
 
         # Now step 2 head_USA is base, verify next step
 
@@ -40,7 +47,10 @@ class Test_ActionHandler(unittest.TestCase):
         os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
         os.environ.setdefault("HEAD_BRANCH", 'EUmain')
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        verifyPullRequest()
+        tree = verifyPullRequest()
+        if(tree.hasErrors()):
+            tree.printTree()
+            self.fail("Tree has errors")
 
         baseFolder : str = 'src/tests/actionHandlerResources/step3'
         headFolder : str = 'src/tests/actionHandlerResources/step4'
@@ -48,4 +58,10 @@ class Test_ActionHandler(unittest.TestCase):
         os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
         os.environ.setdefault("HEAD_BRANCH", 'USAmain')
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        verifyPullRequest()
+        tree = verifyPullRequest()
+        if(tree.hasErrors()):
+            tree.printTree()
+            self.fail("Tree has errors")
+
+
+
