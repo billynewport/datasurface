@@ -1051,7 +1051,7 @@ class Ecosystem(GitControlledObject):
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
 
-        self.zones : AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration](lambda name, repo : self.createGZone(name, repo), repo)
+        self.zones : AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration]("zones", lambda name, repo : self.createGZone(name, repo), repo)
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.vendors : dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
@@ -1248,7 +1248,8 @@ class Ecosystem(GitControlledObject):
 
         self.checkTopLevelAttributeChangesAreAuthorized(prop_eco, changeSource, vTree)
 
-        self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource, vTree)
+        zTree : ValidationTree = vTree.createChild(self.zones)
+        self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource, zTree)
     
     def __eq__(self, proposed: object) -> bool:
         if super().__eq__(proposed) and isinstance(proposed, Ecosystem):
@@ -1256,11 +1257,25 @@ class Ecosystem(GitControlledObject):
         else:
             return False
     
-    def eq_toplevel(self, proposed: GitControlledObject) -> bool:
+    def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource : Repository, tree : ValidationTree) -> bool:
         """This is a shallow equality check for the top level ecosystem object"""
         if(isinstance(proposed, Ecosystem)):
-            return self.name == proposed.name and self.owningRepo == proposed.owningRepo and \
-                self.zones.eq_toplevel(proposed.zones) and self.vendors == proposed.vendors
+            rc : bool = True
+            # If we are being modified by a potentially unauthorized source then check
+            if(self.owningRepo != changeSource):
+                if self.name != proposed.name:
+                    tree.addProblem(f"Name {self.name} != {proposed.name}")
+                    rc = False
+                if self.owningRepo != proposed.owningRepo:
+                    tree.addProblem(f"OwningRepo {self.owningRepo} != {proposed.owningRepo}")
+                    rc = False
+                zTree : ValidationTree = tree.createChild(self.zones)
+                if self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree) == False:
+                    rc = False
+                if self.vendors != proposed.vendors:
+                    tree.addProblem(f"Vendors {self.vendors} != {proposed.vendors}")
+                    rc = False
+            return rc
         else:
             return False
         
@@ -1389,8 +1404,22 @@ class Team(GitControlledObject):
         else:
             raise ObjectDoesntExistException(f"Unknown datastore {storeName}")
         
-    def eq_toplevel(self, proposed: GitControlledObject) -> bool:
-        return super().eq_toplevel(proposed) and type(proposed) is Team and self.dataStores == proposed.dataStores and self.workspaces == proposed.workspaces
+    def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource : Repository, tree : ValidationTree) -> bool:
+        """This is a shallow equality check for the top level team object"""
+        # If we are being changed by an authorized source then it doesnt matter
+        if(self.owningRepo == changeSource):
+            return True
+        if not super().areTopLevelChangesAuthorized(proposed, changeSource, tree):
+            return False
+        if not isinstance(proposed, Team):
+            return False
+        if self.dataStores != proposed.dataStores:
+            tree.addProblem(f"DataStores {self.dataStores} != {proposed.dataStores}")
+            return False
+        if self.workspaces != proposed.workspaces:
+            tree.addProblem(f"Workspaces {self.workspaces} != {proposed.workspaces}")
+            return False
+        return True
     
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         """This checks if the team has changed relative to the specified change source"""
@@ -1469,8 +1498,9 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
     """This tracks a list of named authorizations and the named objects themselves in seperate lists. It is used
     to allow one repository to managed the authorization to create named objects using a second object specific repository or branch. 
     Each named object can then be managed by a seperate repository. """
-    def __init__(self, factory : Callable[[str, Repository], G], owningRepo : Repository) -> None:
+    def __init__(self, name : str, factory : Callable[[str, Repository], G], owningRepo : Repository) -> None:
         super().__init__(owningRepo)
+        self.name : str = name
         self.authorizedNames : dict[str, N] = OrderedDict[str, N]()
         self.authorizedObjects : dict[str, G] = OrderedDict[str, G]()
         self.factory : Callable[[str, Repository], G] = factory
@@ -1506,14 +1536,23 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
         if(super().__eq__(__value) and isinstance(__value, AuthorizedObjectManager)):
             a : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], __value)
             rc : bool = self.authorizedNames == a.authorizedNames
+            rc = rc and self.name == a.name
             rc = rc and self.authorizedObjects == a.authorizedObjects
             return rc
         else:
             return False
 
-    def eq_toplevel(self, proposed: GitControlledObject) -> bool:
+    def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource : Repository, tree : ValidationTree) -> bool:
         p : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
-        return self.authorizedNames == p.authorizedNames
+        # If we are modified by an authorized source then it doesn't matter if its different or not
+        if(self.owningRepo == changeSource):
+            return True
+        else:
+            if(self.authorizedNames == p.authorizedNames):
+                return True
+            else:
+                tree.addProblem(f"AuthorizedNames {self.authorizedNames} != {p.authorizedNames}")
+                return False
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         proposedGZ : AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
@@ -1537,6 +1576,9 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
         """Removes the object definition . This must be done by the object repo before the parent repo can remove the authorization"""
         r : Optional[G] = self.authorizedObjects.pop(name)
         return r
+    
+    def __str__(self) -> str:
+        return f"AuthorizedObjectManager({self.name})"
     
     def lint(self, tree : ValidationTree):
         self.superLint(tree)
@@ -1576,7 +1618,7 @@ class GovernanceZone(GitControlledObject):
         super().__init__(ownerRepo)
         self.name : str = name
         self.key : Optional[GovernanceZoneKey] = None
-        self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](lambda name, repo : Team(name, repo), ownerRepo)
+        self.teams : AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration]("teams", lambda name, repo : Team(name, repo), ownerRepo)
 
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         # Schemas for datasets defined in this GZ must comply with these classification restrictions
@@ -1664,13 +1706,28 @@ class GovernanceZone(GitControlledObject):
             return rc
         return False
 
-    def eq_toplevel(self, proposed: GitControlledObject) -> bool:
+    def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource : Repository, tree : ValidationTree) -> bool:
         """Just check the not git controlled attributes"""
-        if not(super().eq_toplevel(proposed) and type(proposed) is GovernanceZone and self.name == proposed.name):
+        # If we're changed by an authorized source then it doesn't matter
+        if(self.owningRepo == changeSource):
+            return True
+        if not(super().areTopLevelChangesAuthorized(proposed, changeSource, tree) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
-        return self.storagePolicies == proposed.storagePolicies and self.dataplatformPolicies == proposed.dataplatformPolicies and \
-            self.vendorPolicies == proposed.vendorPolicies and self.locationPolicies == proposed.locationPolicies and \
-            self.teams.eq_toplevel(proposed.teams)
+        if self.storagePolicies != proposed.storagePolicies:
+            tree.addProblem(f"StoragePolicies {self.storagePolicies} != {proposed.storagePolicies}")
+            return False
+        if self.dataplatformPolicies != proposed.dataplatformPolicies:
+            tree.addProblem(f"DataPlatformPolicies {self.dataplatformPolicies} != {proposed.dataplatformPolicies}")
+            return False
+        if self.vendorPolicies != proposed.vendorPolicies:
+            tree.addProblem(f"VendorPolicies {self.vendorPolicies} != {proposed.vendorPolicies}")
+            return False
+        if self.locationPolicies != proposed.locationPolicies:
+            tree.addProblem(f"LocationPolicies {self.locationPolicies} != {proposed.locationPolicies}")
+            return False
+        if not self.teams.areTopLevelChangesAuthorized(proposed.teams, changeSource, tree):
+            return False
+        return True
     
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
         proposedGZ : GovernanceZone = cast(GovernanceZone, proposed)

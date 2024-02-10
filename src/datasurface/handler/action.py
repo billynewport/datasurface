@@ -19,17 +19,24 @@ def getEcosystem(path : str) -> Ecosystem:
     try:
         sys.path.append(path)
 
+        # Remove the module from sys.modules to force a reload
+        if 'eco' in sys.modules:
+            del sys.modules['eco']
+
         module : ModuleType = importlib.import_module("eco")
         function = getattr(module, "createEcosystem")
         sys.path = origSystemPath
 
         # This should now point to createEcosystem() -> Ecosystem in the eco.py file on the path specified
         eco : Ecosystem = function() 
+        # Flesh out
+        eco.lintAndHydrateCaches()
+
         return eco
     finally:
         sys.path = origSystemPath
 
-def verifyPullRequest():
+def verifyPullRequest() -> ValidationTree:
     """This is the actual github action handler"""
     origSystemPath : list[str] = sys.path
     mainFolder : str = sys.argv[1]
@@ -65,7 +72,8 @@ def verifyPullRequest():
 
     # Need to create github comments for top 20 problems and indicate if there are more
     if(tree.hasErrors()):
-        raise Exception(f"Pull request not allowed: {tree}")
+        tree.printTree()
+    return tree
 
     
 if __name__ == "__main__":

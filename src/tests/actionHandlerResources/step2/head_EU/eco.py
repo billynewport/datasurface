@@ -26,7 +26,6 @@ def createEcosystem() -> Ecosystem:
                 InfrastructureLocation("eu-west-2")), # London
             InfrastructureLocation("EU",
                 InfrastructureLocation("eu-central-1"), # Frankfurt
-                InfrastructureLocation("eu-west-1"), # Ireland
                 InfrastructureLocation("eu-west-3"))),
 
         InfrastructureVendor("Azure",
@@ -44,7 +43,8 @@ def createEcosystem() -> Ecosystem:
                 InfrastructureLocation("West",
                     InfrastructureLocation("West US"), # California
                     InfrastructureLocation("West US 2"), # Washington
-                    InfrastructureLocation("West US 3"))))) # Arizona
+                    InfrastructureLocation("West US 3")))) # Arizona
+        )
     
     # Add the EU GZ and its policies limiting locations to EU only
     gzEU : GovernanceZone = e.getZoneOrThrow("EU")

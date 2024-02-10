@@ -39,9 +39,14 @@ class GitControlledObject(ABC):
             return False
         
     @abstractmethod
-    def eq_toplevel(self, proposed : 'GitControlledObject') -> bool:
+    def areTopLevelChangesAuthorized(self, proposed : 'GitControlledObject', changeSource : Repository, tree : ValidationTree) -> bool:
         """This should compare attributes which are locally authorized only"""
-        return True
+        if(self.owningRepo == changeSource):
+            return True
+        rc : bool = self.owningRepo == proposed.owningRepo
+        if not rc:
+            tree.addProblem(f"{self} changed owning repo")
+        return rc
     
     def superLint(self, tree : ValidationTree):
         rTree : ValidationTree = tree.createChild(self.owningRepo)
@@ -52,8 +57,13 @@ class GitControlledObject(ABC):
         # Check if the ecosystem has been modified at all
         if(self == proposed):
             return
-        elif(not self.eq_toplevel(proposed) and self.owningRepo != changeSource):
-            vTree.addProblem(f"{self} top level has been modified by an unauthorized source")
+        else:
+            # If changer is authorized then changes are allowed
+            if(self.owningRepo == changeSource):
+                return
+            rc : bool = self.areTopLevelChangesAuthorized(proposed, changeSource, vTree)
+            if not rc:
+                vTree.addProblem(f"{self} top level has been modified by an unauthorized source")
 
     @abstractmethod    
     def checkIfChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:

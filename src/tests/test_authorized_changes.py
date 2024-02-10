@@ -42,6 +42,7 @@ class TestEcoNameChange(unittest.TestCase):
         # Should be allowed from eco repo
         eTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
+        eTree.printTree()
         self.assertFalse(eTree.hasErrors())
 
         # reset
@@ -98,6 +99,7 @@ class TestEcoNameChange(unittest.TestCase):
         # Should be allowed from team repo
         eTree = ValidationTree(e_other)
         eco_baseline.checkIfChangesAreAuthorized(e_other, t.owningRepo, eTree)
+        eTree.printTree()
         self.assertFalse(eTree.hasErrors())
 
         # Now verify that the new team can only be changed from its owning repo which can 
