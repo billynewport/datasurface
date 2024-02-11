@@ -21,6 +21,11 @@ class ValidationProblem:
     def __eq__(self, o : object) -> bool:
         return isinstance(o, self.__class__) and self.description == o.description and self.sev == o.sev
 
+class UnknownObject(ValidationProblem):
+    """This indicates an unknown object"""
+    def __init__(self, obj : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Unknown object {obj}", sev)
+
 class AttributeNotSet(ValidationProblem):
     """This indicates a required attribute has not been specified"""
     def __init__(self, key : str) -> None:
@@ -65,7 +70,12 @@ class DuplicateObject(ValidationProblem):
     """This indicates an object is duplicated"""
     def __init__(self, obj : object, sev : ProblemSeverity) -> None:
         super().__init__(f"Object {obj} is duplicated", sev)
-        
+
+class ConstraintViolation(ValidationProblem):
+    """This indicates a constraint violation"""
+    def __init__(self, obj : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Constraint violation {obj}", sev)
+
 class ValidationTree:
     """This is a tree of issues found while running a set of checks against the model. It is used to collect issues. Each node in the 
     tree represents an object in the model. Each node can list a set of issues found with that node"""

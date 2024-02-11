@@ -15,7 +15,7 @@ from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_i
 from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
-from .Lint import AttributeNotSet, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, UnauthorizedAttributeChange, ProblemSeverity, ValidationTree
+from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, UnauthorizedAttributeChange, ProblemSeverity, UnknownObject, ValidationTree
 
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
@@ -577,7 +577,7 @@ class Dataset(ANSI_SQL_NamedObject):
         self.nameLint(tree)
         for policy in self.policies.values():
             if(policy.key == None):
-                tree.addProblem(f"Storage policy {policy.name} is not associated with a governance zone")
+                tree.addRaw(AttributeNotSet(f"Storage policy {policy.name} is not associated with a governance zone"))
             else:
                 if(policy.key.gzName != gz.name):
                     tree.addProblem(f"Datasets must be governed by storage policies from its managing zone")
@@ -803,13 +803,13 @@ class DataTransformerOutput(CaptureMetaData):
         w : Optional[Workspace] = t.workspaces.get(self.workSpaceName)
 
         if(w == None):
-            tree.addProblem(f"Unknown workspace {self.workSpaceName}")
+            tree.addRaw(UnknownObject(f"workspace {self.workSpaceName}", ProblemSeverity.ERROR))
         else:
             if(w.dataTransformer == None):
                 tree.addRaw(DataTransformerMissing(f"Workspace {self.workSpaceName} must have dataTransformer", ProblemSeverity.ERROR))
             else:
                 if(w.dataTransformer.outputDatastore.name != d.name):
-                    tree.addProblem(f"Specified Workspace {self.workSpaceName} output store name {w.dataTransformer.outputDatastore.name} doesnt match referring datastore {d.name}")
+                    tree.addRaw(ConstraintViolation(f"Specified Workspace {self.workSpaceName} output store name {w.dataTransformer.outputDatastore.name} doesnt match referring datastore {d.name}", ProblemSeverity.ERROR))
 
     def __str__(self):
         return f"DataTransformerOutput({self.workSpaceName})"
@@ -1962,7 +1962,7 @@ class DatasetSink(object):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetSink dataset name {self.datasetName}", ProblemSeverity.ERROR))
         dataset : Optional[Dataset] = eco.cache_getDataset(self.storeName, self.datasetName)
         if(dataset == None):
-            tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
+            tree.addRaw(ConstraintViolation(f"Unknown dataset {self.storeName}:{self.datasetName}", ProblemSeverity.ERROR))
         else:
             storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.storeName)
             if storeI:
@@ -1985,12 +1985,12 @@ class DatasetSink(object):
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using deprecated dataset", ProblemSeverity.WARNING)
                 dataset : Optional[Dataset] = store.datasets.get(self.datasetName)
                 if(dataset == None):
-                    tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
+                    tree.addRaw(UnknownObject(f"Unknown dataset {self.storeName}:{self.datasetName}", ProblemSeverity.ERROR))
                 else:
                     if(ws.classificationVerifier and not dataset.checkClassificationsAreOnly(ws.classificationVerifier)):
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} has unexpected classifications")
             else:
-                tree.addProblem(f"Unknown datastore {self.storeName}")
+                tree.addRaw(UnknownObject(f"Datastore {self.storeName}", ProblemSeverity.ERROR))
 
     def __str__(self) -> str:
         return f"DatasetSink({self.storeName}:{self.datasetName})"
@@ -2142,14 +2142,14 @@ class DataTransformer(ANSI_SQL_NamedObject):
         # Does store exist
         storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.outputDatastore.name)
         if(storeI == None):
-            tree.addProblem(f"Unknown datastore {self.outputDatastore.name}")
+            tree.addRaw(UnknownObject(f"datastore {self.outputDatastore.name}", ProblemSeverity.ERROR))
         else:
             if(storeI.datastore.productionStatus != ws.productionStatus):
-                tree.addProblem(f"DataTransformer {self.name} is using a datastore with a different production status", ProblemSeverity.WARNING)
+                tree.addRaw(ConstraintViolation(f"DataTransformer {self.name} is using a datastore with a different production status", ProblemSeverity.WARNING))
             
             workSpaceI : WorkspaceCacheEntry = eco.cache_getWorkspaceOrThrow(ws.name)
             if(workSpaceI.team != storeI.team):
-                tree.addProblem(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR)
+                tree.addRaw(ConstraintViolation(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR))
         codeEnvTree : ValidationTree = tree.createChild(self.codeEnv)
         self.codeEnv.lint(eco, codeEnvTree)
         codeTree : ValidationTree = tree.createChild(self.codeEnv)
