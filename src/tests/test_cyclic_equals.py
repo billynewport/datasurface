@@ -18,9 +18,9 @@ class TestCyclicSafeEq(unittest.TestCase):
         self.assertFalse(cyclic_safe_eq({"key": "value"}, {"key": "other value"}, set()))
 
     def test_cyclic_dict(self):
-        a = {}
+        a : dict[str, Any]= {}
         a["self"] = a
-        b = {}
+        b : dict[str, Any] = {}
         b["self"] = b
         self.assertTrue(cyclic_safe_eq(a, b, set()))
 
