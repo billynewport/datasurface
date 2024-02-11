@@ -34,6 +34,10 @@ class ValidationTree:
         self.children.append(child)
         return child
     
+    def getProblems(self) -> list[ValidationProblem]:
+        """This returns the list of problems"""
+        return self.problems
+    
     def addProblem(self, problem : str, sev : ProblemSeverity = ProblemSeverity.ERROR) -> None:
         """This adds a problem to this object"""
         self.problems.append(ValidationProblem(problem, sev))
