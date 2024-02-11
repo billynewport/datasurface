@@ -3,6 +3,7 @@ import unittest
 
 from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDeclaration, Ecosystem
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
+from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.eco import createEcosystem
@@ -38,16 +39,17 @@ class TestZones(unittest.TestCase):
         self.assertIsNotNone(child)
 
     def test_CreateUSAEco(self):
-        eco = Ecosystem("BigCorp", GitHubRepository("a", "b"))
+        eco = Ecosystem("BigCorp", GitHubRepository("o/r", "b"))
         self.assertEqual(eco.name, "BigCorp")
         self.assertEqual(eco.zones.getNumObjects(), 0)
         usZoneName : str = "US"
         eco.add(
-            GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
+            GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa/cc", "bb")),
         )
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
         eco.add(
                 InfrastructureVendor("AWS",
+                    PlainTextDocumentation("AWS is a cloud provider"),
                     InfrastructureLocation("USA",
                         InfrastructureLocation("us-east-1"),
                         InfrastructureLocation("us-east-2"),
@@ -62,6 +64,7 @@ class TestZones(unittest.TestCase):
         
         eco.add(
             InfrastructureVendor("AZURE",
+                PlainTextDocumentation("AZURE is a cloud provider"),
                 InfrastructureLocation("USA",
                     InfrastructureLocation("Central US"),
                     InfrastructureLocation("North Central US"),
@@ -77,10 +80,10 @@ class TestZones(unittest.TestCase):
                 ))
         gzUSA.add(
             TeamDeclaration("Billys team",
-                GitHubRepository("https://github.com/data-fracture/ecomgr.git", "module")
+                GitHubRepository("data-fracture/ecomgr", "module")
                 ),
             TeamDeclaration("Jacks team", 
-                GitHubRepository("git repo 2", "module2"))
+                GitHubRepository("gitrepo2/aa", "module2"))
             )
         self.assertEqual(eco.zones.getNumObjects(), 1)
         self.assertEqual(eco.getZone("US"), gzUSA)
@@ -124,6 +127,8 @@ class TestZones(unittest.TestCase):
         for locName in ['Central US', 'North Central US', 'South Central US', 'West Central US', 'West US', 'West US 2', 'West US 3', 'East US', 'East US 2', 'East US 3']:
             self.checkChildLocation(azureUSA, locName, azure)
 
+        tree : ValidationTree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
 
 
 if __name__ == '__main__':
