@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import re
-from typing import Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 from datasurface.md import Documentation
 from datasurface.md.Lint import ValidationTree
@@ -105,6 +105,68 @@ class GitControlledObject(ABC):
             # Check prop against curr for unauthorized changes
             cTree : ValidationTree = vTree.createChild(curr)
             curr.checkIfChangesAreAuthorized(prop, changeSource, cTree)
+
+    def showDictChangesAsProblems(self, current : Mapping[str, object], proposed : Mapping[str, object], vTree : ValidationTree) -> None:
+        """This converts any changes between the dictionaries into problems for the validation tree"""
+        # Get the object keys from the current main ecosystem
+        current_keys : set[str] = set(current)
+
+        # Get the object keys from the proposed ecosystem
+        proposed_keys : set[str] = set(proposed.keys())
+
+        deleted_keys : set[str] = current_keys - proposed_keys
+        added_keys : set[str] = proposed_keys - current_keys
+
+        # first check any top level objects have been added or removed by the correct change sources
+        for key in deleted_keys:
+            # Check if the object was deleted by the authoized change source
+            obj : Optional[object] = current[key]
+            vTree.addProblem(f"{str(obj)} has been deleted")
+        
+        for key in added_keys:
+            # Check if the object was added by the specified change source
+            obj : Optional[object] = proposed[key]
+            vTree.addProblem(f"{str(obj)} has been added")
+
+        # Now check each common object for changes
+        common_keys : set[str] = current_keys.intersection(proposed_keys)
+        for key in common_keys:
+            prop : Optional[object] = proposed[key]
+            curr : Optional[object] = current[key]
+            if(prop != curr):
+                vTree.addProblem(f"{str(prop)} has been modified")
+
+    def showSetChangesAsProblems(self, current : Iterable[object], proposed : Iterable[object], vTree : ValidationTree) -> None:
+        """This converts any changes between the dictionaries into problems for the validation tree"""
+        # Get the object keys from the current main ecosystem
+        current_keys : set[object] = set(current)
+
+        # Get the object keys from the proposed ecosystem
+        proposed_keys : set[object] = set(proposed)
+
+        deleted_keys : set[object] = current_keys - proposed_keys
+        added_keys : set[object] = proposed_keys - current_keys
+
+        # first check any top level objects have been added or removed by the correct change sources
+        for key in deleted_keys:
+            # Check if the object was deleted by the authoized change source
+            vTree.addProblem(f"{str(key)} has been deleted")
+        
+        for key in added_keys:
+            # Check if the object was added by the specified change source
+            vTree.addProblem(f"{str(key)} has been added")
+
+        # Now check each common object for changes
+        common_keys : set[object] = current_keys.intersection(proposed_keys)
+        for key in common_keys:
+            prop : Optional[object] = None
+            curr : Optional[object] = None
+            if key in proposed:
+                prop = key
+            if key in current:
+                curr = key
+            if(prop != curr):
+                vTree.addProblem(f"{str(key)} has been modified")
 
 class FakeRepository(Repository):
     """Fake implementation for test cases only"""

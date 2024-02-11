@@ -1273,7 +1273,15 @@ class Ecosystem(GitControlledObject):
                 if self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree) == False:
                     rc = False
                 if self.vendors != proposed.vendors:
-                    tree.addProblem(f"Vendors {self.vendors} != {proposed.vendors}")
+                    vTree : ValidationTree = tree.createChild("Vendors")
+                    self.showDictChangesAsProblems(self.vendors, proposed.vendors, vTree)
+                    rc = False
+                if self.dataPlatforms != proposed.dataPlatforms:
+                    pTree : ValidationTree = tree.createChild("DataPlatforms")
+                    self.showDictChangesAsProblems(self.dataPlatforms, proposed.dataPlatforms, pTree)
+                    rc = False
+                if self.defaultDataPlatform != proposed.defaultDataPlatform:
+                    tree.addProblem(f"DefaultDataPlatform modified to {proposed.defaultDataPlatform}")
                     rc = False
             return rc
         else:
@@ -1414,10 +1422,12 @@ class Team(GitControlledObject):
         if not isinstance(proposed, Team):
             return False
         if self.dataStores != proposed.dataStores:
-            tree.addProblem(f"DataStores {self.dataStores} != {proposed.dataStores}")
+            dTree : ValidationTree = tree.createChild("Datastores")
+            self.showDictChangesAsProblems(self.dataStores, proposed.dataStores, dTree)
             return False
         if self.workspaces != proposed.workspaces:
-            tree.addProblem(f"Workspaces {self.workspaces} != {proposed.workspaces}")
+            wTree : ValidationTree = tree.createChild("Workspaces")
+            self.showDictChangesAsProblems(self.workspaces, proposed.workspaces, wTree)
             return False
         return True
     
@@ -1489,6 +1499,9 @@ class NamedObjectAuthorization:
             return self.name == __value.name and self.owningRepo == __value.owningRepo
         else:
             return False
+        
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
 
 
 G = TypeVar('G', bound=GitControlledObject)
@@ -1551,7 +1564,7 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
             if(self.authorizedNames == p.authorizedNames):
                 return True
             else:
-                tree.addProblem(f"AuthorizedNames {self.authorizedNames} != {p.authorizedNames}")
+                self.showDictChangesAsProblems(self.authorizedNames, p.authorizedNames, tree)
                 return False
 
     def checkIfChangesAreAuthorized(self, proposed : GitControlledObject, changeSource : Repository, vTree : ValidationTree) -> None:
@@ -1714,16 +1727,16 @@ class GovernanceZone(GitControlledObject):
         if not(super().areTopLevelChangesAuthorized(proposed, changeSource, tree) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
         if self.storagePolicies != proposed.storagePolicies:
-            tree.addProblem(f"StoragePolicies {self.storagePolicies} != {proposed.storagePolicies}")
+            self.showSetChangesAsProblems(self.storagePolicies, proposed.storagePolicies, tree.createChild("StoragePolicies"))
             return False
         if self.dataplatformPolicies != proposed.dataplatformPolicies:
-            tree.addProblem(f"DataPlatformPolicies {self.dataplatformPolicies} != {proposed.dataplatformPolicies}")
+            self.showSetChangesAsProblems(self.dataplatformPolicies, proposed.dataplatformPolicies, tree.createChild("DataPlatformPolicies"))
             return False
         if self.vendorPolicies != proposed.vendorPolicies:
-            tree.addProblem(f"VendorPolicies {self.vendorPolicies} != {proposed.vendorPolicies}")
+            self.showSetChangesAsProblems(self.vendorPolicies, proposed.vendorPolicies, tree.createChild("VendorPolicies"))
             return False
         if self.locationPolicies != proposed.locationPolicies:
-            tree.addProblem(f"LocationPolicies {self.locationPolicies} != {proposed.locationPolicies}")
+            self.showSetChangesAsProblems(self.locationPolicies, proposed.locationPolicies, tree.createChild("LocationPolicies"))
             return False
         if not self.teams.areTopLevelChangesAuthorized(proposed.teams, changeSource, tree):
             return False

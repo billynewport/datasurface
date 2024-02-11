@@ -76,6 +76,11 @@ class TestEcoNameChange(unittest.TestCase):
 
         # Should be allowed from gz repo
         eTree = ValidationTree(e_other)
+        eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo, eTree)
+        self.assertTrue(eTree.hasErrors())
+
+        # Should be allowed from gz repo
+        eTree = ValidationTree(e_other)
         eco_baseline.checkIfChangesAreAuthorized(e_other, gzUSA.owningRepo, eTree)
         self.assertFalse(eTree.hasErrors())
 
@@ -94,6 +99,7 @@ class TestEcoNameChange(unittest.TestCase):
         # Should not be allowed from other repo
         eTree = ValidationTree(e_other)
         eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo, eTree)
+        eTree.printTree()
         self.assertTrue(eTree.hasErrors())
 
         # Should be allowed from team repo
