@@ -10,7 +10,7 @@ setup(
     name='datasurface',
     version='0.0.4',
     license='Apache License 2.0',
-    description='The DSL code for building a datasurface catalog in github',
+    description='Automate the governance, management and movement of data within your enterprise',
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='Billy Newport',
