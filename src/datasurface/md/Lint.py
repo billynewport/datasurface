@@ -21,7 +21,7 @@ class ValidationProblem:
     def __eq__(self, o : object) -> bool:
         return isinstance(o, self.__class__) and self.description == o.description and self.sev == o.sev
 
-class UnknownObject(ValidationProblem):
+class UnknownObjectReference(ValidationProblem):
     """This indicates an unknown object"""
     def __init__(self, obj : object, sev : ProblemSeverity) -> None:
         super().__init__(f"Unknown object {obj}", sev)

@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='datasurface',
-    version='0.0.3',
+    version='0.0.4',
     license='Apache License 2.0',
     description='The DSL code for building a datasurface catalog in github',
     long_description=long_description,
