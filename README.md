@@ -1,3 +1,5 @@
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](code_of_conduct.md)
+
 # Data surface, a data ecosystem broker
 
 The goal is this project is to eliminate data pipelines as a manual task within an enterprise. Enterprise developers should be performing only the following tasks:
