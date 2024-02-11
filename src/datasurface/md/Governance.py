@@ -15,7 +15,7 @@ from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_i
 from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
-from .Lint import ProblemSeverity, ValidationTree
+from .Lint import AttributeNotSet, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, UnauthorizedAttributeChange, ProblemSeverity, ValidationTree
 
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
@@ -286,7 +286,7 @@ class InfrastructureLocation:
     def lint(self, tree : ValidationTree):
         """This checks if the vendor is valid for the specified ecosystem, governance zone and team"""
         if(self.key == None):
-            tree.addProblem("Location key not set")
+            tree.addRaw(AttributeNotSet("Location"))
         if(self.documentation):
             dTree : ValidationTree = tree.createChild(self.documentation)
             self.documentation.lint(dTree)
@@ -426,9 +426,9 @@ class InfrastructureVendor:
     def lint(self, tree : ValidationTree):
         """This checks if the vendor is valid for the specified ecosystem, governance zone and team"""
         if(self.key == None):
-            tree.addProblem("Vendor key not set")
+            tree.addRaw(AttributeNotSet("Vendor"))
         if(self.documentation == None):
-            tree.addProblem("Vendor documentation not set")
+            tree.addRaw(AttributeNotSet("Documentation"))
         else:
             self.documentation.lint(tree)
 
@@ -583,13 +583,13 @@ class Dataset(ANSI_SQL_NamedObject):
                     tree.addProblem(f"Datasets must be governed by storage policies from its managing zone")
                 if(policy.deprecationStatus.status == DeprecationStatus.DEPRECATED):
                     if(store.isDatasetDeprecated(self)):
-                        tree.addProblem(f"Storage policy {policy.name} is deprecated", ProblemSeverity.WARNING)
+                        tree.addRaw(ObjectIsDeprecated(policy, ProblemSeverity.WARNING))
                     else:
-                        tree.addProblem(f"Storage policy {policy.name} is deprecated", ProblemSeverity.ERROR)
+                        tree.addRaw(ObjectIsDeprecated(policy, ProblemSeverity.ERROR))
         if(self.originalSchema):
             self.originalSchema.lint(tree)
         else:
-            tree.addProblem("Original schema not set")
+            tree.addRaw(AttributeNotSet("originalSchema"))
 
     def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         """This checks if the dataset only has the specified classifications"""
@@ -609,13 +609,13 @@ class Dataset(ANSI_SQL_NamedObject):
         can be used in place of this dataset. This is used to check if a dataset can be replaced by another dataset
         when a new version is released"""
         if(not isinstance(other, Dataset)):
-            vTree.addProblem(f"Object {other} is not a Dataset")
+            vTree.addRaw(ObjectWrongType(other, Dataset, ProblemSeverity.ERROR))
             return False
         super().isBackwardsCompatibleWith(other, vTree)
         if(self.originalSchema == None):
-            vTree.addProblem(f"Original schema not set for {self.name}")
+            vTree.addRaw(AttributeNotSet(f"Original schema not set for {self.name}"))
         elif(other.originalSchema == None):
-            vTree.addProblem(f"Original schema not set for {other.name}")
+            vTree.addRaw(AttributeNotSet(f"Original schema not set for {other.name}"))
         else:
             self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
         return not vTree.hasErrors()
@@ -701,15 +701,15 @@ class CaptureSourceInfo(ABC):
         # Verify that the location on the ingestion metadata doesn't violate
         # the governance zone policies for vendor or location
         if(self.location.key):
-            for location in gz.locationPolicies:
-                if not location.isCompatible(self.location):
-                    tree.addProblem(f"Location not compatible with gz location policy {location}")
-            for vendor in gz.vendorPolicies:
+            for locPolicy in gz.locationPolicies:
+                if not locPolicy.isCompatible(self.location):
+                    tree.addRaw(ObjectNotCompatibleWithPolicy(self.location, locPolicy, ProblemSeverity.ERROR))
+            for vendorPolicy in gz.vendorPolicies:
                 v : InfrastructureVendor = eco.getVendorOrThrow(self.location.key.ivName)
-                if not vendor.isCompatible(v):
-                    tree.addProblem(f"Vendor not compatible with gz policy {vendor}")
+                if not vendorPolicy.isCompatible(v):
+                    tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
         else:
-            tree.addProblem(f"CaptureSourceInfo location has no key")
+            tree.addRaw(AttributeNotSet(f"CaptureSourceInfo location has no key"))
 
 class PyOdbcSourceInfo(CaptureSourceInfo):
     """This describes how to connect to a database using pyodbc"""
@@ -780,7 +780,7 @@ class CaptureMetaData(ABC):
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         if(self.singleOrMultiDatasetIngestion == None):
-            tree.addProblem("Single Or Multi ingestion not specified")
+            tree.addRaw(AttributeNotSet("Single Or Multi ingestion not specified"))
 
         if(self.stepTrigger):
             self.stepTrigger.lint(eco, gz, t, tree)
@@ -806,7 +806,7 @@ class DataTransformerOutput(CaptureMetaData):
             tree.addProblem(f"Unknown workspace {self.workSpaceName}")
         else:
             if(w.dataTransformer == None):
-                tree.addProblem(f"Workspace {self.workSpaceName} must have dataTransformer")
+                tree.addRaw(DataTransformerMissing(f"Workspace {self.workSpaceName} must have dataTransformer", ProblemSeverity.ERROR))
             else:
                 if(w.dataTransformer.outputDatastore.name != d.name):
                     tree.addProblem(f"Specified Workspace {self.workSpaceName} output store name {w.dataTransformer.outputDatastore.name} doesnt match referring datastore {d.name}")
@@ -957,7 +957,7 @@ class Datastore(ANSI_SQL_NamedObject):
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', storeTree : ValidationTree) -> None:
         self.nameLint(storeTree)
         if(self.key == None):
-            storeTree.addProblem(f"{self} has no key")
+            storeTree.addRaw(AttributeNotSet(f"{self} has no key"))
         for dataset in self.datasets.values():
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
@@ -966,14 +966,14 @@ class Datastore(ANSI_SQL_NamedObject):
             cmdTree : ValidationTree = storeTree.createChild(self.cmd)
             self.cmd.lint(eco, gz, t, self, cmdTree)
         else:
-            storeTree.addProblem("CaptureMetaData not set")
+            storeTree.addRaw(AttributeNotSet("CaptureMetaData not set"))
     
     def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
         can be used to replace this one without breaking any data pipelines"""
 
         if(not isinstance(other, Datastore)):
-            vTree.addProblem(f"Object {other} is not a Datastore")
+            vTree.addRaw(ObjectWrongType(other, Datastore, ProblemSeverity.ERROR))
             return False
         super().isBackwardsCompatibleWith(other, vTree)
         # Check if the datasets are compatible
@@ -983,7 +983,7 @@ class Datastore(ANSI_SQL_NamedObject):
             if(otherDataset):
                 dataset.isBackwardsCompatibleWith(otherDataset, dTree)
             else:
-                dTree.addProblem(f"Dataset {dataset.name} is missing from datastore {other.name}")
+                dTree.addRaw(ObjectMissing(other, dataset, ProblemSeverity.ERROR))
         return not vTree.hasErrors()
     
     def __str__(self) -> str:
@@ -1267,10 +1267,10 @@ class Ecosystem(GitControlledObject):
             # If we are being modified by a potentially unauthorized source then check
             if(self.owningRepo != changeSource):
                 if self.name != proposed.name:
-                    tree.addProblem(f"Name {self.name} != {proposed.name}")
+                    tree.addRaw(UnauthorizedAttributeChange("name", self.name, proposed.name, ProblemSeverity.ERROR))
                     rc = False
                 if self.owningRepo != proposed.owningRepo:
-                    tree.addProblem(f"OwningRepo {self.owningRepo} != {proposed.owningRepo}")
+                    tree.addRaw(UnauthorizedAttributeChange("owningRepo", self.owningRepo, proposed.owningRepo, ProblemSeverity.ERROR))
                     rc = False
                 zTree : ValidationTree = tree.createChild(self.zones)
                 if self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree) == False:
@@ -1284,7 +1284,7 @@ class Ecosystem(GitControlledObject):
                     self.showDictChangesAsProblems(self.dataPlatforms, proposed.dataPlatforms, pTree)
                     rc = False
                 if self.defaultDataPlatform != proposed.defaultDataPlatform:
-                    tree.addProblem(f"DefaultDataPlatform modified to {proposed.defaultDataPlatform}")
+                    tree.addRaw(UnauthorizedAttributeChange("defaultDataPlatformn", self.defaultDataPlatform, proposed.defaultDataPlatform, ProblemSeverity.ERROR))
                     rc = False
             return rc
         else:
@@ -1444,7 +1444,7 @@ class Team(GitControlledObject):
         """This validates a single team declaration and populates the datastore cache with that team's stores"""
         for s in self.dataStores.values():
             if eco.datastoreCache.get(s.name) is not None:
-                teamTree.addProblem(f"Duplicate Datastore {s.name}")
+                teamTree.addRaw(DuplicateObject(s, ProblemSeverity.ERROR))
             else:
                 storeTree : ValidationTree = teamTree.createChild(s)
                 eco.cache_addDatastore(s, self)
@@ -1455,24 +1455,24 @@ class Team(GitControlledObject):
         # Iterate over the workspaces to populate the cache but dont lint them yet
         for w in self.workspaces.values():
             if eco.workSpaceCache.get(w.name) is not None:
-                teamTree.addProblem(f"Duplicate Workspace {w.name}")
+                teamTree.addRaw(DuplicateObject(w, ProblemSeverity.ERROR))
                 # Cannot validate Workspace datasets until everything is loaded
             else:
                 eco.cache_addWorkspace(self, w)
                 if(gz.key):
                     w.setTeam(TeamDeclarationKey(gz.key, self.name))
                 else:
-                    teamTree.addProblem(f"{gz} has no key")
+                    teamTree.addRaw(AttributeNotSet(f"{gz} has no key"))
                 wTree : ValidationTree = teamTree.createChild(w)
 
                 # Check all classification allows policies from gz are satisfied on every sink
-                for dcc in gz.classificationPolicies:
+                for dccPolicy in gz.classificationPolicies:
                     for dsg in w.dsgs.values():
                         for sink in dsg.sinks.values():
                             store : Datastore = eco.cache_getDatastoreOrThrow(sink.storeName).datastore
                             dataset : Dataset = store.datasets[sink.datasetName]
-                            if(dataset.checkClassificationsAreOnly(dcc) == False):
-                                wTree.addProblem(f"Sink {sink} has classification which is not allowed by policy {dcc}")
+                            if(dataset.checkClassificationsAreOnly(dccPolicy) == False):
+                                wTree.addRaw(ObjectNotCompatibleWithPolicy(sink, dccPolicy, ProblemSeverity.ERROR))
         self.superLint(teamTree)
 
     def __str__(self) -> str:
@@ -1657,16 +1657,16 @@ class GovernanceZone(GitControlledObject):
     def checkLocationIsAllowed(self, eco : 'Ecosystem', loc : InfrastructureLocation, tree : ValidationTree):
         """This checks that the provided location is allowed based on the vendor and location policies
         of the GZ, this allows a GZ to constrain where its data can come from or be used"""
-        for location in self.locationPolicies:
-            if not location.isCompatible(loc):
-                tree.addProblem(f"Location not compatible with gz location policy {location}")
+        for locPolicy in self.locationPolicies:
+            if not locPolicy.isCompatible(loc):
+                tree.addRaw(ObjectNotCompatibleWithPolicy(loc, locPolicy, ProblemSeverity.ERROR))
         if(loc.key):
-            for vendor in self.vendorPolicies:
+            for vendorPolicy in self.vendorPolicies:
                 v : InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
-                if not vendor.isCompatible(v):
-                    tree.addProblem(f"Vendor not compatible with gz policy {vendor}")
+                if not vendorPolicy.isCompatible(v):
+                    tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
         else:
-            tree.addProblem(f"Location has no key {loc}")
+            tree.addRaw(AttributeNotSet("loc.key"))
             
 
     def add(self, *args : Union[InfraStructureVendorPolicy, InfraStructureLocationPolicy, StoragePolicy, DataClassificationPolicy, TeamDeclaration, DataPlatformPolicy, Documentation]) -> None:
@@ -1765,11 +1765,11 @@ class GovernanceZone(GitControlledObject):
         for team in self.teams.authorizedObjects.values():
             td : TeamDeclaration = self.teams.authorizedNames[team.name]
             if(td.key == None):
-                govTree.addProblem(F"{td} has no key")
+                govTree.addRaw(AttributeNotSet(f"{td} has no key"))
             else:
                 # Add Team to eco level cache, check for dup Teams and lint
                 if(eco.teamCache.get(team.name) != None):
-                    govTree.addProblem(f"Duplicate TeamDeclaration {team.name}")
+                    govTree.addRaw(DuplicateObject(team, ProblemSeverity.ERROR))
                 else:
                     eco.cache_addTeam(td, team)
                     teamTree : ValidationTree = govTree.createChild(team)
@@ -1777,7 +1777,7 @@ class GovernanceZone(GitControlledObject):
         self.superLint(govTree)
         self.teams.lint(govTree)
         if(self.key == None):
-            govTree.addProblem("Key not set")
+            govTree.addRaw(AttributeNotSet("Key not set"))
 
     def __str__(self) -> str:
         return f"GovernanceZone({self.name})"
@@ -1957,9 +1957,9 @@ class DatasetSink(object):
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         """Check the DatasetSink meets all policy checks"""
         if(is_valid_sql_identifier(self.storeName) == False):
-            tree.addProblem(f"DatasetSink store name {self.storeName} is not a valid SQL identifier")
+            tree.addRaw(NameMustBeSQLIdentifier(f"DatasetSink store name {self.storeName}", ProblemSeverity.ERROR))
         if(is_valid_sql_identifier(self.datasetName) == False):
-            tree.addProblem(f"DatasetSink dataset name {self.datasetName} is not a valid SQL identifier")
+            tree.addRaw(NameMustBeSQLIdentifier(f"DatasetSink dataset name {self.datasetName}", ProblemSeverity.ERROR))
         dataset : Optional[Dataset] = eco.cache_getDataset(self.storeName, self.datasetName)
         if(dataset == None):
             tree.addProblem(f"Unknown dataset {self.storeName}:{self.datasetName}")
@@ -1973,7 +1973,7 @@ class DatasetSink(object):
                     if(ws.asset):
                         ws.asset.checkLocationsAreCompatible(eco, gzStore, tree)
                 else:
-                    tree.addProblem(f"{store} key is None")
+                    tree.addRaw(AttributeNotSet(f"{store} key is None"))
 
                 # Production data in non production or vice versa should be noted
                 if(store.productionStatus != ws.productionStatus):
@@ -2022,7 +2022,7 @@ class DatasetGroup(ANSI_SQL_NamedObject):
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
         super().nameLint(tree)
         if(is_valid_sql_identifier(self.name) == False):
-            tree.addProblem(f"DatasetGroup name {self.name} is not a valid SQL identifier")
+            tree.addRaw(NameMustBeSQLIdentifier(f"DatasetGroup name {self.name}", ProblemSeverity.ERROR))
         for sink in self.sinks.values():
             sinkTree : ValidationTree = tree.createChild(sink)
             sink.lint(eco, ws, sinkTree)
@@ -2031,7 +2031,7 @@ class DatasetGroup(ANSI_SQL_NamedObject):
             if(platform == None):
                 tree.addProblem("DSG doesnt choose a dataplatform")
         else:
-            tree.addProblem("DSG has no data platform chooser")
+            tree.addRaw(AttributeNotSet("DSG has no data platform chooser"))
 
 
     def __str__(self) -> str:
@@ -2227,7 +2227,7 @@ class Workspace(ANSI_SQL_NamedObject):
         super().nameLint(tree)
 
         if(self.key == None):
-            tree.addProblem("Workspace key is none")
+            tree.addRaw(AttributeNotSet("Workspace key is none"))
 
         # Check Workspaces in this gz are on assets compatible with vendor
         # and location policies for this GZ

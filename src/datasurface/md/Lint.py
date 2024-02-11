@@ -17,8 +17,58 @@ class ValidationProblem:
 
     def __str__(self) -> str:
         return f"{self.sev}:{self.description}"
+    
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, self.__class__) and self.description == o.description and self.sev == o.sev
 
+class AttributeNotSet(ValidationProblem):
+    """This indicates a required attribute has not been specified"""
+    def __init__(self, key : str) -> None:
+        super().__init__(f"Attribute {key} not set", ProblemSeverity.ERROR)
+
+class ObjectIsDeprecated(ValidationProblem):
+    """This indicates an object is deprecated"""
+    def __init__(self, obj : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Object {obj} is deprecated", sev)
+
+class DataTransformerMissing(ValidationProblem):
+    """This indicates a data transformer is missing"""
+    def __init__(self, obj : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Data transformer for {obj} is missing", sev)
+
+class ObjectWrongType(ValidationProblem):
+    """This indicates an object is the wrong type"""
+    def __init__(self, obj : object, expectedType : type, sev : ProblemSeverity) -> None:
+        super().__init__(f"Object {obj} is not of type {expectedType}", sev)
+
+class ObjectMissing(ValidationProblem):
+    """This indicates an object is missing"""
+    def __init__(self, container : object, missingObject : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Object {missingObject} is missing from {container}", sev)
+
+class UnauthorizedAttributeChange(ValidationProblem):
+    """This indicates an unauthorized change, two objects are different"""
+    def __init__(self, attribute : str, obj1 : object, obj2 : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Unauthorized {attribute} change: {obj1} is different from {obj2}", sev)
+
+class NameMustBeSQLIdentifier(ValidationProblem):
+    """This indicates a name is not a valid SQL identifier"""
+    def __init__(self, name : str, sev : ProblemSeverity) -> None:
+        super().__init__(f"Name {name} is not a valid SQL identifier", sev)
+
+class ObjectNotCompatibleWithPolicy(ValidationProblem):
+    """This indicates an object is not compatible with a policy"""
+    def __init__(self, obj : object, policy : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Object {obj} is not compatible with policy {policy}", sev)
+
+class DuplicateObject(ValidationProblem):
+    """This indicates an object is duplicated"""
+    def __init__(self, obj : object, sev : ProblemSeverity) -> None:
+        super().__init__(f"Object {obj} is duplicated", sev)
+        
 class ValidationTree:
+    """This is a tree of issues found while running a set of checks against the model. It is used to collect issues. Each node in the 
+    tree represents an object in the model. Each node can list a set of issues found with that node"""
     def __init__(self, obj : object) -> None:
         self.object : object = obj
 
@@ -41,6 +91,10 @@ class ValidationTree:
     def addProblem(self, problem : str, sev : ProblemSeverity = ProblemSeverity.ERROR) -> None:
         """This adds a problem to this object"""
         self.problems.append(ValidationProblem(problem, sev))
+
+    def addRaw(self, problem : ValidationProblem) -> None:
+        """This adds a problem to this object"""
+        self.problems.append(problem)
 
     def hasErrors(self) -> bool:
         """This returns true if this object or any of its children have ERROR severity problems"""

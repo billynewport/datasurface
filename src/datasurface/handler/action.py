@@ -77,4 +77,7 @@ def verifyPullRequest() -> ValidationTree:
 
     
 if __name__ == "__main__":
-    verifyPullRequest()
+    tree : ValidationTree = verifyPullRequest()
+    if(tree.hasErrors()):
+        tree.printTree()
+        sys.exit(1)
