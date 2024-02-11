@@ -15,6 +15,7 @@ setup(
     long_description_content_type='text/markdown',
     author='Billy Newport',
     author_email='billy@billynewport.com',
+    url='https://github.com/billynewport/datasurface',
     classifiers=[
         'License :: OSI Approved :: Apache Software License',
         'Development Status :: 3 - Alpha',
