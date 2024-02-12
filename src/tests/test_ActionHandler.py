@@ -13,7 +13,7 @@ class Test_ActionHandler(unittest.TestCase):
         """This tries to start with a basic Ecosystem which defines 2 GZ and some resources. We then simulate a pull request to
         define the EU GZ and then the USA GZ. Finally we define the EU and USA teams and objects"""
 
-        os.environ.setdefault("GITHUB_TOKEN", "Fake Token")
+        os.environ["GITHUB_TOKEN"] = "Fake Token"
 
         # Test initial checkin of project
         baseFolder : str = 'src/tests/actionHandlerResources/step0' # Empty project, no eco.py
