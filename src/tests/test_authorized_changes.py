@@ -51,91 +51,89 @@ class TestEcoNameChange(unittest.TestCase):
         """Test that a team can be added to a zone by the gz owning repo, but not by another repo"""
 
         # Make the baseline ecosystem against which changes are checked
-        eco_baseline : Ecosystem = tests.nwdb.eco.createEcosystem()
-        eco_repo : Repository = eco_baseline.owningRepo
+        eco_base : Ecosystem = tests.nwdb.eco.createEcosystem()
+        eco_repo : Repository = eco_base.owningRepo
 
         # Make the ecosystem which has the changed to check if authorized against
         # the baseline ecosystem
-        e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
+        e_head : Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # Check unchanged repo has no problems
-        eTree : ValidationTree = ValidationTree(eco_baseline)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo, eTree)
+        eTree : ValidationTree = ValidationTree(eco_base)
+        eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
         self.assertFalse(eTree.hasErrors())
 
         # Get the USA zone so we can change it
-        gzUSA : GovernanceZone = e_other.getZoneOrThrow("USA")
+        headGzUSA : GovernanceZone = e_head.getZoneOrThrow("USA")
 
         # NewTeam should not exist
-        t : Optional[Team] = gzUSA.getTeam("NewTeam")
+        t : Optional[Team] = headGzUSA.getTeam("NewTeam")
         self.assertIsNone(t)
 
         # Authorize a new team with its repo. Team has to be authorized
         # by the gz repo and later edited with the team repo. Must be 2 steps
-        gzUSA.add(TeamDeclaration("NewTeam", GitHubRepository("ssh://u@local:/v1/source/nt", "newTeamRepo")))
+        headGzUSA.add(TeamDeclaration("NewTeam", GitHubRepository("owner/repo", "main")))
 
-        # Should be allowed from gz repo
-        eTree = ValidationTree(e_other)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo, eTree)
+        # Should not be allowed from eco repo
+        eTree = ValidationTree(e_head)
+        eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
         self.assertTrue(eTree.hasErrors())
 
         # Should be allowed from gz repo
-        eTree = ValidationTree(e_other)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, gzUSA.owningRepo, eTree)
+        eTree = ValidationTree(e_head)
+        eco_base.checkIfChangesAreAuthorized(e_head, headGzUSA.owningRepo, eTree)
         self.assertFalse(eTree.hasErrors())
 
         # reset baseline ecosystem
-        eco_baseline = e_other
-        e_other = copy.deepcopy(eco_baseline)
+        eco_base = e_head
+        e_head = copy.deepcopy(eco_base)
 
-        gzUSA = e_other.zones.authorizedObjects["USA"]
-        self.assertIsNotNone(gzUSA)
+        headGzUSA = e_head.zones.authorizedObjects["USA"]
+        self.assertIsNotNone(headGzUSA)
 
         # This creates a team object and is the first team specific change that
         # needs to be authorized. The team cannot be defined and authorized in
         # one step. Authorize using gz repo, then create/edit using team repo
-        t = gzUSA.getTeamOrThrow("NewTeam")
+        t = headGzUSA.getTeamOrThrow("NewTeam")
 
         # Should not be allowed from other repo
-        eTree = ValidationTree(e_other)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, eco_repo, eTree)
-        eTree.printTree()
+        eTree = ValidationTree(e_head)
+        eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
         self.assertTrue(eTree.hasErrors())
 
         # Should be allowed from team repo
-        eTree = ValidationTree(e_other)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, t.owningRepo, eTree)
-        eTree.printTree()
+        eTree = ValidationTree(e_head)
+        eco_base.checkIfChangesAreAuthorized(e_head, t.owningRepo, eTree)
         self.assertFalse(eTree.hasErrors())
 
         # Now verify that the new team can only be changed from its owning repo which can 
         # be different from the owning repo of the zone
 
         # Change the baseline to the repo with the added team
-        eco_baseline = e_other
+        eco_base = e_head
 
         # Make a new ecosystem to check against the baseline
-        e_other = copy.deepcopy(eco_baseline)
+        e_head = copy.deepcopy(eco_base)
 
         # Get the USA zone so we can change it
-        gzUSA = e_other.zones.authorizedObjects["USA"]
-        newTeam : Team = gzUSA.getTeamOrThrow("NewTeam")
+        headGzUSA = e_head.zones.authorizedObjects["USA"]
+        newTeam : Team = headGzUSA.getTeamOrThrow("NewTeam")
 
         # Add tables to the new team
-        tests.nwdb.nwdb.defineTables(e_other, gzUSA, newTeam)
+        tests.nwdb.nwdb.defineTables(e_head, headGzUSA, newTeam)
 
         # Check the unchanged team has no changes
-        eTree = ValidationTree(eco_baseline)
-        eco_baseline.checkIfChangesAreAuthorized(eco_baseline, newTeam.owningRepo, eTree)
+        eTree = ValidationTree(eco_base)
+        eco_base.checkIfChangesAreAuthorized(eco_base, newTeam.owningRepo, eTree)
         self.assertFalse(eTree.hasErrors())
 
-        eTree = ValidationTree(eco_baseline)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, newTeam.owningRepo, eTree)
+        eTree = ValidationTree(eco_base)
+        eco_base.checkIfChangesAreAuthorized(e_head, newTeam.owningRepo, eTree)
         self.assertFalse(eTree.hasErrors())
 
         # Check other repos cannot edit team
-        eTree = ValidationTree(eco_baseline)
-        eco_baseline.checkIfChangesAreAuthorized(e_other, eco_baseline.owningRepo, eTree)
+        eTree = ValidationTree(eco_base)
+        eco_base.checkIfChangesAreAuthorized(e_head, eco_base.owningRepo, eTree)
         self.assertTrue(eTree.hasErrors())
 
     def test_checkZoneRemoval(self):
