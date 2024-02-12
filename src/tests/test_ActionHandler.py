@@ -15,11 +15,23 @@ class Test_ActionHandler(unittest.TestCase):
 
         os.environ.setdefault("GITHUB_TOKEN", "Fake Token")
 
-        headFolder : str = 'src/tests/actionHandlerResources/step2/head_EU'
-        baseFolder : str = 'src/tests/actionHandlerResources/step1/base'
+        # Test initial checkin of project
+        baseFolder : str = 'src/tests/actionHandlerResources/step0' # Empty project, no eco.py
+        headFolder : str = 'src/tests/actionHandlerResources/step1/base'
 
-        os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
-        os.environ.setdefault("HEAD_BRANCH", 'EUmain')
+        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
+        os.environ["HEAD_BRANCH"] = 'main'
+        sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
+        tree : ValidationTree = verifyPullRequest( )
+        if(tree.hasErrors()):
+            tree.printTree()
+            self.fail("Initial checkin has errors")
+
+        headFolder = 'src/tests/actionHandlerResources/step2/head_EU'
+        baseFolder = 'src/tests/actionHandlerResources/step1/base'
+
+        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
+        os.environ["HEAD_BRANCH"] = 'EUmain'
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
         tree : ValidationTree = verifyPullRequest( )
         if(tree.hasErrors()):
@@ -31,8 +43,8 @@ class Test_ActionHandler(unittest.TestCase):
         baseFolder : str = 'src/tests/actionHandlerResources/step2/head_EU'
         headFolder : str = 'src/tests/actionHandlerResources/step2/head_USA'
 
-        os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
-        os.environ.setdefault("HEAD_BRANCH", 'USAmain')
+        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
+        os.environ["HEAD_BRANCH"] = 'USAmain'
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
         tree = verifyPullRequest()
         if(tree.hasErrors()):
@@ -44,8 +56,8 @@ class Test_ActionHandler(unittest.TestCase):
         baseFolder : str = 'src/tests/actionHandlerResources/step2/head_USA'
         headFolder : str = 'src/tests/actionHandlerResources/step3'
 
-        os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
-        os.environ.setdefault("HEAD_BRANCH", 'EUmain')
+        os.environ['HEAD_REPOSITORY'] ='billynewport/test_step1'
+        os.environ["HEAD_BRANCH"] = 'EUmain'
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
         tree = verifyPullRequest()
         if(tree.hasErrors()):
@@ -55,8 +67,8 @@ class Test_ActionHandler(unittest.TestCase):
         baseFolder : str = 'src/tests/actionHandlerResources/step3'
         headFolder : str = 'src/tests/actionHandlerResources/step4'
 
-        os.environ.setdefault('HEAD_REPOSITORY', 'billynewport/test_step1')
-        os.environ.setdefault("HEAD_BRANCH", 'USAmain')
+        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
+        os.environ["HEAD_BRANCH"] = 'USAmain'
         sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
         tree = verifyPullRequest()
         if(tree.hasErrors()):
