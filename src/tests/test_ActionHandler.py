@@ -29,15 +29,16 @@ class Test_ActionHandler(unittest.TestCase):
         ]
 
         for step in testSteps:
-            baseFolder : str = step[0]
-            headFolder : str = step[1]
-            os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
+            baseFolder : str = step[0] # The main branch in to which we are trying to change
+            headFolder : str = step[1] # This branch contains the proposed new version of the model, it must be compatible with the main branch
+            os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1' # Repository is always the same, we just change branches
 
             print(f"Trying {baseFolder} -> {headFolder} with bad repo first")
             # first try a repository without permission to make change
             os.environ["HEAD_BRANCH"] = "BAD_BRANCH"
             sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
             tree : ValidationTree = verifyPullRequest( )
+            tree.printTree()
             self.assertTrue(tree.hasErrors()) # Should have errors
 
             # Now switch to correct branch authorized to make change

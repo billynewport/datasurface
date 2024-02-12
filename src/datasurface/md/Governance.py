@@ -701,10 +701,10 @@ class CaptureSourceInfo(ABC):
         # Verify that the location on the ingestion metadata doesn't violate
         # the governance zone policies for vendor or location
         if(self.location.key):
-            for locPolicy in gz.locationPolicies:
+            for locPolicy in gz.locationPolicies.values():
                 if not locPolicy.isCompatible(self.location):
                     tree.addRaw(ObjectNotCompatibleWithPolicy(self.location, locPolicy, ProblemSeverity.ERROR))
-            for vendorPolicy in gz.vendorPolicies:
+            for vendorPolicy in gz.vendorPolicies.values():
                 v : InfrastructureVendor = eco.getVendorOrThrow(self.location.key.ivName)
                 if not vendorPolicy.isCompatible(v):
                     tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
@@ -1464,7 +1464,7 @@ class Team(GitControlledObject):
                 wTree : ValidationTree = teamTree.createChild(w)
 
                 # Check all classification allows policies from gz are satisfied on every sink
-                for dccPolicy in gz.classificationPolicies:
+                for dccPolicy in gz.classificationPolicies.values():
                     for dsg in w.dsgs.values():
                         for sink in dsg.sinks.values():
                             store : Datastore = eco.cache_getDatastoreOrThrow(sink.storeName).datastore
@@ -1636,12 +1636,12 @@ class GovernanceZone(GitControlledObject):
 
         self.storagePolicies : dict[str, StoragePolicy] = OrderedDict[str, StoragePolicy]()
         # Schemas for datasets defined in this GZ must comply with these classification restrictions
-        self.classificationPolicies : set[DataClassificationPolicy] = set[DataClassificationPolicy]()
+        self.classificationPolicies : dict[str, DataClassificationPolicy] = dict[str, DataClassificationPolicy]()
         # Only these vendors are allowed within this GZ (Datastores and Workspaces)
-        self.vendorPolicies : set[InfraStructureVendorPolicy] = set[InfraStructureVendorPolicy]()
+        self.vendorPolicies : dict[str, InfraStructureVendorPolicy] = dict[str, InfraStructureVendorPolicy]()
         # Only these locations are allowed within this GZ (Datastore and Workspaces)
-        self.locationPolicies : set[InfraStructureLocationPolicy] = set[InfraStructureLocationPolicy]()
-        self.dataplatformPolicies : set[DataPlatformPolicy] = set[DataPlatformPolicy]()
+        self.locationPolicies : dict[str, InfraStructureLocationPolicy] = dict[str, InfraStructureLocationPolicy]()
+        self.dataplatformPolicies : dict[str, DataPlatformPolicy] = dict[str, DataPlatformPolicy]()
 
         self.documentation : Optional[Documentation] = None
         self.add(*args)
@@ -1655,11 +1655,11 @@ class GovernanceZone(GitControlledObject):
     def checkLocationIsAllowed(self, eco : 'Ecosystem', loc : InfrastructureLocation, tree : ValidationTree):
         """This checks that the provided location is allowed based on the vendor and location policies
         of the GZ, this allows a GZ to constrain where its data can come from or be used"""
-        for locPolicy in self.locationPolicies:
+        for locPolicy in self.locationPolicies.values():
             if not locPolicy.isCompatible(loc):
                 tree.addRaw(ObjectNotCompatibleWithPolicy(loc, locPolicy, ProblemSeverity.ERROR))
         if(loc.key):
-            for vendorPolicy in self.vendorPolicies:
+            for vendorPolicy in self.vendorPolicies.values():
                 v : InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
                 if not vendorPolicy.isCompatible(v):
                     tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
@@ -1671,11 +1671,11 @@ class GovernanceZone(GitControlledObject):
         for arg in args:
             if(isinstance(arg, DataClassificationPolicy)):
                 dcc : DataClassificationPolicy = arg
-                self.classificationPolicies.add(dcc)
+                self.classificationPolicies[dcc.name] = dcc
             elif(isinstance(arg, InfraStructureLocationPolicy)):
-                self.locationPolicies.add(arg)
+                self.locationPolicies[arg.name] = arg
             elif(isinstance(arg, InfraStructureVendorPolicy)):
-                self.vendorPolicies.add(arg)
+                self.vendorPolicies[arg.name] = arg
             elif(isinstance(arg, StoragePolicy)):
                 sp : StoragePolicy = arg
                 if self.storagePolicies.get(sp.name) != None:
@@ -1685,7 +1685,7 @@ class GovernanceZone(GitControlledObject):
                 t : TeamDeclaration = arg
                 self.teams.addAuthorization(t)
             elif(isinstance(arg, DataPlatformPolicy)):
-                self.dataplatformPolicies.add(arg)
+                self.dataplatformPolicies[arg. name] = arg
             elif(isinstance(arg, Documentation)):
                 d : Documentation = arg
                 self.documentation = d
@@ -1728,16 +1728,16 @@ class GovernanceZone(GitControlledObject):
         if not(super().areTopLevelChangesAuthorized(proposed, changeSource, tree) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
         if self.storagePolicies != proposed.storagePolicies:
-            self.showSetChangesAsProblems(self.storagePolicies, proposed.storagePolicies, tree.createChild("StoragePolicies"))
+            self.showDictChangesAsProblems(self.storagePolicies, proposed.storagePolicies, tree.createChild("StoragePolicies"))
             return False
         if self.dataplatformPolicies != proposed.dataplatformPolicies:
-            self.showSetChangesAsProblems(self.dataplatformPolicies, proposed.dataplatformPolicies, tree.createChild("DataPlatformPolicies"))
+            self.showDictChangesAsProblems(self.dataplatformPolicies, proposed.dataplatformPolicies, tree.createChild("DataPlatformPolicies"))
             return False
         if self.vendorPolicies != proposed.vendorPolicies:
-            self.showSetChangesAsProblems(self.vendorPolicies, proposed.vendorPolicies, tree.createChild("VendorPolicies"))
+            self.showDictChangesAsProblems(self.vendorPolicies, proposed.vendorPolicies, tree.createChild("VendorPolicies"))
             return False
         if self.locationPolicies != proposed.locationPolicies:
-            self.showSetChangesAsProblems(self.locationPolicies, proposed.locationPolicies, tree.createChild("LocationPolicies"))
+            self.showDictChangesAsProblems(self.locationPolicies, proposed.locationPolicies, tree.createChild("LocationPolicies"))
             return False
         if not self.teams.areTopLevelChangesAuthorized(proposed.teams, changeSource, tree):
             return False
