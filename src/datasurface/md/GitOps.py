@@ -63,7 +63,7 @@ class GitControlledObject(ABC):
                 return
             rc : bool = self.areTopLevelChangesAuthorized(proposed, changeSource, vTree)
             if not rc:
-                vTree.addProblem(f"{self} top level has been modified by an unauthorized source")
+                vTree.addProblem(f"{self} top level owned by {self.owningRepo} has been modified by an unauthorized source {changeSource}")
 
     @abstractmethod    
     def checkIfChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:

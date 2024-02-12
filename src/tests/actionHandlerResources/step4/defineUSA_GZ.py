@@ -9,15 +9,15 @@ from datasurface.md.Schema import IEEE32, DDLColumn, DDLTable, Date, NullableSta
 
 
 def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):
-    parisTeam : Team = gzEU.getTeamOrThrow("NYTeam")
+    nyTeam : Team = gzEU.getTeamOrThrow("NYTeam")
 
-    parisTeam.add(
+    nyTeam.add(
         PlainTextDocumentation("This is the NY city team responsible for vaious USA specific data and workspaces"),
         Datastore("USA_Customers",
             PlainTextDocumentation("USA Customer data"),
             CDCCaptureIngestion(
                 PyOdbcSourceInfo(
-                    e.getLocationOrThrow("AWS", ["USA", "East", "us-east-1"]), # Where is the database
+                    e.getLocationOrThrow("AWS", ["USA", "us-east-1"]), # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
                     driver="{ODBC Driver 17 for SQL Server}",

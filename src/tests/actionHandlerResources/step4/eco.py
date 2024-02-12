@@ -28,7 +28,6 @@ def createEcosystem() -> Ecosystem:
                 InfrastructureLocation("eu-west-2")), # London
             InfrastructureLocation("EU",
                 InfrastructureLocation("eu-central-1"), # Frankfurt
-                InfrastructureLocation("eu-west-1"), # Ireland
                 InfrastructureLocation("eu-west-3"))),
 
         InfrastructureVendor("Azure",
@@ -56,7 +55,7 @@ def createEcosystem() -> Ecosystem:
 
     gzEU.add(
         InfraStructureLocationPolicy("EU Only", allEULocations),
-        TeamDeclaration("ParisTeam", GitHubRepository("billynewport/step1", "ParisMain"))
+        TeamDeclaration("ParisTeam", GitHubRepository("billynewport/test_step1", "ParisMain"))
     )
 
     # Define the EU team and datastores
@@ -67,12 +66,12 @@ def createEcosystem() -> Ecosystem:
     gzUSA.add(
         # AWS Locations only
         InfraStructureVendorPolicy("AWS Only", {e.getVendorOrThrow("AWS")}), # AWS Locations only
-        # AWS East locations
-        InfraStructureLocationPolicy("East coast Only", e.getLocationOrThrow("AWS", ["East"]).getEveryChildLocation()),
+        # AWS USA locations
+        InfraStructureLocationPolicy("AWS US Only", e.getLocationOrThrow("AWS", ["USA"]).getEveryChildLocation()),
         # AWS Dataplatform only
         DataPlatformPolicy("AWS Platform only", {e.getDataPlatformOrThrow("AWS Platform")}), # AWS DataPlatform only
         # NY Team definition
-        TeamDeclaration("NYTeam", GitHubRepository("billynewport/step1", "NYMain")) # NY Team
+        TeamDeclaration("NYTeam", GitHubRepository("billynewport/test_step1", "NYMain")) # NY Team
     )
 
     defineUSA_GZ(gzUSA, e)

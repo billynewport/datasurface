@@ -46,6 +46,9 @@ class AllowDisallowPolicy(Policy[P]):
     
     def __hash__(self) -> int:
         return hash(self.name)
+    
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, AllowDisallowPolicy) and self.name == o.name
       
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"

@@ -9,71 +9,46 @@ from datasurface.handler.action import verifyPullRequest
 from datasurface.md.Lint import ValidationTree
 
 class Test_ActionHandler(unittest.TestCase):
-    def test_Step2(self):
+    def test_ActionIterations(self):
         """This tries to start with a basic Ecosystem which defines 2 GZ and some resources. We then simulate a pull request to
         define the EU GZ and then the USA GZ. Finally we define the EU and USA teams and objects"""
 
         os.environ["GITHUB_TOKEN"] = "Fake Token"
 
-        # Test initial checkin of project
-        baseFolder : str = 'src/tests/actionHandlerResources/step0' # Empty project, no eco.py
-        headFolder : str = 'src/tests/actionHandlerResources/step1/base'
+        testSteps : list[list[str]] = [
+            # Initial checkin of a eco.py
+            ['src/tests/actionHandlerResources/step0', 'src/tests/actionHandlerResources/step1/base', 'main'],
+            # Define EU GZ
+            ['src/tests/actionHandlerResources/step1/base', 'src/tests/actionHandlerResources/step2/head_EU', 'EUmain'],
+            # Define USA GZ
+            ['src/tests/actionHandlerResources/step2/head_EU', 'src/tests/actionHandlerResources/step2/head_USA', 'USAmain'],
+            # Define EU teams and objects
+            ['src/tests/actionHandlerResources/step2/head_USA', 'src/tests/actionHandlerResources/step3', 'ParisMain'],
+            # Define USA teams and objects
+            ['src/tests/actionHandlerResources/step3', 'src/tests/actionHandlerResources/step4', 'NYMain']
+        ]
 
-        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
-        os.environ["HEAD_BRANCH"] = 'main'
-        sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        tree : ValidationTree = verifyPullRequest( )
-        if(tree.hasErrors()):
-            tree.printTree()
-            self.fail("Initial checkin has errors")
+        for step in testSteps:
+            baseFolder : str = step[0]
+            headFolder : str = step[1]
+            os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
 
-        headFolder = 'src/tests/actionHandlerResources/step2/head_EU'
-        baseFolder = 'src/tests/actionHandlerResources/step1/base'
+            print(f"Trying {baseFolder} -> {headFolder} with bad repo first")
+            # first try a repository without permission to make change
+            os.environ["HEAD_BRANCH"] = "BAD_BRANCH"
+            sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
+            tree : ValidationTree = verifyPullRequest( )
+            self.assertTrue(tree.hasErrors()) # Should have errors
 
-        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
-        os.environ["HEAD_BRANCH"] = 'EUmain'
-        sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        tree : ValidationTree = verifyPullRequest( )
-        if(tree.hasErrors()):
-            tree.printTree()
-            self.fail("Tree has errors")
+            # Now switch to correct branch authorized to make change
+            os.environ["HEAD_BRANCH"] = step[2]
+            sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
+            print(f"Trying {baseFolder} -> {headFolder} with good repo")
+            tree : ValidationTree = verifyPullRequest( )
+            if(tree.hasErrors()):
+                tree.printTree()
+                self.fail("Tree has errors")
 
-        # Now that the EU change is commited and the new baseline, lets see if the USA
-        # pull request is valid
-        baseFolder : str = 'src/tests/actionHandlerResources/step2/head_EU'
-        headFolder : str = 'src/tests/actionHandlerResources/step2/head_USA'
-
-        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
-        os.environ["HEAD_BRANCH"] = 'USAmain'
-        sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        tree = verifyPullRequest()
-        if(tree.hasErrors()):
-            tree.printTree()
-            self.fail("Tree has errors")
-
-        # Now step 2 head_USA is base, verify next step
-
-        baseFolder : str = 'src/tests/actionHandlerResources/step2/head_USA'
-        headFolder : str = 'src/tests/actionHandlerResources/step3'
-
-        os.environ['HEAD_REPOSITORY'] ='billynewport/test_step1'
-        os.environ["HEAD_BRANCH"] = 'EUmain'
-        sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        tree = verifyPullRequest()
-        if(tree.hasErrors()):
-            tree.printTree()
-            self.fail("Tree has errors")
-
-        baseFolder : str = 'src/tests/actionHandlerResources/step3'
-        headFolder : str = 'src/tests/actionHandlerResources/step4'
-
-        os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'
-        os.environ["HEAD_BRANCH"] = 'USAmain'
-        sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-        tree = verifyPullRequest()
-        if(tree.hasErrors()):
-            tree.printTree()
-            self.fail("Tree has errors")
 
 
 

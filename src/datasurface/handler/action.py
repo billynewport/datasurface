@@ -30,8 +30,6 @@ def getEcosystem(path : str) -> Optional[Ecosystem]:
             # Should only happen on inital setup of a repository
             return None
         
-        sys.path = origSystemPath
-
         # This should now point to createEcosystem() -> Ecosystem in the eco.py file on the path specified
         eco : Ecosystem = function() 
         # Flesh out
@@ -43,7 +41,6 @@ def getEcosystem(path : str) -> Optional[Ecosystem]:
 
 def verifyPullRequest() -> ValidationTree:
     """This is the actual github action handler"""
-    origSystemPath : list[str] = sys.path
     mainFolder : str = sys.argv[1]
     prFolder : str = sys.argv[2]
 
@@ -61,9 +58,6 @@ def verifyPullRequest() -> ValidationTree:
 
     prRepo : Repository = GitHubRepository(head_Repository, head_Branch)
 
-    # Backup current sys.path
-    origSystemPath : list[str] = sys.path
-
     # Main branch Ecosystem, we compare pull request against this
     ecoMain : Optional[Ecosystem] = getEcosystem(mainFolder)
 
@@ -72,14 +66,14 @@ def verifyPullRequest() -> ValidationTree:
     if(ecoPR == None):
         raise Exception("eco.py not found in pull request")
     else:
-        sys.path = origSystemPath
-
         # If this is an initial checkin, we don't have a main branch to compare against
         if ecoMain == None:
             if prRepo == ecoPR.owningRepo:
                 return ValidationTree(ecoPR)
             else:
-                raise Exception("Initial checkin must be to the same repository")
+                tree : ValidationTree = ValidationTree(ecoPR)
+                tree.addProblem("Initial checkin must be to the same repository")
+                return tree
         else:
             # Check if all changes in ecoPR are valid, consistent, authorized from the pull request repo
             tree : ValidationTree = ecoMain.checkIfChangesCanBeMerged(ecoPR, prRepo)

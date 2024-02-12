@@ -1340,8 +1340,6 @@ class Ecosystem(GitControlledObject):
         # Any errors make us fail immediately
         # But we want warnings and infos to accumulate for the caller
         if eTree.hasErrors():
-            # TODO how to output erros
-            eTree.printTree()
             return eTree
         
         # Check if the proposed changes being made by an authorized repository

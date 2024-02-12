@@ -54,7 +54,7 @@ def createEcosystem() -> Ecosystem:
 
     gzEU.add(
         InfraStructureLocationPolicy("EU Only", allEULocations),
-        TeamDeclaration("ParisTeam", GitHubRepository("billynewport/step1", "ParisMain"))
+        TeamDeclaration("ParisTeam", GitHubRepository("billynewport/test_step1", "ParisMain"))
     )
     
     return e
