@@ -16,7 +16,7 @@ If any other zones are using data stores/data sets from the zone to be deleted t
 
 A governance zone can specify zero or more InfrastructureVendorPolicy objects. These can filter the list of vendors allowed to be used on this zones data. An individual policy can either disallow a set of vendors or allow a set of vendors.
 
-## Limiting the infrasturcture vendor locations available within a zone
+## Limiting the infrastructure vendor locations available within a zone
 
 A zone can specify zero of more InfrastructureLocationPolicy objects. These can filter the list of locations allowed to host assets where data policied by this zone can be stored. Data could be restricted to the EU or the USA.
 
@@ -35,3 +35,5 @@ Another zone could be setup for data which has been cleared for use on the cloud
 A TeamDeclaration can be added to a zone to declare a team. Every team in a zone first requires a TeamDeclation to be added for it by the governance zone github repository. Once the declaration is present in the main branch, this declares the team as well as the github repository/branch which is used for authoring the team. The team cannot be deleted until the team github repo removes references to the team.
 
 The team git repository can now be used in the normal way to define the team objects, the datastores, datasets and workspaces.
+
+The teams can then define data stores and Workspaces. These objects are governanced by the ecosystem's rules filtered through the governance zone policies. This means that if a cloud vendor is provided in the ecosystem, the governance zone that owns a team with a dataset may forbid that data being used with a specific or even all cloud vendors. The geographic location of assets hosting the data for Workspaces may be restricted. Even the data pipelines used to move the data may be restricted. An example here may be that a country rules might disallow specific country vendors from accessing sensitive data.
