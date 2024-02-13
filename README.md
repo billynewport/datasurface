@@ -19,3 +19,4 @@ This model is expressed using a Python DSL and is stored in a github repository 
 The main repository uses github action handler to make sure the central model stays self consistent, backwards compatible and consistent with the governance policies of the enterprise.
 
 Data platforms can then use the model to create and maintain data pipelines. Data platforms will usually translate the data pipeline graph described by the model in to a set of pipelines which are created by translating the model pipeline in to IaC artifacts which are provisioned on the target infrastructure platforms.
+

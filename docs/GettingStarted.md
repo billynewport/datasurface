@@ -10,3 +10,22 @@ The ecosystem is the top of the model. It defines the infrastructure vendors tha
 
 Next, governance zones can be declared by adding a GovernanceZoneDeclaration for each governance zone. This defines the name of the zone as well as the github repository/branch which is used for authoring the governance zone. Only the main ecosystem repository can be used to declare a zone. The governance zone cannot be deleted until the governance zone github repo removes references to the governance zone.
 
+For more information on different aspects of the system see the following documents:
+
+* [Ecosystem](Ecosystem.md)
+
+* [Governance Zones](GovernanceZone.md)
+
+* [Dataplatforms](DataPlatform.md)
+
+* [Teams](Teams.md)
+
+* [How github is used by Datasurface](HowGitHubIsUsed.md)
+
+* [Datastores](Datastores.md)
+
+* [Workspaces](Workspaces.md)
+
+* [Data Transformers](DataTransformer.md)
+
+
