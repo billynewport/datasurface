@@ -14,11 +14,21 @@ If any other zones are using data stores/data sets from the zone to be deleted t
 
 ## Limiting the infrastructure vendors available within a zone
 
+A governance zone can specify zero or more InfrastructureVendorPolicy objects. These can filter the list of vendors allowed to be used on this zones data. An individual policy can either disallow a set of vendors or allow a set of vendors.
+
 ## Limiting the infrasturcture vendor locations available within a zone
+
+A zone can specify zero of more InfrastructureLocationPolicy objects. These can filter the list of locations allowed to host assets where data policied by this zone can be stored. Data could be restricted to the EU or the USA.
 
 ## Limiting the data platforms available within a zone
 
+A zone can also restrict the choices of dataplatforms available to the ecosystem for servicing the clients of its data. A dataplatform can ONLY use data that is allowed by the datasets governancezone.
+
 ## Limiting the data classifications available within a zone
+
+A Governance Zone can be setup to only host data of specific classifications. This can be useful for setting up a restricted zone which holds sensitive data. That zone can restrict the data to enterprise private data centers for example. This prevents restricted data from being used in the cloud.
+
+Another zone could be setup for data which has been cleared for use on the cloud and enterprise private data centers.
 
 ## Declaring Teams within a zone
 
