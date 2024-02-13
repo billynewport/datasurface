@@ -20,3 +20,4 @@ The main repository uses github action handler to make sure the central model st
 
 Data platforms can then use the model to create and maintain data pipelines. Data platforms will usually translate the data pipeline graph described by the model in to a set of pipelines which are created by translating the model pipeline in to IaC artifacts which are provisioned on the target infrastructure platforms.
 
+Please see the [Getting started document for more information](docs/GettingStarted.md).
