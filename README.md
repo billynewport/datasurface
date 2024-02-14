@@ -16,6 +16,8 @@ This model has contributions from ecosystem managers, data governors, data produ
 
 This model is expressed using a Python DSL and is stored in a github repository which serves as the official version of truth for the model. Authorization for modifying different elements of the model is federated. Each region of the model can be assigned to be modifiable using only pull requests from a specific github repository.
 
+Datasurface uses github in a novel way, at least to our knowledge. You can read more about the [approach here](docs/HowGitHubIsUsed.md).
+
 The main repository uses github action handler to make sure the central model stays self consistent, backwards compatible and consistent with the governance policies of the enterprise.
 
 Data platforms can then use the model to create and maintain data pipelines. Data platforms will usually translate the data pipeline graph described by the model in to a set of pipelines which are created by translating the model pipeline in to IaC artifacts which are provisioned on the target infrastructure platforms.
