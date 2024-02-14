@@ -2,7 +2,7 @@
 
 ## Phase 1: GitHub model working
 
-This is the basic model, the github action handlers, model validations, model authorization checks, backwards compatibility. This is currently 90% there as of mid Feb 2024.
+This is the basic model, the github action handlers, model validations, model authorization checks, backwards compatibility. This is currently 90% there as of mid Feb 2024. Documentation is a major deliverable in this phase also.
 
 ## Phase: Batch Microsoft Azure Data Platform
 
