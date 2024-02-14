@@ -11,7 +11,6 @@ This can be done by setting up the main repository. The repository should have a
 Here is an example starter:
 
 ```python
-from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
@@ -24,26 +23,16 @@ def createEcosystem() -> Ecosystem:
         DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
                               
         GovernanceZoneDeclaration("Azure_USA", GitHubRepository("owner/azure_usa", "main")),
-        GovernanceZoneDeclaration("Azure_EU", GitHubRepository("owner/azure_eu", "main")),
-        GovernanceZoneDeclaration("Azure_China", GitHubRepository("owner/azure_china", "main")),
 
         InfrastructureVendor("Azure",
             PlainTextDocumentation("Microsoft Azure"),
-            InfrastructureLocation("USA",
-                InfrastructureLocation("Central",
-                    InfrastructureLocation("Central US"), # Iowa
-                    InfrastructureLocation("North Central US"), # Illinois
-                    InfrastructureLocation("South Central US"), # Texas
-                    InfrastructureLocation("West Central US")), # Wyoming
-                InfrastructureLocation("East",
-                    InfrastructureLocation("East US"), # Virginia
-                    InfrastructureLocation("East US 2"), # Virginia
-                    InfrastructureLocation("East US 3")), # Georgia
-                InfrastructureLocation("West",
-                    InfrastructureLocation("West US"), # California
-                    InfrastructureLocation("West US 2"), # Washington
-                    InfrastructureLocation("West US 3")) # Arizona
-            ))
+                InfrastructureLocation("East US") # Virginia
+            )
         )
     return e
 ```
+
+This defines a very simple Ecosystem. The main repository is at owner/surfacerepo with the branch main. There is a single Azure DataPlatform available. There is a single GovernanceZone available called Azure_USA which uses the repository owner/azure_usa and branch main.
+
+Once this has been committed directly against the owner/surfacerepo#main then the Azure_USA zone can be defined from its repository.
+
