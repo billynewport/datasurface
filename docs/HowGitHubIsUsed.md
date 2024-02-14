@@ -4,9 +4,11 @@
 
 I have built this kind of data catalog before. I used a traditional database to store the metadata like HBase or pick your own favorite database. I defined the schema, implemented APIs to create, read, update and delete this data. The CRUD services. I then built versioning in to it so that we could see the history of the metadata. I implemented authentication and authorization. Workflows with various approvals for some of the CUD services. I stored the output of these workflows in an auditing database.
 
-I built a GUI on top of this database. The GUI worked well for simple things. It did not work well for teams managing complex projects. I added terraform hoping that it would make managing the artifacts for large teams easier but terraform, and I apologize up front, is ugly. I'm not the only one, most vendors are implementing DSLs on top to make it better. Microsoft implemented bicep on top of ARM(terraform look alike) for the same purpose.
+I built a GUI on top of this database. The GUI worked well for simple things. It did not work well for teams managing complex projects. I added terraform hoping that it would make managing the artifacts for large teams easier but terraform, and I apologize up front, is ugly. There are things YAML is good at but defining complex objects and models isn't one of them. I'm not the only one, most vendors are implementing DSLs on top to make it better. Microsoft implemented bicep on top of ARM(terraform look alike) for the same purpose.
 
-So, having done this before, I did not want to do it again. Integrating this type of catalog in to an enterprise would be very difficult. Every enterprise would want different workflows, approvals, auditing and so on. Instead, I think it would be better to use the worlds most popular metadata repository, github. Github can store metadata in the form of objects described in files. It has versioning of course, it has workflows, authorizations, authentications, reporting and so on. Why build all this again?
+## Data catalog stored as a Python DSL in Github
+
+So, having done this before, I did not want to do it again. Integrating this type of catalog in to an enterprise would be very difficult. Every enterprise would want different workflows, approvals, auditing and so on. Instead, I think it would be better to use the worlds most popular metadata repository, Github. Github can store metadata in the form of objects described in files. It has versioning of course, it has workflows, authorizations, authentications, plugins, reporting and so on. Why build all this again?
 
 It's easy to geographically replicate the repository, clone it on a local filesystem in any country you want. Github solves a lot of the problems I solved previously using proprietary approaches and arguably does it better in many cases.
 
@@ -20,8 +22,62 @@ This can be committed directly to the ecosystem branch/repository by people auth
 
 ## How other parts are modified
 
-The part repository should clone the live ecosystem. The part repository can then make changes to the part metadata and commit them. A pull request against the ecosystem repo live branch can then be created. If this pull request is approved then the part changes are live.
+The part repositories should clone the live ecosystem. The part repository can then make changes to the part metadata and commit them. A pull request against the ecosystem repo live branch can then be created. If this pull request is approved then the part changes are live.
 
 ## Validations are model based, not file based
 
 It's important to realize that besides the ```eco.py``` file, datasurface imposes no restrictions on what files are called or how the model is organized. When it validates an incoming pull request, it simply loads the incoming model using the createEcosystem method in eco.py, it loads the existing model similarly and then it compares the models. How the models are constructed is not relevant. Authorization checks on made based on which parts of the model were changed by the pull request git repository.
+
+Thus, the ecosystem team will define the initial ```eco.py``` file which initializes an Ecosystem with maybe a single GovernanceZone like this:
+
+```python
+
+# Define a test Ecosystem
+def createEcosystem() -> Ecosystem:
+    e : Ecosystem = Ecosystem("Test", GitHubRepository("owner/surfacerepo", "main"),
+        # Declare the Azure Data Platform and make it the default
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
+                              
+        GovernanceZoneDeclaration("Azure_USA", GitHubRepository("owner/azure_usa", "main")),
+
+        InfrastructureVendor("Azure",
+            PlainTextDocumentation("Microsoft Azure"),
+                InfrastructureLocation("East US") # Virginia
+            )
+        )
+    return e
+
+```
+
+Next, the Azure_USA zone team will clone the main repository to the zones one (owner/azure_usa#main) and then edit it like this to declare some teams:
+
+``` python
+
+# Define a test Ecosystem
+def createEcosystem() -> Ecosystem:
+    e : Ecosystem = Ecosystem("Test", GitHubRepository("owner/surfacerepo", "main"),
+        # Declare the Azure Data Platform and make it the default
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
+                              
+        GovernanceZoneDeclaration("Azure_USA", GitHubRepository("owner/azure_usa", "main")),
+
+        InfrastructureVendor("Azure",
+            PlainTextDocumentation("Microsoft Azure"),
+                InfrastructureLocation("East US") # Virginia
+            )
+        )
+
+    gzUSA : GovernanceZone = e.getZoneOrThrow("Azure_USA")
+
+    gzUSA.add(
+        TeamDeclaration("US_Team", GitRepository("owner/us_team", "main"))
+    )
+    return e
+
+```
+
+This is then committed to azure_usa and then a pull request is made against the ecosystem repository. The pull request is validated by workflows and git action handlers before it is allowed to be committed in the ecosystem repository. Now, the US team can define the Team object and create some Datastores representing data they own that can be used by others and possibly some Workspaces for their own data consumption needs.
+
+It's important to realize, the zone repo just added code to eco.py to extend the model to include a governance zone declaration. Similarly, the us team will add lines to flesh out the team object with data producers and consumers. Datasurface doesn't care about how the model is constructed. You can have a file per governance zone or per team or keep it all in one file. It's up to you and what makes maintaining the model easiest. Datasurface just sees the Ecosystem object returned by the createEcosystem function.
+
+
