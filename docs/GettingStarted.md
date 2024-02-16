@@ -4,6 +4,8 @@
 
 The main github repository is the source of truth for the data ecosystem. It contains the model of the data ecosystem. The model is used to create and maintain data pipelines. The model is also used to provide governance and control over the data within the enterprise. We need to install the github action handler to make sure the central model stays self consistent, backwards compatible and consistent with the governance policies of the enterprise.
 
+[See this document for an overview of how DataSurface uses Github](HowGitHubIsUsed.md)
+
 ## Define the top level ecosystem, infrastructurevendors, dataplaforms and goverance zones
 
 The ecosystem is the top of the model. It defines the infrastructure vendors that the ecosystem can work with. Each vendor also defines the locations they provide to host data and/or compute. The ecosystem also defines the data platforms that can be used to fulfill the data movement requirements of consumers of data within the ecosystem.
