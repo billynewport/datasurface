@@ -29,5 +29,3 @@ For more information on different aspects of the system see the following docume
 * [Workspaces](Workspaces.md)
 
 * [Data Transformers](DataTransformer.md)
-
-
