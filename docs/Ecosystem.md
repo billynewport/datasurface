@@ -38,9 +38,13 @@ Once this has been committed directly against the owner/surfacerepo#main then th
 
 ## Ecosystems and Data Platforms
 
-An Ecosystem is a model showing all Data producers, Data consumers and Data transformers. The data producers provide metadata indicating how to ingest the data they produce. The Data consumers provide metadata indicating both what data they need, what kind of data container they need the data in and finally some requirements about how the data should get from the data producers to the Workspace.
+An Ecosystem is a model containing all Data producers, Data consumers and Data transformers. Datasurface can connect the dot between these three actors to construct an intention graph representing the entirety of the work needed to be done to satisfy these three actors.
 
-Data platforms are how DataSurface moves data from the producer to the consumer. An Ecosystem can be analyzed, starting with all the consumers and worked backwards towards the data producers. The requirements of the consumers which are common can be used to select a single data platform for that group of consumers. This means that an Ecosystem will choose multiple Data platforms to share the workload asked of it by its data consumers. The mapping of consumer requirements to data platforms is dynamic and intended to be reasonably sticky. This means that once a data platform has been selected for a group of consumers it will be used for that group of consumers until the requirements of the consumers change OR a significantly better data platform becomes available.
+The data producers provide metadata indicating how to ingest the data they produce. The Data consumers provide metadata indicating both what data they need, what kind of data container they need the data in and finally some requirements about how the data should get from the data producers to the Workspace.
+
+Data platforms are how DataSurface turns intentions represented by the model in to reality. Data platforms move data in order to fulfill the intentions of the primary actors. Data movement and processing is thus a derivative action calculated purely from the primary actor intentions.
+
+An Ecosystem can be analyzed, starting with all the consumers and worked backwards towards the data producers. The requirements of the consumers which are common can be used to select a single data platform for that group of consumers. This means that an Ecosystem will choose multiple Data platforms to share the workload asked of it by its data consumers. The mapping of consumer requirements to data platforms is dynamic and intended to be reasonably sticky. This means that once a data platform has been selected for a group of consumers it will be used for that group of consumers until the requirements of the consumers change OR a significantly better data platform becomes available.
 
 The Ecosystem is capable of generating multiple pipeline graphs. The union of these graphs will define the entirety of the data pipelines required to satisfy the data consumers of the Ecosystem. Each graph represents the workload for a single DataPlatform. Each Data Platform will take this graph and 'render' it in to a concrete data pipeline to achieve these goals.
 
@@ -48,8 +52,5 @@ As the Ecosystem is modified by its users, the graph will change. DataPlatforms 
 
 This doesn't mean delays of days between iterations of the Ecosystem Dataplaform renders. Data platform renders can still happen on a regular cycle. Our experience is that production changes usually dont have to be very timely. However, when developers are using the system then they expect their changes to be reflected in the data pipelines in a timely manner, minutes. Data platforms will need to satisfy both of these requirements.
 
-## Step 1, the Ecosystem team creates the Ecosystem model
+Please see [Data platforms](DataPlatform.md) for more information.
 
-First, the Ecosystem team needs to clone a github project containing an empty model. This project contains the workflow and action handlers. The action handlers will invoke the eco.py module which will contain the createEcosystem() -> Ecosystem function. The Ecosystem team will define the Ecosystem model and commit it to the main branch of the repository.
-
-Next, they will add to the Ecosystem, the available Dataplatforms, a default data platform, the infrastructure vendors and locations and the initial governance zone declarations. The governance zone declarations create named GovernanceZones and indicate the github repository the teams managing those zones will use to fill out the zone models.
