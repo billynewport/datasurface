@@ -86,4 +86,12 @@ This is then committed to azure_usa and then a pull request is made against the 
 
 It's important to realize, the zone repo just added code to eco.py to extend the model to include a governance zone declaration. Similarly, the us team will add lines to flesh out the team object with data producers and consumers. Datasurface doesn't care about how the model is constructed. You can have a file per governance zone or per team or keep it all in one file. It's up to you and what makes maintaining the model easiest. Datasurface just sees the Ecosystem object returned by the createEcosystem function.
 
+## What are the checks for merging a pull request in to the main Ecosystem repository
 
+When a pull request is made OR a commit is made directly against the main Ecosystem repository then the incoming model is checked against the existing model. First, the incoming model is checks that it's self consistent and contains no errors. This checks for things like bad references, identifiers which don't meet lexical rules and so on.
+
+Next, the incoming model is checked that the pieces of the incoming model which are different from the existing main model, can be changed using the pull request repository. This ensures that only the correct repos can change the Ecosystem, the various governance zones and the various teams.
+
+Finally, the incoming model is checked that its backwards compatible with the existing model. This means that the incoming model can add new things but it cannot remove things or change things in a way that would break the existing model. For example, a dataset can add new columns but it cannot remove columns. It can also change column types to compatible types, widening strings for example, widing numeric types and so on.
+
+If all 3 of these checks pass then the incoming change is allowed to merge with the main Ecosystem repository. If any of these checks fail then the pull request is rejected with comments indicating whats wrong.

@@ -47,3 +47,10 @@ The Ecosystem is capable of generating multiple pipeline graphs. The union of th
 As the Ecosystem is modified by its users, the graph will change. DataPlatforms will periodically re-render their graph and modify their operational graph to match the new graph. This pipeline upgrade to reflect the new graph can be very low cost or very expensive. The cost of the upgrade is really determined by the amount of state which must change for the upgrade to complete. If an upgrade requires a new Lakehouse to be configured and loaded with a PB of existing data then this won't happen in a few seconds. It may take days depending on the infrastructure available to the DataPlatform.
 
 This doesn't mean delays of days between iterations of the Ecosystem Dataplaform renders. Data platform renders can still happen on a regular cycle. Our experience is that production changes usually dont have to be very timely. However, when developers are using the system then they expect their changes to be reflected in the data pipelines in a timely manner, minutes. Data platforms will need to satisfy both of these requirements.
+
+## Step 1, the Ecosystem team creates the Ecosyste model
+
+First, the Ecosystem team needs to clone a github project containing an empty model. This project contains the workflow and action handlers. The action handlers will invoke the eco.py module which will contain the createEcosystem() -> Ecosystem function. The Ecosystem team will define the Ecosystem model and commit it to the main branch of the repository.
+
+Next, they will add to the Ecosystem, the available Dataplatforms, a default data platform, the infrastructure vendors and locations and the initial governance zone declarations. The governance zone declarations create named GovernanceZones and indicate the github repository the teams managing those zones will use to fill out the zone models.
+
