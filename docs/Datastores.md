@@ -82,7 +82,7 @@ This create the team under the zone 'EU', and adds a single Datastore 'EU_Custom
 
 ## Data classification
 
-Data is contained within Datastores and Datasets. Data can be classified at the attribute or column level. The classification is used to determine the sensitivity of the data. For example, data that can be shared publicly is marked as DataClassification.PUB, data which is highly sensitive (social security numbers, national identity numbers) would be DataClassification.PC3. Please see GovernanceZones how GovernanceZones can policy the use of data defined within a Zone based on its classification.
+Data is contained within Datastores and Datasets. Data can be classified at the attribute or column level. The classification is used to determine the sensitivity of the data. For example, data that can be shared publicly is marked as DataClassification.PUB, data which is highly sensitive (social security numbers, national identity numbers) would be DataClassification.PC3. Please see [GovernanceZones](GovernanceZone.md) for how GovernanceZones can policy the use of data defined within a Zone based on its classification.
 
 While data can be defined at an attribute level, it can also be specified at the Dataset level. If its defined at the dataset level then it cannot be defined at the column level. This is detected in linting and will be reported to the user.
 
