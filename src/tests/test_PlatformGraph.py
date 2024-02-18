@@ -40,6 +40,10 @@ class Test_PlatformGraphs(unittest.TestCase):
         self.assertTrue(pi.checkNextStepsForStepType(TriggerNode, DataTransformerNode))
         # Check DataTransformers are followed by ingestion
         self.assertTrue(pi.checkNextStepsForStepType(DataTransformerNode, IngestionNode))
+
+        graphStr : str = pi.graphToText()
+
+        print(graphStr)
             
 
 

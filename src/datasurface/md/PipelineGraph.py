@@ -23,6 +23,7 @@ class PipelineNode:
         """This records a node that depends on this node"""
         self.rightHandNodes[str(rhNode)] = rhNode
         rhNode.leftHandNodes[str(self)] = self
+
     
 
 class ExportNode(PipelineNode):
@@ -247,7 +248,32 @@ class PlatformPipelineGraph:
                         return False
         return True
 
+    def graphToText(self) -> str:
+        """This returns a string representation of the pipeline graph from left to right"""
+        left_side = self.getLeftSideOfGraph()
+
+        # Create a dictionary to keep track of the nodes we've visited
+        visited = {node: False for node in self.nodes.values()}
+
+        def dfs(node : PipelineNode, indent : str = '') -> str:
+            """Depth-first search to traverse the graph and build the string representation"""
+            if visited[node]:
+                return str(node)
+            visited[node] = True
+            result = indent + str(node) + '\n'
+            if node.rightHandNodes:
+                result += ' -> ('
+                result += ', '.join(dfs(n, indent + '  ') for n in node.rightHandNodes.values() if not visited[n])
+                result += ')'
+            return result
+
+        # Start the traversal from each node on the left side
+        graph_strs = [dfs(node) for node in left_side]
+
+        return '\n'.join(graph_strs)
+
 class EcosystemPipelineGraph:
+            
     """This is the total graph for an Ecosystem. It's a list of graphs keyed by DataPlatforms in use. One graph per DataPlatform"""
     def __init__(self, eco : Ecosystem):
         self.eco : Ecosystem = eco

@@ -1,10 +1,39 @@
 # Introduction to Dataplatforms
 
-The main ecosystem model has the current data requirements as its metadata. It has metadata describing producers, consumers, data transformations and data platforms. Data platforms are used to handle clients data transport requests. The model will select a specific platform to service a specific Workspace. Thus, a platform will likely be handling data store ingestions, exports to workspaces, all the job scheduling to make the data physically move. A data platforms job is to take the latest set of changes and then render them in to "reality". For example, an Amazon AWS DataPlatform will take its graph and possibly convert it in to AWS Glue workflows.
+The main ecosystem model has the current data requirements as its metadata. It has metadata describing producers, consumers, data transformations and data platforms. Data platforms are used to handle clients data transport requests. The model will select a specific platform to service a specific Workspace. Thus, a platform will be handling data store ingestions, exports to workspaces, triggers for and the execution of data transformer computations and all the job scheduling to make the data physically move. 
 
-When the Ecosystem metadata changes then the data platform needs to adjust to correctly render the new requirements as changes on the existing IaC render without breaking anything or the existing clients being aware this is happening. Please note, rendering a Ecosystem image can be very expensive and/or time consuming. For example, a client just created a Workspace with 500GB of data present in the datasets being used by the Workspace client. Preparing the database used by the Workspace may takes hours or even days depending on the data volumes. Once the current metadata is rendered then the platform is now using that version. The Ecosystem metadata will change as clients create more data producers and client workspaces.
+A data platform has two jobs.
 
-The platform must then try to iterate on the current deployment and take in to account the latest changes. Normally, a platform must finish the current render ASAP and then repeat for the latest changes. However, operational constraints may prevent this from happening at a fast rate.
+## Materialize an intention graph in to a physical system to fulfill the intentions of the graph
+
+The work that a data platform has to do in terms of the data pipelines is provided as a graph of nodes from the Ecosystem. The DataPlatform must then take that graph and then generate a system which can fulfill the intentions expressed in that graph. The graph consists of nodes depicting the following actions:
+
+* Ingest data from a Data producer
+
+* Materialize or Export Data in an asset for use by a Workspace
+
+* Evaluate a trigger a data transformer job
+
+* Execute a data transformer
+
+The following represents a small intention graph. The Dataplatform has a single asset or database for all data pipeline steps to use, "Test Azure SQL". A consumer wants 3 datasets, 2 come from the NW_Data store, 1 comes from the Masked_NW_Data store. These are exported to the Workspace asset in steps 6,7 and 8. The 2 original datasets are ingested in step 1 (all 3 datasets: [products, suppliers and customers] are ingested together). Step 2 exports the original sensitive customer dataset to the datatransformer workspace "MaskCustomersWorkSpace". Then the datatransformer is executed in step 4 after being triggered in 3. The execution of the datatransformer causes the newly processed masked customer records to be ingested to the ecosystem in 5. The masked customer records are then exported to the consumer asset in 6.
+
+This can be done using streaming or batch or forensic batch. The graph is just an intention graph.
+
+```text
+1. IngestionMultiNode/Ingest/Azure Platform/NW_Data
+2.  -> (  ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/customers
+3.  -> (    TriggerNode/TriggerMaskCustomersWorkSpace
+4.  -> (      DataTransformerNode/DataTransfomer/MaskCustomersWorkSpace
+5.  -> (        IngestionMultiNode/Ingest/Azure Platform/Masked_NW_Data
+6.  -> (          ExportNode/Export/Azure Platform/Test Azure SQL/Masked_NW_Data/customers)))),
+7.       ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/products,
+8.       ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/suppliers)
+```
+
+A data platforms job is to take the latest set of changes and then render them in to "reality". For example, an Amazon AWS DataPlatform will take its graph and possibly convert it in to AWS Glue workflows.
+
+When the ecosystem changes then the intention graph will also change. The Dataplatform must take the new version of its intention graph and render it on top of the existing system setup on the last iteration. The new render should minimize disruption and be as seamless as possible for the users. If the new graph simply represents that a consumer added a new Dataset to a Workspace then ideally, just create the table/views, entitle them, populate the table and then keep it up to date. If that dataset wasn't previously being ingested on this data platform then ingest it also. If the data platform is using Terraform on top of its physical infrastructure then terraform may be able to implement the changes in the new intention graph based on the old render.
 
 Dataplatforms should be able to render large environments. Maybe 10k datastores, 100k datasets, hundreds of data containers for consumers to query and extract value from the data. Most cloud solutions are incapable of handling such large graphs. The Dataplatform will need a strategy to break up the total graph in to manageable chunks and linking them together in such a way that the infrastructure used by the DataPlatform can deal with it. This is an advantage of DataSurface over using vendor tools directly. This chunking isnt a problem users should need to deal with. Plus, the complexities of how these chunks running on different cloud vendors need to interact or be optimized similarly isn't something users should need to deal with. This is the job of the DataPlatform.
 

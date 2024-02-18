@@ -35,7 +35,6 @@ A governance zone can specify zero or more InfrastructureVendorPolicy objects. T
 
 This restricts all Data stores and Workspaces to only use a specific vendor. This constrains the Dataplatforms and assets used by the datastores and workspaces to only use the specified vendor.
 
-
 ## Limiting the infrastructure vendor locations available within a zone
 
 A zone can specify zero of more InfrastructureLocationPolicy objects. These can filter the list of locations allowed to host assets where data policied by this zone can be stored. Data could be restricted to the EU or the USA.
@@ -77,7 +76,6 @@ For example, a zone can add a DataClassificationPolicy indicating that no PC1,2 
 
 Allowed = None indicates no restrictions. So, anything not explicited not allowed is allowed.
 
-
 ## Declaring Teams within a zone
 
 A TeamDeclaration can be added to a zone to declare a team. Every team in a zone first requires a TeamDeclation to be added for it by the governance zone github repository. Once the declaration is present in the main branch, this declares the team as well as the github repository/branch which is used for authoring the team. The team cannot be deleted until the team github repo removes references to the team.
@@ -94,5 +92,3 @@ The teams can then define data stores and Workspaces. These objects are governan
 ```
 
 A team can be declared like this in a zone. It just needs a unique name and the github repository authorized to make changes to that team. Multiple team declarations can be defined similarly inside a zone. Once they are defined then the can be defined and filled out/maintained with pull requests with those changes from the appropriate git repositories.
-
-

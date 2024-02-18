@@ -1,8 +1,8 @@
 # What is a Data ecosystem?
 
-Every enterprise has a data ecosystem. It comprises all the data within an enterprise, how it moves throughout the enterprise, the technologies used to process, store and move that data. Governance is about analyzing the ecosystem and making sure it meets policies designed to ensure best practises, keep the data safe and enforce corporate or governmeny policies/laws on storing sensitive data.
+Every enterprise has a data ecosystem. It comprises all the data within an enterprise, how it moves throughout the enterprise, the technologies used to process, store and move that data. Governance is about analyzing the ecosystem and making sure it meets policies designed to ensure best practises, keep the data safe, limit liability and enforce corporate or government policies/laws on storing sensitive data.
 
-Datasurface tries to simplify this ecosystem providing a platform which can describe this ecosystem and then automatically provision as much of the infrastructure to implement it as possible.
+Datasurface tries to simplify this ecosystem providing a platform which can describe this ecosystem and then automatically provision as much of the infrastructure to implement it as possible. Ideally, it divorces the data producers, data consumers and data transformers from the infrastructure providing the services used to enable these actors to work together. These actors should not care about what kind of technology or technologies are being used to enable the shared data ecosystem that exists between these actors over time. This ecosystem should be provisioned in the same manner Amazon provides S3 storage. Actors consuming S3 storage do not care how Amazon provisions servers, or which brand of disks or network cards etc. They simply use object storage through S3. In the same way, we want to bring data ecosystems up to the same level of abstraction. How a data ecosystem is implemented, which cloud vendors are used, which databases, how data is moved around should be utterly of no concern to the actors using the data ecosystem so long as it works and obeys policies they may define constraining how an ecosystem can be used.
 
 ## Creating an empty Ecosystem
 
@@ -53,4 +53,3 @@ This doesn't mean delays of days between iterations of the Ecosystem Dataplaform
 First, the Ecosystem team needs to clone a github project containing an empty model. This project contains the workflow and action handlers. The action handlers will invoke the eco.py module which will contain the createEcosystem() -> Ecosystem function. The Ecosystem team will define the Ecosystem model and commit it to the main branch of the repository.
 
 Next, they will add to the Ecosystem, the available Dataplatforms, a default data platform, the infrastructure vendors and locations and the initial governance zone declarations. The governance zone declarations create named GovernanceZones and indicate the github repository the teams managing those zones will use to fill out the zone models.
-
