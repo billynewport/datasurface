@@ -79,3 +79,13 @@ Lets assume there is already a team called OurTeam. We will add a new Datastore 
 ```
 
 This create the team under the zone 'EU', and adds a single Datastore 'EU_Customers' to it. There is a snippet of documentation, a preliminary (when this is working, this will be fleshed out) CDC ingestion metadata, and a single dataset for the table customers.
+
+## Data classification
+
+Data is contained within Datastores and Datasets. Data can be classified at the attribute or column level. The classification is used to determine the sensitivity of the data. For example, data that can be shared publicly is marked as DataClassification.PUB, data which is highly sensitive (social security numbers, national identity numbers) would be DataClassification.PC3. Please see GovernanceZones how GovernanceZones can policy the use of data defined within a Zone based on its classification.
+
+While data can be defined at an attribute level, it can also be specified at the Dataset level. If its defined at the dataset level then it cannot be defined at the column level. This is detected in linting and will be reported to the user.
+
+## Production Status
+
+A datastore can be marked as PRODUCTION or NOT_PRODUCTION. This is used to indicate that the data is appropriate to use in production or not. Workspaces can similarly be marked and the ecosystem will ensure that only production data is used in production workspaces. The intention here is to prevent non production data being used in a production setting.
