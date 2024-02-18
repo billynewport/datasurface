@@ -43,3 +43,10 @@ The Ecosystem interprets these requirements and selects an appropriate data plat
 ### DatasetSinks
 
 A datasetgroup has one or more datasetsink references. This basically states the consumer would like to use a specific dataset in a Workspace using the data pipeline selected by its DatasetGroup. A dataset can be used in multiple datasetgroups and different data pipelines may be used to serve it to the Asset for a single Workspace. A datasetsink also specifies the depreciation policy the consumer is ready to allow for this dataset. This allows a consumer to say it does not want to use deprecated data at all or it will allow the use of it temporarily while alternative sources for that data are determined. This works together with the data producers ability to mark datasets as deprecated.
+
+### How a DataPlatform using an Asset might render DatasetSinks
+
+Dataplatforms are the underlying mechanism for how data arrives in Assets for data consumers. If the asset was a typical database or lakehouse then the data would be kept up to date in a physical table. Consumers might use a softlink or a view to reference that physical table. Their view may be named by combining the Workspace, DatasetGroup and Dataset names together.
+
+The view is usually an important abstraction as it provides the data platform flexibility if columns are added to the dataset. A new table can be created and provisioned with the new column while existing consumers continue to use the existing table and views. The Dataplatform will simultaenously keep the original table up to date. When the new table has caught up and is ready for use then the data platform would alter the consumer views to point at the new table and then delete the old table.
+
