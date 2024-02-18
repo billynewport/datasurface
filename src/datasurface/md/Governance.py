@@ -2169,7 +2169,7 @@ class Workspace(ANSI_SQL_NamedObject):
         self.asset : Optional['Asset'] = None
         self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
-        self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
+        self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED) 
         self.dataTransformer : Optional[DataTransformer] = None
         # This is the set of classifications expected in the Workspace. Linting fails
         # if any datsets/attributes found with classifications different than these

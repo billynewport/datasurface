@@ -27,19 +27,56 @@ If any other zones are using data stores/data sets from the zone to be deleted t
 
 A governance zone can specify zero or more InfrastructureVendorPolicy objects. These can filter the list of vendors allowed to be used on this zones data. An individual policy can either disallow a set of vendors or allow a set of vendors.
 
+```python
+    gz.add(
+        InfraStructureVendorPolicy("AWS Only", {e.getVendorOrThrow("AWS")}) # AWS Locations only
+    )
+```
+
+This restricts all Data stores and Workspaces to only use a specific vendor. This constrains the Dataplatforms and assets used by the datastores and workspaces to only use the specified vendor.
+
+
 ## Limiting the infrastructure vendor locations available within a zone
 
 A zone can specify zero of more InfrastructureLocationPolicy objects. These can filter the list of locations allowed to host assets where data policied by this zone can be stored. Data could be restricted to the EU or the USA.
 
+```python
+    gz.add(
+        InfraStructureLocationPolicy("AWS US Only", e.getLocationOrThrow("AWS", ["USA"]).getEveryChildLocation())
+    )
+```
+
+This policy forces only USA AWS locations to be used for storing data defined in this zone or with Workspaces defined in this zone.
+
 ## Limiting the data platforms available within a zone
 
 A zone can also restrict the choices of dataplatforms available to the ecosystem for servicing the clients of its data. A dataplatform can ONLY use data that is allowed by the datasets governancezone.
+
+```python
+    gz.add(
+        DataPlatformPolicy("AWS Platform only", {e.getDataPlatformOrThrow("AWS Platform")}) # AWS DataPlatform only
+    )
+```
+
+This allows either a set of explicitly allowed or a set of displicitly disallowed set of DataPlatforms to be used with Workspaces OR Datastores defined in the zone. For example, a China based zone may only allow local cloud companies to be used to handle workspaces or data from Datastores defined within this zone.
 
 ## Limiting the data classifications available within a zone
 
 A Governance Zone can be setup to only host data of specific classifications. This can be useful for setting up a restricted zone which holds sensitive data. That zone can restrict the data to enterprise private data centers for example. This prevents restricted data from being used in the cloud.
 
 Another zone could be setup for data which has been cleared for use on the cloud and enterprise private data centers.
+
+For example, a zone can add a DataClassificationPolicy indicating that no PC1,2 or 3 data can be used in Datastores or Workspaces defined by any team within this zone.
+
+```python
+    gz.add(
+        DataClassificationPolicy("No privacy data", allowed=None, notAllowed={DataClassification.PC1, DataClassification.PC2, DataClassification.PC3})
+    )
+    
+```
+
+Allowed = None indicates no restrictions. So, anything not explicited not allowed is allowed.
+
 
 ## Declaring Teams within a zone
 
