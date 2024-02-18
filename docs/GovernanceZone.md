@@ -6,6 +6,17 @@ A governance zone is used to define a region of the data ecosystem. It constrain
 
 The ecosystem repository must declare the governance zone initially and indicate which repository will be used to make changes to the zone and its contents. Once this is committed then the governance zone can be used to specify the zone metadata. The zone repository should clone the main repository, make changes, commit them and then issue a pull request to make the changes in the main repository. The pull request will be vetted by the main repository and if it passes the vetting then the changes will be merged in to the main repository. At this point, the changes are live. If further changes are required to the zone then repeat this procedure.
 
+```python
+    # Define a governance zone
+    eco.add(
+        GovernanceZoneDeclaration("EU",
+            GitHubRepository("owner/repo", "main"),
+            PlainTextDocumentation("This is the EU governance zone. It is responsible for all data and workspaces in the EU."))
+    )
+```
+
+This creates a governance zone called 'EU' and specifies the github repository and branch that will be used to make changes to the zone. The documentation is also added to the zone.
+
 ## Deleting a governance zone
 
 All governance zone metadata should be removed from the zone repository and merged with the main repository. Once the governance zone is not longer defined at all then the zone declaration can be removed using the ecosystem repository.
@@ -37,3 +48,14 @@ A TeamDeclaration can be added to a zone to declare a team. Every team in a zone
 The team git repository can now be used in the normal way to define the team objects, the datastores, datasets and workspaces.
 
 The teams can then define data stores and Workspaces. These objects are governanced by the ecosystem's rules filtered through the governance zone policies. This means that if a cloud vendor is provided in the ecosystem, the governance zone that owns a team with a dataset may forbid that data being used with a specific or even all cloud vendors. The geographic location of assets hosting the data for Workspaces may be restricted. Even the data pipelines used to move the data may be restricted. An example here may be that a country rules might disallow specific country vendors from accessing sensitive data.
+
+```python
+    gzEU : GovernanceZone = eco.getZoneOrThrow("EU")
+    gzEU.add(
+        TeamDeclaration("OurTeam", GitHubRepository("owner/repo", "main"), PlainTextDocumentation("Our first team declaration"))
+    )
+```
+
+A team can be declared like this in a zone. It just needs a unique name and the github repository authorized to make changes to that team. Multiple team declarations can be defined similarly inside a zone. Once they are defined then the can be defined and filled out/maintained with pull requests with those changes from the appropriate git repositories.
+
+
