@@ -29,3 +29,47 @@ The protocol is that a producer can first mark a dataset as deprecated and then 
 ## Data Models
 
 If a data producer insists on a specific data model/tooling being used against the datasets then they can control this by only granting permission to Workspaces who agree to this. The Data ecosystem is principally concerned with moving data from producers to consumers on appropriate data pipelines.
+
+## Creating a Data producer
+
+Lets assume there is already a team called OurTeam. We will add a new Datastore for the NorthWind database to it with one table or Dataset. We will specify that we can use CDC to ingest the data when a platform needs to.
+
+```python
+    ourTeam : Team = gzEU.getTeamOrThrow("OurTeam")
+
+    ourTeam.add(
+        PlainTextDocumentation("This is our team responsible for vaious EU specific data and workspaces"),
+        Datastore("EU_Customers",
+            PlainTextDocumentation("EU Customer data"),
+            CDCCaptureIngestion(
+                PyOdbcSourceInfo(
+                    e.getLocationOrThrow("AWS", ["EU", "eu-central-1"]), # Where is the database
+                    serverHost="tcp:nwdb.database.windows.net,1433",
+                    databaseName="nwdb",
+                    driver="{ODBC Driver 17 for SQL Server}",
+                    connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
+                ),
+                CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
+                IngestionConsistencyType.MULTI_DATASET,
+                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")),
+            Dataset("customers",
+                DataClassification.PC3,
+                PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
+                DDLTable(
+                    DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                    DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),
+                    DDLColumn("contact_name", VarChar(30)),
+                    DDLColumn("contact_title", VarChar(30)),
+                    DDLColumn("address", VarChar(60)),
+                    DDLColumn("city", VarChar(15)),
+                    DDLColumn("region", VarChar(15)),
+                    DDLColumn("postal_code", VarChar(10)),
+                    DDLColumn("country", VarChar(15)),
+                    DDLColumn("phone", VarChar(24)),
+                    DDLColumn("fax", VarChar(24))
+                )
+            )))
+
+```
+
+This create the team and adds a single Datastore 'EU_Customers' to it. There is a snippet of documentation, a preliminary (when this is working, this will be fleshed out) CDC ingestion metadata, and a single dataset for the table customers.
