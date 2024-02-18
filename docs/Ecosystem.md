@@ -48,7 +48,7 @@ As the Ecosystem is modified by its users, the graph will change. DataPlatforms 
 
 This doesn't mean delays of days between iterations of the Ecosystem Dataplaform renders. Data platform renders can still happen on a regular cycle. Our experience is that production changes usually dont have to be very timely. However, when developers are using the system then they expect their changes to be reflected in the data pipelines in a timely manner, minutes. Data platforms will need to satisfy both of these requirements.
 
-## Step 1, the Ecosystem team creates the Ecosyste model
+## Step 1, the Ecosystem team creates the Ecosystem model
 
 First, the Ecosystem team needs to clone a github project containing an empty model. This project contains the workflow and action handlers. The action handlers will invoke the eco.py module which will contain the createEcosystem() -> Ecosystem function. The Ecosystem team will define the Ecosystem model and commit it to the main branch of the repository.
 
