@@ -35,12 +35,17 @@ If a data producer insists on a specific data model/tooling being used against t
 Lets assume there is already a team called OurTeam. We will add a new Datastore for the NorthWind database to it with one table or Dataset. We will specify that we can use CDC to ingest the data when a platform needs to.
 
 ```python
+    # Find the EU Zone
+    gzEU : GovernanceZone = eco.getZoneOrThrow("EU")
+    # Define our team, we assume it's already been declared by the zone repo earlier.
     ourTeam : Team = gzEU.getTeamOrThrow("OurTeam")
 
+    # Add the team documentation and a single Datastore to start.
     ourTeam.add(
         PlainTextDocumentation("This is our team responsible for vaious EU specific data and workspaces"),
         Datastore("EU_Customers",
             PlainTextDocumentation("EU Customer data"),
+            # Capture Meta data to describe how a dataplatform will ingest this data source
             CDCCaptureIngestion(
                 PyOdbcSourceInfo(
                     e.getLocationOrThrow("AWS", ["EU", "eu-central-1"]), # Where is the database
@@ -52,8 +57,9 @@ Lets assume there is already a team called OurTeam. We will add a new Datastore 
                 CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")),
+            # A single dataset
             Dataset("customers",
-                DataClassification.PC3,
+                DataClassification.PC3, # Privacy high data
                 PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
                 DDLTable(
                     DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
@@ -72,4 +78,4 @@ Lets assume there is already a team called OurTeam. We will add a new Datastore 
 
 ```
 
-This create the team and adds a single Datastore 'EU_Customers' to it. There is a snippet of documentation, a preliminary (when this is working, this will be fleshed out) CDC ingestion metadata, and a single dataset for the table customers.
+This create the team under the zone 'EU', and adds a single Datastore 'EU_Customers' to it. There is a snippet of documentation, a preliminary (when this is working, this will be fleshed out) CDC ingestion metadata, and a single dataset for the table customers.
