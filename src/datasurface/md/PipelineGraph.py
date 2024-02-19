@@ -2,7 +2,6 @@
 from typing import Optional, Type, cast
 from datasurface.md.Governance import Asset, DataPlatform, DataTransformerOutput, DatasetGroup, DatasetSink, Datastore, Ecosystem, IngestionConsistencyType, StepTrigger, Workspace
 
-
 class PipelineNode:
     """This is a named node in the pipeline graph. It stores node common information and which nodes this node depends on and those that depend on this node"""
     def __init__(self, name : str, platform : DataPlatform):
