@@ -15,17 +15,10 @@ Next, governance zones can be declared by adding a GovernanceZoneDeclaration for
 For more information on different aspects of the system see the following documents:
 
 * [Ecosystem](Ecosystem.md)
-
 * [Governance Zones](GovernanceZone.md)
-
 * [Dataplatforms](DataPlatform.md)
-
 * [Teams](Teams.md)
-
 * [How github is used by Datasurface](HowGitHubIsUsed.md)
-
 * [Datastores](Datastores.md)
-
 * [Workspaces](Workspaces.md)
-
 * [Data Transformers](DataTransformer.md)

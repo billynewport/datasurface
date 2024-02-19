@@ -23,6 +23,7 @@ The code to declare a team should be added to a Governance Zone:
         ...
     )
 ```
+
 This shows the name of the team, "FrontOffice" and the git repository allowed to make changes to team objects.
 
 ## Defining a team
@@ -57,6 +58,3 @@ Once a team has been officially declared in a governance zone then the team obje
 ```
 
 This shows us getting a reference to the team from the zone declaring it. Then we add a Datastore called 'NW_Data', specify how it can be ingested and then define a single Dataset 'us_states'.
-
-
-

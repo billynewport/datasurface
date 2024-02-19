@@ -5,15 +5,10 @@ A consumer of data of an ecosystem must define a Workspace within a Team within 
 A consumer uses a Workspace to define the data that they require as well as how they want the data to be delivered to them. A consumer describes the delivery requirements of the workspace using a WorkspacePlatformConfig. This allows the consumer to specify:
 
 * The type of data container that they need for this use case (OLTP/OLAP/Object based)
-
 * Where the data is needed
-
 * how much data latency is desirable
-
 * Whether the data needs to be milestoned or not
-
 * How long data should be retained for and so on.
-
 * Regulatory retention requirements and how that data can be stored.
 
 The ecosystem will then use this information to choose a DataPlatform to host the data pipeline for the Workspace.
@@ -25,9 +20,7 @@ Consumers may also specify they want to use multiple of these for a single appli
 The asset is the data container that will host the data for the consumer. The ecosystem will deliver the data from the producers to this container where the consumer will be able to query it. There are a variety of asset types and they will consistently change. Examples of asset types are:
 
 * Lake House (object store + Delta capable columnar files + Data catalog)
-
 * Traditional OLTP SQL Databases
-
 * Traditional OLAP SQL Data warehouses
 
 Assets are typically located with an InstructureLocation which is owned by an InfrastructureVendor. Datasets can only be stored on an Asset if the GovernanceZone that polices the dataset allows it. Some GovernanceZones may not allow cloud vendors or may not allow on site vendors.
@@ -75,7 +68,6 @@ The following shows how a Workspace can be defined in Python. This change would 
 This first gets references to the USA gz and then the OurTeam team within that gz. Next, we add the new Workspace to the team. The Workspace is called "ProductLiveAdhocReporting". It expects the data to be available on the "Test Azure SQL" asset.
 
 The DatasetGroup "LiveProducts" specifies that the consumer requires a low latency version of the products, customers and suppliers datasets. The WorkspacePlatformConfig specifies that the data should be live only (no historical data records or milestoning) and that minutes of latency is acceptable. The data has no retention requirement.
-
 
 ### How a DataPlatform using an Asset might render DatasetSinks
 

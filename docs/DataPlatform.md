@@ -1,6 +1,6 @@
 # Introduction to Dataplatforms
 
-The main ecosystem model has the current data requirements as its metadata. It has metadata describing producers, consumers, data transformations and data platforms. Data platforms are used to handle clients data transport requests. The model will select a specific platform to service a specific Workspace. Thus, a platform will be handling data store ingestions, exports to workspaces, triggers for and the execution of data transformer computations and all the job scheduling to make the data physically move. 
+The main ecosystem model has the current data requirements as its metadata. It has metadata describing producers, consumers, data transformations and data platforms. Data platforms are used to handle clients data transport requests. The model will select a specific platform to service a specific Workspace. Thus, a platform will be handling data store ingestions, exports to workspaces, triggers for and the execution of data transformer computations and all the job scheduling to make the data physically move.
 
 A data platform has two jobs.
 
@@ -9,11 +9,8 @@ A data platform has two jobs.
 The work that a data platform has to do in terms of the data pipelines is provided as a graph of nodes from the Ecosystem. The DataPlatform must then take that graph and then generate a system which can fulfill the intentions expressed in that graph. The graph consists of nodes depicting the following actions:
 
 * Ingest data from a Data producer
-
 * Materialize or Export Data in an asset for use by a Workspace
-
 * Evaluate a trigger a data transformer job
-
 * Execute a data transformer
 
 The following represents a small intention graph. The Dataplatform has a single asset or database for all data pipeline steps to use, "Test Azure SQL". A consumer wants 3 datasets, 2 come from the NW_Data store, 1 comes from the Masked_NW_Data store. These are exported to the Workspace asset in steps 6,7 and 8. The 2 original datasets are ingested in step 1 (all 3 datasets: [products, suppliers and customers] are ingested together). Step 2 exports the original sensitive customer dataset to the datatransformer workspace "MaskCustomersWorkSpace". Then the datatransformer is executed in step 4 after being triggered in 3. The execution of the datatransformer causes the newly processed masked customer records to be ingested to the ecosystem in 5. The masked customer records are then exported to the consumer asset in 6.
@@ -46,13 +43,8 @@ Platform instances should be stored in the Ecosystem and provisioned when data p
 A data platform is a mechanism to handle the follow chores:
 
 * Manage a job scheduler to coordinate the follow
-
 * Ingest data from a data store and persistently store in a data container Once, data is ingested then the data platform is also responsible to incrementally propogate data changes for a store to downstream consumer Workspaces.
-
 * Track the retention requirements of Workspaces and make sure that the data can be reproduced for the required amount of time. This could be as much as 5 years so it's unlikely that a simple file format such as Apache Iceberg or Deltalake are sufficient. The data platform will likely need to store the data in a milestoned format to do this. File formats such as Iceberg or DeltaLake are not designed to handle long term retention required. They will typically try to compact/vacuum/conflate the deltas in the files to produce a new snapshot and once the snapshot is created then the deltas are deleted and thus the ingestion pull by pull changes are lost.
-
 * Allow multiplatform fabrics to cooperate to connect data producers to data consumers. There may be a platform handling AWS whilst another platform handles AZURE and so on. The broker is responsible to define a protocol enabling data to flow between platforms.
-
 * Data platforms will have their own operational state. This state might consist of its place ingestion a database using CDC. This state will likely by kept in an OLTP database.
-
 * Dataplatforms are typically rendering using a specific branch from the github ecosystem. When the github ecosystem accepts new changes then the Dataplatform will need to advance to the next branch and then figure out what is the delta between the current rendering and the new proposed one. A Dataplatform will typically use generated IaC scripts to render the metadata described in the Ecosystem. The IaC should be completely generated from the Ecosystem metadata. Data platforsm do not need to advanced instantly when the main Ecosystem is updated. Changes may be delayed till long weekends for example. Development environments with a dataplatform need to advance much faster as developers are waiting for their changes to be pushed rapidly.
