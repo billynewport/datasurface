@@ -2,7 +2,6 @@
 
 > :warning: **Work in progress**: This project is being implemented in phases and has not reached a fully functional state at this time. Please see the [roadmap](ROADMAP.md) for details on when features should drop and the road map.
 
-
 # Data surface, a data ecosystem broker
 
 The goal is this project is to eliminate data pipelines as a manual task within an enterprise. Enterprise developers should be performing only the following tasks:

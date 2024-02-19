@@ -40,13 +40,45 @@ The consumer can also specify if they require just the current live records of e
 
 The Ecosystem interprets these requirements and selects an appropriate data platform from the set that are available. These can be constrained by the GovernanceZones that own data in the Dataset.
 
+Most applications will only use a single DatasetGroup. But, more complex applications may require multiple DatasetGroups to satisfy the requirements of the application.
+
 ### DatasetSinks
 
 A datasetgroup has one or more datasetsink references. This basically states the consumer would like to use a specific dataset in a Workspace using the data pipeline selected by its DatasetGroup. A dataset can be used in multiple datasetgroups and different data pipelines may be used to serve it to the Asset for a single Workspace. A datasetsink also specifies the depreciation policy the consumer is ready to allow for this dataset. This allows a consumer to say it does not want to use deprecated data at all or it will allow the use of it temporarily while alternative sources for that data are determined. This works together with the data producers ability to mark datasets as deprecated.
+
+### Creating a Workspace in Python
+
+The following shows how a Workspace can be defined in Python. This change would need to be made within a specific Team github repository and then pull requested in to the main ecosystem repository.
+
+```python
+    gz : GovernanceZone = eco.getZoneOrThrow("USA")
+    ourTeam : Team = gz.getTeamOrThrow("OurTeam")
+
+    ourTeam.add(
+        Workspace("ProductLiveAdhocReporting",
+            PlainTextDocumentation("This workspace is used to provide live adhoc reporting on the product data"),
+            Asset("Test Azure SQL"),                            
+            DatasetGroup("LiveProducts",
+                WorkspacePlatformConfig(
+                    ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
+                        DataLatency.MINUTES, # Minutes of latency is acceptable
+                        None, # Regulator
+                        None) # Data used here has no retention requirement due to this use case
+                    ),
+                DatasetSink("NW_Data", "products"),
+                DatasetSink("NW_Data", "customers"),
+                DatasetSink("NW_Data", "suppliers"))
+        ))
+
+```
+
+This first gets references to the USA gz and then the OurTeam team within that gz. Next, we add the new Workspace to the team. The Workspace is called "ProductLiveAdhocReporting". It expects the data to be available on the "Test Azure SQL" asset.
+
+The DatasetGroup "LiveProducts" specifies that the consumer requires a low latency version of the products, customers and suppliers datasets. The WorkspacePlatformConfig specifies that the data should be live only (no historical data records or milestoning) and that minutes of latency is acceptable. The data has no retention requirement.
+
 
 ### How a DataPlatform using an Asset might render DatasetSinks
 
 Dataplatforms are the underlying mechanism for how data arrives in Assets for data consumers. If the asset was a typical database or lakehouse then the data would be kept up to date in a physical table. Consumers might use a softlink or a view to reference that physical table. Their view may be named by combining the Workspace, DatasetGroup and Dataset names together.
 
 The view is usually an important abstraction as it provides the data platform flexibility if columns are added to the dataset. A new table can be created and provisioned with the new column while existing consumers continue to use the existing table and views. The Dataplatform will simultaenously keep the original table up to date. When the new table has caught up and is ready for use then the data platform would alter the consumer views to point at the new table and then delete the old table.
-

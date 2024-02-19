@@ -36,11 +36,13 @@ This defines a very simple Ecosystem. The main repository is at owner/surfacerep
 
 Once this has been committed directly against the owner/surfacerepo#main then the Azure_USA zone can be defined from its repository.
 
-## Ecosystems and Data Platforms
+## Ecosystems, GovernanceZones and Data Platforms
 
 An Ecosystem is a model containing all Data producers, Data consumers and Data transformers. Datasurface can connect the dot between these three actors to construct an intention graph representing the entirety of the work needed to be done to satisfy these three actors.
 
-The data producers provide metadata indicating how to ingest the data they produce. The Data consumers provide metadata indicating both what data they need, what kind of data container they need the data in and finally some requirements about how the data should get from the data producers to the Workspace.
+Data producers, consumers and data transformers are always owned by a single GovernanceZone. The GovernanceZone defines a set of policies for governing or policing the way any data or Workspaces owned by the governancezone can be used. This means a GovernanceZone can restrict vendors, classifications, locations, data platforms and so on. This means that the firms most sensitive data could be kept in an isolating governance zone which puts heavy restrictions on the data platforms and infrastructure that can be used to handle the data. For example, only the most trusted cloud vendor may be used to handle the data or possibly it may be only allowed within the firms private data centers on specific locked down assets. These rules apply to any use of the data, even when datasets are used by Workspaces in other governance zones. The rules of both zones are ANDed. This means some combinations may not be possibly. For example, a dataset is in a private data center only zone. Another zones Workspace which is cloud only wants to use that dataset. This will not be allowed when the Workspace change to add the dataset is attempted to be merged in to the main ecosystem model. The github workflows will disallow the inclusion of that dataset in that Workspace. Conversely, if the dataset was being moved from a less restrictive zone to be more restrictive zone then all the Workspaces using that dataset would need to be removed or modified to remove the dataset from the Workspace if a governance zone policy is violated before the dataset change can be made. This will usually require conversions with other teams to negociate these changes.
+
+The data producers provide metadata indicating how to ingest the data they produce. The Data consumers provide metadata indicating both what data they need, what kind of data container (or sometimes the specific asset) they need the data in and finally some requirements about how the data should get from the data producers to the Workspace.
 
 Data platforms are how DataSurface turns intentions represented by the model in to reality. Data platforms move data in order to fulfill the intentions of the primary actors. Data movement and processing is thus a derivative action calculated purely from the primary actor intentions.
 
@@ -53,4 +55,3 @@ As the Ecosystem is modified by its users, the graph will change. DataPlatforms 
 This doesn't mean delays of days between iterations of the Ecosystem Dataplaform renders. Data platform renders can still happen on a regular cycle. Our experience is that production changes usually dont have to be very timely. However, when developers are using the system then they expect their changes to be reflected in the data pipelines in a timely manner, minutes. Data platforms will need to satisfy both of these requirements.
 
 Please see [Data platforms](DataPlatform.md) for more information.
-
