@@ -1,4 +1,6 @@
 import unittest
+from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Lint import ValidationTree
 
 from tests.nwdb.eco import createEcosystem
@@ -98,5 +100,24 @@ class TestGitOps(unittest.TestCase):
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 0)
 
+class TestRepository(unittest.TestCase):
+    def test_GitHubRepository(self):
+        g : GitHubRepository = GitHubRepository("billynewport/repo", "main")
+        gdoc : GitHubRepository = GitHubRepository("billynewport/repo", "main", PlainTextDocumentation("Test"))  
+        gdoc2 : GitHubRepository = GitHubRepository("billynewport/repo", "main", PlainTextDocumentation("Test2"))  
+        g2 : GitHubRepository = GitHubRepository("billynewport/repo", "main2")
+
+        self.assertEqual(g, g)
+        self.assertNotEqual(g, gdoc)
+        self.assertNotEqual(g, g2)
+        self.assertEqual(gdoc, gdoc)
+
+        self.assertEqual(g.repositoryName, "billynewport/repo")
+        self.assertEqual(g.branchName, "main")
+
+        self.assertEqual(gdoc.documentation, PlainTextDocumentation("Test"))
+        self.assertEqual(gdoc2.documentation, PlainTextDocumentation("Test2"))
+        self.assertNotEqual(gdoc.documentation, gdoc2.documentation)
+        
 if __name__ == '__main__':
     unittest.main()
