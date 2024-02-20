@@ -15,8 +15,8 @@ def createEcosystem() -> Ecosystem:
         GitHubRepository("billynewport/repo", "ECOmain"),
 
         # Data Platforms
-        DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform"),
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
 
         # GovernanceZones
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
@@ -66,7 +66,7 @@ def createEcosystem() -> Ecosystem:
             TeamDeclaration("NorthWindTeam", GitHubRepository("billynewport/repo", "NWmain")),
             TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain")),
 #            InfraStructureLocationPolicy("AWS USA Only", ecosys.getAllChildLocations("AWS", ["USA"]), None)
-            InfraStructureLocationPolicy("Azure USA Only", ecosys.getAllChildLocations("Azure", ["USA"]), None)
+            InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), ecosys.getAllChildLocations("Azure", ["USA"]), None)
         )
 
     gzEU : GovernanceZone = ecosys.getZoneOrThrow("EU")

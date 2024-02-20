@@ -21,8 +21,8 @@ class TestWorkspace(unittest.TestCase):
         eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
-            AmazonAWSDataPlatform("FastPlatform"),
-            AmazonAWSDataPlatform("SlowPlatform")
+            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
+            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
             )
         
         self.assertEqual(eco, eco)
@@ -47,8 +47,8 @@ class TestWorkspace(unittest.TestCase):
         eco : Ecosystem = Ecosystem("BigCorp", GitHubRepository("a", "b"),
             GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration(chinaZoneName, GitHubRepository("aa", "cc")),
-                AmazonAWSDataPlatform("FastPlatform"),
-                AmazonAWSDataPlatform("SlowPlatform")
+                AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
+                AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
             )
         
         gzUSA : GovernanceZone = eco.getZoneOrThrow(usZoneName)
@@ -334,7 +334,7 @@ class TestWorkspace(unittest.TestCase):
         e : Ecosystem = Ecosystem(
                 "BigCorp", FakeRepository("a"),
                 DefaultDataPlatform(
-                    AzureDataplatform("Azure", AzureKeyVaultCredential("keyvault", "aa"))
+                    AzureDataplatform("Azure", PlainTextDocumentation("Test"), AzureKeyVaultCredential("keyvault", "aa"))
                     ),
                 InfrastructureVendor("Azure",
                     PlainTextDocumentation("Azure test vendor"),
@@ -438,8 +438,8 @@ class TestWorkspace(unittest.TestCase):
         self.assertTrue(eTree.hasIssues())
 
     def test_WorkspaceEquality(self):
-        fastP : DataPlatform = AmazonAWSDataPlatform("FastPlatform")
-        slowP : DataPlatform = AmazonAWSDataPlatform("SlowPlatform")
+        fastP : DataPlatform = AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"))
+        slowP : DataPlatform = AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
 
         self.assertEqual(fastP, fastP)
         self.assertNotEqual(fastP, slowP)

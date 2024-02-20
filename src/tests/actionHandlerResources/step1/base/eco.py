@@ -8,8 +8,8 @@ from datasurface.md.Governance import DefaultDataPlatform, Ecosystem, Governance
 
 def createEcosystem() -> Ecosystem:
     e : Ecosystem = Ecosystem("Test", GitHubRepository("billynewport/test_step1", "main"),
-        DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform"),
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
                               
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),

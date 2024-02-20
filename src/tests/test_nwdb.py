@@ -92,7 +92,7 @@ class TestEcosystemValidation(unittest.TestCase):
         self.assertNoIssue(Date())
 
     def test_equality(self):
-        self.assertEqual(AmazonAWSDataPlatform("name"), AmazonAWSDataPlatform("name"))
+        self.assertEqual(AmazonAWSDataPlatform("name", PlainTextDocumentation("Test")), AmazonAWSDataPlatform("name", PlainTextDocumentation("Test")))
 
         ghr : GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
         self.assertEqual(ghr, ghr)

@@ -1,12 +1,13 @@
 
 
+from datasurface.md import Documentation
 from datasurface.md.Governance import DataPlatform, Ecosystem, InfrastructureVendor
 from datasurface.md.Lint import ValidationTree
 
 
 class AmazonAWSDataPlatform(DataPlatform):
-    def __init__(self, name : str):
-        super().__init__(name)
+    def __init__(self, name : str, doc : Documentation):
+        super().__init__(name, doc)
     
     def getSupportedVendors(self, eco : Ecosystem) -> set[InfrastructureVendor]:
         rc : set[InfrastructureVendor] = set()

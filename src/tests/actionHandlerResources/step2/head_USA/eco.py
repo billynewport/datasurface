@@ -8,8 +8,8 @@ from datasurface.md.Governance import DataPlatformPolicy, DefaultDataPlatform, E
 
 def createEcosystem() -> Ecosystem:
     e : Ecosystem = Ecosystem("Test", GitHubRepository("billynewport/test_step1", "main"),
-        DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform"),
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
                               
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),
@@ -52,7 +52,7 @@ def createEcosystem() -> Ecosystem:
     allEULocations : set[InfrastructureLocation] = e.getLocationOrThrow("AWS", ["EU"]).getEveryChildLocation()
 
     gzEU.add(
-        InfraStructureLocationPolicy("EU Only", allEULocations),
+        InfraStructureLocationPolicy("EU Only", PlainTextDocumentation("Test"), allEULocations),
         TeamDeclaration("ParisTeam", GitHubRepository("billynewport/test_step1", "ParisMain"))
     )
 
@@ -60,11 +60,11 @@ def createEcosystem() -> Ecosystem:
     gzUSA : GovernanceZone = e.getZoneOrThrow("USA")
     gzUSA.add(
         # AWS Locations only
-        InfraStructureVendorPolicy("AWS Only", {e.getVendorOrThrow("AWS")}), # AWS Locations only
+        InfraStructureVendorPolicy("AWS Only", PlainTextDocumentation("Test"), {e.getVendorOrThrow("AWS")}), # AWS Locations only
         # AWS USA locations
-        InfraStructureLocationPolicy("AWS US Only", e.getLocationOrThrow("AWS", ["USA"]).getEveryChildLocation()),
+        InfraStructureLocationPolicy("AWS US Only", PlainTextDocumentation("Test"), e.getLocationOrThrow("AWS", ["USA"]).getEveryChildLocation()),
         # AWS Dataplatform only
-        DataPlatformPolicy("AWS Platform only", {e.getDataPlatformOrThrow("AWS Platform")}), # AWS DataPlatform only
+        DataPlatformPolicy("AWS Platform only", PlainTextDocumentation("Test"), {e.getDataPlatformOrThrow("AWS Platform")}), # AWS DataPlatform only
         # NY Team definition
         TeamDeclaration("NYTeam", GitHubRepository("billynewport/test_step1", "NYMain")) # NY Team
     )

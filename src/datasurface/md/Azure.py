@@ -1,3 +1,4 @@
+from datasurface.md import Documentation
 from datasurface.md.Governance import InfrastructureVendor
 from .Governance import CaptureSourceInfo, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, Team
 from .Lint import ValidationTree
@@ -34,8 +35,8 @@ class AzureKeyVault(EncryptionSystem):
 
 class AzureDataplatform(DataPlatform):
     """This platform manages pipelines for resources within Azure"""
-    def __init__(self, name : str, platformCredential : AzureKeyVaultCredential):
-        super().__init__(name)
+    def __init__(self, name : str, doc : Documentation, platformCredential : AzureKeyVaultCredential):
+        super().__init__(name, doc)
         self.platformCredential = platformCredential
 
     def __hash__(self) -> int:
@@ -59,8 +60,8 @@ class AzureDataplatform(DataPlatform):
 
 
 class AzureBatchDataPlatform(AzureDataplatform):
-    def __init__(self, name : str, platformCredential : AzureKeyVaultCredential):
-        super().__init__(name, platformCredential)
+    def __init__(self, name : str, doc : Documentation, platformCredential : AzureKeyVaultCredential):
+        super().__init__(name, doc, platformCredential)
 
 class AzureDatabaseResource(CaptureSourceInfo):
     def __init__(self, name : str, hostname : str, loc : InfrastructureLocation):

@@ -452,7 +452,7 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
 
 class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
     """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
-    def __init__(self, name : str, doc : Optional[Documentation], allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
+    def __init__(self, name : str, doc : Documentation, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
         super().__init__(name, doc, allowed, notAllowed)
 
     def __str__(self):
@@ -1812,9 +1812,10 @@ class EventSink:
 class Deliverable:
     pass
 
-class DataPlatform(ABC):
+class DataPlatform(ABC, Documentable):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
-    def __init__(self, name : str) -> None:
+    def __init__(self, name : str, doc : Documentation) -> None:
+        Documentable.__init__(self, doc)
         self.name : str = name
 
     def __eq__(self, __value: object) -> bool:
@@ -1832,7 +1833,8 @@ class DataPlatform(ABC):
     
     @abstractmethod
     def lint(self, eco : Ecosystem, tree : ValidationTree):
-        pass
+        if(self.documentation):
+            self.documentation.lint(tree)
 
 class DataLatency(Enum):
     """Specifies the acceptable latency range from a consumer"""
