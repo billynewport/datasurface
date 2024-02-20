@@ -22,7 +22,18 @@ class Documentation(ABC):
     def lint(self, tree : ValidationTree):
         pass
     
+class Documentable:
+    def __init__(self, documentation : Optional[Documentation]) -> None:
+        self.documentation : Optional[Documentation] = documentation
 
+    def __eq__(self, other : object):
+        if(not isinstance(other, Documentable)):
+            return False
+        return self.documentation == other.documentation
+
+    def __str__(self) -> str:
+        return f"Documentable({self.documentation})"
+    
 class PlainTextDocumentation(Documentation):
     def __init__(self, description : str, tags : Optional[OrderedDict[str, str]] = None) -> None:
         super().__init__(description, tags)

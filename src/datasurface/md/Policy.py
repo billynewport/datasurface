@@ -1,13 +1,17 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Generic, Optional, TypeVar
+from datasurface.md import Documentation
+
+from datasurface.md.Documentation import Documentable
 
 
 T = TypeVar('T')
 
-class Policy(ABC, Generic[T]):
+class Policy(ABC, Generic[T], Documentable):
     """Base class for all policies"""
-    def __init__(self, name : str):
+    def __init__(self, name : str, doc : Optional[Documentation] = None) -> None:
+        super().__init__(doc)
         self.name : str = name
     
     @abstractmethod
@@ -16,7 +20,7 @@ class Policy(ABC, Generic[T]):
         raise NotImplementedError()
     
     def __eq__(self, v : object) -> bool:
-        return isinstance(v, Policy) and self.name == v.name
+        return super().__eq__(v) and isinstance(v, Policy) and self.name == v.name
     
     def __hash__(self) -> int:
         return hash(self.name)
@@ -28,8 +32,8 @@ P = TypeVar('P')
 
 class AllowDisallowPolicy(Policy[P]):
     """This checks whether an object is explicitly allowed or explicitly forbidden"""
-    def __init__(self, name : str, allowed : Optional[set[P]] = None, notAllowed : Optional[set[P]] = None) -> None:
-        super().__init__(name)
+    def __init__(self, name : str, doc : Optional[Documentation], allowed : Optional[set[P]] = None, notAllowed : Optional[set[P]] = None) -> None:
+        super().__init__(name, doc)
         self.allowed : Optional[set[P]] = allowed
         self.notAllowed : Optional[set[P]] = notAllowed
         if(self.allowed and self.notAllowed):
@@ -48,7 +52,7 @@ class AllowDisallowPolicy(Policy[P]):
         return hash(self.name)
     
     def __eq__(self, o : object) -> bool:
-        return isinstance(o, AllowDisallowPolicy) and self.name == o.name
+        return super().__eq__(o) and isinstance(o, AllowDisallowPolicy) and self.name == o.name
       
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
@@ -75,8 +79,8 @@ class DataClassification(Enum):
 
 class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
     """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
-    def __init__(self, name : str, allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
-        super().__init__(name, allowed, notAllowed)
+    def __init__(self, name : str, doc : Optional[Documentation], allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
+        super().__init__(name, doc, allowed, notAllowed)
 
     def __eq__(self, v : object) -> bool:
         return super().__eq__(v) and isinstance(v, DataClassificationPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
@@ -86,8 +90,8 @@ class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
 
 
 class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
-    def __init__(self) -> None:
-        super().__init__("No privacy classification allowed", None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
+    def __init__(self, doc : Optional[Documentation]) -> None:
+        super().__init__("No privacy classification allowed", doc, None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
 
     def __hash__(self) -> int:
         return super().__hash__()

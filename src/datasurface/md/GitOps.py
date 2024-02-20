@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
 import re
 from typing import Iterable, Mapping, Optional
-
 from datasurface.md import Documentation
+from datasurface.md.Documentation import Documentable
+
 from datasurface.md.Lint import ValidationTree
 
-class Repository(ABC):
+class Repository(ABC, Documentable):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc : Optional[Documentation]):
-        self.documentation : Optional[Documentation] = doc
+        super().__init__(doc)
 
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:
@@ -16,8 +17,8 @@ class Repository(ABC):
         raise NotImplementedError()
     
     def __eq__(self, __value: object) -> bool:
-        if(isinstance(__value, Repository)):
-            return self.documentation == __value.documentation
+        if(super().__eq__(__value) and isinstance(__value, Repository)):
+            return True
         else:
             return False
         
@@ -26,15 +27,16 @@ class Repository(ABC):
 
 
 
-class GitControlledObject(ABC):
+class GitControlledObject(ABC, Documentable):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo : 'Repository') -> None:
+        super().__init__(None)
         self.owningRepo : Repository = repo
         """This is the repository which is authorized to make changes to this object"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, GitControlledObject)):
-            return self.owningRepo == __value.owningRepo
+            return self.owningRepo == __value.owningRepo and super().__eq__(__value)
         else:
             return False
         
@@ -46,11 +48,17 @@ class GitControlledObject(ABC):
         rc : bool = self.owningRepo == proposed.owningRepo
         if not rc:
             tree.addProblem(f"{self} changed owning repo")
+        if(self.documentation != proposed.documentation):
+            tree.addProblem(f"{self} changed documentation")
+            rc = False
+                            
         return rc
     
     def superLint(self, tree : ValidationTree):
         rTree : ValidationTree = tree.createChild(self.owningRepo)
         self.owningRepo.lint(rTree)
+        if(self.documentation):
+            self.documentation.lint(rTree)
     
     def checkTopLevelAttributeChangesAreAuthorized(self, proposed : 'GitControlledObject', changeSource : 'Repository', vTree : ValidationTree) -> None:
         """This checks if the local attributes of the object have been modified by the authorized change source"""

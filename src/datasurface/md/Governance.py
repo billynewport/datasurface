@@ -9,7 +9,7 @@ from typing import Optional, TypeVar, Generic
 from datasurface.md.GitOps import GitControlledObject, Repository
 from datasurface.md.Policy import AllowDisallowPolicy, Policy
 
-from .Documentation import Documentation
+from .Documentation import Documentable, Documentation
 
 from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
 from .Schema import DataClassification, DataClassificationPolicy, Schema
@@ -230,16 +230,15 @@ class StoragePolicy(Policy['DataContainer']):
     '''This is the base class for storage policies. These are owned by a governance zone and are used to determine whether a container is compatible with the policy.'''
 
     def __init__(self, name : str, isMandatory : PolicyMandatedRule, doc : Optional[Documentation], deprecationStatus : DeprecationInfo) -> None:
-        super().__init__(name)
+        super().__init__(name, doc)
         self.mandatory : PolicyMandatedRule = isMandatory
         self.key : Optional[StoragePolicyKey] = None
-        self.documentation : Optional[Documentation] = doc
         self.deprecationStatus : DeprecationInfo = deprecationStatus
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
     
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and \
-            self.documentation == __value.documentation and self.key == __value.key and self.deprecationStatus == __value.deprecationStatus
+        return super().__eq__(__value) and isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and \
+            self.key == __value.key and self.deprecationStatus == __value.deprecationStatus
     
     def setGovernanceZone(self, gz : 'GovernanceZone') -> None:
         if gz.key == None:
@@ -262,15 +261,15 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
         return super().__eq__(__value) and type(__value) is StoragePolicyAllowAnyContainer and \
             self.name == __value.name and self.mandatory == __value.mandatory
 
-class InfrastructureLocation:
+class InfrastructureLocation(Documentable):
     """This is a location within a vendors physical location hierarchy. This object
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
     def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
+        super().__init__(None)
         self.name: str = name
         self.key : Optional[InfraLocationKey] = None
-        self.documentation : Optional[Documentation] = None
 
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
         """These are the 'child' locations under this location. A state location would have city children for example"""
@@ -316,9 +315,8 @@ class InfrastructureLocation:
         self.locations[loc.name] = loc
 
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, InfrastructureLocation):
-            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
-                self.documentation == __value.documentation
+        if super().__eq__(__value) and isinstance(__value, InfrastructureLocation):
+            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations
         return False
     
     def getEveryChildLocation(self) -> set['InfrastructureLocation']:
@@ -356,13 +354,13 @@ class InfrastructureLocation:
             else:
                 return None
 
-class InfrastructureVendor:
+class InfrastructureVendor(Documentable):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an enterprise or an external cloud provider"""
     def __init__(self, name : str, *args : Union[InfrastructureLocation, Documentation]) -> None:
+        super().__init__(None)
         self.name : str = name
         self.key : Optional[InfrastructureVendorKey] = None
         self.locations : dict[str, 'InfrastructureLocation'] = OrderedDict()
-        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
     def __hash__(self) -> int:
@@ -390,9 +388,8 @@ class InfrastructureVendor:
         self.locations[loc.name] = loc
 
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, InfrastructureVendor):
-            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
-                self.documentation == __value.documentation
+        if super().__eq__(__value) and isinstance(__value, InfrastructureVendor):
+            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations
         else:
             return False
         
@@ -441,8 +438,8 @@ class InfrastructureVendor:
 
 class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
     """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
-    def __init__(self, name : str, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
-        super().__init__(name, allowed, notAllowed)
+    def __init__(self, name : str, doc : Documentation, allowed : Optional[set[InfrastructureVendor]] = None, notAllowed : Optional[set[InfrastructureVendor]] = None):
+        super().__init__(name, doc, allowed, notAllowed)
 
     def __str__(self):
         return f"InfraStructureVendorPolicy({self.name})"
@@ -455,8 +452,8 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
 
 class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
     """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
-    def __init__(self, name : str, allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
-        super().__init__(name, allowed, notAllowed)
+    def __init__(self, name : str, doc : Optional[Documentation], allowed : Optional[set[InfrastructureLocation]] = None, notAllowed : Optional[set[InfrastructureLocation]] = None):
+        super().__init__(name, doc, allowed, notAllowed)
 
     def __str__(self):
         return f"InfrastructureLocationPolicy({self.name})"
@@ -475,8 +472,8 @@ class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
 
 
 class DataPlatformPolicy(AllowDisallowPolicy['DataPlatform']):
-    def __init__(self, name : str, allowed : Optional[set['DataPlatform']] = None, notAllowed : Optional[set['DataPlatform']] = None):
-        super().__init__(name, allowed, notAllowed)
+    def __init__(self, name : str, doc : Optional[Documentation], allowed : Optional[set['DataPlatform']] = None, notAllowed : Optional[set['DataPlatform']] = None):
+        super().__init__(name, doc, allowed, notAllowed)
 
     def __str__(self):
         return f"DataPlatformPolicy({self.name})"
@@ -534,7 +531,7 @@ class DataContainer:
         """Returns the name of the container"""
         return self.name
 
-class Dataset(ANSI_SQL_NamedObject):
+class Dataset(ANSI_SQL_NamedObject, Documentable):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
         super().__init__(name)
@@ -543,7 +540,6 @@ class Dataset(ANSI_SQL_NamedObject):
         self.policies : dict[str, StoragePolicy] = OrderedDict()
         self.dataClassificationOverride : Optional[DataClassification] = None
         """This is the classification of the data in the dataset. The overrides any classifications on the schema"""
-        self.documentation : Optional[Documentation] = None
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         self.add(*args)
 
@@ -568,7 +564,7 @@ class Dataset(ANSI_SQL_NamedObject):
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Dataset):
             return super().__eq__(__value) and self.name == __value.name and self.originalSchema == __value.originalSchema and \
-                self.policies == __value.policies and self.documentation == __value.documentation and \
+                self.policies == __value.policies and \
                 self.deprecationStatus == __value.deprecationStatus and self.dataClassificationOverride == __value.dataClassificationOverride
         return False
 
@@ -901,16 +897,16 @@ class SQLPullIngestion(IngestionMetadata):
     
 
 
-class Datastore(ANSI_SQL_NamedObject):
+class Datastore(ANSI_SQL_NamedObject, Documentable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         super().__init__(name)
+        Documentable.__init__(self, None)
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.key : Optional[DatastoreKey] = None
         self.cmd : Optional[CaptureMetaData] = None
         self.container : Optional[DataContainer] = None
-        self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
@@ -949,7 +945,7 @@ class Datastore(ANSI_SQL_NamedObject):
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Datastore):
             return super().__eq__(__value) and self.datasets == __value.datasets and self.cmd == __value.cmd and \
-                self.container == __value.container and self.documentation == __value.documentation and \
+                self.container == __value.container and \
                 self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus and \
                 self.key == __value.key
         return False
@@ -958,6 +954,8 @@ class Datastore(ANSI_SQL_NamedObject):
         self.nameLint(storeTree)
         if(self.key == None):
             storeTree.addRaw(AttributeNotSet(f"{self} has no key"))
+        if(self.documentation):
+            self.documentation.lint(storeTree)
         for dataset in self.datasets.values():
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
@@ -1049,7 +1047,7 @@ class Ecosystem(GitControlledObject):
         gz.setEcosystem(self)
         return gz
     
-    def __init__(self, name : str, repo : Repository, *args : Union['DataPlatform', DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def __init__(self, name : str, repo : Repository, *args : Union['DataPlatform', Documentation, DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         super().__init__(repo)
         self.name : str = name
         self.key : EcosystemKey = EcosystemKey(self.name)
@@ -1072,12 +1070,14 @@ class Ecosystem(GitControlledObject):
         self.teamCache : dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def add(self, *args : Union['DataPlatform', DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def add(self, *args : Union['DataPlatform', DefaultDataPlatform, Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
                 if self.vendors.get(arg.name) != None:
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {arg.name}")
                 self.vendors[arg.name] = arg
+            elif isinstance(arg, Documentation):
+                self.documentation = arg
             elif isinstance(arg, DataPlatform):
                 self.dataPlatforms[arg.name] = arg
             elif isinstance(arg, DefaultDataPlatform):
@@ -1218,6 +1218,8 @@ class Ecosystem(GitControlledObject):
 
         self.superLint(ecoTree)
         self.zones.lint(ecoTree)
+        if(self.documentation):
+            self.documentation.lint(ecoTree)
         return ecoTree
 
     def calculateDependenciesForDatastore(self, storeName : str, wsVisitedSet : set[str] = set()) -> Sequence[DependentWorkspaces]:
@@ -1266,6 +1268,7 @@ class Ecosystem(GitControlledObject):
             rc : bool = True
             # If we are being modified by a potentially unauthorized source then check
             if(self.owningRepo != changeSource):
+                rc = super().areTopLevelChangesAuthorized(proposed, changeSource, tree)
                 if self.name != proposed.name:
                     tree.addRaw(UnauthorizedAttributeChange("name", self.name, proposed.name, ProblemSeverity.ERROR))
                     rc = False
@@ -1359,7 +1362,6 @@ class Team(GitControlledObject):
         self.name : str = name
         self.workspaces : dict[str, Workspace] = OrderedDict()
         self.dataStores : dict[str, Datastore] = OrderedDict()
-        self.documentation : Optional[Documentation] = None
         self.assets : set[Asset] = set()
         self.add(*args)
 
@@ -1398,11 +1400,10 @@ class Team(GitControlledObject):
             self.addStore(w.dataTransformer.outputDatastore)
 
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, Team):
+        if super().__eq__(__value) and isinstance(__value, Team):
             rc : bool = self.name == __value.name
             rc = rc and self.workspaces == __value.workspaces
             rc = rc and self.dataStores == __value.dataStores
-            rc = rc and self.documentation == __value.documentation
             return rc
         return False
     
@@ -1643,7 +1644,6 @@ class GovernanceZone(GitControlledObject):
         self.locationPolicies : dict[str, InfraStructureLocationPolicy] = dict[str, InfraStructureLocationPolicy]()
         self.dataplatformPolicies : dict[str, DataPlatformPolicy] = dict[str, DataPlatformPolicy]()
 
-        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
     def setEcosystem(self, eco : Ecosystem) -> None:
@@ -1714,7 +1714,6 @@ class GovernanceZone(GitControlledObject):
             rc = rc and self.dataplatformPolicies == __value.dataplatformPolicies
             rc = rc and self.teams == __value.teams
             rc = rc and self.storagePolicies == __value.storagePolicies
-            rc = rc and self.documentation == __value.documentation
             rc = rc and self.vendorPolicies == __value.vendorPolicies
             rc = rc and self.locationPolicies == __value.locationPolicies
             return rc
