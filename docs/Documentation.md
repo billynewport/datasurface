@@ -6,11 +6,12 @@ The following elements support documentation objects:
 
 * Ecosystem
 * GovernanceZone
-* DataPlatform
 * Team
-* Policy objects and their subclasses
 * Datastore
+* Dataset
+* DataPlatform
+* Policy objects and their subclasses
 * Workspace
 * DataTransformer
-* Dataset
+* Repository and subclasses
 * DDLColumn

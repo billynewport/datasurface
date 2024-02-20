@@ -6,7 +6,7 @@ from datasurface.md.Policy import DataClassification, DataClassificationPolicy
 
 from .Lint import ValidationTree
 from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
-from .Documentation import Documentation
+from .Documentation import Documentable, Documentation
 
 class DataType(ABC):
     """Base class for all data types"""
@@ -532,15 +532,15 @@ DEFAULT_classification : DataClassification = DataClassification.PC3
 DEFAULT_primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
 DEFAULT_nullable : NullableStatus = NullableStatus.NULLABLE
 
-class DDLColumn(ANSI_SQL_NamedObject):
+class DDLColumn(ANSI_SQL_NamedObject, Documentable):
     """This is an individual attribute within a DDLTable schema"""
     def __init__(self, name : str, dataType : DataType, *args : Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         super().__init__(name)
+        Documentable.__init__(self, None)
         self.type : DataType = dataType
         self.primaryKey : PrimaryKeyStatus = DEFAULT_primaryKey
         self.classification : DataClassification = DEFAULT_classification
         self.nullable : NullableStatus = DEFAULT_nullable
-        self.documentation : Optional[Documentation] = None
         for arg in args:
             if(type(arg) == NullableStatus):
                 self.nullable = arg
@@ -554,7 +554,7 @@ class DDLColumn(ANSI_SQL_NamedObject):
     def __eq__(self, o: object) -> bool:
         if(type(o) is not DDLColumn):
             return False
-        return super().__eq__(o) and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification and self.documentation == o.documentation
+        return super().__eq__(o) and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification
     
     def isBackwardsCompatibleWith(self, other : object, vTree : ValidationTree) -> bool:
         """Returns true if this column is backwards compatible with the other column"""
@@ -574,6 +574,8 @@ class DDLColumn(ANSI_SQL_NamedObject):
     def lint(self, tree : ValidationTree) -> None:
         super().nameLint(tree)
         self.type.lint(tree)
+        if(self.documentation):
+            self.documentation.lint(tree.createChild(self.documentation))
         if(self.primaryKey == PrimaryKeyStatus.PK and self.nullable == NullableStatus.NULLABLE):
             tree.addProblem(f"Primary key column {self.name} cannot be nullable")
 
