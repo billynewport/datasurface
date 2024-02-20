@@ -127,7 +127,7 @@ class TestEcosystemValidation(unittest.TestCase):
         gz.add(td)
         self.assertEqual(gz, gz)
 
-        islp : InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", {ifl2}, None)
+        islp : InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), {ifl2}, None)
         self.assertEqual(islp, islp)
 
         eco : Ecosystem = Ecosystem("E", ghr, iv2, gzd)
