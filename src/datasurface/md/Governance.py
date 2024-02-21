@@ -563,6 +563,14 @@ class SQLDatabase(DataContainer):
             return super().__eq__(__value) and self.hostAndPort == __value.hostAndPort and self.databaseName == __value.databaseName
         return False
     
+class ObjectStorage(DataContainer):
+    """Generic Object storage service. Flat file storage"""
+    def __init__(self, name : str, loc : InfrastructureLocation, endPointURI : Optional[str], bucketName : str, prefix : Optional[str]):
+        super().__init__(name, loc)
+        self.endPointURI : Optional[str] = endPointURI
+        self.bucketName : str = bucketName
+        self.prefix : Optional[str] = prefix
+
 class Dataset(ANSI_SQL_NamedObject, Documentable):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
