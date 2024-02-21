@@ -616,16 +616,18 @@ class PartitionKeyList(AttributeList):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, PartitionKeyList)
 
-class Schema(ABC):
+class Schema(ABC, Documentable):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
+        Documentable.__init__(self, None)
         self.primaryKeyColumns : Optional[PrimaryKeyList] = None 
         self.ingestionPartitionColumns : Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, Schema)):
-            return self.primaryKeyColumns == __value.primaryKeyColumns and self.ingestionPartitionColumns == __value.ingestionPartitionColumns
+            return self.primaryKeyColumns == __value.primaryKeyColumns and self.ingestionPartitionColumns == __value.ingestionPartitionColumns and \
+                self.documentation == __value.documentation
         else:
             return False
     
@@ -643,6 +645,8 @@ class Schema(ABC):
         # Partitioning cannot change
         if(self.ingestionPartitionColumns != other.ingestionPartitionColumns):
             vTree.addProblem(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}")
+        if self.documentation:
+            self.documentation.lint(vTree.createChild(self.documentation))
         return vTree.hasErrors() == False
 
     @abstractmethod
@@ -666,8 +670,6 @@ class DDLTable(Schema):
     def __init__(self, *args : Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]) -> None:
         super().__init__()
         self.columns : dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
-        self.primaryKeyColumns : Optional[PrimaryKeyList] = None
-        self.documentation : Optional[Documentation] = None
         self.add(*args)
 
     def checkClassificationsAreOnly(self, verifier: DataClassificationPolicy) -> bool:
@@ -720,7 +722,7 @@ class DDLTable(Schema):
             return False
         if(type(o) is not DDLTable):
             return False
-        return self.columns == o.columns and self.columns == o.columns and self.primaryKeyColumns == o.primaryKeyColumns
+        return self.columns == o.columns and self.columns == o.columns
 
     def isBackwardsCompatibleWith(self, other : 'Schema', vTree : ValidationTree) -> bool:
         """Returns true if this schema is backward compatible with the other schema"""
