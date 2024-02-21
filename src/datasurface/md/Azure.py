@@ -1,6 +1,6 @@
 from datasurface.md import Documentation
 from datasurface.md.Governance import InfrastructureVendor
-from .Governance import CaptureSourceInfo, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, Team
+from .Governance import Credential, DataContainer, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
 
@@ -63,11 +63,15 @@ class AzureBatchDataPlatform(AzureDataplatform):
     def __init__(self, name : str, doc : Documentation, platformCredential : AzureKeyVaultCredential):
         super().__init__(name, doc, platformCredential)
 
-class AzureDatabaseResource(CaptureSourceInfo):
-    def __init__(self, name : str, hostname : str, loc : InfrastructureLocation):
-        super().__init__(loc)
+class AzureDatabaseResource(DataContainer):
+    """This is an Azure SQL Database resource. """
+    def __init__(self, name : str, hostNameAndPort : str, databaseName : str, loc : InfrastructureLocation):
+        if(loc.key == None):
+            raise Exception("AzureDatabaseResource must have a location key")
+        super().__init__(name, loc)
         self.name : str = name
-        self.hostname : str = hostname
+        self.databaseName : str = databaseName
+        self.hostNameAndPort : str = hostNameAndPort
 
     def __str__(self) -> str:
         return f"AzureDatabaseResource({self.name})"
@@ -77,5 +81,5 @@ class AzureDatabaseResource(CaptureSourceInfo):
 
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, AzureDatabaseResource) and \
-            self.name == o.name and self.hostname == o.hostname
+            self.name == o.name and self.hostNameAndPort == o.hostNameAndPort and self.databaseName == o.databaseName
     

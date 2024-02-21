@@ -1,12 +1,12 @@
 from datasurface.md import *
-from datasurface.md.Azure import AzureKeyVaultCredential
+from datasurface.md.Azure import AzureDatabaseResource, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 
 def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     t.add(
         Datastore("NW_Data",
             CDCCaptureIngestion(
-                PyOdbcSourceInfo(
+                PyOdbcSourceInfo("NW_DB",
                     eco.getLocationOrThrow("Azure", ["USA", "East US"]), # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
@@ -177,7 +177,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
     if location.key == None:
         raise Exception("location key is none")
     w : Workspace = Workspace("ProductLiveAdhocReporting",
-        Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)]),                            
+        Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName", "DBName", location)]),                            
         DatasetGroup("LiveProducts",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -193,7 +193,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
 
     # Define Workspace with Refiner to mask customer table
     w : Workspace = Workspace("MaskCustomersWorkSpace",
-        Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)]),
+        Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName", "DBName", location)]),
         DatasetGroup("MaskCustomers",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -226,7 +226,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
 
 
     w = Workspace("WorkspaceUsingTransformerOutput",
-        Asset("Test Azure SQL", [DataContainer("AzureSQL", location.key)]),
+        Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName", "DBName", location)]),
         DatasetGroup("UseMaskedCustomers",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 

@@ -496,12 +496,12 @@ class EncryptionSystem:
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
 
-class DataContainer:
+class DataContainer(ABC):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
-      and is used to determine whether a dataset is compatible with the container by a governancezone."""   
-    def __init__(self, name : str, *args : 'InfraLocationKey') -> None:
-        self.locations : set[InfraLocationKey] = set()
+    and is used to determine whether a dataset is compatible with the container by a governancezone."""   
+    def __init__(self, name : str, *args : InfrastructureLocation) -> None:
+        self.locations : set[InfrastructureLocation] = set()
         self.name : str = name
         self.serverSideEncryptionKeys : Optional[EncryptionSystem] = None
         """This is the vendor ecnryption system providing the container. For example, if a cloud vendor
@@ -512,7 +512,7 @@ class DataContainer:
         self.isReadOnly : bool =  False
         self.add(*args)
 
-    def add(self, *args : 'InfraLocationKey') -> None:
+    def add(self, *args : InfrastructureLocation ) -> None:
         for loc in args:
             if(loc in self.locations):
                 raise Exception(f"Duplicate Location {loc}")
@@ -530,6 +530,23 @@ class DataContainer:
     def getName(self) -> str:
         """Returns the name of the container"""
         return self.name
+
+    @abstractmethod
+    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        # Verify that the location on the data container doesn't violate
+        # the governance zone policies for vendor or location
+        for loc in self.locations:
+            for locPolicy in gz.locationPolicies.values():
+                if not locPolicy.isCompatible(loc):
+                    tree.addRaw(ObjectNotCompatibleWithPolicy(loc, locPolicy, ProblemSeverity.ERROR))
+            for vendorPolicy in gz.vendorPolicies.values():
+                if(loc.key):
+                    v : InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
+                    if not vendorPolicy.isCompatible(v):
+                        tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
+                else:
+                    tree.addRaw(AttributeNotSet("Vendor key not set on location {loc}"))
 
 class Dataset(ANSI_SQL_NamedObject, Documentable):
     """This is a single collection of homogeneous records with a primary key"""
@@ -678,39 +695,12 @@ class ClearTextCredential(Credential):
     def __str__(self) -> str:
         return f"ClearTextCredential({self.username})"
 
-
-class CaptureSourceInfo(ABC):
-    """Describes how an CMD can connect to the database or similar to ingest data. The location is critical
-    as it acts like a filter for which Dataplatforms can work with this data store"""
-    def __init__(self, loc : InfrastructureLocation) -> None:
-        self.location : InfrastructureLocation = loc
-
-    def __eq__(self, __value: object) -> bool:
-        if(isinstance(__value, CaptureSourceInfo) and self.location == __value.location):
-            return True
-        else:
-            return False
-        
-    @abstractmethod
-    def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        # Verify that the location on the ingestion metadata doesn't violate
-        # the governance zone policies for vendor or location
-        if(self.location.key):
-            for locPolicy in gz.locationPolicies.values():
-                if not locPolicy.isCompatible(self.location):
-                    tree.addRaw(ObjectNotCompatibleWithPolicy(self.location, locPolicy, ProblemSeverity.ERROR))
-            for vendorPolicy in gz.vendorPolicies.values():
-                v : InfrastructureVendor = eco.getVendorOrThrow(self.location.key.ivName)
-                if not vendorPolicy.isCompatible(v):
-                    tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
-        else:
-            tree.addRaw(AttributeNotSet(f"CaptureSourceInfo location has no key"))
-
-class PyOdbcSourceInfo(CaptureSourceInfo):
+class PyOdbcSourceInfo(DataContainer):
     """This describes how to connect to a database using pyodbc"""
-    def __init__(self, loc : InfrastructureLocation, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
-        super().__init__(loc)
+    def __init__(self, name : str, loc : InfrastructureLocation, serverHost : str, databaseName : str, driver : str, connectionStringTemplate : str) -> None:
+        if(loc.key == None):
+            raise Exception("Location key not set")
+        super().__init__(name, loc)
         self.serverHost : str = serverHost
         self.databaseName : str = databaseName
         self.driver : str = driver
@@ -817,10 +807,10 @@ class IngestionMetadata(CaptureMetaData):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, dc : DataContainer, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__()
         self.credential : Optional[Credential] = None
-        self.captureSource : CaptureSourceInfo = captureSourceInfo
+        self.dataContainer : DataContainer = dc
         self.add(*args)
 
     def add(self, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
@@ -843,22 +833,22 @@ class IngestionMetadata(CaptureMetaData):
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, IngestionMetadata):
             return self.credential == __value.credential and self.singleOrMultiDatasetIngestion == __value.singleOrMultiDatasetIngestion and \
-                self.captureSource == __value.captureSource
+                self.dataContainer == __value.dataContainer and self.stepTrigger == __value.stepTrigger
         return False
     
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if(self.captureSource):
-            capTree : ValidationTree = tree.createChild(self.captureSource)
-            self.captureSource.lint(eco, gz, t, capTree)
+        if(self.dataContainer):
+            capTree : ValidationTree = tree.createChild(self.dataContainer)
+            self.dataContainer.lint(eco, gz, t, capTree)
         super().lint(eco, gz, t, d, tree)
 
 
 class CDCCaptureIngestion(IngestionMetadata):
     """This indicates CDC can be used to capture deltas from the source"""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
-        super().__init__(captureSourceInfo, *args)
+    def __init__(self, dc : DataContainer, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(dc, *args)
 
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', d : 'Datastore', tree : ValidationTree) -> None:
         super().lint(eco, gz, t, d, tree)
@@ -874,8 +864,8 @@ class SQLPullIngestion(IngestionMetadata):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, captureSourceInfo : CaptureSourceInfo, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
-        super().__init__(captureSourceInfo, *args)
+    def __init__(self, dc : DataContainer, *args : Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(dc, *args)
         self.variableNames : list[str] = []
         """The names of state variables produced by snapshot and delta sql strings"""
         self.snapshotSQL : dict[str, str] = OrderedDict()
@@ -1106,6 +1096,8 @@ class Ecosystem(GitControlledObject):
     def getVendorOrThrow(self, name : str) -> InfrastructureVendor:
         v : Optional[InfrastructureVendor] = self.getVendor(name)
         if(v):
+            if(v.key == None):
+                v.setEcosystem(self)
             return v
         else:
             raise ObjectDoesntExistException(f"Unknown vendor {name}")
@@ -2233,8 +2225,7 @@ class Workspace(ANSI_SQL_NamedObject):
         if self.asset:
             for c in self.asset.containers.values():
                 cntTree : ValidationTree = tree.createChild(c)
-                for l in c.locations:
-                    loc : InfrastructureLocation = eco.getLocationOrThrow(l.ivName, l.locationPath)
+                for loc in c.locations:
                     gz.checkLocationIsAllowed(eco, loc, cntTree)
             
         # Check production status of workspace matches all datasets in use
@@ -2280,8 +2271,7 @@ class Asset:
     def checkLocationsAreCompatible(self, eco : Ecosystem, gz : GovernanceZone, tree : ValidationTree):
         """Check the locations associated with the asset are compatible with a gz"""
         for con in self.containers.values():
-            for locKey in con.locations:
-                loc : InfrastructureLocation = eco.getLocationOrThrow(locKey.ivName, locKey.locationPath)
+            for loc in con.locations:
                 gz.checkLocationIsAllowed(eco, loc, tree)
 
 class PlatformStyle(Enum):

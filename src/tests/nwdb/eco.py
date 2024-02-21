@@ -58,6 +58,7 @@ def createEcosystem() -> Ecosystem:
                 InfrastructureLocation("West US 3")) # Arizona
             )
         )
+    
     gzUSA : GovernanceZone = ecosys.getZoneOrThrow("USA")
 
     gzUSA.add(

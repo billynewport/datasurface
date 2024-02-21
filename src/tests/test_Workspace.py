@@ -350,7 +350,7 @@ class TestWorkspace(unittest.TestCase):
         t.add(        
             Datastore("Store1", 
                 CDCCaptureIngestion(
-                    AzureDatabaseResource("Test", "mysqlserver.database.windows.net", e.getLocationOrThrow("Azure", ["FL"])),
+                    AzureDatabaseResource("Test", "mysqlserver.database.windows.net", "dbName", e.getLocationOrThrow("Azure", ["FL"])),
                     IngestionConsistencyType.MULTI_DATASET
                 ),
                 Dataset("Dataset1",

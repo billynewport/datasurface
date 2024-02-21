@@ -16,7 +16,7 @@ def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):
         Datastore("USA_Customers",
             PlainTextDocumentation("USA Customer data"),
             CDCCaptureIngestion(
-                PyOdbcSourceInfo(
+                PyOdbcSourceInfo("US_NWDB",
                     e.getLocationOrThrow("AWS", ["USA", "us-east-1"]), # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
