@@ -1836,7 +1836,7 @@ class DataPlatform(ABC, Documentable):
     
     @abstractmethod
     def getSupportedVendors(self, eco : Ecosystem) -> set[InfrastructureVendor]:
-        raise NotImplemented()
+        pass
     
     @abstractmethod
     def lint(self, eco : Ecosystem, tree : ValidationTree):
