@@ -1,7 +1,8 @@
 
 
+from typing import Optional
 from datasurface.md import Documentation
-from datasurface.md.Governance import DataPlatform, Ecosystem, InfrastructureVendor
+from datasurface.md.Governance import DataContainer, DataPlatform, Ecosystem, InfrastructureLocation, InfrastructureVendor
 from datasurface.md.Lint import ValidationTree
 
 
@@ -26,3 +27,42 @@ class AmazonAWSDataPlatform(DataPlatform):
     
     def lint(self, eco : Ecosystem, tree : ValidationTree):
         pass
+
+class AmazonAWSS3Bucket(DataContainer):
+    def __init__(self, name : str, loc : InfrastructureLocation, endPointURI : Optional[str], bucketName : str, prefix : Optional[str]):
+        super().__init__(name, loc)
+        self.endPointURI : Optional[str] = endPointURI
+        self.bucketName : str = bucketName
+        self.prefix : Optional[str] = prefix
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, AmazonAWSS3Bucket) and \
+            self.bucketName == o.bucketName and self.prefix == o.prefix
+
+class AmazonAWSKinesis(DataContainer):
+    def __init__(self, name : str, loc : InfrastructureLocation, endPointURI : Optional[str]):
+        super().__init__(name, loc)
+        self.endPointURI : Optional[str] = endPointURI
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, AmazonAWSKinesis) and \
+            self.endPointURI == o.endPointURI
+    
+class AmazonAWSDynamoDB(DataContainer):
+    def __init__(self, name : str, loc : InfrastructureLocation, endPointURI : Optional[str]):
+        super().__init__(name, loc)
+        self.endPointURI : Optional[str] = endPointURI
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, AmazonAWSDynamoDB) and \
+            self.endPointURI == o.endPointURI
+
+class AmazonAWSSQS(DataContainer):
+    def __init__(self, name : str, loc : InfrastructureLocation, queueURL : Optional[str]):
+        super().__init__(name, loc)
+        self.queueURL : Optional[str] = queueURL
+
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, AmazonAWSSQS) and \
+            self.queueURL == o.queueURL
+

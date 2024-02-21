@@ -6,13 +6,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     t.add(
         Datastore("NW_Data",
             CDCCaptureIngestion(
-                PyOdbcSourceInfo("NW_DB",
-                    eco.getLocationOrThrow("Azure", ["USA", "East US"]), # Where is the database
-                    serverHost="tcp:nwdb.database.windows.net,1433",
-                    databaseName="nwdb",
-                    driver="{ODBC Driver 17 for SQL Server}",
-                    connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
-                ),
+                AzureDatabaseResource("NW_DB", "hostName:port", "DBName", eco.getLocationOrThrow("Azure", ["USA", "East US"])),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
@@ -174,10 +168,12 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
 
 def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocation):
     """Create a Workspace and an asset if a location is provided"""
-    if location.key == None:
-        raise Exception("location key is none")
+
+    # Warehouse for Workspaces
+    ws_db : Asset = Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName:port", "DBName", location)])
+
     w : Workspace = Workspace("ProductLiveAdhocReporting",
-        Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName", "DBName", location)]),                            
+        ws_db,                            
         DatasetGroup("LiveProducts",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -193,7 +189,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
 
     # Define Workspace with Refiner to mask customer table
     w : Workspace = Workspace("MaskCustomersWorkSpace",
-        Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName", "DBName", location)]),
+        ws_db,
         DatasetGroup("MaskCustomers",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -213,7 +209,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
                             DDLColumn("first_name", VarChar(10), NullableStatus.NOT_NULLABLE),
                             DDLColumn("country", VarChar(15))
                         ))),
-                TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "0,10,20,30,40,50 * * * *")),
+                TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "*/10 * * * *")),
                 PythonCodeArtifact([], {}, "3.11"),
                 KubernetesEnvironment(
                     "kubcluster.here.com", 
@@ -226,7 +222,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
 
 
     w = Workspace("WorkspaceUsingTransformerOutput",
-        Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName", "DBName", location)]),
+        ws_db,
         DatasetGroup("UseMaskedCustomers",
             WorkspacePlatformConfig(
                 ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
