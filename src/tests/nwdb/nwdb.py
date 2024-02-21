@@ -1,12 +1,12 @@
 from datasurface.md import *
-from datasurface.md.Azure import AzureDatabaseResource, AzureKeyVaultCredential
+from datasurface.md.Azure import AzureSQLDatabase, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 
 def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
     t.add(
         Datastore("NW_Data",
             CDCCaptureIngestion(
-                AzureDatabaseResource("NW_DB", "hostName:port", "DBName", eco.getLocationOrThrow("Azure", ["USA", "East US"])),
+                AzureSQLDatabase("NW_DB", "hostName:port", "DBName", eco.getLocationOrThrow("Azure", ["USA", "East US"])),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
@@ -170,7 +170,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db : Asset = Asset("Test Azure SQL", [AzureDatabaseResource("AzureSQL", "hostName:port", "DBName", location)])
+    ws_db : Asset = Asset("Test Azure SQL", [AzureSQLDatabase("AzureSQL", "hostName:port", "DBName", location)])
 
     w : Workspace = Workspace("ProductLiveAdhocReporting",
         ws_db,                            

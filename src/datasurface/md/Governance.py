@@ -530,6 +530,9 @@ class DataContainer(ABC):
     def getName(self) -> str:
         """Returns the name of the container"""
         return self.name
+    
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
 
     @abstractmethod
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', tree : ValidationTree) -> None:
@@ -548,6 +551,18 @@ class DataContainer(ABC):
                 else:
                     tree.addRaw(AttributeNotSet("Vendor key not set on location {loc}"))
 
+class SQLDatabase(DataContainer):
+    """A generic SQL Database data container"""
+    def __init__(self, name : str, location : InfrastructureLocation, hostAndPort : str, databaseName : str) -> None:
+        super().__init__(name, location)
+        self.hostAndPort : str = hostAndPort
+        self.databaseName : str = databaseName
+
+    def __eq__(self, __value: object) -> bool:
+        if(isinstance(__value, SQLDatabase)):
+            return super().__eq__(__value) and self.hostAndPort == __value.hostAndPort and self.databaseName == __value.databaseName
+        return False
+    
 class Dataset(ANSI_SQL_NamedObject, Documentable):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:

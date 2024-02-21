@@ -6,7 +6,7 @@ from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, D
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.md.Azure import AzureDatabaseResource, AzureDataplatform, AzureKeyVaultCredential
+from datasurface.md.Azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import FakeRepository, GitHubRepository
 from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
@@ -350,7 +350,7 @@ class TestWorkspace(unittest.TestCase):
         t.add(        
             Datastore("Store1", 
                 CDCCaptureIngestion(
-                    AzureDatabaseResource("Test", "mysqlserver.database.windows.net", "dbName", e.getLocationOrThrow("Azure", ["FL"])),
+                    AzureSQLDatabase("Test", "mysqlserver.database.windows.net", "dbName", e.getLocationOrThrow("Azure", ["FL"])),
                     IngestionConsistencyType.MULTI_DATASET
                 ),
                 Dataset("Dataset1",
