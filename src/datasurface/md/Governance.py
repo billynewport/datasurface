@@ -540,17 +540,8 @@ class DataContainer(ABC):
         # Verify that the location on the data container doesn't violate
         # the governance zone policies for vendor or location
         for loc in self.locations:
-            for locPolicy in gz.locationPolicies.values():
-                if not locPolicy.isCompatible(loc):
-                    tree.addRaw(ObjectNotCompatibleWithPolicy(loc, locPolicy, ProblemSeverity.ERROR))
-            for vendorPolicy in gz.vendorPolicies.values():
-                if(loc.key):
-                    v : InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
-                    if not vendorPolicy.isCompatible(v):
-                        tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
-                else:
-                    tree.addRaw(AttributeNotSet("Vendor key not set on location {loc}"))
-
+            gz.checkLocationIsAllowed(eco, loc, tree)
+ 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
     def __init__(self, name : str, location : InfrastructureLocation, hostAndPort : str, databaseName : str) -> None:
@@ -1240,12 +1231,12 @@ class Ecosystem(GitControlledObject):
             pl.lint(self, platTree)
             
         # Now lint the workspaces
-        for workInfo in self.workSpaceCache.values():
-            work = workInfo.workspace
-            workTree : ValidationTree = ecoTree.createChild(work)
-            if(work.key):
-                gz : GovernanceZone = self.getZoneOrThrow(work.key.gzName)
-                work.lint(self, gz, workTree)
+        for workSpaceCacheEntry in self.workSpaceCache.values():
+            workSpace = workSpaceCacheEntry.workspace
+            wsTree : ValidationTree = ecoTree.createChild(workSpace)
+            if(workSpace.key):
+                gz : GovernanceZone = self.getZoneOrThrow(workSpace.key.gzName)
+                workSpace.lint(self, gz, workSpaceCacheEntry.team, wsTree)
 
 
         self.superLint(ecoTree)
@@ -2254,7 +2245,7 @@ class Workspace(ANSI_SQL_NamedObject):
                     return True
         return False
     
-    def lint(self, eco : Ecosystem, gz : GovernanceZone, tree : ValidationTree):
+    def lint(self, eco : Ecosystem, gz : GovernanceZone, t : Team, tree : ValidationTree):
         super().nameLint(tree)
 
         if(self.key == None):
@@ -2265,8 +2256,7 @@ class Workspace(ANSI_SQL_NamedObject):
         if self.asset:
             for c in self.asset.containers.values():
                 cntTree : ValidationTree = tree.createChild(c)
-                for loc in c.locations:
-                    gz.checkLocationIsAllowed(eco, loc, cntTree)
+                c.lint(eco, gz, t, cntTree)
             
         # Check production status of workspace matches all datasets in use
         # Check deprecation status of workspace generates warnings for all datasets in use
