@@ -3,8 +3,6 @@ from datasurface.md.Governance import InfrastructureVendor
 from .Governance import Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, SQLDatabase, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
-
-
     
 class AzureKeyVaultCredential(Credential):
     """This allows a secret to be read from Azure Key Vault. The secret should be in the
@@ -70,6 +68,9 @@ class AzureSQLDatabase(SQLDatabase):
 
     def __str__(self) -> str:
         return f"AzureDatabaseResource({self.name})"
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
     
     def lint(self, eco : Ecosystem, gz : GovernanceZone, t : Team, tree : ValidationTree) -> None:
         super().lint(eco, gz, t, tree)

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from collections import OrderedDict
-from typing import Any, Callable, Iterable, Optional, Sequence, TypeVar, Union, cast
+from typing import Any, Callable, Optional, Sequence, TypeVar, Union, cast
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from enum import Enum
@@ -14,8 +14,10 @@ from .Documentation import Documentable, Documentation
 from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
 from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
-from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
-from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, UnauthorizedAttributeChange, ProblemSeverity, UnknownObjectReference, ValidationTree
+from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, WorkspaceDoesntExistException
+from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, \
+        ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
+        UnauthorizedAttributeChange, ProblemSeverity, UnknownObjectReference, ValidationTree
 
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
@@ -541,6 +543,10 @@ class DataContainer(ABC):
         # the governance zone policies for vendor or location
         for loc in self.locations:
             gz.checkLocationIsAllowed(eco, loc, tree)
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+        
  
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
@@ -1380,15 +1386,14 @@ class Ecosystem(GitControlledObject):
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
-    def __init__(self, name : str, repo : Repository, *args : Union[Datastore, 'Workspace', Documentation, 'Asset']) -> None:
+    def __init__(self, name : str, repo : Repository, *args : Union[Datastore, 'Workspace', Documentation]) -> None:
         super().__init__(repo)
         self.name : str = name
         self.workspaces : dict[str, Workspace] = OrderedDict()
         self.dataStores : dict[str, Datastore] = OrderedDict()
-        self.assets : set[Asset] = set()
         self.add(*args)
 
-    def add(self, *args : Union[Datastore, 'Workspace', Documentation, 'Asset']) -> None:
+    def add(self, *args : Union[Datastore, 'Workspace', Documentation]) -> None:
         """Adds a workspace, datastore or gitrepository to the team"""
         for arg in args:
             if(isinstance(arg, Datastore)):
@@ -1397,8 +1402,6 @@ class Team(GitControlledObject):
             elif(isinstance(arg, Workspace)):
                 w : Workspace = arg
                 self.addWorkspace(w)
-            elif(isinstance(arg, Asset)):
-                self.assets.add(arg)
             else:
                 d : Documentation = arg
                 self.documentation = d
@@ -1976,7 +1979,7 @@ class DatasetSink(object):
     def __hash__(self) -> int:
         return hash(f"{self.storeName}/{self.datasetName}")
         
-    def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
+    def lint(self, eco : Ecosystem, team : Team, ws : 'Workspace', tree : ValidationTree):
         """Check the DatasetSink meets all policy checks"""
         if(is_valid_sql_identifier(self.storeName) == False):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetSink store name {self.storeName}", ProblemSeverity.ERROR))
@@ -1989,11 +1992,11 @@ class DatasetSink(object):
             storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.storeName)
             if storeI:
                 store : Datastore = storeI.datastore
-                # Check Workspace asset locations are compatible with the Datastore gz policies
+                # Check Workspace dataContainer locations are compatible with the Datastore gz policies
                 if(store.key):
                     gzStore : GovernanceZone = eco.getZoneOrThrow(store.key.gzName)
-                    if(ws.asset):
-                        ws.asset.checkLocationsAreCompatible(eco, gzStore, tree)
+                    if(ws.dataContainer):
+                        ws.dataContainer.lint(eco, gzStore, team, tree)
                 else:
                     tree.addRaw(AttributeNotSet(f"{store} key is None"))
 
@@ -2041,13 +2044,13 @@ class DatasetGroup(ANSI_SQL_NamedObject):
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
     
-    def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
+    def lint(self, eco : Ecosystem, team : Team, ws : 'Workspace', tree : ValidationTree):
         super().nameLint(tree)
         if(is_valid_sql_identifier(self.name) == False):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetGroup name {self.name}", ProblemSeverity.ERROR))
         for sink in self.sinks.values():
             sinkTree : ValidationTree = tree.createChild(sink)
-            sink.lint(eco, ws, sinkTree)
+            sink.lint(eco, team, ws, sinkTree)
         if(self.platformMD):
             platform : Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
             if(platform == None):
@@ -2187,10 +2190,10 @@ class Workspace(ANSI_SQL_NamedObject):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
     it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
-    def __init__(self, name : str, *args : Union[DatasetGroup, 'Asset', Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
+    def __init__(self, name : str, *args : Union[DatasetGroup, DataContainer, Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
         super().__init__(name)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
-        self.asset : Optional['Asset'] = None
+        self.dataContainer : Optional[DataContainer] = None
         self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED) 
@@ -2205,7 +2208,7 @@ class Workspace(ANSI_SQL_NamedObject):
     def setTeam(self, key : TeamDeclarationKey):
         self.key = WorkspaceKey(key, self.name)
         
-    def add(self, *args : Union[DatasetGroup, 'Asset', Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]):
+    def add(self, *args : Union[DatasetGroup, DataContainer, Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]):
         for arg in args:
             if(isinstance(arg, DatasetGroup)):
                 if(self.dsgs.get(arg.name) != None):
@@ -2213,10 +2216,10 @@ class Workspace(ANSI_SQL_NamedObject):
                 self.dsgs[arg.name] = arg
             elif(isinstance(arg, DataClassificationPolicy)):
                 self.classificationVerifier = arg
-            elif(isinstance(arg, Asset)):
-                if(self.asset != None and self.asset != arg):
-                    raise AttributeAlreadySetException("Asset")
-                self.asset = arg
+            elif(isinstance(arg, DataContainer)):
+                if(self.dataContainer != None and self.dataContainer != arg):
+                    raise AttributeAlreadySetException("dataContainer")
+                self.dataContainer = arg
             elif(isinstance(arg, ProductionStatus)):
                 self.productionStatus = arg
             elif(isinstance(arg, DeprecationInfo)):
@@ -2251,19 +2254,18 @@ class Workspace(ANSI_SQL_NamedObject):
         if(self.key == None):
             tree.addRaw(AttributeNotSet("Workspace key is none"))
 
-        # Check Workspaces in this gz are on assets compatible with vendor
+        # Check Workspaces in this gz are on dataContainers compatible with vendor
         # and location policies for this GZ
-        if self.asset:
-            for c in self.asset.containers.values():
-                cntTree : ValidationTree = tree.createChild(c)
-                c.lint(eco, gz, t, cntTree)
+        if(self.dataContainer):
+            cntTree : ValidationTree = tree.createChild(self.dataContainer)
+            self.dataContainer.lint(eco, gz, t, cntTree)
             
         # Check production status of workspace matches all datasets in use
         # Check deprecation status of workspace generates warnings for all datasets in use
         # Lint the DSGs
         for dsg in self.dsgs.values():
             dsgTree : ValidationTree = tree.createChild(dsg)
-            dsg.lint(eco, self, dsgTree)
+            dsg.lint(eco, t, self, dsgTree)
 
         # Link the transformer if present
         if self.dataTransformer:
@@ -2273,36 +2275,6 @@ class Workspace(ANSI_SQL_NamedObject):
     def __str__(self) -> str:
         return f"Workspace({self.name})"    
     
-class Asset:
-    """An asset of a data container which host data for one or more Workspaces. Users query the data they asked
-    for in their Workspace using Workspace-specific VIEW objects or similr on the Asset."""
-    def __init__(self, name : str, containers : Iterable[DataContainer]) -> None:
-        self.name : str = name
-        self.containers : dict[str, 'DataContainer'] = OrderedDict()
-        for container in containers:
-            self.containers[container.getName()] = container
-        self.consumers : dict[str, Workspace] = OrderedDict()
-
-    def __eq__(self, o : object) -> bool:
-        return isinstance(o, Asset) and self.name == o.name and self.containers == o.containers \
-            and self.consumers == o.consumers
-
-    def __hash__(self) -> int:
-        return hash(self.name)
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.name})"
-
-    def addConsumer(self, consumer : Workspace):
-        if self.consumers.get(consumer.name) != None:
-            raise ObjectAlreadyExistsException(f"Duplicate consumer {consumer.name}")
-        self.consumers[consumer.name] = consumer
-
-    def checkLocationsAreCompatible(self, eco : Ecosystem, gz : GovernanceZone, tree : ValidationTree):
-        """Check the locations associated with the asset are compatible with a gz"""
-        for con in self.containers.values():
-            for loc in con.locations:
-                gz.checkLocationIsAllowed(eco, loc, tree)
 
 class PlatformStyle(Enum):
     OLTP = 0
@@ -2310,43 +2282,3 @@ class PlatformStyle(Enum):
     COLUMNAR = 2
     OBJECT = 3
 
-class ManagedAsset(Asset):
-    def __init__(self, name: str, style : PlatformStyle, rawAsset : Asset) -> None:
-        super().__init__(rawAsset.name, rawAsset.containers.values())
-        self.rawAsset : Asset = rawAsset
-        self.platformStyle = style
-
-    def __eq__(self, o : object) -> bool:
-        return super().__eq__(o) and isinstance(o, ManagedAsset) and self.rawAsset == o.rawAsset and self.platformStyle == o.platformStyle
-
-class AssetSet(Asset):
-
-    def hydrateContainers(self):
-        self.containers = OrderedDict()
-        for a in self.assets.values():
-            for c in a.containers.values():
-                self.containers[c.getName()] = c
-
-    def __init__(self, name : str, *args : Asset) -> None:
-        super().__init__(name, [])
-        self.activeAssetName : Optional[str] = None
-        self.assets : dict[str, Asset] = OrderedDict()
-        self.add(*args)
-
-    def add(self, *args : Asset) -> None:
-        for arg in args:
-                self.addAsset(arg)
-        self.hydrateContainers()
-
-    def addAsset(self, asset : Asset):
-        if self.assets.get(asset.name) != None:
-            raise Exception(f"Duplicate Asset {asset.name}")
-        self.assets[asset.name] = asset
-    def setActiveAsset(self, assetName : str):
-        if(self.assets.get(assetName) != None):
-            self.activeAssetName = assetName
-        else:
-            raise AssetDoesntExistException(f"Unknown asset {assetName}")
-        
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, AssetSet) and self.activeAssetName == o.activeAssetName and self.assets == o.assets

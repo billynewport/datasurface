@@ -183,7 +183,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db : Asset = Asset("Test Azure SQL", [AzureSQLDatabase("AzureSQL", "hostName:port", "DBName", location)])
+    ws_db : DataContainer = AzureSQLDatabase("AzureSQL", "hostName:port", "DBName", location)
 
     w : Workspace = Workspace("ProductLiveAdhocReporting",
         ws_db,                            

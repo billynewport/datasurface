@@ -20,7 +20,7 @@ class Test_PlatformGraphs(unittest.TestCase):
         pi : PlatformPipelineGraph = graph.roots[azurePlatform]
         self.assertEqual(len(pi.workspaces), 3)
 
-        self.assertEqual(len(pi.assetExports), 1)
+        self.assertEqual(len(pi.dataContainerExports), 1)
 
         # Left hand side of pipeline graph should just be ingestions
         ingestionRoots : set[PipelineNode] = pi.getLeftSideOfGraph()

@@ -33,10 +33,6 @@ class WorkspaceDoesntExistException(ObjectDoesntExistException):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
-class AssetDoesntExistException(ObjectDoesntExistException):
-    def __init__(self, *args: object) -> None:
-        super().__init__(*args)
-
 class StoragePolicyFromDifferentZone(Exception):
     """This means the storage policy is from a different governance zone"""
     def __init__(self, *args: object) -> None:

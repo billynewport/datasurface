@@ -35,6 +35,9 @@ class AmazonAWSS3Bucket(ObjectStorage):
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, AmazonAWSS3Bucket)
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 class AmazonAWSKinesis(DataContainer):
     def __init__(self, name : str, loc : InfrastructureLocation, endPointURI : Optional[str]):
         super().__init__(name, loc)
@@ -44,6 +47,9 @@ class AmazonAWSKinesis(DataContainer):
         return super().__eq__(o) and isinstance(o, AmazonAWSKinesis) and \
             self.endPointURI == o.endPointURI
     
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
 class AmazonAWSDynamoDB(DataContainer):
     def __init__(self, name : str, loc : InfrastructureLocation, endPointURI : Optional[str]):
         super().__init__(name, loc)
@@ -52,6 +58,9 @@ class AmazonAWSDynamoDB(DataContainer):
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, AmazonAWSDynamoDB) and \
             self.endPointURI == o.endPointURI
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
 
 class AmazonAWSSQS(DataContainer):
     def __init__(self, name : str, loc : InfrastructureLocation, queueURL : Optional[str]):
@@ -61,4 +70,7 @@ class AmazonAWSSQS(DataContainer):
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, AmazonAWSSQS) and \
             self.queueURL == o.queueURL
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
