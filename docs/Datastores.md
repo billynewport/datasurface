@@ -87,3 +87,10 @@ Different schemas will support different granularities of control with respect t
 ## Production Status
 
 A datastore can be marked as PRODUCTION or NOT_PRODUCTION. This is used to indicate that the data is appropriate to use in production or not. Workspaces can similarly be marked and the ecosystem will ensure that only production data is used in production workspaces. The intention here is to prevent non production data being used in a production setting.
+
+A PRODUCTION dataset must have DataClassifications available for all schema attributes. This can be either a schema level setting or a per attribute level setting.
+
+## Schemas supported
+
+DataSurface supports a tabular style schema and an Avro schema with a record as the primary attribute.
+
