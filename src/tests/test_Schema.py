@@ -151,7 +151,6 @@ class TestSchemaCreation(unittest.TestCase):
         store.productionStatus = ProductionStatus.PRODUCTION
 
         tree = eco.lintAndHydrateCaches()
-        tree.printTree()
         self.assertTrue(tree.containsProblemType(ProductionDatastoreMustHaveClassifications))
         self.assertTrue(tree.hasIssues())
 
