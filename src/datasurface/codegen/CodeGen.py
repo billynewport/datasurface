@@ -4,7 +4,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from datasurface.md import Datastore
 from datasurface.md import Dataset
 from datasurface.md import DDLTable
-from datasurface.md.Schema import DDLColumn, DEFAULT_classification, DEFAULT_nullable, DEFAULT_primaryKey
+from datasurface.md.Schema import DDLColumn, DEFAULT_nullable, DEFAULT_primaryKey
 
 def getDatasets(store : Datastore) -> list[Any]:
     datasets : list[Any] = []
@@ -26,7 +26,7 @@ def convertColumnAttributesToString(column : DDLColumn) -> str:
     rc : str = ""
     if(column.nullable != DEFAULT_nullable):
         rc += f", {column.nullable}"
-    if(column.classification != DEFAULT_classification):
+    if(column.classification != None):
         rc += f", {column.classification}"
     if(column.primaryKey != DEFAULT_primaryKey):
         rc += f", {column.primaryKey}"

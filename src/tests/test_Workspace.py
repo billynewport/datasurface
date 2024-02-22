@@ -354,6 +354,7 @@ class TestWorkspace(unittest.TestCase):
                     IngestionConsistencyType.MULTI_DATASET
                 ),
                 Dataset("Dataset1",
+                    DataClassification.PUB, 
                     DDLTable(
                         DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
                         DDLColumn    ("Col2", String(10)),
@@ -361,6 +362,7 @@ class TestWorkspace(unittest.TestCase):
                         )
                 ), 
                 Dataset("Dataset2",
+                    DataClassification.PUB, 
                     DDLTable(
                         DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
                         DDLColumn    ("Col2", String(10)),

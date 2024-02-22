@@ -13,7 +13,7 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(c.nullable, NullableStatus.NULLABLE)
         self.assertEqual(c.type, String(10))
         self.assertEqual(c.name, "id")
-        self.assertEqual(c.classification, DataClassification.PC3)
+        self.assertEqual(c.classification, None)
 
         try:
             # Cannot construct DDLColumn with invalid name

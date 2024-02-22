@@ -12,7 +12,8 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
             ),
 
-            Dataset("us_states",
+            Dataset("us_states", 
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("state_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("state_name", VarChar(100)),
@@ -38,6 +39,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("orders",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("order_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("customer_id", VarChar(5)),
@@ -56,6 +58,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("employees",
+                DataClassification.PC3, 
                 DDLTable(
                     DDLColumn("employee_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("last_name", VarChar(20), NullableStatus.NOT_NULLABLE),
@@ -78,6 +81,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("shippers",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("shipper_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),
@@ -85,6 +89,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("products",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("product_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("product_name", VarChar(40), NullableStatus.NOT_NULLABLE),
@@ -99,6 +104,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("categories",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("category_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("category_name", VarChar(15), NullableStatus.NOT_NULLABLE),
@@ -107,6 +113,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("suppliers",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("supplier_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),
@@ -123,6 +130,7 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("order_details",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("order_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("product_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
@@ -132,12 +140,14 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("region",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("region_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("region_description", VarChar(60), NullableStatus.NOT_NULLABLE)
                 )
             ),
             Dataset("territories",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("territory_id", VarChar(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("territory_description", VarChar(60), NullableStatus.NOT_NULLABLE),
@@ -145,18 +155,21 @@ def defineTables(eco : Ecosystem, gz : GovernanceZone, t : Team):
                 )
             ),
             Dataset("employee_territories",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("employee_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("territory_id", VarChar(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
                 )
             ),
             Dataset("customer_demographics",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("customer_type_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("customer_desc", VarChar())
                 )
             ),
             Dataset("customer_customer_demo",
+                DataClassification.PUB, 
                 DDLTable(
                     DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
                     DDLColumn("customer_type_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
@@ -202,6 +215,7 @@ def defineWorkspaces(eco : Ecosystem, t : Team, location : InfrastructureLocatio
                 "MaskCustomers",         
                 Datastore("Masked_NW_Data",
                     Dataset("employees",
+                        DataClassification.PUB, 
                         DDLTable(
                             PlainTextDocumentation("Masked version of employees table with privacy data removed"),
                             DDLColumn("employee_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),

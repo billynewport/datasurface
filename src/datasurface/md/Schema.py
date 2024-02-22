@@ -528,7 +528,6 @@ class PrimaryKeyStatus(Enum):
     PK = 1
     """Part of the primary key"""
 
-DEFAULT_classification : DataClassification = DataClassification.PC3
 DEFAULT_primaryKey : PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
 DEFAULT_nullable : NullableStatus = NullableStatus.NULLABLE
 
@@ -539,7 +538,7 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         Documentable.__init__(self, None)
         self.type : DataType = dataType
         self.primaryKey : PrimaryKeyStatus = DEFAULT_primaryKey
-        self.classification : DataClassification = DEFAULT_classification
+        self.classification : Optional[DataClassification] = None
         self.nullable : NullableStatus = DEFAULT_nullable
         for arg in args:
             if(type(arg) == NullableStatus):
@@ -653,7 +652,12 @@ class Schema(ABC, Documentable):
     def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         """Returns true if all columns in this schema have the specified classification"""
         pass
-        
+
+    @abstractmethod
+    def hasDataClassifications(self) -> bool:
+        """Returns True if the schema has any data classification specified"""
+        pass
+
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:
         """This method performs linting on this schema"""
@@ -672,10 +676,16 @@ class DDLTable(Schema):
         self.columns : dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
         self.add(*args)
 
+    def hasDataClassifications(self) -> bool:
+        for col in self.columns.values():
+            if(col.classification):
+                return True
+        return False
+    
     def checkClassificationsAreOnly(self, verifier: DataClassificationPolicy) -> bool:
         """Check all columns comply with the verifier"""
         for col in self.columns.values():
-            if(not verifier.isCompatible(col.classification)):
+            if(col.classification and not verifier.isCompatible(col.classification)):
                 return False
         return True
     

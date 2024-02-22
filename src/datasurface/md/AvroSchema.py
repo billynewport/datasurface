@@ -12,15 +12,18 @@ from datasurface.md.Policy import DataClassification, DataClassificationPolicy
 class AvroSchema(Schema):
     """This allows an avro Schema to be used with a daataset. Primary and partition key column names must be top level
     attribute names"""
-    def __init__(self, json_schema : str, classification : DataClassification, pkCols : Optional[PrimaryKeyList] = None, partCols : Optional[PartitionKeyList] = None):     
+    def __init__(self, json_schema : str, classification : Optional[DataClassification] = None, pkCols : Optional[PrimaryKeyList] = None, partCols : Optional[PartitionKeyList] = None):     
         super().__init__()   
         self.schema : AvSchema = parse(json_schema)
-        self.classification : DataClassification = classification
+        self.classification : Optional[DataClassification] = classification
         self.primaryKeyColumns = pkCols
         self.ingestionPartitionColumns = partCols
 
     def __eq__(self, o : object) -> bool:
         return super().__eq__(o) and isinstance(o, AvroSchema) and self.schema == o.schema and self.classification == o.classification
+    
+    def hasDataClassifications(self) -> bool:
+        return self.classification != None
     
 # TODO This means avro schemas cannot be modified, need a python is backwards compatiblility checker
     def isBackwardsCompatibleWith(self, other: Schema, vTree: ValidationTree) -> bool:
@@ -37,7 +40,10 @@ class AvroSchema(Schema):
 
     def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         # Avro schemas dont allow attribute level classification. There is only schema level.
-        return verifier.isCompatible(self.classification)
+        if(self.classification):
+            return verifier.isCompatible(self.classification)
+        else:
+            return True
 
     def checkColumnsArePrimitiveTypes(self, cols : list[str], tree : ValidationTree):
         """Check all columns exist in the top level record and are primitive types"""

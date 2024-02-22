@@ -611,6 +611,12 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
     def lint(self, eco : 'Ecosystem', gz : 'GovernanceZone', t : 'Team', store : 'Datastore', tree : ValidationTree) -> None:
         """Place holder to validate constraints on the dataset"""
         self.nameLint(tree)
+        if(self.dataClassificationOverride != None):
+            if(self.originalSchema and self.originalSchema.hasDataClassifications()):
+                tree.addProblem("There are data classifications within the schema")
+        else:
+            if(self.originalSchema and not self.originalSchema.hasDataClassifications()):
+                tree.addProblem("There are no data classifications for the dataset", ProblemSeverity.WARNING)
         for policy in self.policies.values():
             if(policy.key == None):
                 tree.addRaw(AttributeNotSet(f"Storage policy {policy.name} is not associated with a governance zone"))
