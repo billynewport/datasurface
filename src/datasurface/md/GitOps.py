@@ -9,7 +9,8 @@ from datasurface.md.Lint import ValidationTree
 class Repository(ABC, Documentable):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc : Optional[Documentation]):
-        super().__init__(doc)
+        ABC.__init__(self)
+        Documentable.__init__(self, doc)
 
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:
@@ -17,7 +18,7 @@ class Repository(ABC, Documentable):
         raise NotImplementedError()
     
     def __eq__(self, __value: object) -> bool:
-        if(super().__eq__(__value) and isinstance(__value, Repository)):
+        if(ABC.__eq__(self, __value) and Documentable.__eq__(self, __value) and isinstance(__value, Repository)):
             return True
         else:
             return False
@@ -30,13 +31,14 @@ class Repository(ABC, Documentable):
 class GitControlledObject(ABC, Documentable):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo : 'Repository') -> None:
-        super().__init__(None)
+        ABC.__init__(self)
+        Documentable.__init__(self, None)
         self.owningRepo : Repository = repo
         """This is the repository which is authorized to make changes to this object"""
 
     def __eq__(self, __value: object) -> bool:
         if(isinstance(__value, GitControlledObject)):
-            return self.owningRepo == __value.owningRepo and super().__eq__(__value)
+            return self.owningRepo == __value.owningRepo and ABC.__eq__(self, __value) and Documentable.__eq__(self, __value)
         else:
             return False
         

@@ -29,16 +29,17 @@ class DeprecationStatus(Enum):
     NOT_DEPRECATED = 0
     DEPRECATED = 1
 
-class DeprecationInfo:
+class DeprecationInfo(Documentable):
     """This is the deprecation information for an object"""
     def __init__(self, status : DeprecationStatus, reason : Optional[Documentation] = None) -> None:
+        super().__init__(reason)
         self.status : DeprecationStatus = status
         """If it deprecated or not"""
-        self.reason : Optional[Documentation] = reason
         """If deprecated then this explains why and what an existing user should do, alternative dataset for example"""
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, DeprecationInfo) and self.status == __value.status and self.reason == __value.reason 
+        return super().__eq__(__value) and \
+            isinstance(__value, DeprecationInfo) and self.status == __value.status
 
 
 
@@ -503,6 +504,7 @@ class DataContainer(ABC):
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""   
     def __init__(self, name : str, *args : InfrastructureLocation) -> None:
+        super().__init__()
         self.locations : set[InfrastructureLocation] = set()
         self.name : str = name
         self.serverSideEncryptionKeys : Optional[EncryptionSystem] = None
@@ -571,7 +573,8 @@ class ObjectStorage(DataContainer):
 class Dataset(ANSI_SQL_NamedObject, Documentable):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name : str, *args : Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
-        super().__init__(name)
+        ANSI_SQL_NamedObject.__init__(self, name)
+        Documentable.__init__(self, None)
         self.originalSchema : Optional[Schema] = None
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
         self.policies : dict[str, StoragePolicy] = OrderedDict()
@@ -600,7 +603,8 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
     
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Dataset):
-            return super().__eq__(__value) and self.name == __value.name and self.originalSchema == __value.originalSchema and \
+            return ANSI_SQL_NamedObject.__eq__(self, __value) and Documentable.__eq__(self, __value) and \
+                self.name == __value.name and self.originalSchema == __value.originalSchema and \
                 self.policies == __value.policies and \
                 self.deprecationStatus == __value.deprecationStatus and self.dataClassificationOverride == __value.dataClassificationOverride
         return False
@@ -766,6 +770,7 @@ class IngestionConsistencyType(Enum):
 class StepTrigger(ABC):
     """A step such as ingestion is driven in pulses triggered by these."""
     def __init__(self, name : str):
+        super().__init__()
         self.name : str = name
 
     def __eq__(self, o : object) -> bool:
@@ -793,6 +798,7 @@ class CaptureMetaData(ABC):
     """This describes how a platform can pull data for a Datastore"""
 
     def __init__(self, stepTrigger : Optional[StepTrigger] = None):
+        super().__init__()
         self.singleOrMultiDatasetIngestion : Optional[IngestionConsistencyType] = None
         self.stepTrigger : Optional[StepTrigger] = None
 
@@ -925,7 +931,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name : str, *args : Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
-        super().__init__(name)
+        ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         self.datasets : dict[str, Dataset] = OrderedDict()
         self.key : Optional[DatastoreKey] = None
@@ -968,7 +974,8 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
     
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, Datastore):
-            return super().__eq__(__value) and self.datasets == __value.datasets and self.cmd == __value.cmd and \
+            return ANSI_SQL_NamedObject.__eq__(self, __value) and Documentable.__eq__(self, __value) and \
+                self.datasets == __value.datasets and self.cmd == __value.cmd and \
                 self.container == __value.container and \
                 self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus and \
                 self.key == __value.key
@@ -2020,11 +2027,12 @@ class DatasetSink(object):
     def __str__(self) -> str:
         return f"DatasetSink({self.storeName}:{self.datasetName})"
 
-class DatasetGroup(ANSI_SQL_NamedObject):
+class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace. The name should be
     ANSI SQL compliant because it could be used as part of a SQL View/Table name in a Workspace database"""
-    def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig]) -> None:
-        super().__init__(name)
+    def __init__(self, name : str, *args : Union[DatasetSink, WorkspacePlatformConfig, Documentation]) -> None:
+        ANSI_SQL_NamedObject.__init__(self, name)
+        Documentable.__init__(self, None)
         self.platformMD : Optional[DataPlatformChooser] = None
         self.sinks : dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
         for arg in args:
@@ -2033,7 +2041,9 @@ class DatasetGroup(ANSI_SQL_NamedObject):
                 if(self.sinks.get(sink.key) != None):
                     raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
                 self.sinks[sink.key] = sink
-            elif(type(arg) is WorkspacePlatformConfig):
+            elif(isinstance(arg, Documentation)):
+                self.documentation = arg
+            elif(isinstance(arg, WorkspacePlatformConfig)):
                 if self.platformMD == None:
                     self.platformMD = arg
                 else:
@@ -2046,6 +2056,8 @@ class DatasetGroup(ANSI_SQL_NamedObject):
     
     def lint(self, eco : Ecosystem, team : Team, ws : 'Workspace', tree : ValidationTree):
         super().nameLint(tree)
+        if(self.documentation):
+            self.documentation.lint(tree)
         if(is_valid_sql_identifier(self.name) == False):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetGroup name {self.name}", ProblemSeverity.ERROR))
         for sink in self.sinks.values():
@@ -2114,8 +2126,6 @@ class PythonCodeArtifact(CodeArtifact):
             return rc
         else:
             return False
-    
-
 
 class CodeExecutionEnvironment(ABC):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
@@ -2150,20 +2160,24 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
         self.credential.lint(eco, cTree)
 
 
-class DataTransformer(ANSI_SQL_NamedObject):
+class DataTransformer(ANSI_SQL_NamedObject, Documentable):
     """This allows new data to be produced from existing data. The inputs to the transformer are the
     datasets in the workspace and the output is a Datastore associated with the transformer. The transformer
     will be triggered using the specified trigger policy"""
-    def __init__(self, name : str, store : Datastore, trigger : TransformerTrigger, code : CodeArtifact, codeEnv : CodeExecutionEnvironment) -> None:
-        super().__init__(name)
+    def __init__(self, name : str, store : Datastore, trigger : TransformerTrigger, code : CodeArtifact, codeEnv : CodeExecutionEnvironment, doc : Optional[Documentation] = None) -> None:
+        ANSI_SQL_NamedObject.__init__(self, name)
+        Documentable.__init__(self, None)
         # This Datastore is defined here and has a CaptureMetaData automatically added. Do not specify a CMD in the Datastore
         self.outputDatastore : Datastore = store
         self.trigger : TransformerTrigger = trigger
         self.code : CodeArtifact = code
         self.codeEnv : CodeExecutionEnvironment = codeEnv
+        self.documentation = doc
 
     def lint(self, eco : Ecosystem, ws : 'Workspace', tree : ValidationTree):
-        super().nameLint(tree)
+        ANSI_SQL_NamedObject.nameLint(self, tree)
+        if(self.documentation):
+            self.documentation.lint(tree)
         # Does store exist
         storeI : Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.outputDatastore.name)
         if(storeI == None):
@@ -2186,15 +2200,15 @@ class DataTransformer(ANSI_SQL_NamedObject):
 
 
 
-class Workspace(ANSI_SQL_NamedObject):
+class Workspace(ANSI_SQL_NamedObject, Documentable):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
     it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
     def __init__(self, name : str, *args : Union[DatasetGroup, DataContainer, Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]) -> None:
-        super().__init__(name)
+        ANSI_SQL_NamedObject.__init__(self, name)
+        Documentable.__init__(self, None)
         self.dsgs : dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.dataContainer : Optional[DataContainer] = None
-        self.documentation : Optional[Documentation] = None
         self.productionStatus : ProductionStatus = ProductionStatus.NOT_PRODUCTION
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED) 
         self.dataTransformer : Optional[DataTransformer] = None
