@@ -11,7 +11,8 @@ T = TypeVar('T')
 class Policy(ABC, Generic[T], Documentable):
     """Base class for all policies"""
     def __init__(self, name : str, doc : Optional[Documentation] = None) -> None:
-        super().__init__(doc)
+        Documentable.__init__(self, doc)
+        ABC.__init__(self)
         self.name : str = name
     
     @abstractmethod
@@ -20,7 +21,7 @@ class Policy(ABC, Generic[T], Documentable):
         raise NotImplementedError()
     
     def __eq__(self, v : object) -> bool:
-        return super().__eq__(v) and isinstance(v, Policy) and self.name == v.name
+        return ABC.__eq__(self, v) and Documentable.__eq__(self, v) and isinstance(v, Policy) and self.name == v.name
     
     def __hash__(self) -> int:
         return hash(self.name)
