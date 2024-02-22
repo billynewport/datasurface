@@ -52,9 +52,9 @@ class AvroSchema(Schema):
             try:
                 attribute : Field = cast(Field, rec.fields_dict[col])
                 if(not isinstance(attribute.type, PrimitiveSchema)):
-                    tree.addProblem("Column {col} is not a primitive type")
+                    tree.addProblem(f"Column {col} is not a primitive type")
             except KeyError:
-                tree.addProblem("Unknown column {col}")
+                tree.addProblem(f"Unknown column {col}")
 
     def lint(self, tree : ValidationTree) -> None:
         if(self.primaryKeyColumns):
