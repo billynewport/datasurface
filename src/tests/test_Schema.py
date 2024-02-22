@@ -1,14 +1,13 @@
+from copy import deepcopy
 import unittest
 
-from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus
+from datasurface.md import AvroSchema, DDLColumn, Schema, String, NullableStatus, PrimaryKeyStatus
 from datasurface.md import DDLTable, PrimaryKeyList, DataClassification
 from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
 from datasurface.md.Lint import ValidationTree
 
 class TestSchemaCreation(unittest.TestCase):
     def testPrimaryKeys(self):
-
-        # Create a column with the default values and verify they are as expected
         c : DDLColumn = DDLColumn("id", String(10))
         self.assertEqual(c.primaryKey, PrimaryKeyStatus.NOT_PK)
         self.assertEqual(c.nullable, NullableStatus.NULLABLE)
@@ -66,3 +65,41 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(t.columns['firstName'].primaryKey, PrimaryKeyStatus.NOT_PK)
         self.assertEqual(t.columns['lastName'].primaryKey, PrimaryKeyStatus.NOT_PK)
 
+    def test_AvroSchema(self):
+        s1 : Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f1","type":"string"}]}', DataClassification.PC3)
+        s2 : Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2","type":"string"}]}', DataClassification.PC3)
+
+        self.assertEqual(s1, s1)
+        self.assertNotEqual(s1, s2)
+
+        s2 = deepcopy(s1)
+        self.assertEqual(s1, s2)
+
+        s2.classification = DataClassification.PUB
+        self.assertNotEqual(s1, s2)
+
+        # Modify schema
+        s2 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', DataClassification.PC3)
+        self.assertNotEqual(s1, s2)
+
+        # s1 is compatible with s1
+        tree : ValidationTree = ValidationTree(s1)
+        s1.isBackwardsCompatibleWith(s1, tree)
+        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.hasIssues())
+
+        # s1 is not compatible with s2
+        tree = ValidationTree(s1)
+        s1.isBackwardsCompatibleWith(s2, tree)
+        self.assertTrue(tree.hasErrors())
+        
+        tree = ValidationTree(s2)
+        s2.isBackwardsCompatibleWith(s1, tree)
+        self.assertTrue(tree.hasErrors())
+
+        s1 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', DataClassification.PC3, PrimaryKeyList(["f2other"]))
+
+        tree = ValidationTree(s1)
+        s1.lint(tree)
+
+        self.assertFalse(tree.hasErrors())

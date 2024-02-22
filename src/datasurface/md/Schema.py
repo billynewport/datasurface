@@ -634,7 +634,7 @@ class Schema(ABC, Documentable):
     @abstractmethod
     def getHubSchema(self) -> 'Schema':
         """Returns the hub schema for this schema"""
-        raise NotImplementedError()
+        pass
     
     @abstractmethod
     def isBackwardsCompatibleWith(self, other : 'Schema', vTree : ValidationTree) -> bool:
@@ -652,7 +652,7 @@ class Schema(ABC, Documentable):
     @abstractmethod
     def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         """Returns true if all columns in this schema have the specified classification"""
-        raise NotImplementedError()
+        pass
         
     @abstractmethod
     def lint(self, tree : ValidationTree) -> None:

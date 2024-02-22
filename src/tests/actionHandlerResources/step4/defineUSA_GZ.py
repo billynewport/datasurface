@@ -1,12 +1,8 @@
-
-
-
 from datasurface.md.Azure import AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.Governance import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, PyOdbcSourceInfo, Team
 from datasurface.md.Policy import DataClassification
 from datasurface.md.Schema import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
-
 
 def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):
     nyTeam : Team = gzEU.getTeamOrThrow("NYTeam")
