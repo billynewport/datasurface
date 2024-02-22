@@ -1,6 +1,7 @@
 
 
 from enum import Enum
+from typing import Any
 
 
 class ProblemSeverity(Enum):
@@ -76,6 +77,11 @@ class ConstraintViolation(ValidationProblem):
     def __init__(self, obj : object, sev : ProblemSeverity) -> None:
         super().__init__(f"Constraint violation {obj}", sev)
 
+class ProductionDatastoreMustHaveClassifications(ValidationProblem):
+    """This indicates a production Datastore has a Dataset where the DataClassification of some attributes is unspecified"""
+    def __init__(self, store : object, dataset : object) -> None:
+        super().__init__(f"Production Datastore {store} has a dataset {dataset} with missing DataClassifications", ProblemSeverity.ERROR)
+
 class ValidationTree:
     """This is a tree of issues found while running a set of checks against the model. It is used to collect issues. Each node in the 
     tree represents an object in the model. Each node can list a set of issues found with that node"""
@@ -146,4 +152,12 @@ class ValidationTree:
             for child in self.children:
                 child.printTree(indent + 2)
     
+    def containsProblemType(self, type : Any) -> bool:
+        for p in self.problems:
+            if isinstance(p, type):
+                return True
+        for child in self.children:
+            if(child.containsProblemType(type)):
+                return True
+        return False
 

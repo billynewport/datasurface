@@ -1,10 +1,13 @@
 from copy import deepcopy
+from typing import Optional, cast
 import unittest
 
 from datasurface.md import AvroSchema, DDLColumn, Schema, String, NullableStatus, PrimaryKeyStatus
 from datasurface.md import DDLTable, PrimaryKeyList, DataClassification
 from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Governance import Dataset, Datastore, Ecosystem, ProductionStatus
+from datasurface.md.Lint import ProductionDatastoreMustHaveClassifications, ValidationTree
+from tests.nwdb.eco import createEcosystem
 
 class TestSchemaCreation(unittest.TestCase):
     def testPrimaryKeys(self):
@@ -103,3 +106,53 @@ class TestSchemaCreation(unittest.TestCase):
         s1.lint(tree)
 
         self.assertFalse(tree.hasErrors())
+
+    def test_DatasetClassificationLint(self):
+        eco : Ecosystem = createEcosystem()
+        tree : ValidationTree = eco.lintAndHydrateCaches()
+
+        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.hasIssues())
+
+        store : Datastore = eco.cache_getDatastoreOrThrow("NW_Data").datastore
+        dataset : Dataset = store.datasets["suppliers"]
+        schema : DDLTable = cast(DDLTable, dataset.originalSchema)
+        self.assertEqual(dataset.dataClassificationOverride, DataClassification.PUB)
+        self.assertFalse(schema.hasDataClassifications())
+
+        col : Optional[DDLColumn] = schema.getColumnByName("company_name")
+        self.assertIsNotNone(col)
+        if(col == None):
+            raise Exception("Shouldnt be none")
+
+        # Set a local classification on a column, a dataset level and one of these isn't allowed
+        col.classification = DataClassification.PC1
+
+        tree = eco.lintAndHydrateCaches()
+        self.assertTrue(tree.hasErrors())
+        col.classification = None
+
+        # Clear it and check it's good
+        tree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.hasIssues())
+
+        # Now dataset and all columns do not have classification
+        dataset.dataClassificationOverride = None
+
+        # non production store: should have warnings, as dataset has no classifications set
+        tree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+        self.assertTrue(tree.hasIssues())
+
+        self.assertEqual(store.productionStatus, ProductionStatus.NOT_PRODUCTION)
+
+        # Production store:, dataset with no classifications is an error
+        store.productionStatus = ProductionStatus.PRODUCTION
+
+        tree = eco.lintAndHydrateCaches()
+        tree.printTree()
+        self.assertTrue(tree.containsProblemType(ProductionDatastoreMustHaveClassifications))
+        self.assertTrue(tree.hasIssues())
+
+

@@ -15,7 +15,7 @@ from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_i
 from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, AssetDoesntExistException, WorkspaceDoesntExistException
-from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, UnauthorizedAttributeChange, ProblemSeverity, UnknownObjectReference, ValidationTree
+from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, UnauthorizedAttributeChange, ProblemSeverity, UnknownObjectReference, ValidationTree
 
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
@@ -665,6 +665,14 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
     def __str__(self) -> str:
         return f"Dataset({self.name})"
     
+    def hasClassifications(self) -> bool:
+        """This returns true if the dataset has classifications for everything"""
+        if(self.dataClassificationOverride):
+            return True
+        if(self.originalSchema and self.originalSchema.hasDataClassifications()):
+            return True
+        return False
+    
 class Credential(ABC):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
@@ -978,6 +986,9 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         for dataset in self.datasets.values():
             dTree : ValidationTree = storeTree.createChild(dataset)
             dataset.lint(eco, gz, t, self, dTree)
+            if(self.productionStatus == ProductionStatus.PRODUCTION):
+                if(not dataset.hasClassifications()):
+                    dTree.addRaw(ProductionDatastoreMustHaveClassifications(self, dataset))
 
         if(self.cmd):
             cmdTree : ValidationTree = storeTree.createChild(self.cmd)
