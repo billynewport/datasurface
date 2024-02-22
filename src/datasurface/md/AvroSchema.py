@@ -50,8 +50,8 @@ class AvroSchema(Schema):
         for col in cols:
             rec : RecordSchema = cast(RecordSchema, self.schema)
             try:
-                attribute : Field = cast(Field, rec.fields_dict[col])
-                if(not isinstance(attribute.type, PrimitiveSchema)):
+                attribute : Field = cast(Field, rec.fields_dict[col]) # type: ignore
+                if(not isinstance(attribute.type, PrimitiveSchema)): # type: ignore
                     tree.addProblem(f"Column {col} is not a primitive type")
             except KeyError:
                 tree.addProblem(f"Unknown column {col}")

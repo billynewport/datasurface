@@ -93,4 +93,3 @@ A PRODUCTION dataset must have DataClassifications available for all schema attr
 ## Schemas supported
 
 DataSurface supports a tabular style schema and an Avro schema with a record as the primary attribute.
-
