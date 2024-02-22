@@ -15,15 +15,15 @@ The ecosystem will then use this information to choose a DataPlatform to host th
 
 Consumers may also specify they want to use multiple of these for a single application. A Workspace has multiple DatasetGroups. A DatasetGroup has one or more DatasetSinks. EAch DatasetSink describes a dataset which the consumer needs for their application. Each DatasetGroup can specify its own WorkspacePlatformConfig. A Dataset can be specified multiple times within a single Workspace, once per DatasetGroup. This is allowed so consumer may require a live, low latency version of a dataset as well as a much high latency version of the same dataset which is fully milestoned.
 
-## Asset
+## DataContainer
 
-The asset is the data container that will host the data for the consumer. The ecosystem will deliver the data from the producers to this container where the consumer will be able to query it. There are a variety of asset types and they will consistently change. Examples of asset types are:
+Data containers host the data for the consumer. The ecosystem will deliver the data from the producers to this container where the consumer will be able to query it. There are a variety of data container types and they will consistently change. Examples of data container types are:
 
 * Lake House (object store + Delta capable columnar files + Data catalog)
 * Traditional OLTP SQL Databases
 * Traditional OLAP SQL Data warehouses
 
-Assets are typically located with an InstructureLocation which is owned by an InfrastructureVendor. Datasets can only be stored on an Asset if the GovernanceZone that polices the dataset allows it. Some GovernanceZones may not allow cloud vendors or may not allow on site vendors.
+Data containers are typically located with an InstructureLocation which is owned by an InfrastructureVendor. Datasets can only be stored on a Data container if the GovernanceZone that polices the dataset allows it. Some GovernanceZones may not allow cloud vendors or may not allow on site vendors.
 
 ## DatasetGroups
 
@@ -37,7 +37,7 @@ Most applications will only use a single DatasetGroup. But, more complex applica
 
 ### DatasetSinks
 
-A datasetgroup has one or more datasetsink references. This basically states the consumer would like to use a specific dataset in a Workspace using the data pipeline selected by its DatasetGroup. A dataset can be used in multiple datasetgroups and different data pipelines may be used to serve it to the Asset for a single Workspace. A datasetsink also specifies the depreciation policy the consumer is ready to allow for this dataset. This allows a consumer to say it does not want to use deprecated data at all or it will allow the use of it temporarily while alternative sources for that data are determined. This works together with the data producers ability to mark datasets as deprecated.
+A datasetgroup has one or more datasetsink references. This basically states the consumer would like to use a specific dataset in a Workspace using the data pipeline selected by its DatasetGroup. A dataset can be used in multiple datasetgroups and different data pipelines may be used to serve it to the DataContainer for a single Workspace. A datasetsink also specifies the depreciation policy the consumer is ready to allow for this dataset. This allows a consumer to say it does not want to use deprecated data at all or it will allow the use of it temporarily while alternative sources for that data are determined. This works together with the data producers ability to mark datasets as deprecated.
 
 ### Creating a Workspace in Python
 
@@ -50,7 +50,7 @@ The following shows how a Workspace can be defined in Python. This change would 
     ourTeam.add(
         Workspace("ProductLiveAdhocReporting",
             PlainTextDocumentation("This workspace is used to provide live adhoc reporting on the product data"),
-            Asset("Test Azure SQL"),                            
+            AzureSQLDatabase("AzureSQL", "hostName:port", "DBName", eco.getLocationOrThrow("AZURE", ["USA", "Central US"])),                            
             DatasetGroup("LiveProducts",
                 WorkspacePlatformConfig(
                     ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, 
@@ -65,12 +65,12 @@ The following shows how a Workspace can be defined in Python. This change would 
 
 ```
 
-This first gets references to the USA gz and then the OurTeam team within that gz. Next, we add the new Workspace to the team. The Workspace is called "ProductLiveAdhocReporting". It expects the data to be available on the "Test Azure SQL" asset.
+This first gets references to the USA gz and then the OurTeam team within that gz. Next, we add the new Workspace to the team. The Workspace is called "ProductLiveAdhocReporting". It expects the data to be available on the "Test Azure SQL" data container.
 
 The DatasetGroup "LiveProducts" specifies that the consumer requires a low latency version of the products, customers and suppliers datasets. The WorkspacePlatformConfig specifies that the data should be live only (no historical data records or milestoning) and that minutes of latency is acceptable. The data has no retention requirement.
 
-### How a DataPlatform using an Asset might render DatasetSinks
+### How a DataPlatform using an DataContainer might render DatasetSinks
 
-Dataplatforms are the underlying mechanism for how data arrives in Assets for data consumers. If the asset was a typical database or lakehouse then the data would be kept up to date in a physical table. Consumers might use a softlink or a view to reference that physical table. Their view may be named by combining the Workspace, DatasetGroup and Dataset names together.
+Dataplatforms are the underlying mechanism for how data arrives in Data containers for data consumers. If the data container was a typical database or lakehouse then the data would be kept up to date in a physical table. Consumers might use a softlink or a view to reference that physical table. Their view may be named by combining the Workspace, DatasetGroup and Dataset names together.
 
 The view is usually an important abstraction as it provides the data platform flexibility if columns are added to the dataset. A new table can be created and provisioned with the new column while existing consumers continue to use the existing table and views. The Dataplatform will simultaenously keep the original table up to date. When the new table has caught up and is ready for use then the data platform would alter the consumer views to point at the new table and then delete the old table.
