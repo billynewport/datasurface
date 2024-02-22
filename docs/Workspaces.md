@@ -25,6 +25,8 @@ Data containers host the data for the consumer. The ecosystem will deliver the d
 
 Data containers are typically located with an InstructureLocation which is owned by an InfrastructureVendor. Datasets can only be stored on a Data container if the GovernanceZone that polices the dataset allows it. Some GovernanceZones may not allow cloud vendors or may not allow on site vendors.
 
+[See Data Containers for more information](DataContainers.md)
+
 ## DatasetGroups
 
 A DatasetGroup allow a consumer to specify a group of datasets and the consumer can specify how they want the ecosystem to present the data. The consumer can specify the data latency requirements in terms of SECONDS or MINUTES of even HOURS may be acceptable.
@@ -74,3 +76,5 @@ The DatasetGroup "LiveProducts" specifies that the consumer requires a low laten
 Dataplatforms are the underlying mechanism for how data arrives in Data containers for data consumers. If the data container was a typical database or lakehouse then the data would be kept up to date in a physical table. Consumers might use a softlink or a view to reference that physical table. Their view may be named by combining the Workspace, DatasetGroup and Dataset names together.
 
 The view is usually an important abstraction as it provides the data platform flexibility if columns are added to the dataset. A new table can be created and provisioned with the new column while existing consumers continue to use the existing table and views. The Dataplatform will simultaenously keep the original table up to date. When the new table has caught up and is ready for use then the data platform would alter the consumer views to point at the new table and then delete the old table.
+
+[See Data Platforms for more information](DataPlatform.md)
