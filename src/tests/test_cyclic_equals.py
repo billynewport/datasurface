@@ -3,6 +3,7 @@ import unittest
 
 from datasurface.md import cyclic_safe_eq
 
+
 class TestCyclicSafeEq(unittest.TestCase):
     def test_same_object(self):
         obj = {"key": "value"}
@@ -18,9 +19,9 @@ class TestCyclicSafeEq(unittest.TestCase):
         self.assertFalse(cyclic_safe_eq({"key": "value"}, {"key": "other value"}, set()))
 
     def test_cyclic_dict(self):
-        a : dict[str, Any]= {}
+        a: dict[str, Any] = {}
         a["self"] = a
-        b : dict[str, Any] = {}
+        b: dict[str, Any] = {}
         b["self"] = b
         self.assertTrue(cyclic_safe_eq(a, b, set()))
 

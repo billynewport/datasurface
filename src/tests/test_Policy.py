@@ -3,6 +3,7 @@ from datasurface.md.Documentation import PlainTextDocumentation
 
 from datasurface.md.Policy import AllowDisallowPolicy
 
+
 class Test_Policy(unittest.TestCase):
     def test_allow_disallow_policy(self):
         # Test case 1: Object is explicitly allowed

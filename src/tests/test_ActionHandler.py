@@ -1,12 +1,10 @@
-
-
-
 import os
 import sys
 import unittest
 
 from datasurface.handler.action import verifyPullRequest
 from datasurface.md.Lint import ValidationTree
+
 
 class Test_ActionHandler(unittest.TestCase):
     def test_ActionIterations(self):
@@ -15,7 +13,7 @@ class Test_ActionHandler(unittest.TestCase):
 
         os.environ["GITHUB_TOKEN"] = "Fake Token"
 
-        testSteps : list[list[str]] = [
+        testSteps: list[list[str]] = [
             # Initial checkin of a eco.py
             ['src/tests/actionHandlerResources/step0', 'src/tests/actionHandlerResources/step1/base', 'main'],
             # Define EU GZ
@@ -29,27 +27,23 @@ class Test_ActionHandler(unittest.TestCase):
         ]
 
         for step in testSteps:
-            baseFolder : str = step[0] # The main branch in to which we are trying to change
-            headFolder : str = step[1] # This branch contains the proposed new version of the model, it must be compatible with the main branch
-            os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1' # Repository is always the same, we just change branches
+            baseFolder: str = step[0]  # The main branch in to which we are trying to change
+            headFolder: str = step[1]  # This branch contains the proposed new version of the model, it must be compatible with the main branch
+            os.environ['HEAD_REPOSITORY'] = 'billynewport/test_step1'  # Repository is always the same, we just change branches
 
             print(f"Trying {baseFolder} -> {headFolder} with bad repo first")
             # first try a repository without permission to make change
             os.environ["HEAD_BRANCH"] = "BAD_BRANCH"
             sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-            tree : ValidationTree = verifyPullRequest( )
+            tree: ValidationTree = verifyPullRequest()
             tree.printTree()
-            self.assertTrue(tree.hasErrors()) # Should have errors
+            self.assertTrue(tree.hasErrors())  # Should have errors
 
             # Now switch to correct branch authorized to make change
             os.environ["HEAD_BRANCH"] = step[2]
             sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
             print(f"Trying {baseFolder} -> {headFolder} with good repo")
-            tree : ValidationTree = verifyPullRequest( )
-            if(tree.hasErrors()):
+            tree: ValidationTree = verifyPullRequest()
+            if (tree.hasErrors()):
                 tree.printTree()
                 self.fail("Tree has errors")
-
-
-
-

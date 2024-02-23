@@ -5,9 +5,10 @@ from datasurface.md.Lint import ValidationTree
 
 from tests.nwdb.eco import createEcosystem
 
+
 class TestGitOps(unittest.TestCase):
     def setUp(self):
-        self.git_ops = createEcosystem() # Just to get the methods to test
+        self.git_ops = createEcosystem()  # Just to get the methods to test
 
     def test_showDictChangesAsProblems_deletedKeys(self):
         current = {
@@ -19,7 +20,7 @@ class TestGitOps(unittest.TestCase):
             "key1": "value1",
             "key3": "value3"
         }
-        vTree : ValidationTree = ValidationTree("test")
+        vTree: ValidationTree = ValidationTree("test")
         self.git_ops.showDictChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 1)
@@ -100,12 +101,13 @@ class TestGitOps(unittest.TestCase):
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 0)
 
+
 class TestRepository(unittest.TestCase):
     def test_GitHubRepository(self):
-        g : GitHubRepository = GitHubRepository("billynewport/repo", "main")
-        gdoc : GitHubRepository = GitHubRepository("billynewport/repo", "main", PlainTextDocumentation("Test"))  
-        gdoc2 : GitHubRepository = GitHubRepository("billynewport/repo", "main", PlainTextDocumentation("Test2"))  
-        g2 : GitHubRepository = GitHubRepository("billynewport/repo", "main2")
+        g: GitHubRepository = GitHubRepository("billynewport/repo", "main")
+        gdoc: GitHubRepository = GitHubRepository("billynewport/repo", "main", PlainTextDocumentation("Test"))
+        gdoc2: GitHubRepository = GitHubRepository("billynewport/repo", "main", PlainTextDocumentation("Test2"))
+        g2: GitHubRepository = GitHubRepository("billynewport/repo", "main2")
 
         self.assertEqual(g, g)
         self.assertNotEqual(g, gdoc)
@@ -118,6 +120,7 @@ class TestRepository(unittest.TestCase):
         self.assertEqual(gdoc.documentation, PlainTextDocumentation("Test"))
         self.assertEqual(gdoc2.documentation, PlainTextDocumentation("Test2"))
         self.assertNotEqual(gdoc.documentation, gdoc2.documentation)
-        
+
+
 if __name__ == '__main__':
     unittest.main()

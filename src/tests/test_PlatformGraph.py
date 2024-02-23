@@ -1,6 +1,7 @@
 import unittest
 from datasurface.md.Governance import DataPlatform, Ecosystem
-from datasurface.md.PipelineGraph import DataTransformerNode, EcosystemPipelineGraph, ExportNode, IngestionNode, PipelineNode, PlatformPipelineGraph, TriggerNode
+from datasurface.md.PipelineGraph import DataTransformerNode, EcosystemPipelineGraph, ExportNode, IngestionNode, PipelineNode, \
+    PlatformPipelineGraph, TriggerNode
 
 from tests.nwdb.eco import createEcosystem
 
@@ -8,27 +9,27 @@ from tests.nwdb.eco import createEcosystem
 class Test_PlatformGraphs(unittest.TestCase):
 
     def test_PipelineGraph(self):
-        eco : Ecosystem = createEcosystem()
+        eco: Ecosystem = createEcosystem()
 
-        azurePlatform : DataPlatform = eco.getDataPlatformOrThrow("Azure Platform")
+        azurePlatform: DataPlatform = eco.getDataPlatformOrThrow("Azure Platform")
         self.assertEqual(eco.getDefaultDataPlatform(), azurePlatform)
 
-        graph : EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
 
         self.assertIsNotNone(graph.roots.get(azurePlatform))
 
-        pi : PlatformPipelineGraph = graph.roots[azurePlatform]
+        pi: PlatformPipelineGraph = graph.roots[azurePlatform]
         self.assertEqual(len(pi.workspaces), 3)
 
         self.assertEqual(len(pi.dataContainerExports), 1)
 
         # Left hand side of pipeline graph should just be ingestions
-        ingestionRoots : set[PipelineNode] = pi.getLeftSideOfGraph()
+        ingestionRoots: set[PipelineNode] = pi.getLeftSideOfGraph()
         for ir in ingestionRoots:
             self.assertTrue(str(ir).startswith("Ingest"))
 
         # Right hand side of pipeline graph should be exports to assets
-        rightHandLeafs : set[PipelineNode] = pi.getRightSideOfGraph()
+        rightHandLeafs: set[PipelineNode] = pi.getRightSideOfGraph()
         for rh in rightHandLeafs:
             self.assertTrue(str(rh).startswith("Export"))
 
@@ -41,11 +42,6 @@ class Test_PlatformGraphs(unittest.TestCase):
         # Check DataTransformers are followed by ingestion
         self.assertTrue(pi.checkNextStepsForStepType(DataTransformerNode, IngestionNode))
 
-        graphStr : str = pi.graphToText()
+        graphStr: str = pi.graphToText()
 
         print(graphStr)
-            
-
-
-
-        

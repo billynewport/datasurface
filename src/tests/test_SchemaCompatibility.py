@@ -6,20 +6,21 @@ from datasurface.md import DDLTable
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import Binary, Boolean, Char, Date, Interval, NVarChar, Timestamp, VarChar, Variant, Vector
 
+
 class TestSchemaCompatibility(unittest.TestCase):
 
-    def assertCompatible(self, rc : ValidationTree):
+    def assertCompatible(self, rc: ValidationTree):
         self.assertFalse(rc.hasErrors())
 
-    def assertNotCompatible(self, rc : ValidationTree):
+    def assertNotCompatible(self, rc: ValidationTree):
         self.assertTrue(rc.hasErrors())
 
     def test_ColumnCompatibility(self):
-        col1 : DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
+        col1: DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
 
-        col2 : DDLColumn = copy.deepcopy(col1)
+        col2: DDLColumn = copy.deepcopy(col1)
 
-        t : ValidationTree = ValidationTree(col1)
+        t: ValidationTree = ValidationTree(col1)
         self.assertTrue(col1.isBackwardsCompatibleWith(col2, t))
 
         # Bigger string is still compatible
@@ -63,11 +64,10 @@ class TestSchemaCompatibility(unittest.TestCase):
         t = ValidationTree(col2)
         self.assertFalse(col2.isBackwardsCompatibleWith(col1, t))
 
-
         # Check lots of backward compatibility cases
-        self.assertTrue(Decimal(10,2).isBackwardsCompatibleWith(Decimal(10,2), ValidationTree("")))
+        self.assertTrue(Decimal(10, 2).isBackwardsCompatibleWith(Decimal(10, 2), ValidationTree("")))
         self.assertTrue(String(10).isBackwardsCompatibleWith(String(10), ValidationTree("")))
-        self.assertTrue(String().isBackwardsCompatibleWith(String(10), ValidationTree(""))) # Unlimited
+        self.assertTrue(String().isBackwardsCompatibleWith(String(10), ValidationTree("")))  # Unlimited
         self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE32(), ValidationTree("")))
         self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE16(), ValidationTree("")))
         self.assertFalse(IEEE32().isBackwardsCompatibleWith(IEEE64(), ValidationTree("")))
@@ -100,20 +100,18 @@ class TestSchemaCompatibility(unittest.TestCase):
         self.assertTrue(Vector(10).isBackwardsCompatibleWith(Vector(10), ValidationTree("")))
 
         self.assertFalse(Boolean().isBackwardsCompatibleWith(Vector(10), ValidationTree("")))
-        
-        
 
     def testDDLTableBackwardsCompatibility(self):
-        t1 : DDLTable = DDLTable(
-            DDLColumn("key", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK), 
+        t1: DDLTable = DDLTable(
+            DDLColumn("key", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
             DDLColumn("firstName", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.NOT_PK),
             DDLColumn("lastName", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.NOT_PK))
-        
+
         # Adding a nullable column is backwards compatible
-        t2 : DDLTable = copy.deepcopy(t1)
+        t2: DDLTable = copy.deepcopy(t1)
         t2.add(DDLColumn("middleName", String(20), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK))
 
-        t : ValidationTree = ValidationTree(t2)
+        t: ValidationTree = ValidationTree(t2)
         self.assertTrue(t2.isBackwardsCompatibleWith(t1, t))
 
         # Adding a non-nullable column is not backwards compatible
@@ -122,13 +120,13 @@ class TestSchemaCompatibility(unittest.TestCase):
         self.assertFalse(t2.isBackwardsCompatibleWith(t1, t))
 
         # Adding a PK column is not backwards compatible
-        t2 : DDLTable = copy.deepcopy(t1)
+        t2: DDLTable = copy.deepcopy(t1)
         t2.add(DDLColumn("middleName3", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK))
         t = ValidationTree(t2)
         self.assertFalse(t2.isBackwardsCompatibleWith(t1, t))
 
         # Removing a column is not backwards compatible
-        t2 : DDLTable = copy.deepcopy(t1)
+        t2: DDLTable = copy.deepcopy(t1)
         t2.columns.pop("firstName")
         t = ValidationTree(t2)
         self.assertFalse(t2.isBackwardsCompatibleWith(t1, t))

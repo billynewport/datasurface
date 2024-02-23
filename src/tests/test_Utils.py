@@ -4,12 +4,13 @@ from datasurface.md.Lint import ValidationTree
 
 from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
 
+
 class Test_Utils(unittest.TestCase):
     def test_Valid_IP_Address(self):
-        self.assertTrue(is_valid_hostname_or_ip("12.12.12.12")) # IP v4
-        self.assertTrue(is_valid_hostname_or_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334")) # IP v6        
+        self.assertTrue(is_valid_hostname_or_ip("12.12.12.12"))  # IP v4
+        self.assertTrue(is_valid_hostname_or_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334"))  # IP v6
 
-        self.assertTrue(is_valid_hostname_or_ip("www.google.com")) # hostname
+        self.assertTrue(is_valid_hostname_or_ip("www.google.com"))  # hostname
 
         self.assertFalse(is_valid_hostname_or_ip("192.0.2.1.1"))
         self.assertFalse(is_valid_hostname_or_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334:"))
@@ -36,17 +37,18 @@ class Test_Utils(unittest.TestCase):
 
     def test_GitHubUrl(self):
         # Valid SSH GitHub URLs
-        valid_URLs : list[str] = [ 
+        valid_URLs: list[str] = [
             "billynewport/repo"
             ]
 
         for url in valid_URLs:
-            r : GitHubRepository = GitHubRepository(url, "moduleName")
-            tree : ValidationTree = ValidationTree(r)
+            r: GitHubRepository = GitHubRepository(url, "moduleName")
+            tree: ValidationTree = ValidationTree(r)
             r.lint(tree)
             self.assertFalse(tree.hasErrors())
-            
-        # Valid HTTPS GitHub URLs        
+
+        # Valid HTTPS GitHub URLs
+
 
 class TestCronStringValidator(unittest.TestCase):
     def test_valid_cron_strings(self):
@@ -68,4 +70,3 @@ class TestCronStringValidator(unittest.TestCase):
         self.assertFalse(validate_cron_string('1-2-3 * * * *'))  # Invalid range
         self.assertFalse(validate_cron_string('1,2,3, * * * *'))  # Invalid list
         self.assertFalse(validate_cron_string('*/60 * * * *'))  # Minute out of range
-

@@ -10,9 +10,10 @@ from datasurface.md.Lint import ProductionDatastoreMustHaveClassifications, Vali
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
 from tests.nwdb.eco import createEcosystem
 
+
 class TestSchemaCreation(unittest.TestCase):
     def testPrimaryKeys(self):
-        c : DDLColumn = DDLColumn("id", String(10))
+        c: DDLColumn = DDLColumn("id", String(10))
         self.assertEqual(c.primaryKey, PrimaryKeyStatus.NOT_PK)
         self.assertEqual(c.nullable, NullableStatus.NULLABLE)
         self.assertEqual(c.type, String(10))
@@ -27,21 +28,21 @@ class TestSchemaCreation(unittest.TestCase):
             pass
 
         c = DDLColumn("id_a", String(10), NullableStatus.NOT_NULLABLE)
-        c.name = "Bad ANSI Name" # Has spaces
-        tree : ValidationTree = ValidationTree(c)
+        c.name = "Bad ANSI Name"  # Has spaces
+        tree: ValidationTree = ValidationTree(c)
         c.lint(tree)
-        self.assertTrue(tree.hasErrors()) # Name is not ANSI SQL compliant
+        self.assertTrue(tree.hasErrors())  # Name is not ANSI SQL compliant
 
         # Create a table specifying the primary key on the columns
-        t : DDLTable = DDLTable(
+        t: DDLTable = DDLTable(
             DDLColumn("id", String(10), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
             DDLColumn("firstName", String(20)),
             DDLColumn("lastName", String(20)))
-        
+
         self.assertEqual(t, t)
-        
+
         self.assertIsNotNone(t.primaryKeyColumns)
-        if(t.primaryKeyColumns == None):
+        if (t.primaryKeyColumns is None):
             raise Exception("PrimaryKeyColumns is None")
         self.assertEqual(t.primaryKeyColumns.colNames, ["id"])
         self.assertEqual(t.columns['id'].primaryKey, PrimaryKeyStatus.PK)
@@ -55,14 +56,14 @@ class TestSchemaCreation(unittest.TestCase):
 
         # Create a table specifying the primary key using the PrimaryKeyList
         # The PK flags on the columns will be calculated from this. The values
-        t : DDLTable = DDLTable(
+        t: DDLTable = DDLTable(
             PrimaryKeyList(["id"]),
             DDLColumn("id", String(10), NullableStatus.NOT_NULLABLE),
             DDLColumn("firstName", String(20)),
             DDLColumn("lastName", String(20)))
-        
+
         self.assertIsNotNone(t.primaryKeyColumns)
-        if(t.primaryKeyColumns == None):
+        if (t.primaryKeyColumns is None):
             raise Exception("PrimaryKeyColumns is None")
         self.assertEqual(t.primaryKeyColumns.colNames, ["id"])
         self.assertEqual(t.columns['id'].primaryKey, PrimaryKeyStatus.PK)
@@ -70,8 +71,8 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(t.columns['lastName'].primaryKey, PrimaryKeyStatus.NOT_PK)
 
     def test_AvroSchema(self):
-        s1 : Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f1","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
-        s2 : Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
+        s1: Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f1","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
+        s2: Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
 
         self.assertEqual(s1, s1)
         self.assertNotEqual(s1, s2)
@@ -87,7 +88,7 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertNotEqual(s1, s2)
 
         # s1 is compatible with s1
-        tree : ValidationTree = ValidationTree(s1)
+        tree: ValidationTree = ValidationTree(s1)
         s1.isBackwardsCompatibleWith(s1, tree)
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasIssues())
@@ -96,12 +97,13 @@ class TestSchemaCreation(unittest.TestCase):
         tree = ValidationTree(s1)
         s1.isBackwardsCompatibleWith(s2, tree)
         self.assertTrue(tree.hasErrors())
-        
+
         tree = ValidationTree(s2)
         s2.isBackwardsCompatibleWith(s1, tree)
         self.assertTrue(tree.hasErrors())
 
-        s1 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)], PrimaryKeyList(["f2other"]))
+        s1 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)],
+                                   PrimaryKeyList(["f2other"]))
 
         tree = ValidationTree(s1)
         s1.lint(tree)
@@ -109,21 +111,21 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertFalse(tree.hasErrors())
 
     def test_DatasetClassificationLint(self):
-        eco : Ecosystem = createEcosystem()
-        tree : ValidationTree = eco.lintAndHydrateCaches()
+        eco: Ecosystem = createEcosystem()
+        tree: ValidationTree = eco.lintAndHydrateCaches()
 
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasIssues())
 
-        store : Datastore = eco.cache_getDatastoreOrThrow("NW_Data").datastore
-        dataset : Dataset = store.datasets["suppliers"]
-        schema : DDLTable = cast(DDLTable, dataset.originalSchema)
+        store: Datastore = eco.cache_getDatastoreOrThrow("NW_Data").datastore
+        dataset: Dataset = store.datasets["suppliers"]
+        schema: DDLTable = cast(DDLTable, dataset.originalSchema)
         self.assertEqual(dataset.dataClassificationOverride, [SimpleDC(SimpleDCTypes.PUB)])
         self.assertFalse(schema.hasDataClassifications())
 
-        col : Optional[DDLColumn] = schema.getColumnByName("company_name")
+        col: Optional[DDLColumn] = schema.getColumnByName("company_name")
         self.assertIsNotNone(col)
-        if(col == None):
+        if (col is None):
             raise Exception("Shouldnt be none")
 
         # Set a local classification on a column, a dataset level and one of these isn't allowed
@@ -154,5 +156,3 @@ class TestSchemaCreation(unittest.TestCase):
         tree = eco.lintAndHydrateCaches()
         self.assertTrue(tree.containsProblemType(ProductionDatastoreMustHaveClassifications))
         self.assertTrue(tree.hasIssues())
-
-

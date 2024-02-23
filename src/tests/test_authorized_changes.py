@@ -12,9 +12,9 @@ import tests.nwdb.nwdb
 
 class TestGitEquals(unittest.TestCase):
     def test_git_equals(self):
-        r1 : Repository = GitHubRepository("repo", "moduleNameA")
-        r2 : Repository = GitHubRepository("repo", "moduleNameB")
-        r3 : Repository = GitHubRepository("repoA", "moduleNameA")
+        r1: Repository = GitHubRepository("repo", "moduleNameA")
+        r2: Repository = GitHubRepository("repo", "moduleNameB")
+        r3: Repository = GitHubRepository("repoA", "moduleNameA")
 
         self.assertTrue(r1 == r1)
         self.assertTrue(r2 == r2)
@@ -23,17 +23,17 @@ class TestGitEquals(unittest.TestCase):
         self.assertFalse(r1 == r3)
         self.assertFalse(r2 == r3)
 
-    
+
 class TestEcoNameChange(unittest.TestCase):
     def test_EcoSystem_Name_Change(self):
-        e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
-        gitMain : Repository = e_main.owningRepo
+        e_main: Ecosystem = tests.nwdb.eco.createEcosystem()
+        gitMain: Repository = e_main.owningRepo
 
-        e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
+        e_other: Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # Check unchanged repo has no problems
-        eTree : ValidationTree = ValidationTree(e_main)
-        
+        eTree: ValidationTree = ValidationTree(e_main)
+
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
         self.assertFalse(eTree.hasErrors())
 
@@ -51,23 +51,23 @@ class TestEcoNameChange(unittest.TestCase):
         """Test that a team can be added to a zone by the gz owning repo, but not by another repo"""
 
         # Make the baseline ecosystem against which changes are checked
-        eco_base : Ecosystem = tests.nwdb.eco.createEcosystem()
-        eco_repo : Repository = eco_base.owningRepo
+        eco_base: Ecosystem = tests.nwdb.eco.createEcosystem()
+        eco_repo: Repository = eco_base.owningRepo
 
         # Make the ecosystem which has the changed to check if authorized against
         # the baseline ecosystem
-        e_head : Ecosystem = tests.nwdb.eco.createEcosystem()
+        e_head: Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # Check unchanged repo has no problems
-        eTree : ValidationTree = ValidationTree(eco_base)
+        eTree: ValidationTree = ValidationTree(eco_base)
         eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
         self.assertFalse(eTree.hasErrors())
 
         # Get the USA zone so we can change it
-        headGzUSA : GovernanceZone = e_head.getZoneOrThrow("USA")
+        headGzUSA: GovernanceZone = e_head.getZoneOrThrow("USA")
 
         # NewTeam should not exist
-        t : Optional[Team] = headGzUSA.getTeam("NewTeam")
+        t: Optional[Team] = headGzUSA.getTeam("NewTeam")
         self.assertIsNone(t)
 
         # Authorize a new team with its repo. Team has to be authorized
@@ -106,7 +106,7 @@ class TestEcoNameChange(unittest.TestCase):
         eco_base.checkIfChangesAreAuthorized(e_head, t.owningRepo, eTree)
         self.assertFalse(eTree.hasErrors())
 
-        # Now verify that the new team can only be changed from its owning repo which can 
+        # Now verify that the new team can only be changed from its owning repo which can
         # be different from the owning repo of the zone
 
         # Change the baseline to the repo with the added team
@@ -117,7 +117,7 @@ class TestEcoNameChange(unittest.TestCase):
 
         # Get the USA zone so we can change it
         headGzUSA = e_head.zones.authorizedObjects["USA"]
-        newTeam : Team = headGzUSA.getTeamOrThrow("NewTeam")
+        newTeam: Team = headGzUSA.getTeamOrThrow("NewTeam")
 
         # Add tables to the new team
         tests.nwdb.nwdb.defineTables(e_head, headGzUSA, newTeam)
@@ -138,17 +138,17 @@ class TestEcoNameChange(unittest.TestCase):
 
     def test_checkZoneRemoval(self):
         # Check that a gz can only be removed by the gz owning repo
-        e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
-        gitMain : Repository = e_main.owningRepo
+        e_main: Ecosystem = tests.nwdb.eco.createEcosystem()
+        gitMain: Repository = e_main.owningRepo
 
-        e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
+        e_other: Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # Remove USA zone
-        gitUSA : Optional[Repository] = e_other.zones.authorizedObjects["USA"].owningRepo
+        gitUSA: Optional[Repository] = e_other.zones.authorizedObjects["USA"].owningRepo
         self.assertIsNotNone(gitUSA)
-        if(gitUSA):
+        if (gitUSA):
             # Only gitUSA can remove the zone definition
-            e_other.zones.removeDefinition("USA") # Still authorized but definition is gone
+            e_other.zones.removeDefinition("USA")  # Still authorized but definition is gone
             eTree = ValidationTree(e_main)
             e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
             self.assertTrue(eTree.hasErrors())
@@ -156,9 +156,9 @@ class TestEcoNameChange(unittest.TestCase):
             e_main.checkIfChangesAreAuthorized(e_other, gitUSA, eTree)
             self.assertFalse(eTree.hasErrors())
 
-            e_main = e_other # Promote definition less ecosystem to main ecosystem
+            e_main = e_other  # Promote definition less ecosystem to main ecosystem
             e_other = copy.deepcopy(e_main)
-            e_other.zones.removeAuthorization("USA") # Remove authorization
+            e_other.zones.removeAuthorization("USA")  # Remove authorization
 
             eTree = ValidationTree(e_main)
             e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
@@ -170,17 +170,17 @@ class TestEcoNameChange(unittest.TestCase):
 
     def test_checkZoneAddition(self):
 
-        e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
-        gitMain : Repository = e_main.owningRepo
-        
-        e_other : Ecosystem = tests.nwdb.eco.createEcosystem()
+        e_main: Ecosystem = tests.nwdb.eco.createEcosystem()
+        gitMain: Repository = e_main.owningRepo
+
+        e_other: Ecosystem = tests.nwdb.eco.createEcosystem()
 
         # First, add authorization for china gz
-        gitChina : Repository = GitHubRepository("ssh://u@local:/v1/source/gz_china", "main")
+        gitChina: Repository = GitHubRepository("ssh://u@local:/v1/source/gz_china", "main")
         e_other.add(GovernanceZoneDeclaration("China", gitChina))
 
         # eco repo can add a zone authorization
-        eTree : ValidationTree = ValidationTree(e_main)
+        eTree: ValidationTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
         self.assertFalse(eTree.hasErrors())
 
@@ -194,7 +194,7 @@ class TestEcoNameChange(unittest.TestCase):
         e_other = copy.deepcopy(e_main)
 
         # Now add the zone definition
-        gzChina : Optional[GovernanceZone] = e_other.getZone("China")
+        gzChina: Optional[GovernanceZone] = e_other.getZone("China")
         self.assertIsNotNone(gzChina)
 
         # Check the china repo CAN add the zone definition
@@ -208,10 +208,8 @@ class TestEcoNameChange(unittest.TestCase):
         self.assertTrue(eTree.hasErrors())
 
     def test_changes_are_authorized(self):
-#        e_main : Ecosystem = tests.nwdb.eco.createEcosystem()
-#        gitMain : Repository = e_main.owningRepo
-#        gitUSA : Optional[Repository] = e_main.governanceZones["USA"].owningRepo
-#        gitEU : Optional[Repository] = e_main.governanceZones["EU"].owningRepo    
+        #        e_main: Ecosystem = tests.nwdb.eco.createEcosystem()
+        #        gitMain: Repository = e_main.owningRepo
+        #        gitUSA: Optional[Repository] = e_main.governanceZones["USA"].owningRepo
+        #        gitEU: Optional[Repository] = e_main.governanceZones["EU"].owningRepo
         pass
-
-
