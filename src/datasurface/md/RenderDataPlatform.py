@@ -3,20 +3,21 @@ from datasurface.md import Documentation
 from datasurface.md.Governance import DataPlatform
 from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PlatformPipelineGraph, TriggerNode
 
+
 class IaCDataPlatform(DataPlatform):
     """This is intended to be a base class for IaC style DataPlatforms"""
-    def __init__(self, name : str, doc : Documentation):
+    def __init__(self, name: str, doc: Documentation):
         super().__init__(name, doc)
-    
+
     def __hash__(self) -> int:
         return hash(self.name)
-    
-    def __eq__(self, __value : object) -> bool:
+
+    def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, IaCDataPlatform)
-    
-    def renderIaC(self, graph : PlatformPipelineGraph) -> str:
+
+    def renderIaC(self, graph: PlatformPipelineGraph) -> str:
         """This renders the IaC for the given graph"""
-        rc : str = ""
+        rc: str = ""
         for node in graph.nodes:
             if isinstance(node, IngestionSingleNode):
                 rc += self.renderIngestionSingle(node)
@@ -33,24 +34,21 @@ class IaCDataPlatform(DataPlatform):
         return rc
 
     @abstractmethod
-    def renderIngestionSingle(self, ingestNode : IngestionSingleNode) -> str:
-        pass
-    
-    @abstractmethod
-    def renderIngestionMulti(self, ingestNode : IngestionMultiNode) -> str:
+    def renderIngestionSingle(self, ingestNode: IngestionSingleNode) -> str:
         pass
 
     @abstractmethod
-    def renderExport(self, exportNode : ExportNode) -> str:
+    def renderIngestionMulti(self, ingestNode: IngestionMultiNode) -> str:
         pass
 
     @abstractmethod
-    def renderTrigger(self, triggerNode : TriggerNode) -> str:
+    def renderExport(self, exportNode: ExportNode) -> str:
         pass
 
     @abstractmethod
-    def renderDataTransformer(self, dtNode : DataTransformerNode) -> str:
+    def renderTrigger(self, triggerNode: TriggerNode) -> str:
         pass
 
-
-    
+    @abstractmethod
+    def renderDataTransformer(self, dtNode: DataTransformerNode) -> str:
+        pass
