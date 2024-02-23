@@ -59,7 +59,18 @@ class AllowDisallowPolicy(Policy[P]):
         return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
     
 
-class DataClassification(Enum):
+class DataClassification(ABC):
+    """Base class for defining data classifications"""
+    def __init__(self):
+        pass
+
+    def __eq__(self, o : object) -> bool:
+        return isinstance(o, DataClassification)
+    
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}"
+    
+class SimpleDCTypes(Enum):
     """This is the privacy classification of the data"""
     PUB = 0
     """Publicly available data"""
@@ -72,12 +83,24 @@ class DataClassification(Enum):
     """Names, addresses, phone numbers, etc."""
     CPI = 4
     MNPI = 5
-    """Non material public information"""
+    """Material non public information"""
     CSI = 6
-    """Sensitive confidential information"""
+    """Confidential Sensitive Information"""
     PC3 = 7
     """Personal confidential information, social security numbers, credit card numbers, etc."""
 
+class SimpleDC(DataClassification):
+    """Simple compound data classification, encodes PII.name for example"""
+    def __init__(self, dcType : SimpleDCTypes, name : Optional[str] = None):
+        self.dcType : SimpleDCTypes = dcType
+        self.name : Optional[str] = name
+
+    def __hash__(self) -> int:
+        return hash(str(self.dcType) + (self.name if self.name else "<NULL>"))
+    
+    def __eq__(self, o : object) -> bool:
+        return super().__eq__(o) and isinstance(o, SimpleDC) and self.dcType == o.dcType and self.name == o.name
+        
 class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
     """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
     def __init__(self, name : str, doc : Optional[Documentation], allowed : Optional[set[DataClassification]] = None, notAllowed : Optional[set[DataClassification]] = None) -> None:
@@ -92,7 +115,15 @@ class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
 
 class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
     def __init__(self, doc : Optional[Documentation]) -> None:
-        super().__init__("No privacy classification allowed", doc, None, {DataClassification.PC1, DataClassification.PC2, DataClassification.CPI, DataClassification.MNPI, DataClassification.CSI, DataClassification.PC3})
+        super().__init__("No privacy classification allowed", doc, None, 
+                         {
+                            SimpleDC(SimpleDCTypes.PC1, "name"), 
+                            SimpleDC(SimpleDCTypes.PC2, "address"),
+                            SimpleDC(SimpleDCTypes.CPI),
+                            SimpleDC(SimpleDCTypes.MNPI), 
+                            SimpleDC(SimpleDCTypes.CSI), 
+                            SimpleDC(SimpleDCTypes.PC3, "ssn")
+                        })
 
     def __hash__(self) -> int:
         return super().__hash__()

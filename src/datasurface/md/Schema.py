@@ -538,13 +538,15 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         Documentable.__init__(self, None)
         self.type : DataType = dataType
         self.primaryKey : PrimaryKeyStatus = DEFAULT_primaryKey
-        self.classification : Optional[DataClassification] = None
+        self.classification : Optional[list[DataClassification]] = None
         self.nullable : NullableStatus = DEFAULT_nullable
         for arg in args:
             if(type(arg) == NullableStatus):
                 self.nullable = arg
-            elif(type(arg) == DataClassification):
-                self.classification = arg
+            elif(isinstance(arg, DataClassification)):
+                if(self.classification == None):
+                    self.classification = list()
+                self.classification.append(arg)
             elif(type(arg) == PrimaryKeyStatus):
                 self.primaryKey = arg
             elif(isinstance(arg, Documentation)):
@@ -685,8 +687,10 @@ class DDLTable(Schema):
     def checkClassificationsAreOnly(self, verifier: DataClassificationPolicy) -> bool:
         """Check all columns comply with the verifier"""
         for col in self.columns.values():
-            if(col.classification and not verifier.isCompatible(col.classification)):
-                return False
+            if col.classification:
+                for dc in col.classification:
+                    if not verifier.isCompatible(dc):
+                        return False
         return True
     
     def add(self, *args : Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]):

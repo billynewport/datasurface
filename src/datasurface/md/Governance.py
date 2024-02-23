@@ -578,7 +578,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
         self.originalSchema : Optional[Schema] = None
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
         self.policies : dict[str, StoragePolicy] = OrderedDict()
-        self.dataClassificationOverride : Optional[DataClassification] = None
+        self.dataClassificationOverride : Optional[list[DataClassification]] = None
         """This is the classification of the data in the dataset. The overrides any classifications on the schema"""
         self.deprecationStatus : DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         self.add(*args)
@@ -596,7 +596,9 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
             elif(isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
             elif(isinstance(arg, DataClassification)):
-                self.dataClassificationOverride = arg
+                if(self.dataClassificationOverride == None):
+                    self.dataClassificationOverride = list()
+                self.dataClassificationOverride.append(arg)
             else:
                 d : Documentation = arg
                 self.documentation = d
@@ -639,7 +641,10 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
 
         # Dataset level classification overrides schema level classification
         if(self.dataClassificationOverride):
-            return verifier.isCompatible(self.dataClassificationOverride)
+            for dc in self.dataClassificationOverride:
+                if not verifier.isCompatible(dc):
+                    return False
+            return True
         else:
             if self.originalSchema:
                 # check schema attribute classifications are good

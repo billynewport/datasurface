@@ -5,7 +5,7 @@ from datasurface.md.Documentation import PlainTextDocumentation
 
 from datasurface.md.Governance import Ecosystem, GovernanceZone, InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor
 from datasurface.md.Lint import ValidationTree
-from datasurface.md.Policy import DataClassification, DataClassificationPolicy
+from datasurface.md.Policy import DataClassificationPolicy, SimpleDC, SimpleDCTypes
 from tests.nwdb.eco import createEcosystem
 
 class TestPolicy(unittest.TestCase):
@@ -39,10 +39,10 @@ class TestPolicy(unittest.TestCase):
         self.assertEqual(s, s)
 
     def test_DataClassicationPolicy(self):
-        p : DataClassificationPolicy = DataClassificationPolicy("IP Only", PlainTextDocumentation("Test"), {DataClassification.IP})
+        p : DataClassificationPolicy = DataClassificationPolicy("IP Only", PlainTextDocumentation("Test"), {SimpleDC(SimpleDCTypes.IP)})
         self.assertEqual(p.name, "IP Only")
-        self.assertTrue(p.isCompatible(DataClassification.IP))
-        self.assertFalse(p.isCompatible(DataClassification.PUB))
+        self.assertTrue(p.isCompatible(SimpleDC(SimpleDCTypes.IP)))
+        self.assertFalse(p.isCompatible(SimpleDC(SimpleDCTypes.PUB)))
                                     
 class TestPlatformPolicy(unittest.TestCase):
 

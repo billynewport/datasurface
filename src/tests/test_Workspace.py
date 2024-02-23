@@ -2,7 +2,7 @@ from typing import Sequence, cast
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone
-from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, DataClassification, GovernanceZoneDeclaration
+from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
@@ -11,6 +11,7 @@ from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import FakeRepository, GitHubRepository
 from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md.Lint import ValidationTree
+from datasurface.md.Policy import SimpleDC, SimpleDCTypes
 
 from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
@@ -180,33 +181,33 @@ class TestWorkspace(unittest.TestCase):
     def test_ColumnEquality(self):
 
         # Check equality works
-        intType : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE, DataClassification.MNPI)
-        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, DataClassification.MNPI)
+        intType : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
+        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
         self.assertEqual(intType, col2)        
         self.assertEqual(col2, intType)        
 
         # Change name of type
-        col2 : DDLColumn = DDLColumn("Col2", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, DataClassification.MNPI)
+        col2 : DDLColumn = DDLColumn("Col2", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
         self.assertNotEqual(intType, col2)        
         self.assertNotEqual(col2, intType)        
 
         # Change type to Decimal
-        col2 : DDLColumn = DDLColumn("Col1", Decimal(10,2), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, DataClassification.MNPI)
+        col2 : DDLColumn = DDLColumn("Col1", Decimal(10,2), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
         self.assertNotEqual(col2, intType)        
         self.assertNotEqual(intType, col2)        
 
         # Just change primary key flag
-        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.NOT_PK,  NullableStatus.NOT_NULLABLE, DataClassification.MNPI)
+        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.NOT_PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
         self.assertNotEqual(intType, col2)        
         self.assertNotEqual(col2, intType)        
 
         # Just change nullable
-        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NULLABLE, DataClassification.MNPI)
+        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
         self.assertNotEqual(intType, col2)        
         self.assertNotEqual(col2, intType)        
 
         # Just change classification
-        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, DataClassification.PC1)
+        col2 : DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.PC1))
         self.assertNotEqual(intType, col2)        
         self.assertNotEqual(col2, intType)        
 
@@ -354,7 +355,7 @@ class TestWorkspace(unittest.TestCase):
                     IngestionConsistencyType.MULTI_DATASET
                 ),
                 Dataset("Dataset1",
-                    DataClassification.PUB, 
+                    SimpleDC(SimpleDCTypes.PUB), 
                     DDLTable(
                         DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
                         DDLColumn    ("Col2", String(10)),
@@ -362,7 +363,7 @@ class TestWorkspace(unittest.TestCase):
                         )
                 ), 
                 Dataset("Dataset2",
-                    DataClassification.PUB, 
+                    SimpleDC(SimpleDCTypes.PUB), 
                     DDLTable(
                         DDLColumn    ("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
                         DDLColumn    ("Col2", String(10)),

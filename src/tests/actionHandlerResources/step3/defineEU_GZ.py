@@ -4,7 +4,7 @@
 from datasurface.md.Azure import AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.Governance import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, PyOdbcSourceInfo, Team
-from datasurface.md.Policy import DataClassification
+from datasurface.md.Policy import SimpleDC, SimpleDCTypes
 from datasurface.md.Schema import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
 
 
@@ -27,7 +27,7 @@ def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")),
             Dataset("customers",
-                DataClassification.PC3,
+                SimpleDC(SimpleDCTypes.PC3),
                 PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
                 DDLTable(
                     DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),

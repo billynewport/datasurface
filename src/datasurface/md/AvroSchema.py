@@ -12,10 +12,10 @@ from datasurface.md.Policy import DataClassification, DataClassificationPolicy
 class AvroSchema(Schema):
     """This allows an avro Schema to be used with a daataset. Primary and partition key column names must be top level
     attribute names"""
-    def __init__(self, json_schema : str, classification : Optional[DataClassification] = None, pkCols : Optional[PrimaryKeyList] = None, partCols : Optional[PartitionKeyList] = None):     
-        super().__init__()   
+    def __init__(self, json_schema : str, classification : Optional[list[DataClassification]] = None, pkCols : Optional[PrimaryKeyList] = None, partCols : Optional[PartitionKeyList] = None):     
+        super().__init__()
         self.schema : AvSchema = parse(json_schema)
-        self.classification : Optional[DataClassification] = classification
+        self.classification : Optional[list[DataClassification]] = classification
         self.primaryKeyColumns = pkCols
         self.ingestionPartitionColumns = partCols
 
@@ -41,7 +41,10 @@ class AvroSchema(Schema):
     def checkClassificationsAreOnly(self, verifier : DataClassificationPolicy) -> bool:
         # Avro schemas dont allow attribute level classification. There is only schema level.
         if(self.classification):
-            return verifier.isCompatible(self.classification)
+            for dc in self.classification:
+                if not verifier.isCompatible(dc):
+                    return False
+            return True
         else:
             return True
 
