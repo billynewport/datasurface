@@ -15,7 +15,7 @@ These are all objects which can persist data. There are subclasses of DataContai
 * Owned by an infrastructure vendor
 * Physically located in one or more InfrastructureLocations owned by that vendor
 
-DataSurface allows GovernanceZones to define policies that constrain the data containers which can store data or a certain class of data.
+DataSurface allows GovernanceZones to define policies that constrain the data containers which can store data or a certain class of data. For example, only store high private data on datacontainers which support client side encryption (prevents a cloud vendor from seeing the data)
 
 ## Data Producers have a DataContainer
 
