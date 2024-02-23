@@ -5,7 +5,7 @@ This document explains data classification and how the ecosystem can be governed
 How can a firm have multiple data classification systems?
 
 * A firm may have had siloed efforts previously and it's been decided to integrate them. Here, there may be N different classification schemes which can be migrated automatically or manually.
-* A firm may have a 100k datasets and been encoding their classifications diligently. If an org change occurs and it's decided a newer better data classification scheme is desired then the problem is how to migrate. This is unlikely to happen in one step. It may take weeks or months if the new classifications have to be reviewed and approved. In the meantime, you have 2 ways of classifying data, the old way and the new way. Indeed, org changes may occur before the migration completes...
+* A firm may have tens of thousands of datasets and been encoding their classifications diligently. If an org change occurs and it's decided a newer better data classification scheme is desired then the problem is how to migrate. This is unlikely to happen in one step. It may take weeks or months if the new classifications have to be reviewed and approved. In the meantime, you have 2 ways of classifying data, the old way and the new way. Indeed, org changes may occur before the migration completes...
 
 When defining a new data classification scheme, thinking about automatic conversions from the old to the new is important. Thinking about how long a data classification scheme lasts in terms of months/years is important also. The firm should have a policy of how often such a migration will be tolerated as part of a contract with producers/consumers using the catalog.
 
