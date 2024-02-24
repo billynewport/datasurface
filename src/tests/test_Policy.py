@@ -28,6 +28,6 @@ class Test_Policy(unittest.TestCase):
         try:
             policy = AllowDisallowPolicy("Test Policy", PlainTextDocumentation("Test"), allowed=allowed_values, notAllowed=not_allowed_values)
             self.fail("Exception not thrown for overlapping allow/disallow sets")
-        except:
+        except Exception:
             # Test is succesful
             pass
