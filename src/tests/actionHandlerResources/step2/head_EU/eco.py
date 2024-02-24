@@ -2,7 +2,7 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, \
+from datasurface.md.Governance import CloudVendor, DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, \
     InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 
 # Base branch for step 1, define an Ecosystem, data platforms, infrastructure vendors/locations and 3 Governance Zones
@@ -22,6 +22,7 @@ def createEcosystem() -> Ecosystem:
         # Infra Vendors and locations
         InfrastructureVendor(
             "AWS",
+            CloudVendor.AWS,
             PlainTextDocumentation("Amazon AWS"),
             InfrastructureLocation(
                 "USA",
@@ -38,6 +39,7 @@ def createEcosystem() -> Ecosystem:
 
         InfrastructureVendor(
             "Azure",
+            CloudVendor.AZURE,
             PlainTextDocumentation("Microsoft Azure"),
             InfrastructureLocation(
                 "USA",

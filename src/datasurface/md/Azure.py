@@ -1,6 +1,6 @@
 from datasurface.md import Documentation
-from datasurface.md.Governance import InfrastructureVendor
-from .Governance import Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, SQLDatabase, Team
+from datasurface.md.Governance import DataContainer, InfrastructureVendor
+from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, SQLDatabase, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
 
@@ -58,6 +58,9 @@ class AzureDataplatform(DataPlatform):
 
     def _str__(self) -> str:
         return f"AzureDataPlatform({self.name})"
+
+    def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
+        return dc.isUsingVendorsOnly(eco, {CloudVendor.AZURE})
 
 
 class AzureBatchDataPlatform(AzureDataplatform):

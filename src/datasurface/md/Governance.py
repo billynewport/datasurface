@@ -374,14 +374,37 @@ class InfrastructureLocation(Documentable):
                 return None
 
 
+class CloudVendor(Enum):
+    """Cloud vendor. This is used with InfrastructureVendor types to associate them with a hard cloud vendor"""
+    AWS = 0
+    """Amazon Web Services"""
+    AZURE = 1
+    """Microsoft Azure"""
+    GCP = 2
+    """Google Cloud Platform"""
+    IBM = 3
+    """IBM Cloud"""
+    ORACLE = 4
+    """Oracle Cloud"""
+    ALIBABA = 5
+    """Alibaba Cloud"""
+    AWS_CHINA = 6
+    """AWS China"""
+    TEN_CENT = 7
+    HUAWEI = 8
+    AZURE_CHINA = 9  # 21Vianet
+
+
 class InfrastructureVendor(Documentable):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an
     enterprise or an external cloud provider"""
-    def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation]) -> None:
+    def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
         super().__init__(None)
         self.name: str = name
         self.key: Optional[InfrastructureVendorKey] = None
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
+        self.hardCloudVendor: Optional[CloudVendor] = None
+
         self.add(*args)
 
     def __hash__(self) -> int:
@@ -392,10 +415,12 @@ class InfrastructureVendor(Documentable):
 
         self.add()
 
-    def add(self, *args: Union['InfrastructureLocation', Documentation]) -> None:
+    def add(self, *args: Union['InfrastructureLocation', Documentation, CloudVendor]) -> None:
         for loc in args:
             if (isinstance(loc, InfrastructureLocation)):
                 self.addLocation(loc)
+            elif (isinstance(loc, CloudVendor)):
+                self.hardCloudVendor = loc
             else:
                 self.documentation = loc
         if (self.key):
@@ -410,7 +435,8 @@ class InfrastructureVendor(Documentable):
 
     def __eq__(self, __value: object) -> bool:
         if super().__eq__(__value) and isinstance(__value, InfrastructureVendor):
-            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations
+            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
+                self.hardCloudVendor == __value.hardCloudVendor
         else:
             return False
 
@@ -455,13 +481,29 @@ class InfrastructureVendor(Documentable):
             loc.lint(lTree)
 
     def __str__(self) -> str:
-        return f"InfrastructureVendor({self.name})"
+        return f"InfrastructureVendor({self.name}, {self.hardCloudVendor})"
 
 
 class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
     """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
     def __init__(self, name: str, doc: Documentation, allowed: Optional[set[InfrastructureVendor]] = None,
                  notAllowed: Optional[set[InfrastructureVendor]] = None):
+        super().__init__(name, doc, allowed, notAllowed)
+
+    def __str__(self):
+        return f"InfraStructureVendorPolicy({self.name})"
+
+    def __eq__(self, v: object) -> bool:
+        return super().__eq__(v) and isinstance(v, InfraStructureVendorPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
+class InfraHardVendorPolicy(AllowDisallowPolicy[CloudVendor]):
+    """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
+    def __init__(self, name: str, doc: Documentation, allowed: Optional[set[CloudVendor]] = None,
+                 notAllowed: Optional[set[CloudVendor]] = None):
         super().__init__(name, doc, allowed, notAllowed)
 
     def __str__(self):
@@ -573,6 +615,16 @@ class DataContainer(ABC):
 
     def __hash__(self) -> int:
         return hash(self.name)
+
+    def isUsingVendorsOnly(self, eco: 'Ecosystem', vendors: set[CloudVendor]) -> bool:
+        """Returns true if the container only uses locations managed by the provided set of cloud vendors"""
+        for loc in self.locations:
+            if (loc.key is None):
+                return False
+            v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
+            if v.hardCloudVendor != CloudVendor.AWS:
+                return False
+        return True
 
 
 class SQLDatabase(DataContainer):
@@ -1717,7 +1769,7 @@ class GovernanceZone(GitControlledObject):
     and which repos can be used to pull changes for various metadata"""
     def __init__(self, name: str, ownerRepo: Repository, *args: Union[InfraStructureLocationPolicy, InfraStructureVendorPolicy,
                                                                       StoragePolicy, DataClassificationPolicy, TeamDeclaration,
-                                                                      Documentation, DataPlatformPolicy]) -> None:
+                                                                      Documentation, DataPlatformPolicy, InfraHardVendorPolicy]) -> None:
         super().__init__(ownerRepo)
         self.name: str = name
         self.key: Optional[GovernanceZoneKey] = None
@@ -1730,6 +1782,7 @@ class GovernanceZone(GitControlledObject):
         # Only these vendors are allowed within this GZ (Datastores and Workspaces)
         self.vendorPolicies: dict[str, InfraStructureVendorPolicy] = dict[str, InfraStructureVendorPolicy]()
         # Only these locations are allowed within this GZ (Datastore and Workspaces)
+        self.hardVendorPolicies: dict[str, InfraHardVendorPolicy] = dict[str, InfraHardVendorPolicy]()
         self.locationPolicies: dict[str, InfraStructureLocationPolicy] = dict[str, InfraStructureLocationPolicy]()
         self.dataplatformPolicies: dict[str, DataPlatformPolicy] = dict[str, DataPlatformPolicy]()
 
@@ -1748,15 +1801,20 @@ class GovernanceZone(GitControlledObject):
             if not locPolicy.isCompatible(loc):
                 tree.addRaw(ObjectNotCompatibleWithPolicy(loc, locPolicy, ProblemSeverity.ERROR))
         if (loc.key):
+            v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
             for vendorPolicy in self.vendorPolicies.values():
-                v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
                 if not vendorPolicy.isCompatible(v):
                     tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
+            for hardVendorPolicy in self.hardVendorPolicies.values():
+                if (v.hardCloudVendor is None):
+                    tree.addRaw(AttributeNotSet(f"{loc} No hard cloud vendor"))
+                elif not hardVendorPolicy.isCompatible(v.hardCloudVendor):
+                    tree.addRaw(ObjectNotCompatibleWithPolicy(v, hardVendorPolicy, ProblemSeverity.ERROR))
         else:
             tree.addRaw(AttributeNotSet("loc.key"))
 
     def add(self, *args: Union[InfraStructureVendorPolicy, InfraStructureLocationPolicy, StoragePolicy, DataClassificationPolicy,
-                               TeamDeclaration, DataPlatformPolicy, Documentation]) -> None:
+                               TeamDeclaration, DataPlatformPolicy, Documentation, InfraHardVendorPolicy]) -> None:
         for arg in args:
             if (isinstance(arg, DataClassificationPolicy)):
                 dcc: DataClassificationPolicy = arg
@@ -1773,6 +1831,8 @@ class GovernanceZone(GitControlledObject):
             elif (type(arg) is TeamDeclaration):
                 t: TeamDeclaration = arg
                 self.teams.addAuthorization(t)
+            elif (isinstance(arg, InfraHardVendorPolicy)):
+                self.hardVendorPolicies[arg.name] = arg
             elif (isinstance(arg, DataPlatformPolicy)):
                 self.dataplatformPolicies[arg. name] = arg
             elif (isinstance(arg, Documentation)):
@@ -1922,6 +1982,10 @@ class DataPlatform(ABC, Documentable):
 
     @abstractmethod
     def getSupportedVendors(self, eco: Ecosystem) -> set[InfrastructureVendor]:
+        pass
+
+    @abstractmethod
+    def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         pass
 
     @abstractmethod

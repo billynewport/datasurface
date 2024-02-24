@@ -9,7 +9,7 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import FakeRepository, GitHubRepository
-from datasurface.md.Governance import CDCCaptureIngestion, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, \
+from datasurface.md.Governance import CDCCaptureIngestion, CloudVendor, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
@@ -364,6 +364,7 @@ class TestWorkspace(unittest.TestCase):
                     ),
                 InfrastructureVendor(
                     "Azure",
+                    CloudVendor.AWS,
                     PlainTextDocumentation("Azure test vendor"),
                     InfrastructureLocation("FL")),
                 GovernanceZoneDeclaration("US", FakeRepository("b")))

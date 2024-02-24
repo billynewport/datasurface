@@ -2,7 +2,7 @@
 
 from typing import Optional
 from datasurface.md import Documentation
-from datasurface.md.Governance import DataContainer, DataPlatform, Ecosystem, InfrastructureLocation, \
+from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, Ecosystem, InfrastructureLocation, \
     InfrastructureVendor, ObjectStorage
 from datasurface.md.Lint import ValidationTree
 
@@ -25,6 +25,9 @@ class AmazonAWSDataPlatform(DataPlatform):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, AmazonAWSDataPlatform)
+
+    def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
+        return dc.isUsingVendorsOnly(eco, {CloudVendor.AWS})
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         pass

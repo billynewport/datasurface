@@ -10,7 +10,7 @@ from datasurface.md.Schema import DDLColumn, DEFAULT_nullable, DEFAULT_primaryKe
 def getDatasets(store: Datastore) -> list[Any]:
     datasets: list[Any] = []
     for dataset in store.datasets.values():
-        if(dataset):
+        if (dataset):
             datasets.append(dataset)
     return datasets
 
@@ -29,7 +29,7 @@ def convertColumnAttributesToString(column: DDLColumn) -> str:
     rc: str = ""
     if (column.nullable != DEFAULT_nullable):
         rc += f", {column.nullable}"
-    if (column.classification != None):
+    if (column.classification is not None):
         rc += f", {column.classification}"
     if (column.primaryKey != DEFAULT_primaryKey):
         rc += f", {column.primaryKey}"

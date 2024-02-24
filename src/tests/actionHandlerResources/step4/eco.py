@@ -2,7 +2,7 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import DataPlatformPolicy, DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, \
+from datasurface.md.Governance import CloudVendor, DataPlatformPolicy, DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 from tests.actionHandlerResources.step3.defineEU_GZ import defineEU_GZ
 from tests.actionHandlerResources.step4.defineUSA_GZ import defineUSA_GZ
@@ -24,6 +24,7 @@ def createEcosystem() -> Ecosystem:
         # Infra Vendors and locations
         InfrastructureVendor(
             "AWS",
+            CloudVendor.AWS,
             PlainTextDocumentation("Amazon AWS"),
             InfrastructureLocation(
                 "USA",
@@ -40,6 +41,7 @@ def createEcosystem() -> Ecosystem:
 
         InfrastructureVendor(
             "Azure",
+            CloudVendor.AZURE,
             PlainTextDocumentation("Microsoft Azure"),
             InfrastructureLocation(
                 "USA",

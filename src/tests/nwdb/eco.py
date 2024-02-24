@@ -4,7 +4,7 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import DefaultDataPlatform, InfraStructureLocationPolicy
+from datasurface.md.Governance import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
@@ -27,6 +27,7 @@ def createEcosystem() -> Ecosystem:
         # Infra Vendors and locations
         InfrastructureVendor(
             "AWS",
+            CloudVendor.AWS,
             PlainTextDocumentation("Amazon AWS"),
             InfrastructureLocation(
                 "USA",
@@ -53,6 +54,7 @@ def createEcosystem() -> Ecosystem:
                 InfrastructureLocation("Cambridge"))),
         InfrastructureVendor(
             "Azure",
+            CloudVendor.AZURE,
             PlainTextDocumentation("Microsoft Azure"),
             InfrastructureLocation(
                 "USA",

@@ -5,6 +5,7 @@ from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDec
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
+from datasurface.md.Governance import CloudVendor
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.eco import createEcosystem
 
@@ -50,6 +51,7 @@ class TestZones(unittest.TestCase):
         eco.add(
                 InfrastructureVendor(
                     "AWS",
+                    CloudVendor.AWS,
                     PlainTextDocumentation("AWS is a cloud provider"),
                     InfrastructureLocation(
                         "USA",
@@ -68,6 +70,7 @@ class TestZones(unittest.TestCase):
         eco.add(
             InfrastructureVendor(
                 "AZURE",
+                CloudVendor.AZURE,
                 PlainTextDocumentation("AZURE is a cloud provider"),
                 InfrastructureLocation(
                     "USA",
