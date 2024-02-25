@@ -978,6 +978,11 @@ class IngestionMetadata(CaptureMetaData):
         if (self.dataContainer):
             capTree: ValidationTree = tree.createChild(self.dataContainer)
             self.dataContainer.lint(eco, gz, t, capTree)
+        # Credential is needed for a platform connect to a datacontainer and ingest data
+        if (self.credential is None):
+            tree.addRaw(AttributeNotSet("credential"))
+        else:
+            self.credential.lint(eco, tree)
         super().lint(eco, gz, t, d, tree)
 
 

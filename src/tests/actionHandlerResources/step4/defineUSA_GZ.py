@@ -25,7 +25,7 @@ def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):
                 ),
                 CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")),
+                AzureKeyVaultCredential("mykeyvault", "NWDB_Creds")),
             Dataset(
                 "customers",
                 SimpleDC(SimpleDCTypes.PC3),

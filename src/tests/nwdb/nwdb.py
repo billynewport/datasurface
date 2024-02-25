@@ -17,7 +17,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
                 AzureSQLDatabase("NW_DB", "hostName:port", "DBName", eco.getLocationOrThrow("Azure", ["USA", "East US"])),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")
+                AzureKeyVaultCredential("mykeyvault", "NWDB_Creds")
                 ),
 
             Dataset(
