@@ -1,0 +1,65 @@
+# A set of captures to include in the catalog.
+# Optional, type: object
+captures:
+  # The name of the capture.
+  acmeCo/example/source-s3:
+    # Automatically performs periodic discover operations, which updates the bindings
+    # to reflect what's in the source, and also updates collection schemas.
+    # To disable autoDiscover, either omit this property or set it to `null`.
+    autoDiscover:
+      # Also add any newly discovered bindings automatically
+      addNewBindings: true
+      # How to handle breaking changes to discovered collections. If true, then existing
+      # materialization bindings will be re-created with new names, as necessary. Or if
+      # collection keys have changed, then new Flow collections will be created. If false,
+      # then incompatible changes will simply result in failed publications, and will
+      # effectively be ignored.
+      evolveIncompatibleCollections: true
+
+    # Endpoint defines how to connect to the source of the capture.
+    # Required, type: object
+    endpoint:
+      # This endpoint uses a connector provided as a Docker image.
+      connector:
+        # Docker image that implements the capture connector.
+        image: ghcr.io/estuary/source-s3:dev
+        # File that provides the connector's required configuration.
+        # Configuration may also be presented inline.
+        config: path/to/connector-config.yaml
+
+    # Bindings define how collections are populated from the data source.
+    # A capture may bind multiple resources to different collections.
+    # Required, type: array
+    bindings:
+      - # The target collection to capture into.
+        # This may be defined in a separate, imported specification file.
+        # Required, type: string
+        target: acmeCo/example/collection
+
+        # The resource is additional configuration required by the endpoint
+        # connector to identify and capture a specific endpoint resource.
+        # The structure and meaning of this configuration is defined by
+        # the specific connector.
+        # Required, type: object
+        resource:
+          stream: a-bucket/and-prefix
+          # syncMode should be set to incremental for all Estuary connectors
+          syncMode: incremental
+
+      - target: acmeCo/example/another-collection
+        resource:
+          stream: a-bucket/another-prefix
+          syncMode: incremental
+
+    # Interval of time between invocations of non-streaming connectors.
+    # If a connector runs to completion and then exits, the capture task will
+    # restart the connector after this interval of time has elapsed.
+    #
+    # Intervals are relative to the start of an invocation and not its completion.
+    # For example, if the interval is five minutes, and an invocation of the
+    # capture finishes after two minutes, then the next invocation will be started
+    # after three additional minutes.
+    #
+    # Optional. Default: Five minutes.
+    interval: 5m
+    

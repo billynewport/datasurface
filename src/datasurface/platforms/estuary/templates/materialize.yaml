@@ -1,0 +1,67 @@
+# A set of materializations to include in the catalog.
+# Optional, type: object
+materializations:
+  # The name of the materialization.
+  acmeCo/example/database-views:
+    # Endpoint defines how to connect to the destination of the materialization.
+    # Required, type: object
+    endpoint:
+      # This endpoint uses a connector provided as a Docker image.
+      connector:
+        # Docker image that implements the materialization connector.
+        image: ghcr.io/estuary/materialize-postgres:dev
+        # File that provides the connector's required configuration.
+        # Configuration may also be presented inline.
+        config: path/to/connector-config.yaml
+
+    # Bindings define how one or more collections map to materialized endpoint resources.
+    # A single materialization may include many collections and endpoint resources,
+    # each defined as a separate binding.
+    # Required, type: object
+    bindings:
+      - # Source collection read by this binding.
+        # Required, type: object or string
+        source:
+          # Name of the collection to be read.
+          # Required.
+          name: acmeCo/example/collection
+          # Lower bound date-time for documents which should be processed. 
+          # Source collection documents published before this date-time are filtered.
+          # `notBefore` is *only* a filter. Updating its value will not cause Flow
+          # to re-process documents that have already been read.
+          # Optional. Default is to process all documents.
+          notBefore: 2023-01-23T01:00:00Z
+          # Upper bound date-time for documents which should be processed.
+          # Source collection documents published after this date-time are filtered.
+          # Like `notBefore`, `notAfter` is *only* a filter. Updating its value will
+          # not cause Flow to re-process documents that have already been read.
+          # Optional. Default is to process all documents.
+          notAfter: 2023-01-23T02:00:00Z
+
+        # The resource is additional configuration required by the endpoint
+        # connector to identify and materialize a specific endpoint resource.
+        # The structure and meaning of this configuration is defined by
+        # the specific connector.
+        # Required, type: object
+        resource:
+          # The materialize-postgres connector expects a `table` key
+          # which names a table to materialize into.
+          table: example_table
+
+        # Priority applied to documents processed by this binding.
+        # When all bindings are of equal priority, documents are processed
+        # in order of their associated publishing time.
+        # 
+        # However, when one binding has a higher priority than others,
+        # then *all* ready documents are processed through the binding
+        # before *any* documents of other bindings are processed.
+        # 
+        # Optional. Default: 0, integer >= 0
+        priority: 0
+
+    # A sourceCapture allows bindings to be managed automatically based on the
+    # bindings of the given capture. As new bindings are added to the capture,
+    # they will automatically be added to the materialization. This property
+    # is optional.
+    sourceCapture: acmeCo/example/a-capture
+    

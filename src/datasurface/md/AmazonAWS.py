@@ -1,5 +1,3 @@
-
-
 from typing import Optional
 from datasurface.md import Documentation
 from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, Ecosystem, InfrastructureLocation, \
@@ -31,6 +29,10 @@ class AmazonAWSDataPlatform(DataPlatform):
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         pass
+
+    def getInternalDataContainers(self) -> set[DataContainer]:
+        # TODO: Implement this method
+        return set()
 
 
 class AmazonAWSS3Bucket(ObjectStorage):

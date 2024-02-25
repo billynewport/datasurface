@@ -62,6 +62,10 @@ class AzureDataplatform(DataPlatform):
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         return dc.isUsingVendorsOnly(eco, {CloudVendor.AZURE})
 
+    def getInternalDataContainers(self) -> set[DataContainer]:
+        # TODO: Implement this method
+        return set()
+
 
 class AzureBatchDataPlatform(AzureDataplatform):
     def __init__(self, name: str, doc: Documentation, platformCredential: AzureKeyVaultCredential):

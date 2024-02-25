@@ -1977,6 +1977,11 @@ class DataPlatform(ABC, Documentable):
     def __hash__(self) -> int:
         return hash(self.name)
 
+    @abstractmethod
+    def getInternalDataContainers(self) -> set[DataContainer]:
+        """A Data platform can have internal data containers which store ingested data or intermediate data"""
+        pass
+
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 
