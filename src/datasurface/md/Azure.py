@@ -1,6 +1,6 @@
 from datasurface.md import Documentation
 from datasurface.md.Governance import DataContainer, InfrastructureVendor
-from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, InfrastructureLocation, SQLDatabase, Team
+from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
 
@@ -72,10 +72,10 @@ class AzureBatchDataPlatform(AzureDataplatform):
         super().__init__(name, doc, platformCredential)
 
 
-class AzureSQLDatabase(SQLDatabase):
+class AzureSQLDatabase(HostPortSQLDatabase):
     """This is an Azure SQL Database resource. """
-    def __init__(self, name: str, hostNameAndPort: str, databaseName: str, loc: InfrastructureLocation):
-        super().__init__(name, loc, hostNameAndPort, databaseName)
+    def __init__(self, name: str, hostName: str, port: int, databaseName: str, loc: InfrastructureLocation):
+        super().__init__(name, loc, hostName, port, databaseName)
 
     def __str__(self) -> str:
         return f"AzureDatabaseResource({self.name})"

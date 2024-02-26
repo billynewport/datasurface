@@ -629,15 +629,49 @@ class DataContainer(ABC):
 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
-    def __init__(self, name: str, location: InfrastructureLocation, hostAndPort: str, databaseName: str) -> None:
+    def __init__(self, name: str, location: InfrastructureLocation, databaseName: str) -> None:
         super().__init__(name, location)
-        self.hostAndPort: str = hostAndPort
         self.databaseName: str = databaseName
 
     def __eq__(self, __value: object) -> bool:
         if (isinstance(__value, SQLDatabase)):
-            return super().__eq__(__value) and self.hostAndPort == __value.hostAndPort and self.databaseName == __value.databaseName
+            return super().__eq__(__value) and self.databaseName == __value.databaseName
         return False
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+        super().lint(eco, gz, t, tree)
+
+
+class URLSQLDatabase(SQLDatabase):
+    """This is a SQL database with a URL"""
+    def __init__(self, name: str, location: InfrastructureLocation, url: str, databaseName: str) -> None:
+        super().__init__(name, location, databaseName)
+        self.url: str = url
+
+    def __eq__(self, __value: object) -> bool:
+        if (isinstance(__value, URLSQLDatabase)):
+            return super().__eq__(__value) and self.url == __value.url
+        return False
+
+
+class HostPortSQLDatabase(SQLDatabase):
+    """This is a SQL database with a host and port"""
+    def __init__(self, name: str, location: InfrastructureLocation, host: str, port: int, databaseName: str) -> None:
+        super().__init__(name, location, databaseName)
+        self.host: str = host
+        self.port: int = port
+
+    def __eq__(self, __value: object) -> bool:
+        if (isinstance(__value, HostPortSQLDatabase)):
+            return super().__eq__(__value) and self.host == __value.host and self.port == __value.port
+        return False
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+        super().lint(eco, gz, t, tree)
+        if not is_valid_hostname_or_ip(self.host):
+            tree.addProblem(f"Host '{self.host}' is not a valid hostname or IP address")
+        if self.port < 0 or self.port > 65535:
+            tree.addProblem(f"Port {self.port} is not a valid port number")
 
 
 class ObjectStorage(DataContainer):
