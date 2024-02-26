@@ -566,12 +566,13 @@ class EncryptionSystem:
         return cyclic_safe_eq(self, __value, set())
 
 
-class DataContainer(ABC):
+class DataContainer(ABC, Documentable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
-    def __init__(self, name: str, *args: InfrastructureLocation) -> None:
-        super().__init__()
+    def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation]) -> None:
+        ABC.__init__(self)
+        Documentable.__init__(self, None)
         self.locations: set[InfrastructureLocation] = set()
         self.name: str = name
         self.serverSideEncryptionKeys: Optional[EncryptionSystem] = None
@@ -583,11 +584,14 @@ class DataContainer(ABC):
         self.isReadOnly: bool = False
         self.add(*args)
 
-    def add(self, *args: InfrastructureLocation) -> None:
-        for loc in args:
-            if (loc in self.locations):
-                raise Exception(f"Duplicate Location {loc}")
-            self.locations.add(loc)
+    def add(self, *args: Union[InfrastructureLocation, Documentation]) -> None:
+        for arg in args:
+            if (isinstance(arg, InfrastructureLocation)):
+                if (arg in self.locations):
+                    raise Exception(f"Duplicate Location {arg}")
+                self.locations.add(arg)
+            else:
+                self.documentation = arg
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, DataContainer):
@@ -612,6 +616,9 @@ class DataContainer(ABC):
         # the governance zone policies for vendor or location
         for loc in self.locations:
             gz.checkLocationIsAllowed(eco, loc, tree)
+        if (self.documentation):
+            dTree: ValidationTree = tree.createChild(self.documentation)
+            self.documentation.lint(dTree)
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -830,25 +837,40 @@ class FileSecretCredential(Credential):
         return f"FileSecretCredential({self.secretFilePath})"
 
 
-class ClearTextCredential(Credential):
-    """This is implemented for testing but should never be used in production. All
-    credentials should be stored and retrieved using secrets Credential objects also
-    provided."""
+class UserPasswordCredential(Credential):
+    """This is a simple user name and password credential"""
     def __init__(self, username: str, password: str) -> None:
         super().__init__()
         self.username: str = username
         self.password: str = password
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is ClearTextCredential and self.username == __value.username and self.password == __value.password
+        return super().__eq__(__value) and type(__value) is UserPasswordCredential and self.username == __value.username and self.password == __value.password
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        tree.addProblem("ClearText credential found", ProblemSeverity.WARNING)
         if (self.username == ""):
             tree.addProblem("Username is empty")
         if (self.password == ""):
             tree.addProblem("Password is empty")
+
+    def __str__(self) -> str:
+        return f"UserPasswordCredential({self.username})"
+
+
+class ClearTextCredential(UserPasswordCredential):
+    """This is implemented for testing but should never be used in production. All
+    credentials should be stored and retrieved using secrets Credential objects also
+    provided."""
+    def __init__(self, username: str, password: str) -> None:
+        super().__init__(username, password)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and type(__value) is ClearTextCredential
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
+        tree.addProblem("ClearText credential found", ProblemSeverity.WARNING)
 
     def __str__(self) -> str:
         return f"ClearTextCredential({self.username})"
