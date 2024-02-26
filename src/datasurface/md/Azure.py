@@ -1,8 +1,17 @@
+from enum import Enum
 from datasurface.md import Documentation
 from datasurface.md.Governance import DataContainer, InfrastructureVendor
 from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
+
+
+class AzureVaultObjectType(Enum):
+    HSM_KEYS = 1
+    SOFTWARE_KEYS = 2
+    SECRETS = 3
+    CERTIFICATES = 4
+    STORAGE_ACCOUNT_KEYS = 5
 
 
 class AzureKeyVaultCredential(Credential):
@@ -12,7 +21,7 @@ class AzureKeyVaultCredential(Credential):
         super().__init__()
         self.keyVaultName: str = keyVaultName
         self.objectName: str = objectName
-        self.objectType: str = "secrets"
+        self.objectType: AzureVaultObjectType = AzureVaultObjectType.SECRETS
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and type(__value) is AzureKeyVaultCredential and self.keyVaultName == __value.keyVaultName and \
