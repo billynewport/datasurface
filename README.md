@@ -4,14 +4,11 @@
 
 # Data surface, a data ecosystem broker
 
-The goal of this project are:
+The goals of this project are introduce a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. This provides a new way to manage data in an enterprise. The goals are:
 
-* introduce a new concept, the ecosystem broker which arbitrates between the data actors and the catalog of available data platform products to meet the data actors needs
-* is to raise the abstration level for the actors using data in an enterprise. Actors can simply state their intentions and the ecosystem figures how best to achieve the collective goals of all actors using data in the enterprise. Using data means moving data from where it's produced to where its consumed. It's likely this will always be the case as it's unlikely a single database technology will ever handle ALL data use cases.
+* to raise the abstration level for the actors using data in an enterprise. Actors can simply state their intentions and the ecosystem figures how best to achieve the collective goals of all actors using data in the enterprise. Using data means moving data from where it's produced to where its consumed. It's likely this will always be the case as it's unlikely a single database technology will ever handle ALL data use cases. This moves data movement to be a delclarative process rather than a procedural process. It finally brings managing data to the gitops mindset. This is a game changer for managing data in an enterprise.
 * to turn data pipelines in to a commodity product which allows an ecosystem to continuously choose the best product for a consumer use case over time automatically
-* data pipelines become a second order technology which data actors do not need to be concerned with. Previously, data pipelines were a first order technology which data actors worked directly with.
 * introduce a new concept, the ecosystem broker which arbitrates between the data actors and the catalog of available data platform products to meet the data actors needs
-* making data pipelines a second order technology is a game changer for both the data actors in an enterprise as well as for the enterprise in that data pipelines can be eliminated from the technical debt that must be carried
 * better govern and control the data ecosystem of a firm as all data can be easily moved around a firm using the ecosystem approach using a declarative framework.
 
 Enterprise developers should be performing only the following tasks:
