@@ -4,7 +4,9 @@
 
 # Data surface, a data ecosystem broker
 
-The goals of this project are introduce a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. These are the actors in the data ecosystem:
+The goals of this project to make it much easier and lower cost for actors within an enterprise or between enterprises to share data. The project introduces a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. The set of data pipelines the data platforms construct is hidden from the actors.
+
+The data ecosystem has the following actors:
 
 * Data Producers. The owners of data. They have an application which produces data that is useful to the rest of the enterprise.
 * Data Consumers. The owners of applications that consume data. They need data to do their job.
