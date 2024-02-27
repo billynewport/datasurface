@@ -4,7 +4,16 @@
 
 # Data surface, a data ecosystem broker
 
-The goal is this project is to eliminate data pipelines as a manual task within an enterprise. Enterprise developers should be performing only the following tasks:
+The goal of this project are:
+
+* is to raise the abstration level for the actors using data in an enterprise
+* to turn data pipelines in to a commodity product which allows an ecosystem to continuously choose the best product for a consumer use case over time automatically
+* data pipelines become a second order technology which data actors do not need to be concerned with. Previously, data pipelines were a first order technology which data actors worked directly with.
+* introduce a new concept, the ecosystem broker which arbitrates between the data actors and the catalog of available data platform products to meet the data actors needs
+* making data pipelines a second order technology is a game changer for both the data actors in an enterprise as well as for the enterprise in that data pipelines can be eliminated from the technical debt that must be carried
+* better govern and control the data ecosystem of a firm as all data can be easily moved around a firm using the ecosystem approach using a declarative framework.
+
+Enterprise developers should be performing only the following tasks:
 
 * Producing new data
 * Consuming existing data to extract value
