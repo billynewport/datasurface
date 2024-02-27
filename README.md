@@ -7,7 +7,7 @@
 The goal of this project are:
 
 * introduce a new concept, the ecosystem broker which arbitrates between the data actors and the catalog of available data platform products to meet the data actors needs
-* is to raise the abstration level for the actors using data in an enterprise
+* is to raise the abstration level for the actors using data in an enterprise. Actors can simply state their intentions and the ecosystem figures how best to achieve the collective goals of all actors using data in the enterprise. Using data means moving data from where it's produced to where its consumed. It's likely this will always be the case as it's unlikely a single database technology will ever handle ALL data use cases.
 * to turn data pipelines in to a commodity product which allows an ecosystem to continuously choose the best product for a consumer use case over time automatically
 * data pipelines become a second order technology which data actors do not need to be concerned with. Previously, data pipelines were a first order technology which data actors worked directly with.
 * introduce a new concept, the ecosystem broker which arbitrates between the data actors and the catalog of available data platform products to meet the data actors needs
