@@ -4,11 +4,20 @@
 
 # Data surface, a data ecosystem broker
 
-The goals of this project are introduce a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. This provides a new way to manage data in an enterprise. The goals are:
+The goals of this project are introduce a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. These are the actors in the data ecosystem:
 
-* to raise the abstration level for the actors using data in an enterprise. Actors can simply state their intentions and the ecosystem figures how best to achieve the collective goals of all actors using data in the enterprise. Using data means moving data from where it's produced to where its consumed. It's likely this will always be the case as it's unlikely a single database technology will ever handle ALL data use cases. This moves data movement to be a delclarative process rather than a procedural process. It finally brings managing data to the gitops mindset. This is a game changer for managing data in an enterprise.
-* to turn data pipelines in to a commodity product which allows an ecosystem to continuously choose the best product for a consumer use case over time automatically
-* introduce a new concept, the ecosystem broker which arbitrates between the data actors and the catalog of available data platform products to meet the data actors needs
+* Data Producers. The owners of data. They have an application which produces data that is useful to the rest of the enterprise.
+* Data Consumers. The owners of applications that consume data. They need data to do their job.
+* Data Transformers. The owners of applications that transform data thats already available in the enterprise in to new data that is useful to the rest of the enterprise.
+* Data Platform owners (new). Development teams who create a Data platform product that can be used to satisfy the needs of data consumers.
+* Ecosystem Broker (new). This arbitrates between the data producers, consumers and transformers intentions and the available data platform products to meet the data actors needs.
+
+This provides a new way to manage data in an enterprise. The goals are:
+
+* introduce an ecosystem model which describes the intentions of producers, consumers, data transformers and data platforms in an enterprise. This model is stored in a git repository and is the official version of truth for the data ecosystem.
+* to raise the abstration level for the actors using data in an enterprise. Actors can simply state their intentions and the ecosystem broker figures how best to achieve the collective goals of all actors using data in the enterprise. Using data means moving data from where it's produced to where its consumed. It's likely this will always be the case as it's unlikely a single database technology will ever handle ALL data use cases and regardless of technology, there are geographical limitations of a single store. Data moves.
+* to evolve data movement to be a declarative process rather than a procedural process. It finally brings managing data to the "gitops" mindset. This is a game changer for managing data in an enterprise.
+* to turn data pipelines in to a commodity product and simultaeneously introduce the ecosystem broker which continuously chooses the best products for each consumer use case in an ecosystem over time automatically
 * better govern and control the data ecosystem of a firm as all data can be easily moved around a firm using the ecosystem approach using a declarative framework.
 
 Enterprise developers should be performing only the following tasks:
