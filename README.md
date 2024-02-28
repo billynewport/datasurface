@@ -14,6 +14,8 @@ The data ecosystem has the following actors:
 * Data Platform owners (new). Development teams who create a Data platform product that can be used to satisfy the needs of data consumers.
 * Ecosystem Broker (new). This arbitrates between the data producers, consumers and transformers intentions and the available data platform products to meet the data actors needs.
 
+Traditionally, enterprises build pipelines directly connecting producers to consumers. This can lead to as many as P * C pipelines where P is the number of producers and C is the number of consumers. This is a combinatorial explosion of pipelines. This is a maintenance nightmare and a huge cost to the enterprise. Most producers are not data infrastructure experts. The broker replaces these bespoke pipelines with an instance of a Dataplatform chosen to meet the needs of the consumer and this DataPlatform can be easily changed over time when newer/better DataPlatform implementations become available. The ecosystem broker reduces the number of pipelines to P + C + T where T is the number of data transformers. This is a much more manageable number of pipelines.
+
 This provides a new way to manage data in an enterprise. The goals are:
 
 * introduce an ecosystem model which describes the intentions of producers, consumers, data transformers and data platforms in an enterprise. This model is stored in a git repository and is the official version of truth for the data ecosystem.
