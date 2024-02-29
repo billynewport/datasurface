@@ -45,3 +45,46 @@ git push origin edits
 ```
 
 Now, we need to make a pull request for these changes from the edits branch to the main branch. Once the pull request is approved, the changes will be merged into the main branch. The github action handler will then be triggered to make sure the changes are self consistent, backwards compatible and consistent with the governance policies of the enterprise. Any issues will be reported back to the pull request.
+
+## How to find errors in your pull request
+
+The pull request logs will have the errors and warnings. Even if the pull succeeds, it's still a good idea to look for warnings. Here is an example showing different errors. This log shows when the wrong repository is used to change an object.
+
+```Logs
+Ecosystem(Test)
+   ProblemSeverity.ERROR:Unauthorized defaultDataPlatformn change: None is different from AzureDataplatform(Azure Platform)
+   ProblemSeverity.ERROR:Ecosystem(Test) top level owned by GitRepository(billynewport/datasurfacetemplate/main) has been modified by an unauthorized source GitRepository(billynewport/datasurfacetemplate/edits)
+   AuthorizedObjectManager(zones)
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(UK) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(EU) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(USA) has been added
+   Vendors
+     ProblemSeverity.ERROR:InfrastructureVendor(Azure, CloudVendor.AZURE) has been added
+     ProblemSeverity.ERROR:InfrastructureVendor(AWS, CloudVendor.AWS) has been added
+   DataPlatforms
+     ProblemSeverity.ERROR:AmazonAWSDataPlatform(AWS Platform) has been added
+     ProblemSeverity.ERROR:AzureDataplatform(Azure Platform) has been added
+   AuthorizedObjectManager(zones)
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(UK) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(EU) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(USA) has been added
+     ProblemSeverity.ERROR:AuthorizedObjectManager(zones) top level owned by GitRepository(billynewport/datasurfacetemplate/main) has been modified by an unauthorized source GitRepository(billynewport/datasurfacetemplate/edits)
+ Ecosystem(Test)
+   ProblemSeverity.ERROR:Unauthorized defaultDataPlatformn change: None is different from AzureDataplatform(Azure Platform)
+   ProblemSeverity.ERROR:Ecosystem(Test) top level owned by GitRepository(billynewport/datasurfacetemplate/main) has been modified by an unauthorized source GitRepository(billynewport/datasurfacetemplate/edits)
+   AuthorizedObjectManager(zones)
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(UK) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(EU) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(USA) has been added
+   Vendors
+     ProblemSeverity.ERROR:InfrastructureVendor(Azure, CloudVendor.AZURE) has been added
+     ProblemSeverity.ERROR:InfrastructureVendor(AWS, CloudVendor.AWS) has been added
+   DataPlatforms
+     ProblemSeverity.ERROR:AmazonAWSDataPlatform(AWS Platform) has been added
+     ProblemSeverity.ERROR:AzureDataplatform(Azure Platform) has been added
+   AuthorizedObjectManager(zones)
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(UK) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(EU) has been added
+     ProblemSeverity.ERROR:GovernanceZoneDeclaration(USA) has been added
+     ProblemSeverity.ERROR:AuthorizedObjectManager(zones) top level owned by GitRepository(billynewport/datasurfacetemplate/main) has been modified by an unauthorized source GitRepository(billynewport/datasurfacetemplate/edits)
+```

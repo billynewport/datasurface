@@ -1,7 +1,7 @@
 import unittest
 from datasurface.md.GitOps import GitHubRepository
 
-from datasurface.md.Lint import ProblemSeverity, ValidationTree
+from datasurface.md.Lint import ProblemSeverity, ValidationProblem, ValidationTree
 
 
 class TestLint(unittest.TestCase):
@@ -33,3 +33,10 @@ class TestLint(unittest.TestCase):
         self.assertTrue(tree.hasIssues())
         tree.addProblem("This is a problem", sev=ProblemSeverity.ERROR)
         self.assertTrue(tree.hasErrors())
+
+    def test_ValidationProblem(self):
+        v: ValidationProblem = ValidationProblem("This is a problem", ProblemSeverity.ERROR)
+        self.assertEqual(str(v), "ERROR:This is a problem")
+
+        v = ValidationProblem("This is a problem", ProblemSeverity.WARNING)
+        self.assertEqual(str(v), "WARNING:This is a problem")
