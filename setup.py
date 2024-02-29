@@ -28,5 +28,6 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     include_package_data=True,
+    package_data={"": ["*.pyi", "py.typed"]},  # Include .pyi files and py.typed file
     install_requires=requirements
 )
