@@ -24,7 +24,7 @@ jobs:
         run: |
               python3 -m pip install mypy
               export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
-              stubgen -v -o src/datasurface -p datasurface
+              stubgen -v -o src -p datasurface
       - name: Build a binary wheel and a source tarball
         run: python3 -m build
       - name: Store the distribution packages
