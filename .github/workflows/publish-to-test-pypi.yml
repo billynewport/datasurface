@@ -23,6 +23,7 @@ jobs:
       - name: Install mypy and Generate stubs
         run: |
               python3 -m pip install mypy
+              export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
               stubgen -o src/datasurface -p datasurface
       - name: Build a binary wheel and a source tarball
         run: python3 -m build
