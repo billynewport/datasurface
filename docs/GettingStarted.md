@@ -24,3 +24,24 @@ For more information on different aspects of the system see the following docume
 * [Data Transformers](DataTransformer.md)
 * [Data Containers](DataContainers.md)
 * [Data Classification System](DataClassification.md)
+
+## Commands to make a set of changes
+
+Different parts of the ecosystem model are own by different github repositories. This allows for the federation of the authority to make edits to different parts of the model. The live or production version of the model is in the main ecosystem repository. When a team wishes to change their part of the model. They should fork the main to their github repository (the one responsible for their part of the model). Then they can make changes to their part of the model. Once they are happy with the changes, they can make a pull request to the main ecosystem repository. The github action handler will then be triggered to make sure the changes are self consistent, backwards compatible and consistent with the governance policies of the enterprise. Any issues will be reported back to the pull request.
+
+```shell
+git clone https://www.github.com/billynewport/datasurfacetemplate
+cd datasurfacetemplate
+git checkout main
+git checkout -b edits
+```
+
+Now, make some changes to the model. For example, add a new data platform. Next, commit the changes and push them to the edits branch.
+
+```shell
+git add .
+git commit -m "Some edits"
+git push origin edits
+```
+
+Now, we need to make a pull request for these changes from the edits branch to the main branch. Once the pull request is approved, the changes will be merged into the main branch. The github action handler will then be triggered to make sure the changes are self consistent, backwards compatible and consistent with the governance policies of the enterprise. Any issues will be reported back to the pull request.
