@@ -101,6 +101,8 @@ class ValidationTree:
     tree represents an object in the model. Each node can list a set of issues found with that node"""
     def __init__(self, obj: object) -> None:
         self.object: object = obj
+        self.numErrors: int = 0
+        self.numWarnings: int = 0
 
         """The original object that is in use"""
         self.children: list[ValidationTree] = []
@@ -157,12 +159,22 @@ class ValidationTree:
 
     def printTree(self, indent: int = 0) -> None:
         """This prints the tree of objects"""
+        self.numErrors = 0
+        self.numWarnings = 0
         if (self.hasErrors() or self.hasIssues()):  # If something to see here or in the children then
             print(" " * indent, self.object)
             for problem in self.problems:
                 print(" " * (indent + 2), str(problem))
+                if (problem.sev == ProblemSeverity.ERROR):
+                    self.numErrors += 1
+                if (problem.sev == ProblemSeverity.WARNING):
+                    self.numWarnings += 1
             for child in self.children:
                 child.printTree(indent + 2)
+                self.numErrors += child.numErrors
+                self.numWarnings += child.numWarnings
+            if (indent == 0):
+                print(f"Total errors: {self.numErrors}, warnings: {self.numWarnings}")
 
     def containsProblemType(self, type: Any) -> bool:
         for p in self.problems:

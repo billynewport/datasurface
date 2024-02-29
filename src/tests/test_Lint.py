@@ -21,11 +21,17 @@ class TestLint(unittest.TestCase):
         tree.addProblem("This is a problem")
         self.assertTrue(tree.hasErrors())
         self.assertFalse(tree.hasIssues())
+        tree.printTree()
+        self.assertEqual(tree.numErrors, 1)
+        self.assertEqual(tree.numWarnings, 0)
 
         tree = ValidationTree("")
         tree.addProblem("This is a problem", sev=ProblemSeverity.WARNING)
         self.assertFalse(tree.hasErrors())
         self.assertTrue(tree.hasIssues())
+        tree.printTree()
+        self.assertEqual(tree.numErrors, 0)
+        self.assertEqual(tree.numWarnings, 1)
 
         # Tree with a non error has issues, tree with an error has errors also
         tree.addProblem("This is a problem", sev=ProblemSeverity.INFO)
