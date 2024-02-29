@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='datasurface',
-    version='0.0.9',
+    version='0.0.10',
     license='Apache License 2.0',
     description='Automate the governance, management and movement of data within your enterprise',
     long_description=long_description,
@@ -28,6 +28,6 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     include_package_data=True,
-    package_data={"": ["*.pyi", "py.typed"]},  # Include .pyi files and py.typed file
+    package_data={"datasurface": ["*.pyi", "**/*.pyi", "py.typed"]},  # Include .pyi files and py.typed file
     install_requires=requirements
 )
