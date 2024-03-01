@@ -1,5 +1,4 @@
 name: Pull Request Check
-description: Data surface action handler to make sure incoming pull requests and consistent, backwards compatible and only change objects owned by the pull repo
 
 on:
   pull_request:
@@ -30,10 +29,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r ${{ github.workspace }}/main/requirements.txt
 
     - name: Run check script
-      run: python action.py ${{ github.workspace }}/main ${{ github.workspace }}/pr
+      run: python -m datasurface.handler.action ${{ github.workspace }}/main ${{ github.workspace }}/pr
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
           BASE_REPOSITORY: ${{ github.repository }}
