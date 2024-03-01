@@ -1,5 +1,7 @@
-name: Check Changed Files
+name: Check Changed Files are all python files
 on: [push, pull_request]
+
+# Idea here is to prevent any changes which can prevent repository workflows from running
 
 jobs:
   build:
@@ -14,7 +16,7 @@ jobs:
       run: |
         changed_files=$(git diff --name-only HEAD^ HEAD)
         for file in $changed_files; do
-          if [[ ! $file =~ ^allowed_directory/ ]]; then
+          if [[ ! $file =~ .*\.py$ ]]; then  # Any python file in any directory is allowed
             echo "Error: Changes have been made outside of the allowed directory"
             exit 1
           fi
