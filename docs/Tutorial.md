@@ -97,3 +97,5 @@ git push origin eco_edits
 ```
 
 This will then trigger the original pull request to try again and the checks will run again. If the checks pass then the pull request can be merged. If the checks fail then the pull request will not be merged and the checks will need to be fixed.
+
+If someone attempts to make these changes from a different branch of repository then those changes will be rejected by the checks on the pull request. Top level changes to the eco-model can only be made using pull requests from the configured repository for the Ecosystem.
