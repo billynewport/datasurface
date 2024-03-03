@@ -1455,9 +1455,13 @@ class Ecosystem(GitControlledObject):
 
     def __eq__(self, proposed: object) -> bool:
         if super().__eq__(proposed) and isinstance(proposed, Ecosystem):
-            return self.name == proposed.name and self.zones == proposed.zones and self.key == proposed.key and \
-                self.vendors == proposed.vendors and self.dataPlatforms == proposed.dataPlatforms and \
-                self.defaultDataPlatform == proposed.defaultDataPlatform
+            rc = self.name == proposed.name
+            rc = rc and self.zones == proposed.zones
+            rc = rc and self.key == proposed.key
+            rc = rc and self.vendors == proposed.vendors
+            rc = rc and self.dataPlatforms == proposed.dataPlatforms
+            rc = rc and self.defaultDataPlatform == proposed.defaultDataPlatform
+            return rc
         else:
             return False
 
@@ -1753,6 +1757,8 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
             rc: bool = self.authorizedNames == a.authorizedNames
             rc = rc and self.name == a.name
             rc = rc and self.authorizedObjects == a.authorizedObjects
+            # Cannot test factory for equality
+            # rc = rc and self.factory == a.factory
             return rc
         else:
             return False
@@ -1923,10 +1929,13 @@ class GovernanceZone(GitControlledObject):
         if isinstance(__value, GovernanceZone):
             rc: bool = super().__eq__(__value)
             rc = rc and self.name == __value.name
+            rc = rc and self.key == __value.key
             rc = rc and self.dataplatformPolicies == __value.dataplatformPolicies
             rc = rc and self.teams == __value.teams
+            rc = rc and self.classificationPolicies == __value.classificationPolicies
             rc = rc and self.storagePolicies == __value.storagePolicies
             rc = rc and self.vendorPolicies == __value.vendorPolicies
+            rc = rc and self.hardVendorPolicies == __value.hardVendorPolicies
             rc = rc and self.locationPolicies == __value.locationPolicies
             return rc
         return False
