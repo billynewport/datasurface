@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='datasurface',
-    version='0.0.11',
+    version='0.0.12',
     license='Apache License 2.0',
     description='Automate the governance, management and movement of data within your enterprise',
     long_description=long_description,
