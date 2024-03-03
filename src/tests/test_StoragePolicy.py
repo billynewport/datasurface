@@ -80,7 +80,7 @@ class TestPlatformPolicy(unittest.TestCase):
         # No policies allow all
         eco: Ecosystem = createEcosystem()
         tree: ValidationTree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.getErrors())
 
         # Add AWS to GZ USA as ONLY allowed Vendor
         gzUSA: GovernanceZone = eco.getZoneOrThrow("USA")
@@ -89,7 +89,7 @@ class TestPlatformPolicy(unittest.TestCase):
 
         # The NW Store uses Azure, this should fail lint
         tree = eco.lintAndHydrateCaches()
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())
 
         # Now reset and allow Azure, passes
         eco = createEcosystem()
@@ -97,7 +97,7 @@ class TestPlatformPolicy(unittest.TestCase):
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.getErrors())
 
         # Now, disallow AWS, it only uses Azure so should be fine
         eco = createEcosystem()
@@ -105,7 +105,7 @@ class TestPlatformPolicy(unittest.TestCase):
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.getErrors())
 
         # Now, disallow Azure, it only uses Azure so should fail
         eco = createEcosystem()
@@ -113,4 +113,4 @@ class TestPlatformPolicy(unittest.TestCase):
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())

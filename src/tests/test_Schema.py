@@ -31,7 +31,7 @@ class TestSchemaCreation(unittest.TestCase):
         c.name = "Bad ANSI Name"  # Has spaces
         tree: ValidationTree = ValidationTree(c)
         c.lint(tree)
-        self.assertTrue(tree.hasErrors())  # Name is not ANSI SQL compliant
+        self.assertTrue(tree.getErrors())  # Name is not ANSI SQL compliant
 
         # Create a table specifying the primary key on the columns
         t: DDLTable = DDLTable(
@@ -90,17 +90,17 @@ class TestSchemaCreation(unittest.TestCase):
         # s1 is compatible with s1
         tree: ValidationTree = ValidationTree(s1)
         s1.isBackwardsCompatibleWith(s1, tree)
-        self.assertFalse(tree.hasErrors())
-        self.assertFalse(tree.hasIssues())
+        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.getWarnings())
 
         # s1 is not compatible with s2
         tree = ValidationTree(s1)
         s1.isBackwardsCompatibleWith(s2, tree)
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())
 
         tree = ValidationTree(s2)
         s2.isBackwardsCompatibleWith(s1, tree)
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())
 
         s1 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)],
                                    PrimaryKeyList(["f2other"]))
@@ -108,14 +108,14 @@ class TestSchemaCreation(unittest.TestCase):
         tree = ValidationTree(s1)
         s1.lint(tree)
 
-        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.getErrors())
 
     def test_DatasetClassificationLint(self):
         eco: Ecosystem = createEcosystem()
         tree: ValidationTree = eco.lintAndHydrateCaches()
 
-        self.assertFalse(tree.hasErrors())
-        self.assertFalse(tree.hasIssues())
+        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.getWarnings())
 
         store: Datastore = eco.cache_getDatastoreOrThrow("NW_Data").datastore
         dataset: Dataset = store.datasets["suppliers"]
@@ -132,21 +132,21 @@ class TestSchemaCreation(unittest.TestCase):
         col.classification = [SimpleDC(SimpleDCTypes.PC1)]
 
         tree = eco.lintAndHydrateCaches()
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())
         col.classification = None
 
         # Clear it and check it's good
         tree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.hasErrors())
-        self.assertFalse(tree.hasIssues())
+        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.getWarnings())
 
         # Now dataset and all columns do not have classification
         dataset.dataClassificationOverride = None
 
         # non production store: should have warnings, as dataset has no classifications set
         tree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.hasErrors())
-        self.assertTrue(tree.hasIssues())
+        self.assertFalse(tree.getErrors())
+        self.assertTrue(tree.getWarnings())
 
         self.assertEqual(store.productionStatus, ProductionStatus.NOT_PRODUCTION)
 
@@ -155,4 +155,4 @@ class TestSchemaCreation(unittest.TestCase):
 
         tree = eco.lintAndHydrateCaches()
         self.assertTrue(tree.containsProblemType(ProductionDatastoreMustHaveClassifications))
-        self.assertTrue(tree.hasIssues())
+        self.assertTrue(tree.getWarnings())

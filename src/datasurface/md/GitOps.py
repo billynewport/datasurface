@@ -4,7 +4,7 @@ from typing import Iterable, Mapping, Optional
 from datasurface.md import Documentation
 from datasurface.md.Documentation import Documentable
 
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Lint import ProblemSeverity, ValidationProblem, ValidationTree
 
 
 class Repository(ABC, Documentable):
@@ -26,6 +26,12 @@ class Repository(ABC, Documentable):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
+
+
+class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
+    """This indicates a repository is not authorized to make changes"""
+    def __init__(self, owningRepo: Repository, obj: object, changeSource: Repository) -> None:
+        super().__init__(f"{obj} owned by {owningRepo} cannot be changed by repo {changeSource}", ProblemSeverity.ERROR)
 
 
 class GitControlledObject(ABC, Documentable):
@@ -72,7 +78,7 @@ class GitControlledObject(ABC, Documentable):
                 return
             rc: bool = self.areTopLevelChangesAuthorized(proposed, changeSource, vTree)
             if not rc:
-                vTree.addProblem(f"{self} top level owned by {self.owningRepo} has been modified by an unauthorized source {changeSource}")
+                vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(self.owningRepo, self, changeSource))
 
     @abstractmethod
     def checkIfChangesAreAuthorized(self, proposed: 'GitControlledObject', changeSource: 'Repository', vTree: ValidationTree) -> None:

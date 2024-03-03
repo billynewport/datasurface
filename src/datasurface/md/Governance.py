@@ -786,7 +786,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
             vTree.addRaw(AttributeNotSet(f"Original schema not set for {other.name}"))
         else:
             self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
-        return not vTree.hasErrors()
+        return not vTree.getErrors()
 
     def __str__(self) -> str:
         return f"Dataset({self.name})"
@@ -1172,7 +1172,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
                 dataset.isBackwardsCompatibleWith(otherDataset, dTree)
             else:
                 dTree.addRaw(ObjectMissing(other, dataset, ProblemSeverity.ERROR))
-        return not vTree.hasErrors()
+        return not vTree.getErrors()
 
     def __str__(self) -> str:
         return f"Datastore({self.name})"
@@ -1562,17 +1562,17 @@ class Ecosystem(GitControlledObject):
 
         # Any errors make us fail immediately
         # But we want warnings and infos to accumulate for the caller
-        if eTree.hasErrors():
+        if eTree.getErrors():
             return eTree
 
         # Check if the changeSource is one of the authorized sources
         self.checkIfChangeSourceIsUsed(source, eTree)
-        if eTree.hasErrors():
+        if eTree.getErrors():
             return eTree
 
         # Check if the proposed changes being made by an authorized repository
         self.checkIfChangesAreAuthorized(proposed, source, eTree)
-        if eTree.hasErrors():
+        if eTree.getErrors():
             return eTree
 
         # Check if the proposed changes are backwards compatible this object

@@ -9,36 +9,36 @@ class TestLint(unittest.TestCase):
         r: GitHubRepository = GitHubRepository("billynewport/repo", "FOmain")
         tree: ValidationTree = ValidationTree(r)
         r.lint(tree)
-        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.getErrors())
 
         r: GitHubRepository = GitHubRepository("billynewport/repo", "FOmain")
         tree: ValidationTree = ValidationTree(r)
         r.lint(tree)
-        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.getErrors())
 
         # If tree has any problems marked as ERROR then hasErrors return true
         tree = ValidationTree("")
         tree.addProblem("This is a problem")
-        self.assertTrue(tree.hasErrors())
-        self.assertFalse(tree.hasIssues())
+        self.assertTrue(tree.getErrors())
+        self.assertFalse(tree.getWarnings())
         tree.printTree()
         self.assertEqual(tree.numErrors, 1)
         self.assertEqual(tree.numWarnings, 0)
 
         tree = ValidationTree("")
         tree.addProblem("This is a problem", sev=ProblemSeverity.WARNING)
-        self.assertFalse(tree.hasErrors())
-        self.assertTrue(tree.hasIssues())
+        self.assertFalse(tree.getErrors())
+        self.assertTrue(tree.getWarnings())
         tree.printTree()
         self.assertEqual(tree.numErrors, 0)
         self.assertEqual(tree.numWarnings, 1)
 
         # Tree with a non error has issues, tree with an error has errors also
         tree.addProblem("This is a problem", sev=ProblemSeverity.INFO)
-        self.assertFalse(tree.hasErrors())
-        self.assertTrue(tree.hasIssues())
+        self.assertFalse(tree.getErrors())
+        self.assertTrue(tree.getWarnings())
         tree.addProblem("This is a problem", sev=ProblemSeverity.ERROR)
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())
 
     def test_ValidationProblem(self):
         v: ValidationProblem = ValidationProblem("This is a problem", ProblemSeverity.ERROR)

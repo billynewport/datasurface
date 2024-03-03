@@ -37,13 +37,13 @@ class Test_ActionHandler(unittest.TestCase):
             sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
             tree: ValidationTree = verifyPullRequest()
             tree.printTree()
-            self.assertTrue(tree.hasErrors())  # Should have errors
+            self.assertTrue(tree.getErrors())  # Should have errors
 
             # Now switch to correct branch authorized to make change
             os.environ["HEAD_BRANCH"] = step[2]
             sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
             print(f"Trying {baseFolder} -> {headFolder} with good repo")
             tree: ValidationTree = verifyPullRequest()
-            if (tree.hasErrors()):
+            if (tree.getErrors()):
                 tree.printTree()
                 self.fail("Tree has errors")

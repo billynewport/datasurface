@@ -36,7 +36,7 @@ class TestEcoNameChange(unittest.TestCase):
         eTree: ValidationTree = ValidationTree(e_main)
 
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # Change name
         e_other.name = "CHANGE"
@@ -44,7 +44,7 @@ class TestEcoNameChange(unittest.TestCase):
         eTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
         eTree.printTree()
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # reset
 
@@ -83,7 +83,7 @@ class TestEcoNameChange(unittest.TestCase):
             )
 
         tree: ValidationTree = eco1.checkIfChangesCanBeMerged(eco2, GitHubRepository("billynewport/test-surface", "eco_edits"))
-        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.getErrors())
 
     def test_TeamAuthorization(self):
         """Test that a team can be added to a zone by the gz owning repo, but not by another repo"""
@@ -99,7 +99,7 @@ class TestEcoNameChange(unittest.TestCase):
         # Check unchanged repo has no problems
         eTree: ValidationTree = ValidationTree(eco_base)
         eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # Get the USA zone so we can change it
         headGzUSA: GovernanceZone = e_head.getZoneOrThrow("USA")
@@ -115,12 +115,12 @@ class TestEcoNameChange(unittest.TestCase):
         # Should not be allowed from eco repo
         eTree = ValidationTree(e_head)
         eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
-        self.assertTrue(eTree.hasErrors())
+        self.assertTrue(eTree.getErrors())
 
         # Should be allowed from gz repo
         eTree = ValidationTree(e_head)
         eco_base.checkIfChangesAreAuthorized(e_head, headGzUSA.owningRepo, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # reset baseline ecosystem
         eco_base = e_head
@@ -137,12 +137,12 @@ class TestEcoNameChange(unittest.TestCase):
         # Should not be allowed from other repo
         eTree = ValidationTree(e_head)
         eco_base.checkIfChangesAreAuthorized(e_head, eco_repo, eTree)
-        self.assertTrue(eTree.hasErrors())
+        self.assertTrue(eTree.getErrors())
 
         # Should be allowed from team repo
         eTree = ValidationTree(e_head)
         eco_base.checkIfChangesAreAuthorized(e_head, t.owningRepo, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # Now verify that the new team can only be changed from its owning repo which can
         # be different from the owning repo of the zone
@@ -163,16 +163,16 @@ class TestEcoNameChange(unittest.TestCase):
         # Check the unchanged team has no changes
         eTree = ValidationTree(eco_base)
         eco_base.checkIfChangesAreAuthorized(eco_base, newTeam.owningRepo, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         eTree = ValidationTree(eco_base)
         eco_base.checkIfChangesAreAuthorized(e_head, newTeam.owningRepo, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # Check other repos cannot edit team
         eTree = ValidationTree(eco_base)
         eco_base.checkIfChangesAreAuthorized(e_head, eco_base.owningRepo, eTree)
-        self.assertTrue(eTree.hasErrors())
+        self.assertTrue(eTree.getErrors())
 
     # Check that changeSources which are unknown are detected
     def test_checkUnknownChangeSource(self):
@@ -197,10 +197,10 @@ class TestEcoNameChange(unittest.TestCase):
             e_other.zones.removeDefinition("USA")  # Still authorized but definition is gone
             eTree = ValidationTree(e_main)
             e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
-            self.assertTrue(eTree.hasErrors())
+            self.assertTrue(eTree.getErrors())
             eTree = ValidationTree(e_main)
             e_main.checkIfChangesAreAuthorized(e_other, gitUSA, eTree)
-            self.assertFalse(eTree.hasErrors())
+            self.assertFalse(eTree.getErrors())
 
             e_main = e_other  # Promote definition less ecosystem to main ecosystem
             e_other = copy.deepcopy(e_main)
@@ -208,11 +208,11 @@ class TestEcoNameChange(unittest.TestCase):
 
             eTree = ValidationTree(e_main)
             e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
-            self.assertFalse(eTree.hasErrors())
+            self.assertFalse(eTree.getErrors())
 
             eTree = ValidationTree(e_main)
             e_main.checkIfChangesAreAuthorized(e_other, gitUSA, eTree)
-            self.assertTrue(eTree.hasErrors())
+            self.assertTrue(eTree.getErrors())
 
     def test_checkZoneAddition(self):
 
@@ -228,12 +228,12 @@ class TestEcoNameChange(unittest.TestCase):
         # eco repo can add a zone authorization
         eTree: ValidationTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # check that other repo cannot add a zone authorization
         eTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitChina, eTree)
-        self.assertTrue(eTree.hasErrors())
+        self.assertTrue(eTree.getErrors())
 
         # promote the ecosystem to main
         e_main = e_other
@@ -246,12 +246,12 @@ class TestEcoNameChange(unittest.TestCase):
         # Check the china repo CAN add the zone definition
         eTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitChina, eTree)
-        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.getErrors())
 
         # Check the eco repo CANNOT add the zone definition
         eTree = ValidationTree(e_main)
         e_main.checkIfChangesAreAuthorized(e_other, gitMain, eTree)
-        self.assertTrue(eTree.hasErrors())
+        self.assertTrue(eTree.getErrors())
 
     def test_changes_are_authorized(self):
         #        e_main: Ecosystem = tests.nwdb.eco.createEcosystem()

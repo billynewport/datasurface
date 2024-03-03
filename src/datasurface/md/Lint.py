@@ -134,25 +134,26 @@ class ValidationTree:
         """This adds a problem to this object"""
         self.problems.append(problem)
 
-    def hasErrors(self) -> bool:
+    def getErrors(self) -> list[ValidationProblem]:
         """This returns true if this object or any of its children have ERROR severity problems"""
+        rc: list[ValidationProblem] = []
+
         for problem in self.problems:
             if (problem.sev == ProblemSeverity.ERROR):
-                return True
+                rc.append(problem)
         for child in self.children:
-            if (child.hasErrors()):
-                return True
-        return False
+            rc.extend(child.getErrors())
+        return rc
 
-    def hasIssues(self) -> bool:
+    def getWarnings(self) -> list[ValidationProblem]:
         """This returns true if this object or any of its children have non ERROR severity problems"""
+        rc: list[ValidationProblem] = []
         for problem in self.problems:
             if (problem.sev != ProblemSeverity.ERROR):
-                return True
+                rc.append(problem)
         for child in self.children:
-            if (child.hasIssues()):
-                return True
-        return False
+            rc.extend(child.getWarnings())
+        return rc
 
     def checkTypeMatches(self, obj: object, *expectedType: type) -> bool:
         """Returns true if any type matches, false if not and adds a problem"""
@@ -167,7 +168,7 @@ class ValidationTree:
         """This prints the tree of objects"""
         self.numErrors = 0
         self.numWarnings = 0
-        if (self.hasErrors() or self.hasIssues()):  # If something to see here or in the children then
+        if (self.getErrors() or self.getWarnings()):  # If something to see here or in the children then
             print(" " * indent, self.object)
             for problem in self.problems:
                 print(" " * (indent + 2), str(problem))
