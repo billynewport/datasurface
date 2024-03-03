@@ -99,3 +99,18 @@ git push origin eco_edits
 This will then trigger the original pull request to try again and the checks will run again. If the checks pass then the pull request can be merged. If the checks fail then the pull request will not be merged and the checks will need to be fixed.
 
 If someone attempts to make these changes from a different branch of repository then those changes will be rejected by the checks on the pull request. Top level changes to the eco-model can only be made using pull requests from the configured repository for the Ecosystem.
+
+## Making further changes to ecosystem
+
+This is slightly different from the initial step as we were cloning the system from the datasurfacetemplate repository. At this point, we have our own repository in test-surface. So, when we make changes, we clone that, make the changes in the eco_edits branch and then push them to the main branch. We can then make a pull request to the main branch to get the changes live.
+
+```shell
+We will add an Azure Dataplatform and make it the default. We will also add a GovernanceZome to create an simple complete Ecosystem model.
+
+cd ~/models/AcmeEcoMain
+git clone https://www.github.com/billynewport/test-surface
+```
+
+This creates a test-surface folder containing the current live branch of the ecosystem model. We can now edit the eco.py file to add the AzureDataplatform and a GovernanceZone.
+
+```python

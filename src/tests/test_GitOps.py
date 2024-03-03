@@ -121,6 +121,12 @@ class TestRepository(unittest.TestCase):
         self.assertEqual(gdoc2.documentation, PlainTextDocumentation("Test2"))
         self.assertNotEqual(gdoc.documentation, gdoc2.documentation)
 
+        g = GitHubRepository("billynewport/testsurface", "eco_edits")
+        g2 = GitHubRepository("billynewport/test-surface", "eco_edits")
+
+        self.assertNotEqual(g, g2)
+        self.assertNotEqual(g2, g)
+
 
 if __name__ == '__main__':
     unittest.main()

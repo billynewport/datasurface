@@ -1,9 +1,10 @@
 import copy
 from typing import Optional
 import unittest
+from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 
-from datasurface.md.Governance import Ecosystem, GovernanceZone, Repository
+from datasurface.md.Governance import CloudVendor, Ecosystem, GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 from datasurface.md.Lint import ValidationTree
 import tests.nwdb.eco
@@ -46,6 +47,43 @@ class TestEcoNameChange(unittest.TestCase):
         self.assertFalse(eTree.hasErrors())
 
         # reset
+
+    def test_EcoRepositoryWrong(self):
+        eco1: Ecosystem = Ecosystem(
+            "AcmeEco",
+            GitHubRepository("billynewport/testsurface", "eco_edits")
+            )
+
+        eco2 = Ecosystem(
+            "AcmeEco",
+            GitHubRepository("billynewport/testsurface", "eco_edits"),
+            InfrastructureVendor(
+                "Azure",
+                CloudVendor.AZURE,
+                PlainTextDocumentation("Microsoft Azure"),
+                InfrastructureLocation(
+                    "USA",
+                    InfrastructureLocation(
+                        "Central",
+                        InfrastructureLocation("Central US"),  # Iowa
+                        InfrastructureLocation("North Central US"),  # Illinois
+                        InfrastructureLocation("South Central US"),  # Texas
+                        InfrastructureLocation("West Central US")),  # Wyoming
+                    InfrastructureLocation(
+                        "East",
+                        InfrastructureLocation("East US"),  # Virginia
+                        InfrastructureLocation("East US 2"),  # Virginia
+                        InfrastructureLocation("East US 3")),  # Georgia
+                    InfrastructureLocation(
+                        "West",
+                        InfrastructureLocation("West US"),  # California
+                        InfrastructureLocation("West US 2"),  # Washington
+                        InfrastructureLocation("West US 3")))  # Arizona
+                )
+            )
+
+        tree: ValidationTree = eco1.checkIfChangesCanBeMerged(eco2, GitHubRepository("billynewport/test-surface", "eco_edits"))
+        self.assertTrue(tree.hasErrors())
 
     def test_TeamAuthorization(self):
         """Test that a team can be added to a zone by the gz owning repo, but not by another repo"""

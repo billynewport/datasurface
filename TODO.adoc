@@ -1,8 +1,3 @@
 
 
-* Should gz classification check vet producer datasets also
-* Update docs about gz policies
-* Make docker container to run action handler
-* GZ Vendor and Location policies check use of their Datasets in other GZ Workspaces
-
-* Need to make sure pull requests cannot change non py artifacts in main repo
+* Somehow I managed to make changes from test-surface/eco_edits when the model was set to testsurface/eco_edits.

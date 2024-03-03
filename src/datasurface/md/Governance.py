@@ -1455,7 +1455,9 @@ class Ecosystem(GitControlledObject):
 
     def __eq__(self, proposed: object) -> bool:
         if super().__eq__(proposed) and isinstance(proposed, Ecosystem):
-            return self.name == proposed.name and self.zones == proposed.zones and self.key == proposed.key
+            return self.name == proposed.name and self.zones == proposed.zones and self.key == proposed.key and \
+                self.vendors == proposed.vendors and self.dataPlatforms == proposed.dataPlatforms and \
+                self.defaultDataPlatform == proposed.defaultDataPlatform
         else:
             return False
 
