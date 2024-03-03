@@ -21,7 +21,7 @@ from datasurface.md.GitOps import GitHubRepository
 def createEcosystem() -> Ecosystem:
     return Ecosystem(
         "AcmeEco",
-        GitHubRepository("billynewport/testsurface", "eco_edits")
+        GitHubRepository("billynewport/test-surface", "eco_edits")
         )
 ```
 
@@ -50,7 +50,7 @@ from datasurface.md.Documentation import PlainTextDocumentation
 def createEcosystem() -> Ecosystem:
     return Ecosystem(
         "AcmeEco",
-        GitHubRepository("billynewport/testsurface", "eco_edits"),
+        GitHubRepository("billynewport/test-surface", "eco_edits"),
         InfrastructureVendor(
             "Azure",
             CloudVendor.AZURE,
