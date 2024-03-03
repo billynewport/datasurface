@@ -96,6 +96,12 @@ class ProductionDatastoreMustHaveClassifications(ValidationProblem):
         super().__init__(f"Production Datastore {store} has a dataset {dataset} with missing DataClassifications", ProblemSeverity.ERROR)
 
 
+class UnknownChangeSource(ValidationProblem):
+    """This indicates an unknown change source"""
+    def __init__(self, obj: object, sev: ProblemSeverity) -> None:
+        super().__init__(f"Unknown change source {obj}", sev)
+
+
 class ValidationTree:
     """This is a tree of issues found while running a set of checks against the model. It is used to collect issues. Each node in the
     tree represents an object in the model. Each node can list a set of issues found with that node"""

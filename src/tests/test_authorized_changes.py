@@ -6,7 +6,7 @@ from datasurface.md.GitOps import GitHubRepository
 
 from datasurface.md.Governance import CloudVendor, Ecosystem, GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Lint import UnknownChangeSource, ValidationTree
 import tests.nwdb.eco
 import tests.nwdb.nwdb
 
@@ -173,6 +173,14 @@ class TestEcoNameChange(unittest.TestCase):
         eTree = ValidationTree(eco_base)
         eco_base.checkIfChangesAreAuthorized(e_head, eco_base.owningRepo, eTree)
         self.assertTrue(eTree.hasErrors())
+
+    # Check that changeSources which are unknown are detected
+    def test_checkUnknownChangeSource(self):
+        e_main: Ecosystem = tests.nwdb.eco.createEcosystem()
+        repo: Repository = GitHubRepository("unknown", "unknown")  # Defined an unknown repo/changeSource
+        tree: ValidationTree = ValidationTree(e_main)
+        e_main.checkIfChangeSourceIsUsed(repo, tree)
+        self.assertTrue(tree.containsProblemType(UnknownChangeSource))
 
     def test_checkZoneRemoval(self):
         # Check that a gz can only be removed by the gz owning repo

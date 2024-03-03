@@ -17,7 +17,7 @@ from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsExcepti
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, WorkspaceDoesntExistException
 from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
-        UnauthorizedAttributeChange, ProblemSeverity, UnknownObjectReference, ValidationTree
+        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationTree
 
 
 class ProductionStatus(Enum):
@@ -1537,6 +1537,22 @@ class Ecosystem(GitControlledObject):
             if originZone:
                 zone.isBackwardsCompatibleWith(originZone, zTree)
 
+    # Check that the changeSource is one of the authorized sources
+    def checkIfChangeSourceIsUsed(self, changeSource: Repository, tree: ValidationTree) -> None:
+        # First, gather all the repositories used by the parts in a set
+        allSources: set[Repository] = set()
+        allSources.add(self.owningRepo)
+        # All declared zones
+        for zone in self.zones.authorizedNames.values():
+            allSources.add(zone.owningRepo)
+        # Any teams for defined zones.
+        for zone in self.zones.authorizedObjects.values():
+            for team in zone.teams.authorizedObjects.values():
+                allSources.add(team.owningRepo)
+        # Now, just check if the changeSource is in the set
+        if changeSource not in allSources:
+            tree.addRaw(UnknownChangeSource(changeSource, ProblemSeverity.ERROR))
+
     def checkIfChangesCanBeMerged(self, proposed: 'Ecosystem', source: Repository) -> ValidationTree:
         """This is called to check if the proposed changes can be merged in to the current ecosystem. It returns a ValidationTree with issues if not
         or an empty ValidationTree if allowed."""
@@ -1546,6 +1562,11 @@ class Ecosystem(GitControlledObject):
 
         # Any errors make us fail immediately
         # But we want warnings and infos to accumulate for the caller
+        if eTree.hasErrors():
+            return eTree
+
+        # Check if the changeSource is one of the authorized sources
+        self.checkIfChangeSourceIsUsed(source, eTree)
         if eTree.hasErrors():
             return eTree
 

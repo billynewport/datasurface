@@ -213,6 +213,9 @@ class GitHubRepository(Repository):
         else:
             return False
 
+    def __hash__(self) -> int:
+        return hash(self.repositoryName) + hash(self.branchName)
+
     def __str__(self) -> str:
         return f"GitRepository({self.repositoryName}/{self.branchName})"
 

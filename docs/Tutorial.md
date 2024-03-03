@@ -1,8 +1,8 @@
 # Creating the initial ecosystem model
 
-DataSurface has a starter repository which can be cloned to get started. It's located [here](http://www.github.com/billynewport/datasurfacetemplate). To get started, we need to make a new github repository which will contain the live version of our ecosystem model.
+DataSurface has a starter repository which can be cloned to get started. It's located [here](http://www.github.com/billynewport/datasurfacetemplate). To get started, we need to make a new github repository which will contain the live version of your ecosystem model.
 
-The is named http://www.github.com/billynewport/test-surface in this tutorial. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty repository. Next, we will clone the starter repository and then push it to the new repository.
+This is named http://www.github.com/billynewport/test-surface in this tutorial. Please use the your repository names. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty git repository. Next, we will clone the starter repository and then push it to this repository.
 
 ```shell
 mkdir ~/models
