@@ -87,6 +87,9 @@ def createEcosystem() -> Ecosystem:
 This defines a vendor called Azure with 3 geographic regions Central, East and West. These regions contain the vendor locations. The leaf infralocations should be named exactly after the vendors locations. The region location names are model names and present for our information only. We can now check in these changes from the eco_edits branch to the main branch.
 
 ```shell
+cd ~/models/AcmeEcoMain
+git clone https://www.github.com/billynewport/test-surface
+cd test-surface
 # Use your favorite editor to make the above changes to eco.py
 git add .
 git commit -m "Added Azure vendor and locations"
@@ -97,6 +100,9 @@ git push origin eco_edits
 Next, head to github.com and make a pull request from the eco_edits branch to the main branch. The github checks will run that were added from the starter project. These check that there are no syntax errors in the eco.py file, that the pull request only contains .py files and that the changes are valid/self consistent and are compatible with the existing model. If these checks fail then you can perform the following steps to fix the issues so that the checks will succeed.
 
 ```shell
+cd ~/models/AcmeEcoMain
+git clone https://www.github.com/billynewport/test-surface
+cd test-surface
 # Edit the eco.py file and fix the issues
 git add .
 git commit -m "Fixed the issues"
@@ -121,3 +127,6 @@ git clone https://www.github.com/billynewport/test-surface
 This creates a test-surface folder containing the current live branch of the ecosystem model. We can now edit the eco.py file to add the AzureDataplatform and a GovernanceZone.
 
 ```python
+```
+
+In progress,,,
