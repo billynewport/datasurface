@@ -2,7 +2,7 @@
 
 DataSurface has a starter repository which can be cloned to get started. It's located [here](http://www.github.com/billynewport/datasurfacetemplate). To get started, we need to make a new github repository which will contain the live version of your ecosystem model.
 
-This is named http://www.github.com/billynewport/test-surface in this tutorial. Please use the your repository names. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty git repository. Next, we will clone the starter repository and then push it to this repository.
+This is named http://www.github.com/billynewport/test-surface in this tutorial. Please use your repository names. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty git repository. Next, we will clone the starter repository and then push it to this repository.
 
 ```shell
 mkdir ~/models
@@ -11,7 +11,7 @@ cd ~/models/AcmeEcoMain
 git clone https://www.github.com/billynewport/datasurfacetemplate
 ```
 
-This clones the repository in to the datasurfacetemplate folder in the current directory (~/models/AcmeEcoMain). Next, we need to edit the eco.py file to change the main repository for the model to this repository.
+This clones the repository in to the datasurfacetemplate folder in the current directory (~/models/AcmeEcoMain). Next, we need to edit the eco.py file to change the main repository for the model to this repository. The datasurfacetemplate folder is just for this initial seeding. Once, this is checked in to your repository then the name of your own repository will be used as you will be cloning from that repository after setup.
 
 ```python
 from datasurface.md.Governance import Ecosystem
