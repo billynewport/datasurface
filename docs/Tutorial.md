@@ -36,6 +36,13 @@ git push origin main
 
 At this point, we have the main branch of the test-surface repository initialize with a brand new empty ecosystem model which allows changes via pull requests from the eco_edits branch of the same repository.
 
+## General procedure to make changes
+
+From now on, we will make changes to the ecosystem using the eco_edits branch. We will clone the current live model, make the changes in the eco_edits branch and then push them to the main branch. We can then make a pull request to the main branch to get the changes live. When the pull request is approved and merged then we can delete the eco_edits branch and the cycle is complete. We repeat these steps for each change to the ecosystem.
+
+Likewise, for changes to different parts of the model which have their own repository or branch, we do the same thing. Clone to the edits branch of the specified repository for that part of the model. Make the changes, push the changes back to the edit branch and then make a pull request to the test-surface/main repository.
+
+
 ## Adding a vendor and some locations
 
 An Ecosystem has storage and compute infrastructure which can be provided by many vendors using any locations those vendors support. We will add an Azure vendor with two locations, East US and West US.
