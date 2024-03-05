@@ -1,5 +1,7 @@
 # Workspaces
 
+Workspaces are the metadata a consumer of data creates within the ecosystem model. They are the key to the system. If there were no consumers, then datasurface would have nothing to do, no data to move. DataSurface works backwards from Workspaces towards data producers to identify all the data producers and data transformers needed to provide the data specified in a Workspace to the consumer.
+
 A consumer of data of an ecosystem must define a Workspace within a Team within a GovernanceZone. Users can choose to have Teams for managing just workspaces or Teams which manage Datastores and Workspaces, its a choice.
 
 A consumer uses a Workspace to define the data that they require as well as how they want the data to be delivered to them. A consumer describes the delivery requirements of the workspace using a WorkspacePlatformConfig. This allows the consumer to specify:
