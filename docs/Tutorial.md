@@ -113,7 +113,7 @@ This will then trigger the original pull request to try again and the checks wil
 
 If someone attempts to make these changes from a different branch of repository then those changes will be rejected by the checks on the pull request. Top level changes to the eco-model can only be made using pull requests from the configured repository for the Ecosystem.
 
-## Making further changes to ecosystem
+## Making further changes to ecosystem, lets define a GovernanceZone 'GZ'
 
 This is slightly different from the initial step as we were cloning the system from the datasurfacetemplate repository. At this point, we have our own repository in test-surface. So, when we make changes, we clone that, make the changes in the eco_edits branch and then push them to the main branch. We can then make a pull request to the main branch to get the changes live.
 
@@ -121,12 +121,67 @@ This is slightly different from the initial step as we were cloning the system f
 We will add an Azure Dataplatform and make it the default. We will also add a GovernanceZome to create an simple complete Ecosystem model.
 
 cd ~/models/AcmeEcoMain
+rm -rf test-surface
 git clone https://www.github.com/billynewport/test-surface
 ```
 
 This creates a test-surface folder containing the current live branch of the ecosystem model. We can now edit the eco.py file to add the AzureDataplatform and a GovernanceZone.
 
 ```python
+from datasurface.md.Governance import Ecosystem
+from datasurface.md.GitOps import GitHubRepository
+from datasurface.md.Governance import CloudVendor, InfrastructureLocation, InfrastructureVendor, DefaultDataPlatform, GovernanceZoneDeclaration
+from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md.Azure import AzureBatchDataPlatform, AzureKeyVaultCredential
+
+
+def createEcosystem() -> Ecosystem:
+    return Ecosystem(
+        "AcmeEco",
+        GitHubRepository("billynewport/test-surface", "eco_edits"),
+        InfrastructureVendor(
+            "Azure",
+            CloudVendor.AZURE,
+            PlainTextDocumentation("Microsoft Azure"),
+            InfrastructureLocation(
+                "USA",
+                InfrastructureLocation(
+                    "Central",
+                    InfrastructureLocation("Central US"),  # Iowa
+                    InfrastructureLocation("North Central US"),  # Illinois
+                    InfrastructureLocation("South Central US"),  # Texas
+                    InfrastructureLocation("West Central US")),  # Wyoming
+                InfrastructureLocation(
+                    "East",
+                    InfrastructureLocation("East US"),  # Virginia
+                    InfrastructureLocation("East US 2"),  # Virginia
+                    InfrastructureLocation("East US 3")),  # Georgia
+                InfrastructureLocation(
+                    "West",
+                    InfrastructureLocation("West US"),  # California
+                    InfrastructureLocation("West US 2"),  # Washington
+                    InfrastructureLocation("West US 3")))),  # Arizona
+            DefaultDataPlatform(
+                AzureBatchDataPlatform(
+                    "AzureBatch",
+                    PlainTextDocumentation("Azure Batch"),
+                    AzureKeyVaultCredential("keyvault", "mysecret"))),
+            GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
+        )
 ```
 
-In progress,,,
+This defines a default data platform and a governance zone. The default data platform is an AzureBatchDataPlatform with a key vault credential. The governance zone is named GZ and is owned by the test-surface repository. We can now check in these changes from the eco_edits branch to the main branch.
+
+```shell
+cd ~/models/AcmeEcoMain
+# Make the changes to eco.py above
+git add .
+git commit -m "Added AzureBatchDataPlatform and GovernanceZone"
+git checkout -b eco_edits
+git push origin eco_edits
+```
+
+Now, we can do the pull request on github.com. The checks will run and if they pass then the pull request can be merged. If they fail then the pull request will not be merged and the checks will need to be fixed.
+
+At this point, we have an Ecosystem "AcmeEco" defined. A single vendor with some locations for Azure. A single batch Azure DataPlatform added which is the default also. Lastly, a single GovernanceZone "GZ". This is where we will focus from now on. We will add a Team to the GovernanceZone and then create a data producer (data available using CDC in a managed SQL Server database) whose data we want to use and a single consumer that wants to use that data in a Lakehouse using a python notebook.
+
