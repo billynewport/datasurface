@@ -95,3 +95,7 @@ Next, the incoming model is checked that the pieces of the incoming model which 
 Finally, the incoming model is checked that its backwards compatible with the existing model. This means that the incoming model can add new things but it cannot remove things or change things in a way that would break the existing model. For example, a dataset can add new columns but it cannot remove columns. It can also change column types to compatible types, widening strings for example, widing numeric types and so on.
 
 If all 3 of these checks pass then the incoming change is allowed to merge with the main Ecosystem repository. If any of these checks fail then the pull request is rejected with comments indicating whats wrong.
+
+## Worked example tutorial
+
+You can find a tutorial on getting started [here](Tutorial.md)
