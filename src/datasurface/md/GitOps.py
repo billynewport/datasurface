@@ -55,9 +55,9 @@ class GitControlledObject(ABC, Documentable):
             return True
         rc: bool = self.owningRepo == proposed.owningRepo
         if not rc:
-            tree.addProblem(f"{self} changed owning repo")
+            tree.addRaw(RepositoryNotAuthorizedToMakeChanges(self.owningRepo, self.owningRepo, changeSource))
         if (self.documentation != proposed.documentation):
-            tree.addProblem(f"{self} changed documentation")
+            tree.addRaw(RepositoryNotAuthorizedToMakeChanges(self.owningRepo, self.documentation, changeSource))
             rc = False
         return rc
 
@@ -105,7 +105,7 @@ class GitControlledObject(ABC, Documentable):
             obj: Optional[GitControlledObject] = current[key]
             if (obj.owningRepo != changeSource):
                 vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
-                    obj.owningRepo, 
+                    obj.owningRepo,
                     f"Key {key} has been deleted",
                     changeSource))
 
