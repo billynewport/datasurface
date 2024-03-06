@@ -1,10 +1,11 @@
 import copy
 from typing import Optional
 import unittest
+from datasurface.md.Azure import AzureBatchDataPlatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 
-from datasurface.md.Governance import CloudVendor, Ecosystem, GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
+from datasurface.md.Governance import CloudVendor, DefaultDataPlatform, Ecosystem, GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 from datasurface.md.Lint import UnknownChangeSource, ValidationTree
 import tests.nwdb.eco
@@ -83,6 +84,82 @@ class TestEcoNameChange(unittest.TestCase):
             )
 
         tree: ValidationTree = eco1.checkIfChangesCanBeMerged(eco2, GitHubRepository("billynewport/test-surface", "eco_edits"))
+        self.assertTrue(tree.getErrors())
+
+    def test_GZCannotBeDefinedFromEcoBranch(self):
+
+        eOriginal: Ecosystem = Ecosystem(
+            "AcmeEco",
+            GitHubRepository("billynewport/test-surface", "eco_edits"),
+            InfrastructureVendor(
+                "Azure",
+                CloudVendor.AZURE,
+                PlainTextDocumentation("Microsoft Azure"),
+                InfrastructureLocation(
+                    "USA",
+                    InfrastructureLocation(
+                        "Central",
+                        InfrastructureLocation("Central US"),  # Iowa
+                        InfrastructureLocation("North Central US"),  # Illinois
+                        InfrastructureLocation("South Central US"),  # Texas
+                        InfrastructureLocation("West Central US")),  # Wyoming
+                    InfrastructureLocation(
+                        "East",
+                        InfrastructureLocation("East US"),  # Virginia
+                        InfrastructureLocation("East US 2"),  # Virginia
+                        InfrastructureLocation("East US 3")),  # Georgia
+                    InfrastructureLocation(
+                        "West",
+                        InfrastructureLocation("West US"),  # California
+                        InfrastructureLocation("West US 2"),  # Washington
+                        InfrastructureLocation("West US 3")))),  # Arizona
+                DefaultDataPlatform(
+                    AzureBatchDataPlatform(
+                        "AzureBatch",
+                        PlainTextDocumentation("Azure Batch"),
+                        AzureKeyVaultCredential("keyvault", "mysecret"))),
+                GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
+            )
+
+        eProposed: Ecosystem = Ecosystem(
+            "AcmeEco",
+            GitHubRepository("billynewport/test-surface", "eco_edits"),
+            InfrastructureVendor(
+                "Azure",
+                CloudVendor.AZURE,
+                PlainTextDocumentation("Microsoft Azure"),
+                InfrastructureLocation(
+                    "USA",
+                    InfrastructureLocation(
+                        "Central",
+                        InfrastructureLocation("Central US"),  # Iowa
+                        InfrastructureLocation("North Central US"),  # Illinois
+                        InfrastructureLocation("South Central US"),  # Texas
+                        InfrastructureLocation("West Central US")),  # Wyoming
+                    InfrastructureLocation(
+                        "East",
+                        InfrastructureLocation("East US"),  # Virginia
+                        InfrastructureLocation("East US 2"),  # Virginia
+                        InfrastructureLocation("East US 3")),  # Georgia
+                    InfrastructureLocation(
+                        "West",
+                        InfrastructureLocation("West US"),  # California
+                        InfrastructureLocation("West US 2"),  # Washington
+                        InfrastructureLocation("West US 3")))),  # Arizona
+                DefaultDataPlatform(
+                    AzureBatchDataPlatform(
+                        "AzureBatch",
+                        PlainTextDocumentation("Azure Batch"),
+                        AzureKeyVaultCredential("myKeyVault", "mySecret"))),
+                GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
+            )
+        gz: GovernanceZone = eProposed.getZoneOrThrow("GZ")
+
+        gz.add(
+            TeamDeclaration("DemoTeam", GitHubRepository("billynewport/test-surface", "demoteam_edits"))
+            )
+
+        tree: ValidationTree = eOriginal.checkIfChangesCanBeMerged(eProposed, GitHubRepository("billynewport/test-surface", "eco_edits"))
         self.assertTrue(tree.getErrors())
 
     def test_TeamAuthorization(self):

@@ -78,14 +78,14 @@ def verifyPullRequest() -> ValidationTree:
             tree: ValidationTree = ecoMain.checkIfChangesCanBeMerged(ecoPR, prRepo)
 
             # Need to create github comments for top 20 problems and indicate if there are more
-            if (tree.getErrors()):
-                tree.printTree()
             return tree
 
 
 if __name__ == "__main__":
     tree: ValidationTree = verifyPullRequest()
-    tree.printTree()
+    tree.printTree()  # Print any errors or warnings
+
+    # If errors then exit with a 1 to fail the check
     if (tree.getErrors()):
         sys.exit(1)
     else:

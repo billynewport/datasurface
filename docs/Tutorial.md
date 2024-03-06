@@ -185,3 +185,98 @@ Now, we can do the pull request on github.com. The checks will run and if they p
 
 At this point, we have an Ecosystem "AcmeEco" defined. A single vendor with some locations for Azure. A single batch Azure DataPlatform added which is the default also. Lastly, a single GovernanceZone "GZ". This is where we will focus from now on. We will add a Team to the GovernanceZone and then create a data producer (data available using CDC in a managed SQL Server database) whose data we want to use and a single consumer that wants to use that data in a Lakehouse using a python notebook.
 
+## Switching to gz_edits branch, defining our Team.
+
+We just added a GovernanceZone which allows edits from the gz_edits branch. We cannot change the GovernanceZone using the eco_edits branch. We can try here to show that changes to the zone are rejected by the checks.
+
+First, lets grab the model so we can edit it.
+
+```shell
+cd ~/models/AcmeEcoMain
+rm -rf test-surface
+git clone https://www.github.com/billynewport/test-surface
+cd test-surface
+# Edit the eco.py file as follows
+```
+
+```python
+from datasurface.md.Governance import Ecosystem
+from datasurface.md.GitOps import GitHubRepository
+from datasurface.md.Governance import CloudVendor, InfrastructureLocation, InfrastructureVendor, DefaultDataPlatform, GovernanceZoneDeclaration
+from datasurface.md.Governance import GovernanceZone, TeamDeclaration
+from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md.Azure import AzureBatchDataPlatform, AzureKeyVaultCredential
+
+
+def createEcosystem() -> Ecosystem:
+    e: Ecosystem = Ecosystem(
+        "AcmeEco",
+        GitHubRepository("billynewport/test-surface", "eco_edits"),
+        InfrastructureVendor(
+            "Azure",
+            CloudVendor.AZURE,
+            PlainTextDocumentation("Microsoft Azure"),
+            InfrastructureLocation(
+                "USA",
+                InfrastructureLocation(
+                    "Central",
+                    InfrastructureLocation("Central US"),  # Iowa
+                    InfrastructureLocation("North Central US"),  # Illinois
+                    InfrastructureLocation("South Central US"),  # Texas
+                    InfrastructureLocation("West Central US")),  # Wyoming
+                InfrastructureLocation(
+                    "East",
+                    InfrastructureLocation("East US"),  # Virginia
+                    InfrastructureLocation("East US 2"),  # Virginia
+                    InfrastructureLocation("East US 3")),  # Georgia
+                InfrastructureLocation(
+                    "West",
+                    InfrastructureLocation("West US"),  # California
+                    InfrastructureLocation("West US 2"),  # Washington
+                    InfrastructureLocation("West US 3")))),  # Arizona
+            DefaultDataPlatform(
+                AzureBatchDataPlatform(
+                    "AzureBatch",
+                    PlainTextDocumentation("Azure Batch"),
+                    AzureKeyVaultCredential("keyvault", "mysecret"))),
+            GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
+        )
+    gz: GovernanceZone = e.getZoneOrThrow("GZ")
+
+    gz.add(
+        TeamDeclaration("DemoTeam", GitHubRepository("billynewport/test-surface", "demoteam_edits"))
+    )
+
+    return e
+
+```
+
+Here, we change it a little. We stash the model in a variable e. We then get the GovernanceZone "GZ". At this point, it's now being defined by making this call. This call can only be made from the gz_edits branch. We will try to check in the model using the eco_edits branch and see what happens.
+
+```shell
+cd ~/models/AcmeEcoMain
+git add .
+git commit -m "Added DemoTeam to GZ"
+git checkout -b eco_edits
+git push origin eco_edits
+```
+
+The pull request will fail checks with the following error in the "Run Check Script" section:
+
+```text
+ Ecosystem(AcmeEco)
+   AuthorizedObjectManager(zones)
+     ERROR:Key GZ has been added by an unauthorized source
+Total errors: 1, warnings: 0
+```
+
+Lets try again with the edits in the gz_edits branch. Lets just switch branches and push it up and make a pull request.
+
+```shell
+cd ~/models/AcmeEcoMain
+cd test-surface
+git checkout -b gz_edits
+git push origin gz_edits
+```
+
+Now, we can do the pull request on github.com. The checks will run and if they pass then the pull request can be merged. If they fail then the pull request will not be merged and the checks will need to be fixed.
