@@ -31,7 +31,7 @@ class Repository(ABC, Documentable):
 class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
     """This indicates a repository is not authorized to make changes"""
     def __init__(self, owningRepo: Repository, obj: object, changeSource: Repository) -> None:
-        super().__init__(f"{obj} owned by {owningRepo} cannot be changed by repo {changeSource}", ProblemSeverity.ERROR)
+        super().__init__(f"'{obj}' owned by {owningRepo} cannot be changed by repo {changeSource}", ProblemSeverity.ERROR)
 
 
 class GitControlledObject(ABC, Documentable):
@@ -104,13 +104,19 @@ class GitControlledObject(ABC, Documentable):
             # Check if the object was deleted by the authoized change source
             obj: Optional[GitControlledObject] = current[key]
             if (obj.owningRepo != changeSource):
-                vTree.addProblem(f"Key {key} has been deleted by an unauthorized source")
+                vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
+                    obj.owningRepo, 
+                    f"Key {key} has been deleted",
+                    changeSource))
 
         for key in added_keys:
             # Check if the object was added by the specified change source
             obj: Optional[GitControlledObject] = proposed[key]
             if (obj.owningRepo != changeSource):
-                vTree.addProblem(f"Key {key} has been added by an unauthorized source")
+                vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
+                    obj.owningRepo,
+                    f"Key {key} has been added",
+                    changeSource))
 
         # Now check each common object for changes
         common_keys: set[str] = current_keys.intersection(proposed_keys)
