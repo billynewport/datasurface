@@ -28,3 +28,7 @@ For more information on different aspects of the system see the following docume
 ## Commands to make a set of changes
 
 You can find a tutorial on getting started [here](Tutorial.md)
+
+## DataSurface Performance
+
+Here, we try to identify the performance aspects of DataSurface. We will consider the performance of the DataSurface model validation, the CI/CD speeds, the DataPlatform performance and the DataPlatform monitoring. For more information see [Performance](Performance.md)

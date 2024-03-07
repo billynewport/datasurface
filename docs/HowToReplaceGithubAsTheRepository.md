@@ -1,6 +1,8 @@
 # Using DataSurface with other repositories
 
-DataSurface is largely independent of GitHub. It's very loosely coupled to GitHub. There is a Repository base class in the model. This has a subclass GitHubRepository. Another subclass can be easily added for a different repository. The code for check incoming pull requests for authorization, backwards compatibility, consistency and so on is independent of GitHub and works with Repository objects.
+DataSurface is independent of GitHub. It has a provided GitHub plugin which allows it to integrate with the GitHub CI/CD mechanisms. Any CI/CD capable repository can be similarly used with DataSurface. 
+
+There is a Repository base class in the model. This has a subclass GitHubRepository. Another subclass can be easily added for a different repository. The code for check incoming pull requests for authorization, backwards compatibility, consistency and so on is independent of GitHub and works with Repository objects.
 
 DataSurface comes with a github action handlers and workflow yaml files but these can be replaced with any other CI/CD system. Those files are just a convenience for GitHub users.
 
