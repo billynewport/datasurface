@@ -9,6 +9,8 @@ from datasurface.md.Lint import ValidationTree
 
 
 class GitHubCICD(RespositorywithCICD):
+    """This is the GitHub implementation of the RespositorywithCICD class together
+    with a main method which is the entry point for the GitHub action"""
     # This is a GitHub implementation of RespositorywithCICD
     def __init__(self, name: str):
         super().__init__(name)
@@ -22,6 +24,8 @@ class GitHubCICD(RespositorywithCICD):
         return super().__hash__()
 
     def createRepositoryForPullRequestRepo(self) -> Repository:
+        """This creates a GitHubRepository instance representing the GitHub pull request in progress.
+        It uses the environment variables provided by the GitHubCICD environment"""
         head_Repository: Optional[str] = os.environ.get('HEAD_REPOSITORY')
         head_Branch: Optional[str] = os.environ.get('HEAD_BRANCH')
         if (head_Repository is None or head_Branch is None):
