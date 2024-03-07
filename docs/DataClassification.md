@@ -9,9 +9,17 @@ How can a firm have multiple data classification systems?
 
 When defining a new data classification scheme, thinking about automatic conversions from the old to the new is important. Thinking about how long a data classification scheme lasts in terms of months/years is important also. The firm should have a policy of how often such a migration will be tolerated as part of a contract with producers/consumers using the catalog.
 
-## Data classification types
+## How DataSurface treats DataClassification
 
-Data classifications are per attribute/column. They specify the privacy level of that column.
+Given this reality, flexibility on how classification is done is key. It's possible to associate multiple DataClassifications with model elements as a result. This allows for a smooth transition from one classification scheme to another. It also allows for the coexistence of multiple classification schemes.
+
+DataSurface allows data classifications to be specified at both the Dataset level as well as optionally at the attribute level. If it has been specified at the Dataset level then attribute level classifications are not allowed.
+
+The DataClassification class is the basis for DataSurface classification. Model attributes and datasets can be associated with zero or more of these. There will be subclasses of DataClassification which will be used to define the specific classification schemes used by the enterprise. 
+
+## SimpleDC, the builtin DataClassification
+
+DataSurface provides a default classification called SimpleDC. SimpleDC allows an enum and a string to be specified. The enum has the following values for commonly used classification levels:
 
 * PUB
 * IP
@@ -22,34 +30,7 @@ Data classifications are per attribute/column. They specify the privacy level of
 * MNPI
 * PC3
 
-### PUB or Public data
-
-This is the least restrictive data classification. Data tagged with this can be freely shared
-
-### IP Internally Public
-
-This is data that can be shared throughout an enterprise but not disclosed publicly outside the enterprise
-
-### PC1 Personal connfidential information
-
-### PC2
-
-The is more sensitive that PC1. Names, address, email addresses and telephone numbers.
-
-### CPI
-
-This is corporate information which can be shared within an enterprise on a need to know basis.
-
-### MNPI Non materiel public information
-
-This is data about public companies which is known to the enterprise but cannot be disclosed publicly. This data should be shared within the enterprise
-on a need to know basis.
-
-### CSI
-
-### PC3
-
-This is personal confidential information such as bank account numbers, credit card numbers, passport or national identity data, social security numbers.
+There is also a string to indicate more context. For example, a PC3 SimpleDC might have a string of "SSN" to indicate that the PC3 data is Social Security Numbers. This provides more context than simply saying PC3.
 
 ## Associating a set of DataClassifications with an element
 
@@ -64,3 +45,5 @@ Schemas are collections of records with identical schemas. The attributes/column
 ## Governance Zone Classification Policies
 
 Governance Zones own teams which own Datastore/datasets. A Governance Zone can specify a DataClassificationPolicy which can control which types of data can be stored within the zone. This allows a Governance Zone to specify that (PC1,PC2,PC3) tagged attributes are not allowed. Governance Zones can also limit vendors whose products store data. For example, a Governance Zone may be defined to restrict the storage of PC1,PC2,PC3 data to internal servers only. Those teams/datastores defined within such a Zone are impacted by the Zone policy. A firm might setup two or more GovernanceZones to seperate data with different privacy levels.
+
+A firm may have 2 governance zones. One which can store any classification of data. But, it may have restrictions on the vendors used to store the data. The other governance zone can be configured to allow internal and cloud vendors. It can however forbid data with classifications of PC1,PC2,PC3. This means prevents data with PC1,PC2,PC3 classifications from being stored in the cloud. If a consumer needs these data sets then a masked version of those datasets must be produced by a datatransformer within the internal governance zone. The masked version can then be stored in the cloud.
