@@ -19,4 +19,3 @@ Next, file in src/datasurface/handler called pull-request.yml is what called the
 * If this action.py exists with non zero then the pull request is rejected.
 
 The action.py file needs some modification. It currently uses some github specific environment variables such as GITHUB_TOKEN and the name of the repository/branch for the incoming pull request. These are used to create a Repository object describing that pull request source. This would be changed to create an instance of the gitlab or bitbucket repository subclass.
-

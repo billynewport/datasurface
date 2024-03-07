@@ -1,12 +1,11 @@
 import os
-import sys
 import unittest
 
-from datasurface.handler.action import verifyPullRequest
+from datasurface.handler.action import RespositorywithCICD, GitHubCICD
 from datasurface.md.Lint import ValidationTree
 
 
-class Test_ActionHandler(unittest.TestCase):
+class Test_ActionHandlerForGitHub(unittest.TestCase):
     def test_ActionIterations(self):
         """This tries to start with a basic Ecosystem which defines 2 GZ and some resources. We then simulate a pull request to
         define the EU GZ and then the USA GZ. Finally we define the EU and USA teams and objects"""
@@ -34,16 +33,15 @@ class Test_ActionHandler(unittest.TestCase):
             print(f"Trying {baseFolder} -> {headFolder} with bad repo first")
             # first try a repository without permission to make change
             os.environ["HEAD_BRANCH"] = "BAD_BRANCH"
-            sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
-            tree: ValidationTree = verifyPullRequest()
+            cicd: RespositorywithCICD = GitHubCICD("GitHub")
+            tree: ValidationTree = cicd.verifyPullRequest(baseFolder, headFolder)
             tree.printTree()
             self.assertTrue(tree.getErrors())  # Should have errors
 
             # Now switch to correct branch authorized to make change
             os.environ["HEAD_BRANCH"] = step[2]
-            sys.argv = ["test_ActionHandler.py", baseFolder, headFolder]
             print(f"Trying {baseFolder} -> {headFolder} with good repo")
-            tree: ValidationTree = verifyPullRequest()
+            tree: ValidationTree = cicd.verifyPullRequest(baseFolder, headFolder)
             if (tree.getErrors()):
                 tree.printTree()
                 self.fail("Tree has errors")
