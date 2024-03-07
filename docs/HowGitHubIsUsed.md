@@ -1,4 +1,8 @@
-# How Data surface leverages GitHub
+# How Data surface leverages CI/CD capable repositories
+
+## This is not GitHub specific
+
+First thing to realize is that DataSurface will work with any CI/CD capable repository with minimal work. It currently provides a GitHub specific plugin but it's trivial to add more as needed.
 
 ## Data catalogs the old way
 
