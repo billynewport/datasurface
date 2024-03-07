@@ -17,15 +17,18 @@ The following represents a small intention graph. The Dataplatform has a single 
 
 This can be done using streaming or batch or forensic batch. The graph is just an intention graph.
 
-```text
-1. IngestionMultiNode/Ingest/Azure Platform/NW_Data
-2.  -> (  ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/customers
-3.  -> (    TriggerNode/TriggerMaskCustomersWorkSpace
-4.  -> (      DataTransformerNode/DataTransfomer/MaskCustomersWorkSpace
-5.  -> (        IngestionMultiNode/Ingest/Azure Platform/Masked_NW_Data
-6.  -> (          ExportNode/Export/Azure Platform/Test Azure SQL/Masked_NW_Data/customers)))),
-7.       ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/products,
-8.       ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/suppliers)
+```mermaid
+graph TD
+    A[IngestionMultiNode/Ingest/Azure Platform/NW_Data] -->|2| B(ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/customers)
+    B -->|3| C(TriggerNode/TriggerMaskCustomersWorkSpace)
+    C -->|4| D(DataTransformerNode/DataTransfomer/MaskCustomersWorkSpace)
+    D -->|5| E(IngestionMultiNode/Ingest/Azure Platform/Masked_NW_Data)
+    E -->|6| F(ExportNode/Export/Azure Platform/Test Azure SQL/Masked_NW_Data/customers)
+    A -->|7| G[ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/products]
+    A -->|8| H[ExportNode/Export/Azure Platform/Test Azure SQL/NW_Data/suppliers]
+    F --> I[Consumer Workspace]
+    G --> I
+    H --> I
 ```
 
 A data platforms job is to take the latest set of changes and then render them in to "reality". For example, an Amazon AWS DataPlatform will take its graph and possibly convert it in to AWS Glue workflows.
