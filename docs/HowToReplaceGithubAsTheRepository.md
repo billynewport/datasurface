@@ -8,7 +8,11 @@ To summarize, there is nothing specific to GitHub in DataSurface. DataSurface co
 
 ## How to integrate with a different CI/CD system
 
+### Create a subclass of the Repository class for your version control system
+
 First, create a subclass for Repository which allows you to describe an "endpoint" in the other repository thats similar to repository/branch in GitHub. An instance of this class should be able to represent a single version of the model in that repository.
+
+### Provide a subclass of RepositoryCICD and a workflow plugin for your CI/CD system
 
 Next, file in src/datasurface/handler called pull-request.yml is what called the pull request validation in DataSurface. The workflow describe in this file works as follows and would need to be replaced with a similar workflow for the other repository:
 
