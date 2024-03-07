@@ -46,4 +46,30 @@ Schemas are collections of records with identical schemas. The attributes/column
 
 Governance Zones own teams which own Datastore/datasets. A Governance Zone can specify a DataClassificationPolicy which can control which types of data can be stored within the zone. This allows a Governance Zone to specify that (PC1,PC2,PC3) tagged attributes are not allowed. Governance Zones can also limit vendors whose products store data. For example, a Governance Zone may be defined to restrict the storage of PC1,PC2,PC3 data to internal servers only. Those teams/datastores defined within such a Zone are impacted by the Zone policy. A firm might setup two or more GovernanceZones to seperate data with different privacy levels.
 
-A firm may have 2 governance zones. One which can store any classification of data. But, it may have restrictions on the vendors used to store the data. The other governance zone can be configured to allow internal and cloud vendors. It can however forbid data with classifications of PC1,PC2,PC3. This means prevents data with PC1,PC2,PC3 classifications from being stored in the cloud. If a consumer needs these data sets then a masked version of those datasets must be produced by a datatransformer within the internal governance zone. The masked version can then be stored in the cloud.
+A firm may have 2 governance zones. One which can store any classification of data. But, it may have restrictions on the vendors used to store the data. The other governance zone can be configured to allow internal and cloud vendors. It can however forbid data with classifications of PC1,PC2,PC3.
+
+```mermaid
+classDiagram
+    class GovernanceZone {
+        +DataClassificationPolicy policy
+    }
+    class DataClassificationPolicy {
+        +DataClassification[] allowedClassifications
+        +DataClassification[] prohibitedClassifications
+    }
+    GovernanceZone "1" *-- "1" DataClassificationPolicy
+```
+
+This means prevents data with PC1,PC2,PC3 classifications from being stored in the cloud. If a consumer needs these data sets then a masked version of those datasets must be produced by a datatransformer within the internal governance zone. The masked version can then be stored in the cloud.
+
+```mermaid
+graph LR
+    subgraph "Governance Zone 1"
+        Dataset1[Sensitive Dataset] --> Transformer
+        Transformer --> Dataset2[Masked Dataset]
+    end
+    subgraph "Governance Zone 2"
+        Dataset2 --> Consumer
+    end
+```
+
