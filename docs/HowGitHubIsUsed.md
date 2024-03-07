@@ -99,3 +99,7 @@ If all 3 of these checks pass then the incoming change is allowed to merge with 
 ## Worked example tutorial
 
 You can find a tutorial on getting started [here](Tutorial.md)
+
+## What about other CI/CD repositories?
+
+There is nothing specific to GitHub in DataSurface. DataSurface comes with an implemented interface for GitHub but it's easy to add another interface for another repository. The model is independent of the repository. The model is the same whether it's used with GitHub or another repository. Please see [here](HowToReplaceGithubAsTheRepository.md) for more information on using DataSurface with other CI/CD repositories besides GitHub.
