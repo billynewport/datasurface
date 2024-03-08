@@ -946,21 +946,48 @@ class CronTrigger(StepTrigger):
 class CaptureMetaData(ABC):
     """This describes how a platform can pull data for a Datastore"""
 
-    def __init__(self, stepTrigger: Optional[StepTrigger] = None):
+    def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
         super().__init__()
         self.singleOrMultiDatasetIngestion: Optional[IngestionConsistencyType] = None
         self.stepTrigger: Optional[StepTrigger] = None
+        self.dataContainer: Optional[DataContainer] = None
+        self.add(*args)
+
+    def add(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]) -> None:
+        for arg in args:
+            if (isinstance(arg, StepTrigger)):
+                if (self.stepTrigger is not None):
+                    raise AttributeAlreadySetException("CaptureTrigger already set")
+                self.stepTrigger = arg
+            elif (isinstance(arg, IngestionConsistencyType)):
+                if (self.singleOrMultiDatasetIngestion is not None):
+                    raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
+                self.singleOrMultiDatasetIngestion = arg
+            else:
+                if (self.dataContainer is not None):
+                    raise AttributeAlreadySetException("Container already set")
+                self.dataContainer = arg
 
     @abstractmethod
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
         if (self.singleOrMultiDatasetIngestion is None):
             tree.addRaw(AttributeNotSet("Single Or Multi ingestion not specified"))
 
+        if (self.dataContainer is None):
+            # The container is implicit when its a DataTransformer (same as the Workspace container)
+            if (not isinstance(self, DataTransformerOutput)):
+                tree.addRaw(AttributeNotSet("Container not specified"))
+            tree.addRaw(AttributeNotSet("Container not specified"))
+        else:
+            cTree: ValidationTree = tree.createChild(self.dataContainer)
+            self.dataContainer.lint(eco, gz, t, cTree)
+
         if (self.stepTrigger):
             self.stepTrigger.lint(eco, gz, t, tree)
 
     def __eq__(self, o: object) -> bool:
-        return isinstance(o, CaptureMetaData)
+        return isinstance(o, CaptureMetaData) and self.singleOrMultiDatasetIngestion == o.singleOrMultiDatasetIngestion and \
+            self.stepTrigger == o.stepTrigger and self.dataContainer == o.dataContainer
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -999,33 +1026,24 @@ class IngestionMetadata(CaptureMetaData):
     """Producers use these to describe HOW to snapshot and pull deltas from a data source in to
     data pipelines. The ingestion service interprets these to allow code free ingestion from
     supported sources and handle operation pipelines."""
-    def __init__(self, dc: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, *args: Union[DataContainer, Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__()
         self.credential: Optional[Credential] = None
-        self.dataContainer: DataContainer = dc
         self.add(*args)
 
-    def add(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    def add(self, *args: Union[Credential, DataContainer, StepTrigger, IngestionConsistencyType]) -> None:
         for arg in args:
             if (isinstance(arg, Credential)):
                 c: Credential = arg
                 if (self.credential is not None):
                     raise AttributeAlreadySetException("Credential already set")
                 self.credential = c
-            elif (isinstance(arg, StepTrigger)):
-                if (self.stepTrigger is not None):
-                    raise AttributeAlreadySetException("CaptureTrigger already set")
-                self.stepTrigger = arg
             else:
-                if (self.singleOrMultiDatasetIngestion is not None):
-                    raise AttributeAlreadySetException("SingleOrMultiDatasetIngestion already set")
-                sm: IngestionConsistencyType = arg
-                self.singleOrMultiDatasetIngestion = sm
+                super().add(arg)
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, IngestionMetadata):
-            return self.credential == __value.credential and self.singleOrMultiDatasetIngestion == __value.singleOrMultiDatasetIngestion and \
-                self.dataContainer == __value.dataContainer and self.stepTrigger == __value.stepTrigger
+            return super().__eq__(__value) and self.credential == __value.credential
         return False
 
     @abstractmethod
@@ -1086,13 +1104,12 @@ class SQLPullIngestion(IngestionMetadata):
 class Datastore(ANSI_SQL_NamedObject, Documentable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
-    def __init__(self, name: str, *args: Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
+    def __init__(self, name: str, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         self.datasets: dict[str, Dataset] = OrderedDict()
         self.key: Optional[DatastoreKey] = None
         self.cmd: Optional[CaptureMetaData] = None
-        self.container: Optional[DataContainer] = None
         self.productionStatus: ProductionStatus = ProductionStatus.NOT_PRODUCTION
         self.deprecationStatus: DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
@@ -1101,7 +1118,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
     def setTeam(self, tdKey: TeamDeclarationKey):
         self.key = DatastoreKey(tdKey, self.name)
 
-    def add(self, *args: Union[Dataset, CaptureMetaData, DataContainer, Documentation, ProductionStatus, DeprecationInfo]) -> None:
+    def add(self, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         for arg in args:
             if (type(arg) is Dataset):
                 d: Dataset = arg
@@ -1113,9 +1130,6 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
                 if (self.cmd):
                     raise AttributeAlreadySetException("CMD")
                 self.cmd = i
-            elif (isinstance(arg, DataContainer)):
-                c: DataContainer = arg
-                self.container = c
             elif (isinstance(arg, ProductionStatus)):
                 self.productionStatus = arg
             elif (isinstance(arg, DeprecationInfo)):
@@ -1132,7 +1146,6 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         if isinstance(__value, Datastore):
             return ANSI_SQL_NamedObject.__eq__(self, __value) and Documentable.__eq__(self, __value) and \
                 self.datasets == __value.datasets and self.cmd == __value.cmd and \
-                self.container == __value.container and \
                 self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus and \
                 self.key == __value.key
         return False
@@ -1619,7 +1632,12 @@ class Team(GitControlledObject):
                 raise AttributeAlreadySetException("Transformer {w.dataTransformer} Datastore CMD is set automatically, do not set manually")
 
             # Set CMD for Refiner output store
-            oStore.add(DataTransformerOutput(w.name))
+            cmd: CaptureMetaData = DataTransformerOutput(w.name)
+            # the transformer will capture data from the Workspace container 
+            # when the transformer finishes running
+            if (w.dataContainer):
+                cmd.add(w.dataContainer)
+            oStore.add(cmd)
             self.addStore(w.dataTransformer.outputDatastore)
 
     def __eq__(self, __value: object) -> bool:
