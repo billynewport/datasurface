@@ -17,6 +17,18 @@ The ecosystem will then use this information to choose a DataPlatform to host th
 
 Consumers may also specify they want to use multiple of these for a single application. A Workspace has multiple DatasetGroups. A DatasetGroup has one or more DatasetSinks. EAch DatasetSink describes a dataset which the consumer needs for their application. Each DatasetGroup can specify its own WorkspacePlatformConfig. A Dataset can be specified multiple times within a single Workspace, once per DatasetGroup. This is allowed so consumer may require a live, low latency version of a dataset as well as a much high latency version of the same dataset which is fully milestoned.
 
+```mermaid
+graph TD
+    W[Workspace] --> DG[Dataset Groups]
+    W --> TR[Transformers]
+    W --> DC[Data Container]
+    W --> PC[Data Platform Chooser]
+
+    DG --> SK[Dataset Sinks]
+
+    TR --> TRO[Output Datastores]
+```
+
 ## DataContainer
 
 Data containers host the data for the consumer. The ecosystem will deliver the data from the producers to this container where the consumer will be able to query it. There are a variety of data container types and they will consistently change. Examples of data container types are:
@@ -31,13 +43,13 @@ Data containers are typically located with an InstructureLocation which is owned
 
 ## DatasetGroups
 
-A DatasetGroup allow a consumer to specify a group of datasets and the consumer can specify how they want the ecosystem to present the data. The consumer can specify the data latency requirements in terms of SECONDS or MINUTES of even HOURS may be acceptable.
+A DatasetGroup allow a consumer to specify a group of datasets and the consumer can specify how they want the ecosystem to present the data through some metadata called 'Data Platform Chooser', DPC. The DPC allows the consumer can specify the data latency requirements in terms of SECONDS or MINUTES of even HOURS may be acceptable.
 
 The consumer can also specify if they require just the current live records of each dataset or if they require milestoned or temporal versions of the datasets which include both the live and previous versions of every record in the dataset.
 
-The Ecosystem interprets these requirements and selects an appropriate data platform from the set that are available. These can be constrained by the GovernanceZones that own data in the Dataset.
+The Ecosystem interprets these requirements (the DPC) and selects an appropriate data platform from the set that are available. These can be constrained by the GovernanceZones that own data in the Dataset.
 
-Most applications will only use a single DatasetGroup. But, more complex applications may require multiple DatasetGroups to satisfy the requirements of the application.
+Most applications will only use a single DatasetGroup. But, more complex applications may require multiple DatasetGroups to satisfy the requirements of the application. Thus, a consumer might require data which is real time as well as batched data. The consumer can specify this by using multiple DatasetGroups.
 
 ### DatasetSinks
 
