@@ -2421,6 +2421,7 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable):
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         # This Datastore is defined here and has a CaptureMetaData automatically added. Do not specify a CMD in the Datastore
+        # This is done in the Team.addWorkspace method
         self.outputDatastore: Datastore = store
         self.trigger: TransformerTrigger = trigger
         self.code: CodeArtifact = code
