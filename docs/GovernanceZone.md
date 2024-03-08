@@ -2,6 +2,25 @@
 
 A governance zone is used to define a region of the data ecosystem. It constrains the data platforms, vendors and locations that can be used within a zone. For example, cloud vendors can be banned OR mandated for all data stores and consumers within a zone. The allowable data classification can also be restricted. A zone can be defined which can hold all data classifications/privacy levels but that bans all cloud vendors and mandates data is kept within the US for example. Another zone can be defined which allows cloud vendors but disallows PC1,PC2,PC3 data.
 
+```mermaid
+graph TD
+    GZ[GovernanceZone] --> T[Teams]
+    GZ --> P[Policies]
+
+    T --> DS[Datastores]
+    T --> W[Workspaces]
+
+    DS --> D[Datasets]
+
+    W --> DG[Dataset Groups]
+    W --> TR[Transformers]
+    W --> DC[Data Container]
+
+    DG --> SK[Dataset Sinks]
+
+    TR --> TRO[Output Datastores]
+```
+
 ## Declaring a GovernanceZone
 
 The ecosystem repository must declare the governance zone initially and indicate which repository will be used to make changes to the zone and its contents. Once this is committed then the governance zone can be used to specify the zone metadata. The zone repository should clone the main repository, make changes, commit them and then issue a pull request to make the changes in the main repository. The pull request will be vetted by the main repository and if it passes the vetting then the changes will be merged in to the main repository. At this point, the changes are live. If further changes are required to the zone then repeat this procedure.
