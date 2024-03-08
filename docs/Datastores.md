@@ -10,7 +10,7 @@ A data producer with a number of datastores may choose to define their own Team 
 graph TD
     DS[Datastore] --> SET[Datasets]
     DS --> CMD[CaptureMetaData]
-    DS --> CON[DataContainer]
+    CMD --> CON[DataContainer]
     CON --> LOC[InfrastructureLocation]
 
     SET --> SC[Schema]
