@@ -6,6 +6,21 @@ The creation of a datastore and its associated metadata does not cause any data 
 
 A data producer with a number of datastores may choose to define their own Team with its own github repository to manage these datastores. A data producer who wishes to see the data should also create a Workspace referencing all the datasets/datastores. The producer can then use the Workspace together with their favorite data query tool to observe the data.
 
+```mermaid
+graph TD
+    DS[Datastore] --> SET[Datasets]
+    DS --> CMD[CaptureMetaData]
+    DS --> CON[DataContainer]
+    CON --> LOC[InfrastructureLocation]
+
+    SET --> SC[Schema]
+
+    SC --> TBL[DDLTable]
+    TBL --> COL[DDLColumn]
+
+    SC --> AV[AvroSchema]
+```
+
 ## Schema contract to Consumers
 
 The schema the data producer exposes to the ecosystem through the datasets is the public facing schema or contract the producer agrees to honor to the consumers of the data. The producer may choose to create a Workspace with a data transformer connected to the original datastore which produces the public facing version of the data. The producer can then simply not allow any other Workspaces to reference the original datastore. Consumers can be sent to the data transformer output Datastore with the schemas the producer is willing to support. If the private datastore schema changes then these changes can be masked using the data transformer.
