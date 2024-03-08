@@ -27,6 +27,19 @@ Consumers want their data available using a DataContainer which is suited to the
 
 Again, GovernanceZones may constrain the DataContainers that can be used to persist data under their governance.
 
+## DataContainers have a location and hosting vendor
+
+DataContainers are located in one or more infrastructure locations. These locations are owned by a specific infrastructure vendor. The vendor is responsible for the physical infrastructure that the DataContainer is running on. The vendor is also responsible for the API that the DataContainer exposes to clients.
+
+```mermaid
+graph TD
+    E[Ecosystem] --> V[Vendors]
+
+    V --> L[Locations]
+
+    L --> DC[DataContainers]
+```
+
 ## Policies that can filter DataContainers available for persisting data
 
 * StoragePolicy
