@@ -21,14 +21,21 @@ The DataClassification class is the basis for DataSurface classification. Model 
 
 DataSurface provides a default classification called SimpleDC. SimpleDC allows an enum and a string to be specified. The enum has the following values for commonly used classification levels:
 
-* PUB
-* IP
-* PC1
-* PC2
-* CPI
-* CSI
-* MNPI
-* PC3
+```mermaid
+classDiagram
+    class SimpleDC {
+        +PII
+        +PUB
+        +IP
+        +PC1
+        +PC2
+        +CPI
+        +CSI
+        +MNPI
+        +PC3
+    }
+
+```
 
 There is also a string to indicate more context. For example, a PC3 SimpleDC might have a string of "SSN" to indicate that the PC3 data is Social Security Numbers. This provides more context than simply saying PC3.
 

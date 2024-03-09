@@ -22,17 +22,25 @@ graph TD
         DT[Data Transformers] -->|Contribute| EM
     end
 
-    EM -->|Interprets| DS[DataSurface]
-
-    subgraph Data Platforms
-        DS -->|Maps to| IG1[Intention Graph 1]
-        DS -->|Maps to| IG2[Intention Graph 2]
-        DS -->|Maps to| IGn[Intention Graph n]
+    subgraph DataSurface Broker
+        EM -->|Interprets| DS[DataSurface]
     end
 
-    IG1 -->|Realized by| DP1[Data Platform 1]
-    IG2 -->|Realized by| DP2[Data Platform 2]
-    IGn -->|Realized by| DPn[Data Platform n]
+    subgraph P1
+        IG1 -->|Realized by| DP1[Data Platform 1]
+        DS -->|Maps to| IG1[Intention Graph 1]
+    end
+
+    subgraph P2
+        DS -->|Maps to| IG2[Intention Graph 2]
+        IG2 -->|Realized by| DP2[Data Platform 2]
+    end
+
+    subgraph PN
+        DS -->|Maps to| IGn[Intention Graph n]
+        IGn -->|Realized by| DPn[Data Platform n]
+    end
+
 ```
 
 Traditionally, enterprises build pipelines directly connecting producers to consumers. This can lead to as many as P * C pipelines where P is the number of producers and C is the number of consumers. This is a combinatorial explosion of pipelines. This is a maintenance nightmare and a huge cost to the enterprise. Most producers are not data infrastructure experts. The broker replaces these bespoke pipelines with an instance of a Dataplatform chosen to meet the needs of the consumer and this DataPlatform can be easily changed over time when newer/better DataPlatform implementations become available. The ecosystem broker reduces the number of pipelines to P + C + T where T is the number of data transformers. This is a much more manageable number of pipelines.
