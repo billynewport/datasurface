@@ -10,9 +10,11 @@ We have built this kind of data catalog before. We used a traditional database t
 
 A GUI was built on top of this database. The GUI worked well for simple things. It did not work well for teams managing complex projects. So, a terraform API was added hoping that it would make managing the artifacts for large teams easier but terraform, and I apologize up front, is ugly. There are things YAML is good at but defining complex objects and models isn't one of them. I'm not the only one, most vendors are implementing DSLs on top to make it better. Microsoft implemented bicep on top of ARM(terraform look alike) for the same purpose.
 
-## Data catalog stored as a Python DSL in Github
+## Data catalog stored as a Python DSL in CI/CD versioned repositories like GitHub
 
-So, having done this before, we did not want to do it again. Integrating this type of catalog in to an enterprise would be very difficult. Every enterprise would want different workflows, approvals, auditing and so on. Instead, we think it would be better to use the worlds most popular metadata repository, Github. Github can store metadata in the form of objects described in files. It has versioning of course, it has workflows, authorizations, authentications, plugins, reporting and so on. Why build all this again?
+So, having done this before, we did not want to do it again. Integrating this type of catalog in to an enterprise would be very difficult. Every enterprise would want different workflows, approvals, auditing and so on. 
+
+Metadata is todays world is managed by CI/CD systems with versioned repositories. GitHub is the biggest example. Github can store metadata in the form of objects described in files. It has versioning of course, auditing, it has workflows, authorizations, authentications, plugins, reporting and so on. Why build all this again?
 
 It's easy to geographically replicate the repository, clone it on a local filesystem in any country you want. Github solves a lot of the problems we solved previously using proprietary approaches and arguably does it better in many cases.
 
