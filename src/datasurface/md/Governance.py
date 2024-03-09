@@ -1633,7 +1633,7 @@ class Team(GitControlledObject):
 
             # Set CMD for Refiner output store
             cmd: CaptureMetaData = DataTransformerOutput(w.name)
-            # the transformer will capture data from the Workspace container 
+            # the transformer will capture data from the Workspace container
             # when the transformer finishes running
             if (w.dataContainer):
                 cmd.add(w.dataContainer)
@@ -2097,7 +2097,7 @@ class DataPlatform(ABC, Documentable):
         return f"{self.__class__.__name__}({self.name})"
 
     @abstractmethod
-    def getSupportedVendors(self, eco: Ecosystem) -> set[InfrastructureVendor]:
+    def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:
         pass
 
     @abstractmethod

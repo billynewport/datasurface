@@ -1,6 +1,6 @@
 from enum import Enum
 from datasurface.md import Documentation
-from datasurface.md.Governance import DataContainer, InfrastructureVendor
+from datasurface.md.Governance import DataContainer
 from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
 from .Lint import ValidationTree
 from .utils import is_valid_azure_key_vault_name
@@ -56,10 +56,9 @@ class AzureDataplatform(DataPlatform):
         cTree = tree.createChild(self)
         self.platformCredential.lint(eco, cTree)
 
-    def getSupportedVendors(self, eco: Ecosystem) -> set[InfrastructureVendor]:
-        rc: set[InfrastructureVendor] = set()
-        iv: InfrastructureVendor = eco.getVendorOrThrow("Azure")
-        rc.add(iv)
+    def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:
+        rc: set[CloudVendor] = set()
+        rc.add(CloudVendor.AZURE)
         return rc
 
     def __eq__(self, __value: object) -> bool:
