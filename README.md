@@ -1,6 +1,6 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE-OF-CONDUCT.md) 
 
-> :warning: **Work in progress**: This project is being implemented in phases. Phase 1 is complete as of March 2024. Please see the [roadmap](ROADMAP.md) for details on when features should drop and the road map.
+> :warning: **Work in progress**: This project is being implemented in phases. Phase 1 is complete as of March 2024. Work on an Amazon AWS Batch DataPlatform is underway. Please see the [roadmap](ROADMAP.md) for details on when features should drop and the road map.
 
 # Data surface, a data ecosystem broker
 
