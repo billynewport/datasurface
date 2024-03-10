@@ -43,7 +43,15 @@ graph TD
 
 ```
 
+## Modern Data Types
+
+DataSurface supports the multiple of floating point formats (low precision floating point types) widely using in machine learning and artificial intelligence research. It also supports the traditional data types such as strings, integers, dates and times.
+
+## Traditional Data pipeline systems
+
 Traditionally, enterprises build pipelines directly connecting producers to consumers. This can lead to as many as P * C pipelines where P is the number of producers and C is the number of consumers. This is a combinatorial explosion of pipelines. This is a maintenance nightmare and a huge cost to the enterprise. Most producers are not data infrastructure experts. The broker replaces these bespoke pipelines with an instance of a Dataplatform chosen to meet the needs of the consumer and this DataPlatform can be easily changed over time when newer/better DataPlatform implementations become available. The ecosystem broker reduces the number of pipelines to P + C + T where T is the number of data transformers. This is a much more manageable number of pipelines.
+
+## A better way to do data pipelines, the ecosystem broker
 
 This provides a new way to manage data in an enterprise. The goals are:
 

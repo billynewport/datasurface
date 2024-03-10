@@ -25,9 +25,11 @@ For more information on different aspects of the system see the following docume
 * [How github is used by Datasurface](HowGitHubIsUsed.md)
 * [Datastores](Datastores.md)
 * [Workspaces](Workspaces.md)
+* [Data Types and Schemas](DataTypes.md)
 * [Data Transformers](DataTransformer.md)
 * [Data Containers](DataContainers.md)
 * [Data Classification System](DataClassification.md)
+
 
 ## Commands to make a set of changes
 
