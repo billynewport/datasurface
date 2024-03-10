@@ -37,6 +37,10 @@ The iceberg tables will be stored in the AWS Glue Data Catalog. The iceberg tabl
 
 They can also be directly queried by consumers using AWS Redshift or Athena with security provided by AWS Lake Formation.
 
+## Manage pushing DataSurface producer schemas to AWS Glue Catalog
+
+The DataPlatform will need to manage the AWS Glue Data Catalog tables. The DataPlatform will need to create the tables and keep them up to date with the DataSurface model. The DataPlatform will use the DataSurface model to create the tables. The DataPlatform will also use the DataSurface model to keep the tables up to date. The DataPlatform will use the DataSurface model to create the tables and keep them up to date. Glue Tables for producer and consumer schemas will need to be maintained when they change.
+
 ## DataPlatform transformations
 
 The DataPlatform is given the intention graph from DataSurface. This consists of a DAG indicating the following types of node:
@@ -57,3 +61,13 @@ If consumers are using a Workspace directly mapped to the iceberg tables then th
 ## Hydrating assets for consumers
 
 We also need a AWS Glue job to hydrate the consumer data containers that the DataPlatform will support. This job needs to create the tables on the data container. It then needs to create a view pointing at the table for each consumer datasetgroup for that dataset. Consumers do not access the raw table directly. They are provided a view instead. This allows the DataPlatform to use different tables for maintenance if required and then remap the views to point at the new tables if required. This may be necessary when columns are added but have not been backfilled yet. Consumers can continue using the old view without the columns while a new table is being hydrated with the complete data. When the table is ready then the view can be remapped to point at the new table.
+
+## Federating with other DataPlatforms
+
+Data producers have their data in a production database. This means the database does not have unlimited capacity and especially when doing initial full snapshots, the load on a production database can become unacceptable. This is the reason for using iceberg tables as a buffer between consumer data containers and the producer data containers. It decouples them and consumer hydration or rehydration events can be serviced from the intermediate iceberg tables and leave the producer data container in peace.
+
+Data producers will pick a Dataplatform as its primary ingestion service. This means that if a consumer wants data from a producer and the consumer is using the same Dataplatform as the producer then thats easy, they can connect easily. But, if the consumer is using a different DataPlatform then if we are going to limit the ingestion load on the producer to a single DataPlatform then the two DataPlatforms need to cooperate. The consumer data platform will pull data from the iceberg buffer tables in the AWS case. This also means that consumer data latencies will not be better than the latencies possible from the data producer dataplatform. Thus, choosing which DataPlatform is the primary can have an impact on the overall latench in a multiple DataPlatform system.
+
+It's also possible to use an AWS DataPlatform for the data producers and consumers. Later, some new data consumers can be added which want to use a data container provided by a different cloud vendor. There are many ways to handle this. One approach is to make a buffer in the second cloud vendor, The data is moved from AWS to the buffer (which could be iceberg based also), Once, it's in the buffer then its distributed from there to the data containers on the second cloud vendor. This minimize network egress costs because data is just transferred to the second vendor once and then fanned out from there to the data containers on the second cloud vendor.
+
+This applies whether there is two cloud vendors or five cloud vendors. There will be a federating DataPlatform which manages this over multiple data platforms.
