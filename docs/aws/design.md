@@ -25,6 +25,24 @@ This platform will fork the DataSurface repository at this point and then genera
 
 The ecosystem model will continue to be modified. At some point, this DataPlatform will fork the live branch again and then generate the new IaC translation for the new fork. The new IaC translation will be used to update the AWS resources for the data platform.
 
+```mermaid
+graph TD
+    SRC[Source Data Container] -->|AWS DMS| S3(Staging Area)
+    S3 -->|AWS Glue| T1(Iceberg Table 1)
+    S3 -->|AWS Glue| T2(Iceberg Table 2)
+    S3 -->|AWS Glue| T3(Iceberg Table 3)
+
+    T1 -->|AWS Glue Export| ADB(Aurora USA)
+    T2 -->|AWS Glue Export| ADB
+    T1 -->|AWS Glue Export| RS(Redshift)
+
+    T1 -->|AWS Glue Export| ADB2(Aurora Europe)
+    T2 -->|AWS Glue Export| ADB2
+    T3 -->|AWS Glue Export| ADB2
+```
+
+This could be optimized differently if its determined that there will be many others of the data outside the primary AWS region. It may make sense to use a second DataPlatform instance, distinct from the first, so that data is buffered once between the first region and the other regions. This would save on network egres costs during multiple hydrations and ongoing change pushing.
+
 ## Processing
 
 The staging files are not ideal for querying directly or using them for materializing data in other data containers. The staging data consists of files representing an initial snapshot or load from the sources and then files representing changes from that point onwards. These need to be consolidated to provide a live image of the data in the source. This live image also needs to support the hydration and maintenance of this data in othr data containers. The live image may be used to hydrate multiple data containers concurrently at different stages of the maintenance process. For example, some data containers may be up to date and accepting changes. Others may be in the process of being initially hydrated. This means the live tables needs to support snapshots and deltas.
@@ -66,7 +84,16 @@ We also need a AWS Glue job to hydrate the consumer data containers that the Dat
 
 Data producers have their data in a production database. This means the database does not have unlimited capacity and especially when doing initial full snapshots, the load on a production database can become unacceptable. This is the reason for using iceberg tables as a buffer between consumer data containers and the producer data containers. It decouples them and consumer hydration or rehydration events can be serviced from the intermediate iceberg tables and leave the producer data container in peace.
 
-Data producers will pick a Dataplatform as its primary ingestion service. This means that if a consumer wants data from a producer and the consumer is using the same Dataplatform as the producer then thats easy, they can connect easily. But, if the consumer is using a different DataPlatform then if we are going to limit the ingestion load on the producer to a single DataPlatform then the two DataPlatforms need to cooperate. The consumer data platform will pull data from the iceberg buffer tables in the AWS case. This also means that consumer data latencies will not be better than the latencies possible from the data producer dataplatform. Thus, choosing which DataPlatform is the primary can have an impact on the overall latench in a multiple DataPlatform system.
+Data producers will pick a Dataplatform as its primary ingestion service. This means that if a consumer wants data from a producer and the consumer is using the same Dataplatform as the producer then thats easy, they can connect. But, if the consumer is using a different DataPlatform then if we are going to limit the ingestion load on the producer to a single DataPlatform then the two DataPlatforms need to cooperate. The consumer data platform will pull data from the iceberg buffer tables in the AWS case. This also means that consumer data latencies will not be better than the latencies possible from the data producer dataplatform. This means here:
+
+```mermaid
+
+graph TD
+    A[Producer Data Platform] -->|Ingest| B(Iceberg Buffer)
+    B -->|Export| C[Consumer Data Platform]
+```
+
+Thus, choosing which DataPlatform is the primary can have an impact on the overall latench in a multiple DataPlatform system.
 
 It's also possible to use an AWS DataPlatform for the data producers and consumers. Later, some new data consumers can be added which want to use a data container provided by a different cloud vendor. There are many ways to handle this. One approach is to make a buffer in the second cloud vendor, The data is moved from AWS to the buffer (which could be iceberg based also), Once, it's in the buffer then its distributed from there to the data containers on the second cloud vendor. This minimize network egress costs because data is just transferred to the second vendor once and then fanned out from there to the data containers on the second cloud vendor.
 
