@@ -608,10 +608,10 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         return super().__eq__(o) and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and \
             self.classification == o.classification
 
-    def isBackwardsCompatibleWith(self, other: object, vTree: ValidationTree) -> bool:
+    def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         """Returns true if this column is backwards compatible with the other column"""
         # TODO Add support to changing the column data type to a compatible type
-        super().isBackwardsCompatibleWith(other, vTree)
+        super().checkForBackwardsCompatibility(other, vTree)
         if not isinstance(other, DDLColumn):
             vTree.addProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")
             return False
@@ -807,7 +807,7 @@ class DDLTable(Schema):
                 cTree: ValidationTree = vTree.addSubTree(col)
                 newCol: Optional[DDLColumn] = currentDDL.columns.get(col.name)
                 if (newCol):
-                    newCol.isBackwardsCompatibleWith(col, cTree)
+                    newCol.checkForBackwardsCompatibility(col, cTree)
 
             # Now check additional columns
             newColumnNames: set[str] = set(self.columns.keys())

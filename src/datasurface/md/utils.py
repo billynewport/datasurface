@@ -79,7 +79,7 @@ class ANSI_SQL_NamedObject:
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, ANSI_SQL_NamedObject) and self.name == __value.name
 
-    def isBackwardsCompatibleWith(self, other: object, vTree: ValidationTree) -> bool:
+    def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         if (not isinstance(other, ANSI_SQL_NamedObject)):
             vTree.addProblem(f"Object {other} is not an ANSI_SQL_NamedObject")
             return False

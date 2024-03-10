@@ -21,48 +21,48 @@ class TestSchemaCompatibility(unittest.TestCase):
         col2: DDLColumn = copy.deepcopy(col1)
 
         t: ValidationTree = ValidationTree(col1)
-        self.assertTrue(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertTrue(col1.checkForBackwardsCompatibility(col2, t))
 
         # Bigger string is still compatible
         col1.type = String(25)
         t = ValidationTree(col1)
-        self.assertTrue(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertTrue(col1.checkForBackwardsCompatibility(col2, t))
 
         # Check a small string is not compatible
         col1.type = String(15)
         t = ValidationTree(col1)
-        self.assertFalse(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertFalse(col1.checkForBackwardsCompatibility(col2, t))
 
         # Check String isn't compatible with IEEE32
         col1.type = IEEE32()
         t = ValidationTree(col1)
-        self.assertFalse(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertFalse(col1.checkForBackwardsCompatibility(col2, t))
         t = ValidationTree(col2)
-        self.assertFalse(col2.isBackwardsCompatibleWith(col1, t))
+        self.assertFalse(col2.checkForBackwardsCompatibility(col1, t))
 
         col1.type = IEEE64()
         col2.type = IEEE32()
 
         # Check IEEE32 is compatible with IEEE64
         t = ValidationTree(col1)
-        self.assertTrue(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertTrue(col1.checkForBackwardsCompatibility(col2, t))
         col2.type = IEEE16()
 
         col1.type = IEEE128()
         t = ValidationTree(col1)
-        self.assertTrue(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertTrue(col1.checkForBackwardsCompatibility(col2, t))
 
         col1.type = BigInt()
         t = ValidationTree(col1)
-        self.assertFalse(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertFalse(col1.checkForBackwardsCompatibility(col2, t))
 
         # Test SmallInt can be replaced with a Bigint
         col2.type = SmallInt()
         t = ValidationTree(col1)
-        self.assertTrue(col1.isBackwardsCompatibleWith(col2, t))
+        self.assertTrue(col1.checkForBackwardsCompatibility(col2, t))
         # BigInt can't be replaced with a SmallInt
         t = ValidationTree(col2)
-        self.assertFalse(col2.isBackwardsCompatibleWith(col1, t))
+        self.assertFalse(col2.checkForBackwardsCompatibility(col1, t))
 
         # Check lots of backward compatibility cases
         self.assertTrue(Decimal(10, 2).isBackwardsCompatibleWith(Decimal(10, 2), ValidationTree("")))

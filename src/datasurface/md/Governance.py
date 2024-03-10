@@ -772,14 +772,14 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
             else:
                 return True
 
-    def isBackwardsCompatibleWith(self, other: object, vTree: ValidationTree) -> bool:
+    def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         """This checks if the dataset is backwards compatible with the other dataset. This means that the other dataset
         can be used in place of this dataset. This is used to check if a dataset can be replaced by another dataset
         when a new version is released"""
         if (not isinstance(other, Dataset)):
             vTree.addRaw(ObjectWrongType(other, Dataset, ProblemSeverity.ERROR))
             return False
-        super().isBackwardsCompatibleWith(other, vTree)
+        super().checkForBackwardsCompatibility(other, vTree)
         if (self.originalSchema is None):
             vTree.addRaw(AttributeNotSet(f"Original schema not set for {self.name}"))
         elif (other.originalSchema is None):
@@ -1169,20 +1169,20 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         else:
             storeTree.addRaw(AttributeNotSet("CaptureMetaData not set"))
 
-    def isBackwardsCompatibleWith(self, other: object, vTree: ValidationTree) -> bool:
+    def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
         can be used to replace this one without breaking any data pipelines"""
 
         if (not isinstance(other, Datastore)):
             vTree.addRaw(ObjectWrongType(other, Datastore, ProblemSeverity.ERROR))
             return False
-        super().isBackwardsCompatibleWith(other, vTree)
+        super().checkForBackwardsCompatibility(other, vTree)
         # Check if the datasets are compatible
         for dataset in self.datasets.values():
             dTree: ValidationTree = vTree.addSubTree(dataset)
             otherDataset: Optional[Dataset] = other.datasets.get(dataset.name)
             if (otherDataset):
-                dataset.isBackwardsCompatibleWith(otherDataset, dTree)
+                dataset.checkForBackwardsCompatibility(otherDataset, dTree)
             else:
                 dTree.addRaw(ObjectMissing(other, dataset, ProblemSeverity.ERROR))
         return not vTree.hasErrors()
@@ -1544,7 +1544,7 @@ class Ecosystem(GitControlledObject):
             zTree: ValidationTree = vTree.addSubTree(zone)
             originZone: Optional[GovernanceZone] = originEco.getZone(zone.name)
             if originZone:
-                zone.isBackwardsCompatibleWith(originZone, zTree)
+                zone.checkForBackwardsCompatiblity(originZone, zTree)
 
     # Check that the changeSource is one of the authorized sources
     def checkIfChangeSourceIsUsed(self, changeSource: Repository, tree: ValidationTree) -> None:
@@ -1710,14 +1710,14 @@ class Team(GitControlledObject):
     def __str__(self) -> str:
         return f"Team({self.name})"
 
-    def isBackwardsCompatibleWith(self, originTeam: 'Team', vTree: ValidationTree):
+    def checkForBackwardsCompatibility(self, originTeam: 'Team', vTree: ValidationTree):
         """This checks if the current team is backwards compatible with the origin team"""
         # Check if the datasets are compatible
         for store in self.dataStores.values():
             sTree: ValidationTree = vTree.addSubTree(store)
             originStore: Optional[Datastore] = originTeam.dataStores.get(store.name)
             if (originStore):
-                store.isBackwardsCompatibleWith(originStore, sTree)
+                store.checkForBackwardsCompatibility(originStore, sTree)
 
 
 class NamedObjectAuthorization:
@@ -2027,7 +2027,7 @@ class GovernanceZone(GitControlledObject):
     def __str__(self) -> str:
         return f"GovernanceZone({self.name})"
 
-    def isBackwardsCompatibleWith(self, originZone: 'GovernanceZone', tree: ValidationTree):
+    def checkForBackwardsCompatiblity(self, originZone: 'GovernanceZone', tree: ValidationTree):
         """This checks if this zone is backwards compatible with the original zone. This means that the proposed zone
         can be used to replace this one without breaking any data pipelines"""
 
@@ -2037,7 +2037,7 @@ class GovernanceZone(GitControlledObject):
             originTeam: Optional[Team] = originZone.getTeam(team.name)
             # if team exists in old zone then check it, otherwise, it's a new team and we don't care
             if originTeam:
-                team.isBackwardsCompatibleWith(originTeam, tTree)
+                team.checkForBackwardsCompatibility(originTeam, tTree)
 
     def getDatasetStoragePolicies(self, dataset: Dataset) -> Sequence[StoragePolicy]:
         """Returns the storage policies for the specified dataset including mandatory ones"""
