@@ -4,7 +4,7 @@ from enum import Enum
 
 from datasurface.md.Policy import DataClassification, DataClassificationPolicy
 
-from .Lint import ValidationTree
+from .Lint import ValidationProblem, ValidationTree
 from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
 from .Documentation import Documentable, Documentation
 
@@ -672,6 +672,18 @@ class PartitionKeyList(AttributeList):
         return super().__eq__(__value) and isinstance(__value, PartitionKeyList)
 
 
+class NotBackwardsCompatible(ValidationProblem):
+    """This is a validation problem that indicates that the schema is not backwards compatible"""
+    def __init__(self, problem: str) -> None:
+        super().__init__(problem)
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, NotBackwardsCompatible)
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+
 class Schema(ABC, Documentable):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
@@ -697,10 +709,10 @@ class Schema(ABC, Documentable):
         """Returns true if this schema is backward compatible with the other schema"""
         # Primary keys cannot change
         if (self.primaryKeyColumns != other.primaryKeyColumns):
-            vTree.addProblem(f"Primary key columns cannot change from {self.primaryKeyColumns} to {other.primaryKeyColumns}")
+            vTree.addRaw(NotBackwardsCompatible(f"Primary key columns cannot change from {self.primaryKeyColumns} to {other.primaryKeyColumns}"))
         # Partitioning cannot change
         if (self.ingestionPartitionColumns != other.ingestionPartitionColumns):
-            vTree.addProblem(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}")
+            vTree.addRaw(NotBackwardsCompatible(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}"))
         if self.documentation:
             self.documentation.lint(vTree.addSubTree(self.documentation))
         return not vTree.hasErrors()
@@ -801,7 +813,7 @@ class DDLTable(Schema):
             # New tables must contain all old columns
             for col in currentDDL.columns.values():
                 if (col.name not in self.columns):
-                    vTree.addProblem(f"Column {col.name} is missing from the new schema")
+                    vTree.addRaw(NotBackwardsCompatible(f"Column {col.name} is missing from the new schema"))
             # Existing columns must be compatible
             for col in self.columns.values():
                 cTree: ValidationTree = vTree.addSubTree(col)
@@ -817,10 +829,10 @@ class DDLTable(Schema):
                 col: DDLColumn = self.columns[colName]
                 # Additional columns cannot be primary keys
                 if (col.primaryKey == PrimaryKeyStatus.PK):
-                    vTree.addProblem(f"Column {col.name} cannot be a new primary key column")
+                    vTree.addRaw(NotBackwardsCompatible(f"Column {col.name} cannot be a new primary key column"))
                 # Additional columns must be nullable
                 if col.nullable == NullableStatus.NOT_NULLABLE:
-                    vTree.addProblem(f"Column {col.name} must be nullable")
+                    vTree.addRaw(NotBackwardsCompatible(f"Column {col.name} must be nullable"))
         return not vTree.hasErrors()
 
     def lint(self, tree: ValidationTree) -> None:
@@ -831,18 +843,18 @@ class DDLTable(Schema):
             self.primaryKeyColumns.lint(tree.addSubTree(pkTree))
             for colName in self.primaryKeyColumns.colNames:
                 if (colName not in self.columns):
-                    pkTree.addProblem(f"Primary key column {colName} is not in the column list")
+                    pkTree.addRaw(NotBackwardsCompatible(f"Primary key column {colName} is not in the column list"))
                 else:
                     col: DDLColumn = self.columns[colName]
                     if (col.primaryKey != PrimaryKeyStatus.PK):
-                        tree.addProblem(f"Column {colName} should be marked primary key column")
+                        tree.addRaw(NotBackwardsCompatible(f"Column {colName} should be marked primary key column"))
                     if (col.nullable == NullableStatus.NULLABLE):
-                        tree.addProblem(f"Primary key {colName} cannot be nullable")
+                        tree.addRaw(NotBackwardsCompatible(f"Primary key column {colName} cannot be nullable"))
             for col in self.columns.values():
                 colTree: ValidationTree = tree.addSubTree(col)
                 col.lint(colTree)
                 if col.primaryKey == PrimaryKeyStatus.PK and col.name not in self.primaryKeyColumns.colNames:
-                    tree.addProblem(f"Column {col.name} is marked as primary key but is not in the primary key list")
+                    colTree.addRaw(NotBackwardsCompatible(f"Column {col.name} is marked as primary key but is not in the primary key list"))
         else:
             tree.addProblem("Table must have a primary key list")
 
@@ -850,11 +862,11 @@ class DDLTable(Schema):
         if self.ingestionPartitionColumns:
             for colName in self.ingestionPartitionColumns.colNames:
                 if (colName not in self.columns):
-                    tree.addProblem(f"Partitioning column {colName} is not in the column list")
+                    tree.addRaw(NotBackwardsCompatible(f"Partitioning column {colName} is not in the column list"))
                 else:
                     col: DDLColumn = self.columns[colName]
                     if (col.nullable == NullableStatus.NULLABLE):
-                        tree.addProblem(f"Partitioning column {colName} cannot be nullable")
+                        tree.addRaw(NotBackwardsCompatible(f"Partitioning column {colName} cannot be nullable"))
 
     def __str__(self) -> str:
         return "DDLTable()"
