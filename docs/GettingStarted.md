@@ -1,5 +1,9 @@
 # Getting Started
 
+## GitHub
+
+This project is not dependent on GitHub. It can be used with any CI/CD capable repository. GitHub is simply the first CI/CD plugin that has been written. There will be more, GitLib is next.
+
 ## Setup the main github repository and its workflows
 
 The main github repository is the source of truth for the data ecosystem. It contains the model of the data ecosystem. The model is used to create and maintain data pipelines. The model is also used to provide governance and control over the data within the enterprise. We need to install the github action handler to make sure the central model stays self consistent, backwards compatible and consistent with the governance policies of the enterprise.
