@@ -89,17 +89,17 @@ class TestSchemaCreation(unittest.TestCase):
 
         # s1 is compatible with s1
         tree: ValidationTree = ValidationTree(s1)
-        s1.isBackwardsCompatibleWith(s1, tree)
+        s1.checkForBackwardsCompatibility(s1, tree)
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasWarnings())
 
         # s1 is not compatible with s2
         tree = ValidationTree(s1)
-        s1.isBackwardsCompatibleWith(s2, tree)
+        s1.checkForBackwardsCompatibility(s2, tree)
         self.assertTrue(tree.hasErrors())
 
         tree = ValidationTree(s2)
-        s2.isBackwardsCompatibleWith(s1, tree)
+        s2.checkForBackwardsCompatibility(s1, tree)
         self.assertTrue(tree.hasErrors())
 
         s1 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)],

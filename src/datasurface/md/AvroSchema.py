@@ -28,8 +28,8 @@ class AvroSchema(Schema):
         return self.classification is not None
 
 # TODO This means avro schemas cannot be modified, need a python is backwards compatiblility checker
-    def isBackwardsCompatibleWith(self, other: Schema, vTree: ValidationTree) -> bool:
-        rc: bool = super().isBackwardsCompatibleWith(other, vTree)
+    def checkForBackwardsCompatibility(self, other: Schema, vTree: ValidationTree) -> bool:
+        rc: bool = super().checkForBackwardsCompatibility(other, vTree)
         if (isinstance(other, AvroSchema) and self.schema == other.schema):
             return rc
         else:

@@ -693,7 +693,7 @@ class Schema(ABC, Documentable):
         pass
 
     @abstractmethod
-    def isBackwardsCompatibleWith(self, other: 'Schema', vTree: ValidationTree) -> bool:
+    def checkForBackwardsCompatibility(self, other: 'Schema', vTree: ValidationTree) -> bool:
         """Returns true if this schema is backward compatible with the other schema"""
         # Primary keys cannot change
         if (self.primaryKeyColumns != other.primaryKeyColumns):
@@ -793,9 +793,9 @@ class DDLTable(Schema):
             return False
         return self.columns == o.columns and self.columns == o.columns
 
-    def isBackwardsCompatibleWith(self, other: 'Schema', vTree: ValidationTree) -> bool:
+    def checkForBackwardsCompatibility(self, other: 'Schema', vTree: ValidationTree) -> bool:
         """Returns true if this schema is backward compatible with the other schema"""
-        super().isBackwardsCompatibleWith(other, vTree)
+        super().checkForBackwardsCompatibility(other, vTree)
         if vTree.checkTypeMatches(other, DDLTable):
             currentDDL: DDLTable = cast(DDLTable, other)
             # New tables must contain all old columns

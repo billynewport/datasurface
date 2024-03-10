@@ -785,7 +785,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
         elif (other.originalSchema is None):
             vTree.addRaw(AttributeNotSet(f"Original schema not set for {other.name}"))
         else:
-            self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
+            self.originalSchema.checkForBackwardsCompatibility(other.originalSchema, vTree)
         return not vTree.hasErrors()
 
     def __str__(self) -> str:
