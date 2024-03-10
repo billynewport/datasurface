@@ -21,7 +21,7 @@ class TestZones(unittest.TestCase):
         self.assertEqual(eco.getTeamOrThrow("USA", "BackOffice"), gzUSA.getTeamOrThrow("BackOffice"))
 
         tree: ValidationTree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.hasErrors())
 
         gzEU: GovernanceZone = eco.getZoneOrThrow("EU")
         self.assertEqual(eco.getTeamOrThrow("EU", "FrontOffice"), gzEU.getTeamOrThrow("FrontOffice"))
@@ -29,7 +29,7 @@ class TestZones(unittest.TestCase):
         self.assertEqual(eco.getTeamOrThrow("EU", "BackOffice"), gzEU.getTeamOrThrow("BackOffice"))
 
         tree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.hasErrors())
 
     def checkChildLocation(self, parent: InfrastructureLocation, childName: str, vendor: InfrastructureVendor):
         child: Optional[InfrastructureLocation] = parent.locations.get(childName)
@@ -139,7 +139,7 @@ class TestZones(unittest.TestCase):
             self.checkChildLocation(azureUSA, locName, azure)
 
         tree: ValidationTree = eco.lintAndHydrateCaches()
-        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.hasErrors())
 
 
 if __name__ == '__main__':

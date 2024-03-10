@@ -42,6 +42,6 @@ class Test_ActionHandlerForGitHub(unittest.TestCase):
             os.environ["HEAD_BRANCH"] = step[2]
             print(f"Trying {baseFolder} -> {headFolder} with good repo")
             tree: ValidationTree = cicd.verifyPullRequest(baseFolder, headFolder)
-            if (tree.getErrors()):
+            if (tree.hasErrors()):
                 tree.printTree()
                 self.fail("Tree has errors")

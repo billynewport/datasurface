@@ -101,7 +101,7 @@ def createEcosystem() -> Ecosystem:
     defineNWTeamWorkspaces(ecosys, nw_team, ecosys.getLocationOrThrow("Azure", ["USA", "Central US"]))
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
-    if (tree.getErrors()):
+    if (tree.hasErrors()):
         tree.printTree()
         raise Exception("Ecosystem validation failed")
     return ecosys

@@ -306,7 +306,7 @@ class InfrastructureLocation(Documentable):
         if (self.key is None):
             tree.addRaw(AttributeNotSet("Location"))
         if (self.documentation):
-            dTree: ValidationTree = tree.createChild(self.documentation)
+            dTree: ValidationTree = tree.addSubTree(self.documentation)
             self.documentation.lint(dTree)
 
         for loc in self.locations.values():
@@ -477,7 +477,7 @@ class InfrastructureVendor(Documentable):
             self.documentation.lint(tree)
 
         for loc in self.locations.values():
-            lTree: ValidationTree = tree.createChild(loc)
+            lTree: ValidationTree = tree.addSubTree(loc)
             loc.lint(lTree)
 
     def __str__(self) -> str:
@@ -617,7 +617,7 @@ class DataContainer(ABC, Documentable):
         for loc in self.locations:
             gz.checkLocationIsAllowed(eco, loc, tree)
         if (self.documentation):
-            dTree: ValidationTree = tree.createChild(self.documentation)
+            dTree: ValidationTree = tree.addSubTree(self.documentation)
             self.documentation.lint(dTree)
 
     def __hash__(self) -> int:
@@ -786,7 +786,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
             vTree.addRaw(AttributeNotSet(f"Original schema not set for {other.name}"))
         else:
             self.originalSchema.isBackwardsCompatibleWith(other.originalSchema, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
     def __str__(self) -> str:
         return f"Dataset({self.name})"
@@ -979,7 +979,7 @@ class CaptureMetaData(ABC):
                 tree.addRaw(AttributeNotSet("Container not specified"))
             tree.addRaw(AttributeNotSet("Container not specified"))
         else:
-            cTree: ValidationTree = tree.createChild(self.dataContainer)
+            cTree: ValidationTree = tree.addSubTree(self.dataContainer)
             self.dataContainer.lint(eco, gz, t, cTree)
 
         if (self.stepTrigger):
@@ -1050,7 +1050,7 @@ class IngestionMetadata(CaptureMetaData):
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         if (self.dataContainer):
-            capTree: ValidationTree = tree.createChild(self.dataContainer)
+            capTree: ValidationTree = tree.addSubTree(self.dataContainer)
             self.dataContainer.lint(eco, gz, t, capTree)
         # Credential is needed for a platform connect to a datacontainer and ingest data
         if (self.credential is None):
@@ -1157,14 +1157,14 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         if (self.documentation):
             self.documentation.lint(storeTree)
         for dataset in self.datasets.values():
-            dTree: ValidationTree = storeTree.createChild(dataset)
+            dTree: ValidationTree = storeTree.addSubTree(dataset)
             dataset.lint(eco, gz, t, self, dTree)
             if (self.productionStatus == ProductionStatus.PRODUCTION):
                 if (not dataset.hasClassifications()):
                     dTree.addRaw(ProductionDatastoreMustHaveClassifications(self, dataset))
 
         if (self.cmd):
-            cmdTree: ValidationTree = storeTree.createChild(self.cmd)
+            cmdTree: ValidationTree = storeTree.addSubTree(self.cmd)
             self.cmd.lint(eco, gz, t, self, cmdTree)
         else:
             storeTree.addRaw(AttributeNotSet("CaptureMetaData not set"))
@@ -1179,13 +1179,13 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         super().isBackwardsCompatibleWith(other, vTree)
         # Check if the datasets are compatible
         for dataset in self.datasets.values():
-            dTree: ValidationTree = vTree.createChild(dataset)
+            dTree: ValidationTree = vTree.addSubTree(dataset)
             otherDataset: Optional[Dataset] = other.datasets.get(dataset.name)
             if (otherDataset):
                 dataset.isBackwardsCompatibleWith(otherDataset, dTree)
             else:
                 dTree.addRaw(ObjectMissing(other, dataset, ProblemSeverity.ERROR))
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
     def __str__(self) -> str:
         return f"Datastore({self.name})"
@@ -1406,23 +1406,23 @@ class Ecosystem(GitControlledObject):
         # It populates the caches for zones, teams, stores and workspaces.
         """No need to dedup zones as the authorative list is already a dict"""
         for gz in self.zones.authorizedObjects.values():
-            govTree: ValidationTree = ecoTree.createChild(gz)
+            govTree: ValidationTree = ecoTree.addSubTree(gz)
             gz.lint(self, govTree)
 
         """All caches should now be populated"""
 
         for vendor in self.vendors.values():
-            vTree: ValidationTree = ecoTree.createChild(vendor)
+            vTree: ValidationTree = ecoTree.addSubTree(vendor)
             vendor.lint(vTree)
 
         for pl in self.dataPlatforms.values():
-            platTree: ValidationTree = ecoTree.createChild(pl)
+            platTree: ValidationTree = ecoTree.addSubTree(pl)
             pl.lint(self, platTree)
 
         # Now lint the workspaces
         for workSpaceCacheEntry in self.workSpaceCache.values():
             workSpace = workSpaceCacheEntry.workspace
-            wsTree: ValidationTree = ecoTree.createChild(workSpace)
+            wsTree: ValidationTree = ecoTree.addSubTree(workSpace)
             if (workSpace.key):
                 gz: GovernanceZone = self.getZoneOrThrow(workSpace.key.gzName)
                 workSpace.lint(self, gz, workSpaceCacheEntry.team, wsTree)
@@ -1463,7 +1463,7 @@ class Ecosystem(GitControlledObject):
 
         self.checkTopLevelAttributeChangesAreAuthorized(prop_eco, changeSource, vTree)
 
-        zTree: ValidationTree = vTree.createChild(self.zones)
+        zTree: ValidationTree = vTree.addSubTree(self.zones)
         self.zones.checkIfChangesAreAuthorized(prop_eco.zones, changeSource, zTree)
 
     def __eq__(self, proposed: object) -> bool:
@@ -1491,15 +1491,15 @@ class Ecosystem(GitControlledObject):
                 if self.owningRepo != proposed.owningRepo:
                     tree.addRaw(UnauthorizedAttributeChange("owningRepo", self.owningRepo, proposed.owningRepo, ProblemSeverity.ERROR))
                     rc = False
-                zTree: ValidationTree = tree.createChild(self.zones)
+                zTree: ValidationTree = tree.addSubTree(self.zones)
                 if not self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree):
                     rc = False
                 if self.vendors != proposed.vendors:
-                    vTree: ValidationTree = tree.createChild("Vendors")
+                    vTree: ValidationTree = tree.addSubTree("Vendors")
                     self.showDictChangesAsProblems(self.vendors, proposed.vendors, vTree)
                     rc = False
                 if self.dataPlatforms != proposed.dataPlatforms:
-                    pTree: ValidationTree = tree.createChild("DataPlatforms")
+                    pTree: ValidationTree = tree.addSubTree("DataPlatforms")
                     self.showDictChangesAsProblems(self.dataPlatforms, proposed.dataPlatforms, pTree)
                     rc = False
                 if self.defaultDataPlatform != proposed.defaultDataPlatform:
@@ -1545,7 +1545,7 @@ class Ecosystem(GitControlledObject):
         """This checks if the proposed ecosystem is backwards compatible with the current ecosystem"""
         # Check if the zones are compatible
         for zone in self.zones.authorizedObjects.values():
-            zTree: ValidationTree = vTree.createChild(zone)
+            zTree: ValidationTree = vTree.addSubTree(zone)
             originZone: Optional[GovernanceZone] = originEco.getZone(zone.name)
             if originZone:
                 zone.isBackwardsCompatibleWith(originZone, zTree)
@@ -1575,17 +1575,17 @@ class Ecosystem(GitControlledObject):
 
         # Any errors make us fail immediately
         # But we want warnings and infos to accumulate for the caller
-        if eTree.getErrors():
+        if eTree.hasErrors():
             return eTree
 
         # Check if the changeSource is one of the authorized sources
         self.checkIfChangeSourceIsUsed(source, eTree)
-        if eTree.getErrors():
+        if eTree.hasErrors():
             return eTree
 
         # Check if the proposed changes being made by an authorized repository
         self.checkIfChangesAreAuthorized(proposed, source, eTree)
-        if eTree.getErrors():
+        if eTree.hasErrors():
             return eTree
 
         # Check if the proposed changes are backwards compatible this object
@@ -1665,11 +1665,11 @@ class Team(GitControlledObject):
         if not isinstance(proposed, Team):
             return False
         if self.dataStores != proposed.dataStores:
-            dTree: ValidationTree = tree.createChild("Datastores")
+            dTree: ValidationTree = tree.addSubTree("Datastores")
             self.showDictChangesAsProblems(self.dataStores, proposed.dataStores, dTree)
             return False
         if self.workspaces != proposed.workspaces:
-            wTree: ValidationTree = tree.createChild("Workspaces")
+            wTree: ValidationTree = tree.addSubTree("Workspaces")
             self.showDictChangesAsProblems(self.workspaces, proposed.workspaces, wTree)
             return False
         return True
@@ -1686,7 +1686,7 @@ class Team(GitControlledObject):
             if eco.datastoreCache.get(s.name) is not None:
                 teamTree.addRaw(DuplicateObject(s, ProblemSeverity.ERROR))
             else:
-                storeTree: ValidationTree = teamTree.createChild(s)
+                storeTree: ValidationTree = teamTree.addSubTree(s)
                 eco.cache_addDatastore(s, self)
                 if (td.key):
                     s.setTeam(td.key)
@@ -1703,7 +1703,7 @@ class Team(GitControlledObject):
                     w.setTeam(TeamDeclarationKey(gz.key, self.name))
                 else:
                     teamTree.addRaw(AttributeNotSet(f"{gz} has no key"))
-                wTree: ValidationTree = teamTree.createChild(w)
+                wTree: ValidationTree = teamTree.addSubTree(w)
 
                 # Check all classification allows policies from gz are satisfied on every sink
                 for dccPolicy in gz.classificationPolicies.values():
@@ -1722,7 +1722,7 @@ class Team(GitControlledObject):
         """This checks if the current team is backwards compatible with the origin team"""
         # Check if the datasets are compatible
         for store in self.dataStores.values():
-            sTree: ValidationTree = vTree.createChild(store)
+            sTree: ValidationTree = vTree.addSubTree(store)
             originStore: Optional[Datastore] = originTeam.dataStores.get(store.name)
             if (originStore):
                 store.isBackwardsCompatibleWith(originStore, sTree)
@@ -1987,16 +1987,16 @@ class GovernanceZone(GitControlledObject):
         if not (super().areTopLevelChangesAuthorized(proposed, changeSource, tree) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
         if self.storagePolicies != proposed.storagePolicies:
-            self.showDictChangesAsProblems(self.storagePolicies, proposed.storagePolicies, tree.createChild("StoragePolicies"))
+            self.showDictChangesAsProblems(self.storagePolicies, proposed.storagePolicies, tree.addSubTree("StoragePolicies"))
             return False
         if self.dataplatformPolicies != proposed.dataplatformPolicies:
-            self.showDictChangesAsProblems(self.dataplatformPolicies, proposed.dataplatformPolicies, tree.createChild("DataPlatformPolicies"))
+            self.showDictChangesAsProblems(self.dataplatformPolicies, proposed.dataplatformPolicies, tree.addSubTree("DataPlatformPolicies"))
             return False
         if self.vendorPolicies != proposed.vendorPolicies:
-            self.showDictChangesAsProblems(self.vendorPolicies, proposed.vendorPolicies, tree.createChild("VendorPolicies"))
+            self.showDictChangesAsProblems(self.vendorPolicies, proposed.vendorPolicies, tree.addSubTree("VendorPolicies"))
             return False
         if self.locationPolicies != proposed.locationPolicies:
-            self.showDictChangesAsProblems(self.locationPolicies, proposed.locationPolicies, tree.createChild("LocationPolicies"))
+            self.showDictChangesAsProblems(self.locationPolicies, proposed.locationPolicies, tree.addSubTree("LocationPolicies"))
             return False
         if not self.teams.areTopLevelChangesAuthorized(proposed.teams, changeSource, tree):
             return False
@@ -2029,7 +2029,7 @@ class GovernanceZone(GitControlledObject):
                     govTree.addRaw(DuplicateObject(team, ProblemSeverity.ERROR))
                 else:
                     eco.cache_addTeam(td, team)
-                    teamTree: ValidationTree = govTree.createChild(team)
+                    teamTree: ValidationTree = govTree.addSubTree(team)
                     team.lint(eco, self, td, teamTree)
         self.superLint(govTree)
         self.teams.lint(govTree)
@@ -2045,7 +2045,7 @@ class GovernanceZone(GitControlledObject):
 
         # Check if the teams are compatible
         for team in self.teams.authorizedObjects.values():
-            tTree: ValidationTree = tree.createChild(team)
+            tTree: ValidationTree = tree.addSubTree(team)
             originTeam: Optional[Team] = originZone.getTeam(team.name)
             # if team exists in old zone then check it, otherwise, it's a new team and we don't care
             if originTeam:
@@ -2311,7 +2311,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         if not is_valid_sql_identifier(self.name):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetGroup name {self.name}", ProblemSeverity.ERROR))
         for sink in self.sinks.values():
-            sinkTree: ValidationTree = tree.createChild(sink)
+            sinkTree: ValidationTree = tree.addSubTree(sink)
             sink.lint(eco, team, ws, sinkTree)
         if (self.platformMD):
             platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
@@ -2408,7 +2408,7 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
         super().lint(eco, tree)
         if not is_valid_hostname_or_ip(self.hostName):
             tree.addProblem(f"Invalid host name <{self.hostName}>")
-        cTree: ValidationTree = tree.createChild(self.credential)
+        cTree: ValidationTree = tree.addSubTree(self.credential)
         self.credential.lint(eco, cTree)
 
 
@@ -2444,9 +2444,9 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable):
             workSpaceI: WorkspaceCacheEntry = eco.cache_getWorkspaceOrThrow(ws.name)
             if (workSpaceI.team != storeI.team):
                 tree.addRaw(ConstraintViolation(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR))
-        codeEnvTree: ValidationTree = tree.createChild(self.codeEnv)
+        codeEnvTree: ValidationTree = tree.addSubTree(self.codeEnv)
         self.codeEnv.lint(eco, codeEnvTree)
-        codeTree: ValidationTree = tree.createChild(self.codeEnv)
+        codeTree: ValidationTree = tree.addSubTree(self.codeEnv)
         self.code.lint(eco, codeTree)
 
     def __eq__(self, o: object) -> bool:
@@ -2526,19 +2526,19 @@ class Workspace(ANSI_SQL_NamedObject, Documentable):
         # Check Workspaces in this gz are on dataContainers compatible with vendor
         # and location policies for this GZ
         if (self.dataContainer):
-            cntTree: ValidationTree = tree.createChild(self.dataContainer)
+            cntTree: ValidationTree = tree.addSubTree(self.dataContainer)
             self.dataContainer.lint(eco, gz, t, cntTree)
 
         # Check production status of workspace matches all datasets in use
         # Check deprecation status of workspace generates warnings for all datasets in use
         # Lint the DSGs
         for dsg in self.dsgs.values():
-            dsgTree: ValidationTree = tree.createChild(dsg)
+            dsgTree: ValidationTree = tree.addSubTree(dsg)
             dsg.lint(eco, t, self, dsgTree)
 
         # Link the transformer if present
         if self.dataTransformer:
-            dtTree: ValidationTree = tree.createChild(self.dataTransformer)
+            dtTree: ValidationTree = tree.addSubTree(self.dataTransformer)
             self.dataTransformer.lint(eco, self, dtTree)
 
     def __str__(self) -> str:

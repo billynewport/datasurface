@@ -113,12 +113,12 @@ class IaCDataPlatform(DataPlatform):
         trigger or data transformer is not supported. It may also fail because an infrastructure vendor or datacontainer is not supported"""
         for node in graph.nodes.values():
             if (isinstance(node, IngestionSingleNode)):
-                self.lintIngestionSingleNode(eco, node, tree.createChild(node))
+                self.lintIngestionSingleNode(eco, node, tree.addSubTree(node))
             elif (isinstance(node, IngestionMultiNode)):
-                self.lintIngestionMultiNode(eco, node, tree.createChild(node))
+                self.lintIngestionMultiNode(eco, node, tree.addSubTree(node))
             elif (isinstance(node, ExportNode)):
-                self.lintExportNode(eco, node, tree.createChild(node))
+                self.lintExportNode(eco, node, tree.addSubTree(node))
             elif (isinstance(node, TriggerNode)):
-                self.lintTriggerNode(eco, node, tree.createChild(node))
+                self.lintTriggerNode(eco, node, tree.addSubTree(node))
             elif (isinstance(node, DataTransformerNode)):
-                self.lintDataTransformerNode(eco, node, tree.createChild(node))
+                self.lintDataTransformerNode(eco, node, tree.addSubTree(node))

@@ -415,8 +415,8 @@ class TestWorkspace(unittest.TestCase):
 
         # Prepare ecosystem and check no errors or issues
         tree: ValidationTree = e.lintAndHydrateCaches()
-        self.assertFalse(tree.getErrors())
-        self.assertFalse(tree.getWarnings())
+        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.hasWarnings())
         return e
 
     def test_StoreDependants(self):
@@ -441,16 +441,16 @@ class TestWorkspace(unittest.TestCase):
         ws: Workspace = e.cache_getWorkspaceOrThrow("WK_A").workspace
 
         eTree: ValidationTree = e.lintAndHydrateCaches()
-        self.assertTrue(eTree.getErrors())
-        self.assertFalse(eTree.getWarnings())
+        self.assertTrue(eTree.hasErrors())
+        self.assertFalse(eTree.hasWarnings())
 
         # Mark Sink as allowing deprecated datasets and check again, should be good
         sink_dataset2: DatasetSink = ws.dsgs["FastStuff"].sinks["Store1:Dataset2"]
         sink_dataset2.deprecationsAllowed = DeprecationsAllowed.ALLOWED
 
         eTree = e.lintAndHydrateCaches()
-        self.assertFalse(eTree.getErrors())
-        self.assertTrue(eTree.getWarnings())  # Workspace using deprecated dataset
+        self.assertFalse(eTree.hasErrors())
+        self.assertTrue(eTree.hasWarnings())  # Workspace using deprecated dataset
 
         # Move back to clean model
         dataset2.deprecationStatus.status = DeprecationStatus.NOT_DEPRECATED
@@ -458,8 +458,8 @@ class TestWorkspace(unittest.TestCase):
 
         eTree = e.lintAndHydrateCaches()
         # Verify its clean
-        self.assertFalse(eTree.getErrors())
-        self.assertFalse(eTree.getWarnings())
+        self.assertFalse(eTree.hasErrors())
+        self.assertFalse(eTree.hasWarnings())
 
         # Make sure we checked the production status
         self.assertEqual(store.productionStatus, ProductionStatus.NOT_PRODUCTION)
@@ -469,8 +469,8 @@ class TestWorkspace(unittest.TestCase):
         store.productionStatus = ProductionStatus.NOT_PRODUCTION
         ws.productionStatus = ProductionStatus.PRODUCTION
         eTree = e.lintAndHydrateCaches()
-        self.assertFalse(eTree.getErrors())
-        self.assertTrue(eTree.getWarnings())
+        self.assertFalse(eTree.hasErrors())
+        self.assertTrue(eTree.hasWarnings())
 
     def test_WorkspaceEquality(self):
         fastP: DataPlatform = AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"))
@@ -582,6 +582,6 @@ class TestWorkspace(unittest.TestCase):
         cmd.workSpaceName = "AAA"
 
         tree: ValidationTree = eco.lintAndHydrateCaches()
-        self.assertTrue(tree.getErrors())
+        self.assertTrue(tree.hasErrors())
 
         # Change Datastore refiner

@@ -19,8 +19,8 @@ class TestEcosystemValidation(unittest.TestCase):
 
         rc: ValidationTree = e.lintAndHydrateCaches()
         rc.printTree()
-        self.assertFalse(rc.getErrors())
-        self.assertFalse(rc.getWarnings())
+        self.assertFalse(rc.hasErrors())
+        self.assertFalse(rc.hasWarnings())
 
     def test_nwdb_has_all_softlinks(self):
         e: Ecosystem = tests.nwdb.eco.createEcosystem()
@@ -29,7 +29,7 @@ class TestEcosystemValidation(unittest.TestCase):
 
         rc: ValidationTree = e.lintAndHydrateCaches()
         rc.printTree()
-        self.assertFalse(rc.getErrors())
+        self.assertFalse(rc.hasErrors())
 
         # Verify that all softlinks are in the ecosystem
         self.assertIsNotNone(e.key)
@@ -51,14 +51,14 @@ class TestEcosystemValidation(unittest.TestCase):
         col: DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)
         tree: ValidationTree = ValidationTree(col)
         col.lint(tree)
-        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.hasErrors())
 
         # Test cases where the column is not valid
         col.name = "col 1"  # Not ANSI SQL Identifier
         tree: ValidationTree = ValidationTree(col)
         col.lint(tree)
         self.assertEqual(len(tree.problems), 1)
-        self.assertTrue(tree.getErrors())
+        self.assertTrue(tree.hasErrors())
 
         # Test cases where the column is not valid
 
@@ -66,12 +66,12 @@ class TestEcosystemValidation(unittest.TestCase):
         tree: ValidationTree = ValidationTree(o)
         o.lint(tree)
         self.assertEqual(len(tree.problems), 1)
-        self.assertTrue(tree.getErrors())
+        self.assertTrue(tree.hasErrors())
 
     def assertNoIssue(self, o: DataType):
         tree: ValidationTree = ValidationTree(o)
         o.lint(tree)
-        self.assertFalse(tree.getErrors())
+        self.assertFalse(tree.hasErrors())
 
     def test_lint_datatypes(self):
         self.assertNoIssue(String(20))
@@ -145,7 +145,7 @@ class TestEcosystemValidation(unittest.TestCase):
         # No changes
         problems: ValidationTree = ValidationTree(e)
         e.checkIfChangesAreAuthorized(e2, e.owningRepo, problems)
-        self.assertFalse(problems.getErrors())
+        self.assertFalse(problems.hasErrors())
 
         e2.name = "Test2"
         # Test name cannot be changed from another repo
@@ -155,7 +155,7 @@ class TestEcosystemValidation(unittest.TestCase):
         # Verify that the change is not authorized
         problems = ValidationTree(e)
         e.checkIfChangesAreAuthorized(e2, diffR, problems)
-        self.assertTrue(problems.getErrors())
+        self.assertTrue(problems.hasErrors())
 
         e2: Ecosystem = tests.nwdb.eco.createEcosystem()
 

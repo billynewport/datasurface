@@ -61,7 +61,6 @@ This could be optimized differently if its determined that there will be many ot
 
 We can imagine such graphs holding thousands of sources, hundreds of thousands of tables and thousands of data consumers hosted on tens or hundreds of data containers suited for their use cases. All running on a common data platform that can be managed centrally at a much lower cost than the traditional bespoke pipeline approach.
 
-
 ## Manage pushing DataSurface producer schemas to AWS Glue Catalog
 
 The DataPlatform will need to manage the AWS Glue Data Catalog tables. The DataPlatform will need to create the tables and keep them up to date with the DataSurface model. The DataPlatform will use the DataSurface model to create the tables. The DataPlatform will also use the DataSurface model to keep the tables up to date. The DataPlatform will use the DataSurface model to create the tables and keep them up to date. Glue Tables for producer and consumer schemas will need to be maintained when they change.

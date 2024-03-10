@@ -10,10 +10,10 @@ from datasurface.md.Schema import Binary, Boolean, Char, Date, Interval, NVarCha
 class TestSchemaCompatibility(unittest.TestCase):
 
     def assertCompatible(self, rc: ValidationTree):
-        self.assertFalse(rc.getErrors())
+        self.assertFalse(rc.hasErrors())
 
     def assertNotCompatible(self, rc: ValidationTree):
-        self.assertTrue(rc.getErrors())
+        self.assertTrue(rc.hasErrors())
 
     def test_ColumnCompatibility(self):
         col1: DDLColumn = DDLColumn("col1", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK)

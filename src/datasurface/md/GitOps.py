@@ -62,7 +62,7 @@ class GitControlledObject(ABC, Documentable):
         return rc
 
     def superLint(self, tree: ValidationTree):
-        rTree: ValidationTree = tree.createChild(self.owningRepo)
+        rTree: ValidationTree = tree.addSubTree(self.owningRepo)
         self.owningRepo.lint(rTree)
         if (self.documentation):
             self.documentation.lint(rTree)
@@ -124,7 +124,7 @@ class GitControlledObject(ABC, Documentable):
             prop: Optional[GitControlledObject] = proposed[key]
             curr: Optional[GitControlledObject] = current[key]
             # Check prop against curr for unauthorized changes
-            cTree: ValidationTree = vTree.createChild(curr)
+            cTree: ValidationTree = vTree.addSubTree(curr)
             curr.checkIfChangesAreAuthorized(prop, changeSource, cTree)
 
     def showDictChangesAsProblems(self, current: Mapping[str, object], proposed: Mapping[str, object], vTree: ValidationTree) -> None:

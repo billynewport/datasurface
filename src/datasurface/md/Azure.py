@@ -53,7 +53,7 @@ class AzureDataplatform(DataPlatform):
         return hash(self.name)
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
-        cTree = tree.createChild(self)
+        cTree = tree.addSubTree(self)
         self.platformCredential.lint(eco, cTree)
 
     def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:

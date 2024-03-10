@@ -69,7 +69,7 @@ class BoundedDataType(DataType):
             return True
         if (other.maxSize and self.maxSize and self.maxSize < other.maxSize):
             vTree.addProblem(f"maxSize has been reduced from {other.maxSize} to {self.maxSize}")
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class TextDataType(BoundedDataType):
@@ -99,7 +99,7 @@ class TextDataType(BoundedDataType):
             if (self.collationString != otherTD.collationString):
                 vTree.addProblem(f"Collation has changed from {otherTD.collationString} to {self.collationString}")
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class NumericDataType(DataType):
@@ -109,7 +109,7 @@ class NumericDataType(DataType):
 
     def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
         vTree.checkTypeMatches(other, NumericDataType)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class SignedOrNot(Enum):
@@ -145,7 +145,7 @@ class FixedSizeBinaryDataType(NumericDataType):
                 if (self.isSigned != otherFSBDT.isSigned):
                     vTree.addProblem(f"Signedness has changed from {otherFSBDT.isSigned} to {self.isSigned}")
                 super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class TinyInt(FixedSizeBinaryDataType):
@@ -251,7 +251,7 @@ class CustomFloat(NumericDataType):
             if otherCF.isRepresentableBy(self):
                 return super().isBackwardsCompatibleWith(other, vTree)
             vTree.addProblem("New Type loses precision on current type")
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class IEEE16(CustomFloat):
@@ -348,7 +348,7 @@ class Decimal(BoundedDataType):
             if (self.precision < otherD.precision):
                 vTree.addProblem(f"Precision has been reduced from {otherD.precision} to {self.precision}")
             return super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
     def __str__(self) -> str:
         if (self.maxSize is None):
@@ -376,7 +376,7 @@ class Timestamp(TemporalDataType):
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         vTree.checkTypeMatches(other, Timestamp, Date)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class Date(TemporalDataType):
@@ -389,7 +389,7 @@ class Date(TemporalDataType):
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         vTree.checkTypeMatches(other, Date)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class Interval(TemporalDataType):
@@ -403,7 +403,7 @@ class Interval(TemporalDataType):
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Interval):
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class UniCodeType(TextDataType):
@@ -428,7 +428,7 @@ class UniCodeType(TextDataType):
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, UniCodeType):
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class NonUnicodeString(TextDataType):
@@ -440,7 +440,7 @@ class NonUnicodeString(TextDataType):
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, NonUnicodeString):
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class VarChar(NonUnicodeString):
@@ -499,7 +499,7 @@ class Boolean(DataType):
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Boolean):
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
     def lint(self, vTree: ValidationTree) -> None:
         super().lint(vTree)
@@ -517,7 +517,7 @@ class Variant(BoundedDataType):
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Variant):
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class Binary(BoundedDataType):
@@ -529,7 +529,7 @@ class Binary(BoundedDataType):
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, Binary):
             super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class Vector(DataType):
@@ -557,7 +557,7 @@ class Vector(DataType):
                 vTree.addProblem(f"Dimensions has been reduced from {otherV.dimensions} to {self.dimensions}")
             else:
                 super().isBackwardsCompatibleWith(other, vTree)
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
 
 class NullableStatus(Enum):
@@ -621,13 +621,13 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
             vTree.addProblem(f"Nullable status for {self.name} changed from {self.nullable} to {other.nullable}")
         if (self.classification != other.classification):
             vTree.addProblem(f"Data classification for {self.name} changed from {self.classification} to {other.classification}")
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
     def lint(self, tree: ValidationTree) -> None:
         super().nameLint(tree)
         self.type.lint(tree)
         if (self.documentation):
-            self.documentation.lint(tree.createChild(self.documentation))
+            self.documentation.lint(tree.addSubTree(self.documentation))
         if (self.primaryKey == PrimaryKeyStatus.PK and self.nullable == NullableStatus.NULLABLE):
             tree.addProblem(f"Primary key column {self.name} cannot be nullable")
 
@@ -702,8 +702,8 @@ class Schema(ABC, Documentable):
         if (self.ingestionPartitionColumns != other.ingestionPartitionColumns):
             vTree.addProblem(f"Partitioning cannot change from {self.ingestionPartitionColumns} to {other.ingestionPartitionColumns}")
         if self.documentation:
-            self.documentation.lint(vTree.createChild(self.documentation))
-        return not vTree.getErrors()
+            self.documentation.lint(vTree.addSubTree(self.documentation))
+        return not vTree.hasErrors()
 
     @abstractmethod
     def checkClassificationsAreOnly(self, verifier: DataClassificationPolicy) -> bool:
@@ -719,10 +719,10 @@ class Schema(ABC, Documentable):
     def lint(self, tree: ValidationTree) -> None:
         """This method performs linting on this schema"""
         if (self.primaryKeyColumns):
-            self.primaryKeyColumns.lint(tree.createChild(self.primaryKeyColumns))
+            self.primaryKeyColumns.lint(tree.addSubTree(self.primaryKeyColumns))
 
         if (self.ingestionPartitionColumns):
-            self.ingestionPartitionColumns.lint(tree.createChild(self.ingestionPartitionColumns))
+            self.ingestionPartitionColumns.lint(tree.addSubTree(self.ingestionPartitionColumns))
 
 
 class DDLTable(Schema):
@@ -804,7 +804,7 @@ class DDLTable(Schema):
                     vTree.addProblem(f"Column {col.name} is missing from the new schema")
             # Existing columns must be compatible
             for col in self.columns.values():
-                cTree: ValidationTree = vTree.createChild(col)
+                cTree: ValidationTree = vTree.addSubTree(col)
                 newCol: Optional[DDLColumn] = currentDDL.columns.get(col.name)
                 if (newCol):
                     newCol.isBackwardsCompatibleWith(col, cTree)
@@ -821,14 +821,14 @@ class DDLTable(Schema):
                 # Additional columns must be nullable
                 if col.nullable == NullableStatus.NOT_NULLABLE:
                     vTree.addProblem(f"Column {col.name} must be nullable")
-        return not vTree.getErrors()
+        return not vTree.hasErrors()
 
     def lint(self, tree: ValidationTree) -> None:
         """This method performs linting on this schema"""
         super().lint(tree)
         if self.primaryKeyColumns:
-            pkTree: ValidationTree = tree.createChild(self.primaryKeyColumns)
-            self.primaryKeyColumns.lint(tree.createChild(pkTree))
+            pkTree: ValidationTree = tree.addSubTree(self.primaryKeyColumns)
+            self.primaryKeyColumns.lint(tree.addSubTree(pkTree))
             for colName in self.primaryKeyColumns.colNames:
                 if (colName not in self.columns):
                     pkTree.addProblem(f"Primary key column {colName} is not in the column list")
@@ -839,7 +839,7 @@ class DDLTable(Schema):
                     if (col.nullable == NullableStatus.NULLABLE):
                         tree.addProblem(f"Primary key {colName} cannot be nullable")
             for col in self.columns.values():
-                colTree: ValidationTree = tree.createChild(col)
+                colTree: ValidationTree = tree.addSubTree(col)
                 col.lint(colTree)
                 if col.primaryKey == PrimaryKeyStatus.PK and col.name not in self.primaryKeyColumns.colNames:
                     tree.addProblem(f"Column {col.name} is marked as primary key but is not in the primary key list")

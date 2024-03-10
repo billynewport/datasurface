@@ -45,7 +45,7 @@ class Test_Utils(unittest.TestCase):
             r: GitHubRepository = GitHubRepository(url, "moduleName")
             tree: ValidationTree = ValidationTree(r)
             r.lint(tree)
-            self.assertFalse(tree.getErrors())
+            self.assertFalse(tree.hasErrors())
 
         # Valid HTTPS GitHub URLs
 
