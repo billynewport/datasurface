@@ -15,7 +15,7 @@ from .utils import ANSI_SQL_NamedObject, is_valid_hostname_or_ip, is_valid_sql_i
 from .Schema import DataClassification, DataClassificationPolicy, Schema
 from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, WorkspaceDoesntExistException
-from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameMustBeSQLIdentifier, \
+from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
         UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationTree
 
@@ -676,7 +676,7 @@ class HostPortSQLDatabase(SQLDatabase):
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
         super().lint(eco, gz, t, tree)
         if not is_valid_hostname_or_ip(self.host):
-            tree.addProblem(f"Host '{self.host}' is not a valid hostname or IP address")
+            tree.addRaw(NameHasBadSynthax(f"Host '{self.host}' is not a valid hostname or IP address"))
         if self.port < 0 or self.port > 65535:
             tree.addProblem(f"Port {self.port} is not a valid port number")
 
@@ -2257,7 +2257,7 @@ class DatasetSink(object):
                     tree.addRaw(UnknownObjectReference(f"Unknown dataset {self.storeName}:{self.datasetName}", ProblemSeverity.ERROR))
                 else:
                     if (ws.classificationVerifier and not dataset.checkClassificationsAreOnly(ws.classificationVerifier)):
-                        tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} has unexpected classifications")
+                        tree.addRaw(ObjectNotCompatibleWithPolicy(self, ws.classificationVerifier, ProblemSeverity.ERROR))
             else:
                 tree.addRaw(UnknownObjectReference(f"Datastore {self.storeName}", ProblemSeverity.ERROR))
 
@@ -2395,7 +2395,7 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         super().lint(eco, tree)
         if not is_valid_hostname_or_ip(self.hostName):
-            tree.addProblem(f"Invalid host name <{self.hostName}>")
+            tree.addRaw(NameHasBadSynthax(f"Invalid host name <{self.hostName}>"))
         cTree: ValidationTree = tree.addSubTree(self.credential)
         self.credential.lint(eco, cTree)
 

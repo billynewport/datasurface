@@ -108,10 +108,22 @@ class UnauthorizedAttributeChange(ValidationProblem):
         return hash(self.description)
 
 
-class NameMustBeSQLIdentifier(ValidationProblem):
+class NameHasBadSynthax(ValidationProblem):
+    """This indicates a name has bad syntax"""
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Name {name} has bad syntax", ProblemSeverity.ERROR)
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, NameHasBadSynthax)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
+class NameMustBeSQLIdentifier(NameHasBadSynthax):
     """This indicates a name is not a valid SQL identifier"""
     def __init__(self, name: str, sev: ProblemSeverity) -> None:
-        super().__init__(f"Name {name} is not a valid SQL identifier", sev)
+        super().__init__(f"Name {name} is not a valid SQL identifier")
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, NameMustBeSQLIdentifier)

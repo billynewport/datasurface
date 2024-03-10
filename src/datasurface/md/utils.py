@@ -1,7 +1,7 @@
 import re
 
 from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
 from typing import Callable, TypeVar, Tuple, Dict, Generic
 
 
@@ -92,7 +92,7 @@ class ANSI_SQL_NamedObject:
 
     def nameLint(self, tree: ValidationTree) -> None:
         if not is_valid_sql_identifier(self.name):
-            tree.addProblem(f"Name {self.name} is not a valid ANSI SQL identifier")
+            tree.addRaw(NameHasBadSynthax(f"Name {self.name} is not a valid ANSI SQL identifier"))
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"

@@ -2,7 +2,7 @@ from enum import Enum
 from datasurface.md import Documentation
 from datasurface.md.Governance import DataContainer
 from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
-from .Lint import ValidationTree
+from .Lint import NameHasBadSynthax, ValidationTree
 from .utils import is_valid_azure_key_vault_name
 
 
@@ -30,7 +30,7 @@ class AzureKeyVaultCredential(Credential):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
         if (not is_valid_azure_key_vault_name(self.keyVaultName)):
-            tree.addProblem(f"Azure Key Vault name <{self.keyVaultName}> needs to match [a-z0-9]{3,24}")
+            tree.addRaw(NameHasBadSynthax(f"Azure Key Vault name <{self.keyVaultName}> needs to match [a-z0-9]{3,24}"))
 
     def __str__(self) -> str:
         return f"AzureKeyVaultCredential({self.keyVaultName}/{self.objectName})"
