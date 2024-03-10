@@ -90,7 +90,7 @@ class TextDataType(BoundedDataType):
             return str(self.__class__.__name__) + f"({self.maxSize}, '{self.collationString}')"
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, TextDataType)
+        return super().__eq__(__value) and isinstance(__value, TextDataType) and self.collationString == __value.collationString
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -110,6 +110,9 @@ class NumericDataType(DataType):
     def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
         vTree.checkTypeMatches(other, NumericDataType)
         return not vTree.hasErrors()
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, NumericDataType)
 
 
 class SignedOrNot(Enum):
@@ -147,6 +150,9 @@ class FixedSizeBinaryDataType(NumericDataType):
                 super().isBackwardsCompatibleWith(other, vTree)
         return not vTree.hasErrors()
 
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}: {self.sizeInBits} bits"
+
 
 class TinyInt(FixedSizeBinaryDataType):
     """8 bit signed integer"""
@@ -155,6 +161,9 @@ class TinyInt(FixedSizeBinaryDataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, TinyInt)
+
+    def __hash__(self) -> int:
+        return hash(str(self))
 
 
 class SmallInt(FixedSizeBinaryDataType):
@@ -165,6 +174,9 @@ class SmallInt(FixedSizeBinaryDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, SmallInt)
 
+    def __hash__(self) -> int:
+        return hash(str(self))
+
 
 class Integer(FixedSizeBinaryDataType):
     """32 bit signed integer"""
@@ -174,6 +186,9 @@ class Integer(FixedSizeBinaryDataType):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, Integer)
 
+    def __hash__(self) -> int:
+        return hash(str(self))
+
 
 class BigInt(FixedSizeBinaryDataType):
     """64 bit signed integer"""
@@ -182,6 +197,9 @@ class BigInt(FixedSizeBinaryDataType):
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, BigInt)
+
+    def __hash__(self) -> int:
+        return hash(str(self))
 
 
 class NonFiniteBehavior(Enum):
@@ -253,11 +271,17 @@ class CustomFloat(NumericDataType):
             vTree.addProblem("New Type loses precision on current type")
         return not vTree.hasErrors()
 
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
 
 class IEEE16(CustomFloat):
     """Half precision IEEE754"""
     def __init__(self) -> None:
         super().__init__(sizeInBits=16, precision=11, maxExponent=15, minExponent=-14)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, IEEE16)
 
 
 class IEEE32(CustomFloat):
@@ -265,11 +289,17 @@ class IEEE32(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=32, precision=24, maxExponent=127, minExponent=-126)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, IEEE32)
+
 
 class Float(IEEE32):
     """Alias 32 bit IEEE floating point number"""
     def __init__(self) -> None:
         super().__init__()
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, Float)
 
 
 class IEEE64(CustomFloat):
@@ -277,11 +307,17 @@ class IEEE64(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=64, precision=53, maxExponent=1023, minExponent=-1022)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, IEEE64)
+
 
 class Double(IEEE64):
     """Alias for IEEE64"""
     def __init__(self) -> None:
         super().__init__()
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, Double)
 
 
 class IEEE128(CustomFloat):
@@ -289,11 +325,17 @@ class IEEE128(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=128, precision=113, maxExponent=16383, minExponent=-16382)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, IEEE128)
+
 
 class IEEE256(CustomFloat):
     """IEEE754 256 bit floating point number"""
     def __init__(self) -> None:
         super().__init__(sizeInBits=256, precision=237, maxExponent=262143, minExponent=-262142)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, IEEE256)
 
 
 class FP8_E4M3(CustomFloat):
@@ -301,11 +343,17 @@ class FP8_E4M3(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=8, precision=3, maxExponent=15, minExponent=-14)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, FP8_E4M3)
+
 
 class FP8_E5M2(CustomFloat):
     """IEEE 8 bit floating point number"""
     def __init__(self) -> None:
         super().__init__(sizeInBits=8, precision=3, maxExponent=15, minExponent=-14)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, FP8_E5M2)
 
 
 class FP8_E5M2FNUZ(CustomFloat):
@@ -314,12 +362,18 @@ class FP8_E5M2FNUZ(CustomFloat):
         super().__init__(sizeInBits=8, precision=3, maxExponent=15, minExponent=-15, nonFiniteBehavior=NonFiniteBehavior.NanOnly,
                          nanEncoding=FloatNanEncoding.NegativeZero)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, FP8_E5M2FNUZ)
+
 
 class FP8_E4M3FNUZ(CustomFloat):
     """IEEE 8 bit floating point number"""
     def __init__(self) -> None:
         super().__init__(sizeInBits=8, precision=4, maxExponent=7, minExponent=-7, nonFiniteBehavior=NonFiniteBehavior.NanOnly,
                          nanEncoding=FloatNanEncoding.NegativeZero)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, FP8_E4M3FNUZ)
 
 
 class Decimal(BoundedDataType):
@@ -373,6 +427,9 @@ class Timestamp(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, Timestamp)
+
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         vTree.checkTypeMatches(other, Timestamp, Date)
@@ -412,7 +469,7 @@ class UniCodeType(TextDataType):
         super().__init__(maxSize, collationString)
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, UniCodeType) and self.maxSize == __value.maxSize
+        return super().__eq__(__value) and isinstance(__value, UniCodeType)
 
     def __str__(self) -> str:
         if (self.maxSize is None and self.collationString is None):
@@ -436,6 +493,9 @@ class NonUnicodeString(TextDataType):
     def __init__(self, maxSize: Optional[int], collationString: Optional[str]) -> None:
         super().__init__(maxSize, collationString)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, NonUnicodeString)
+
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         if vTree.checkTypeMatches(other, NonUnicodeString):
@@ -448,17 +508,26 @@ class VarChar(NonUnicodeString):
     def __init__(self, maxSize: Optional[int] = None, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, VarChar)
+
 
 class NVarChar(UniCodeType):
     """Variable length unicode string with maximum size"""
     def __init__(self, maxSize: Optional[int] = None, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, NVarChar)
+
 
 class String(NVarChar):
     """Alias for NVarChar"""
     def __init__(self, maxSize: Optional[int] = None, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, String)
 
 
 def strForFixedSizeString(clsName: str, maxSize: int, collationString: Optional[str]) -> str:
@@ -475,6 +544,9 @@ class Char(TextDataType):
     def __init__(self, maxSize: int = 1, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, Char)
+
     def __str__(self) -> str:
         sz: int = 1 if self.maxSize is None else self.maxSize
         return strForFixedSizeString(self.__class__.__name__, sz, self.collationString)
@@ -485,6 +557,9 @@ class NChar(UniCodeType):
     def __init__(self, maxSize: int = 1, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, NChar)
+
     def __str__(self) -> str:
         sz: int = 1 if self.maxSize is None else self.maxSize
         return strForFixedSizeString(self.__class__.__name__, sz, self.collationString)
@@ -494,6 +569,9 @@ class Boolean(DataType):
     """Boolean value"""
     def __init__(self) -> None:
         super().__init__()
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, Boolean)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -524,6 +602,9 @@ class Binary(BoundedDataType):
     """Binary blob"""
     def __init__(self, maxSize: Optional[int] = None) -> None:
         super().__init__(maxSize)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, Binary)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""

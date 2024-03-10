@@ -1,9 +1,9 @@
-from typing import Any, Optional
+from typing import Any, Optional, Type
 from datasurface.md import Documentation
 from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage
 from datasurface.md.Lint import ValidationTree
-from datasurface.md.Schema import IEEE32, IEEE64, BigInt, Boolean, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
+from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
 
@@ -89,34 +89,29 @@ class AmazonAWSSQS(DataContainer):
 class GlueTable:
     def __init__(self, table: Dataset):
         self.srcTable: Dataset = table
+        self.type_mapping: dict[Type[DataType], str] = {
+            TinyInt: "byte",
+            SmallInt: "short",
+            Integer: "int",
+            BigInt: "long",
+            # AWS Glue just has unicode, so any string is a string
+            NVarChar: "string",
+            VarChar: "string",
 
-    def convertToAWSType(self, type: DataType) -> str:
-        if (isinstance(type, TinyInt)):
-            return "byte"
-        if (isinstance(type, SmallInt)):
-            return "short"
-        if (isinstance(type, Integer)):
-            return "int"
-        if (isinstance(type, BigInt)):
-            return "long"
-        # AWS Glue just has unicode, so any string is a string
-        if (isinstance(type, NVarChar) or isinstance(type, VarChar)):
-            return "string"
-        if (isinstance(type, IEEE32)):
-            return "float"
-        if (isinstance(type, IEEE64)):
-            return "double"
-        if (isinstance(type, Boolean)):
-            return "boolean"
-        if (isinstance(type, Date)):
-            return "date"
-        if (isinstance(type, Timestamp)):
-            return "timestamp"
-        if (isinstance(type, Decimal)):
-            return "decimal"
-        if (isinstance(type, Variant)):
-            return "binary"
-        raise Exception(f"Unsupported type: {type}")
+            IEEE16: "float",
+            IEEE32: "float",
+            IEEE64: "double",
+            Boolean: "boolean",
+            Date: "date",
+            Timestamp: "timestamp",
+            Decimal: "decimal",
+            Variant: "binary",
+        }
+
+    def convertToAWSType(self, dataType: DataType) -> str:
+        if (type(dataType) in self.type_mapping):
+            return self.type_mapping[type(dataType)]
+        raise Exception(f"Unsupported type: {dataType}")
 
     def generate_glue_schema(self) -> Optional[dict[str, Any]]:
         if (self.srcTable.originalSchema is None):
