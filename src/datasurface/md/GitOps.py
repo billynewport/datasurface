@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import re
-from typing import Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 from datasurface.md import Documentation
 from datasurface.md.Documentation import Documentable
 
@@ -47,6 +47,12 @@ class GitControlledObject(ABC, Documentable):
             return self.owningRepo == __value.owningRepo and ABC.__eq__(self, __value) and Documentable.__eq__(self, __value)
         else:
             return False
+
+    def _check_dict_changes(self, current_dict: dict[str, Any], proposed_dict: dict[str, Any], validation_tree: ValidationTree, dict_name: str) -> bool:
+        if current_dict != proposed_dict:
+            self.showDictChangesAsProblems(current_dict, proposed_dict, validation_tree.addSubTree(dict_name))
+            return True
+        return False
 
     @abstractmethod
     def areTopLevelChangesAuthorized(self, proposed: 'GitControlledObject', changeSource: Repository, tree: ValidationTree) -> bool:

@@ -1494,13 +1494,9 @@ class Ecosystem(GitControlledObject):
                 zTree: ValidationTree = tree.addSubTree(self.zones)
                 if not self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree):
                     rc = False
-                if self.vendors != proposed.vendors:
-                    vTree: ValidationTree = tree.addSubTree("Vendors")
-                    self.showDictChangesAsProblems(self.vendors, proposed.vendors, vTree)
+                if self._check_dict_changes(self.vendors, proposed.vendors, tree, "Vendors"):
                     rc = False
-                if self.dataPlatforms != proposed.dataPlatforms:
-                    pTree: ValidationTree = tree.addSubTree("DataPlatforms")
-                    self.showDictChangesAsProblems(self.dataPlatforms, proposed.dataPlatforms, pTree)
+                if self._check_dict_changes(self.dataPlatforms, proposed.dataPlatforms, tree, "DataPlatforms"):
                     rc = False
                 if self.defaultDataPlatform != proposed.defaultDataPlatform:
                     tree.addRaw(UnauthorizedAttributeChange("defaultDataPlatformn", self.defaultDataPlatform,
@@ -1664,13 +1660,9 @@ class Team(GitControlledObject):
             return False
         if not isinstance(proposed, Team):
             return False
-        if self.dataStores != proposed.dataStores:
-            dTree: ValidationTree = tree.addSubTree("Datastores")
-            self.showDictChangesAsProblems(self.dataStores, proposed.dataStores, dTree)
+        if self._check_dict_changes(self.dataStores, proposed.dataStores, tree, "DataStores"):
             return False
-        if self.workspaces != proposed.workspaces:
-            wTree: ValidationTree = tree.addSubTree("Workspaces")
-            self.showDictChangesAsProblems(self.workspaces, proposed.workspaces, wTree)
+        if self._check_dict_changes(self.workspaces, proposed.workspaces, tree, "Workspaces"):
             return False
         return True
 
@@ -1986,17 +1978,13 @@ class GovernanceZone(GitControlledObject):
             return True
         if not (super().areTopLevelChangesAuthorized(proposed, changeSource, tree) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
-        if self.storagePolicies != proposed.storagePolicies:
-            self.showDictChangesAsProblems(self.storagePolicies, proposed.storagePolicies, tree.addSubTree("StoragePolicies"))
+        if self._check_dict_changes(self.storagePolicies, proposed.storagePolicies, tree, "StoragePolicies"):
             return False
-        if self.dataplatformPolicies != proposed.dataplatformPolicies:
-            self.showDictChangesAsProblems(self.dataplatformPolicies, proposed.dataplatformPolicies, tree.addSubTree("DataPlatformPolicies"))
+        if self._check_dict_changes(self.dataplatformPolicies, proposed.dataplatformPolicies, tree, "DataPlatformPolicies"):
             return False
-        if self.vendorPolicies != proposed.vendorPolicies:
-            self.showDictChangesAsProblems(self.vendorPolicies, proposed.vendorPolicies, tree.addSubTree("VendorPolicies"))
+        if self._check_dict_changes(self.vendorPolicies, proposed.vendorPolicies, tree, "VendorPolicies"):
             return False
-        if self.locationPolicies != proposed.locationPolicies:
-            self.showDictChangesAsProblems(self.locationPolicies, proposed.locationPolicies, tree.addSubTree("LocationPolicies"))
+        if self._check_dict_changes(self.locationPolicies, proposed.locationPolicies, tree, "LocationPolicies"):
             return False
         if not self.teams.areTopLevelChangesAuthorized(proposed.teams, changeSource, tree):
             return False
