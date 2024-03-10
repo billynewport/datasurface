@@ -25,6 +25,18 @@ This platform will fork the DataSurface repository at this point and then genera
 
 The ecosystem model will continue to be modified. At some point, this DataPlatform will fork the live branch again and then generate the new IaC translation for the new fork. The new IaC translation will be used to update the AWS resources for the data platform.
 
+## Processing
+
+The staging files are not ideal for querying directly or using them for materializing data in other data containers. The staging data consists of files representing an initial snapshot or load from the sources and then files representing changes from that point onwards. These need to be consolidated to provide a live image of the data in the source. This live image also needs to support the hydration and maintenance of this data in othr data containers. The live image may be used to hydrate multiple data containers concurrently at different stages of the maintenance process. For example, some data containers may be up to date and accepting changes. Others may be in the process of being initially hydrated. This means the live tables needs to support snapshots and deltas.
+
+This solution uses AWS Glue to process the staging data in to a set of tables. We will create a python spark script which handles both initial snapshots and changes. This script will be run by AWS Glue using a cron trigger with AWS Event Bridge. The script will use AWS Bookmark is maintain the job state.
+
+If the job state is missing then we are beginning an initial load. We will process load in stages and update the bookmark at each stage. Once the initial load is complete then we will update the bookmark to indicate that we are in the incremental mode. We will then process incremental changes and update the bookmark at each stage. Each stage duration will be governed by either run to completion or a time limit. The script will be idempotent. The script will use the bookmark service for all job state.
+
+The iceberg tables will be stored in the AWS Glue Data Catalog. The iceberg tables will be used to support snapshots and deltas. The iceberg tables will be used to hydrate other data containers.
+
+They can also be directly queried by consumers using AWS Redshift or Athena with security provided by AWS Lake Formation.
+
 ```mermaid
 graph TD
     SRC[Source Data Container] -->|AWS DMS| S3(Staging Area)
@@ -43,17 +55,8 @@ graph TD
 
 This could be optimized differently if its determined that there will be many others of the data outside the primary AWS region. It may make sense to use a second DataPlatform instance, distinct from the first, so that data is buffered once between the first region and the other regions. This would save on network egres costs during multiple hydrations and ongoing change pushing.
 
-## Processing
+We can imagine such graphs holding thousands of sources, hundreds of thousands of tables and thousands of data consumers hosted on tens or hundreds of data containers suited for their use cases. All running on a common data platform that can be managed centrally at a much lower cost than the traditional bespoke pipeline approach.
 
-The staging files are not ideal for querying directly or using them for materializing data in other data containers. The staging data consists of files representing an initial snapshot or load from the sources and then files representing changes from that point onwards. These need to be consolidated to provide a live image of the data in the source. This live image also needs to support the hydration and maintenance of this data in othr data containers. The live image may be used to hydrate multiple data containers concurrently at different stages of the maintenance process. For example, some data containers may be up to date and accepting changes. Others may be in the process of being initially hydrated. This means the live tables needs to support snapshots and deltas.
-
-This solution uses AWS Glue to process the staging data in to a set of tables. We will create a python spark script which handles both initial snapshots and changes. This script will be run by AWS Glue using a cron trigger with AWS Event Bridge. The script will use AWS Bookmark is maintain the job state.
-
-If the job state is missing then we are beginning an initial load. We will process load in stages and update the bookmark at each stage. Once the initial load is complete then we will update the bookmark to indicate that we are in the incremental mode. We will then process incremental changes and update the bookmark at each stage. Each stage duration will be governed by either run to completion or a time limit. The script will be idempotent. The script will use the bookmark service for all job state.
-
-The iceberg tables will be stored in the AWS Glue Data Catalog. The iceberg tables will be used to support snapshots and deltas. The iceberg tables will be used to hydrate other data containers.
-
-They can also be directly queried by consumers using AWS Redshift or Athena with security provided by AWS Lake Formation.
 
 ## Manage pushing DataSurface producer schemas to AWS Glue Catalog
 
