@@ -14,10 +14,16 @@ Schema attributes use this DataType system. DataSurface supports traditional DDL
 
 Producers register schemas which are usually as close as possible to the producers origin data container for this data. Some data containers have more expressive types than others, for example, maximum length of a string.
 
-A DataPlatform with internal storage will need to be able to project the producer schemas on to their internal schema representation and data types. This projection may be lossy. For example, such a schema may not include length limits on strings. If the Dataplatform schema was later used to materielize the data in a relational database then this would be an issue because such databases usually require a maximum lenght for a string and this was lost.
+A DataPlatform with internal storage will need to be able to project the producer schemas on to their internal schema representation and data types. This projection may be lossy. For example, such a schema may not include length limits on strings. If the Dataplatform schema was later used to materielize the data in a relational database then this would be an issue because such databases usually require a maximum length for a string and this was lost. For this reason, it may be necessary for a producer to specify a string maximum length when their data is stored in a data container which does not have a string limit. If this isn't done then a consumer will need to compensate by specifying a maximum length to truncate strings to when the data is projected on to a SQL database. The producer is the best person to specify this maximum length as they are the ones who know the data best.
 
 Alternatively, a data producer may be using a columnar store such as AWS Glue Tables which don't store the maximum length of strings. If this data needs to be materielized in a SQL database then the maximum length of the string will need to be inferred from the data. This is not an exact science.
 
 ## Data Containers have limitations on schemas
 
 Similarly, data containers have limitations. A SQL Database may limit strings to 64k characters. If a producer schema has a string with a maximum length of 100k characters then this will need to be truncated when it's projected on to the SQL database schema and the consumer may be forced to acklowedge this truncation or the DataPlatform will refuse to hydrate the Workspace for the consumer.
+
+## Schema depends on the context of the caller
+
+DataSurface supports a tabular style schema call DDLTable and an Avro schema with a record as the primary attribute. The DDLTable is designed to be a close representation of a SQL table. Both schemas can specify primary keys and primary partition attributes for ingestion.
+
+DataSurface will provide caller specific schema support. Caller context is key to returning the correct schema. For example, a data platform may have a schema for a SQL database and a slightly different schema for an iceberg table stored in AWS Glue. The data platform will need to be able to produce both these schemas from producer schema as well a highlight issues with the mapping. Thus, a dataset may have several schemas associated with it but always has a single authorative schema which is provided by the data producer. The other schemas are derivative schemas generated from the authorative schema to support the restrictions of a specific data container.
