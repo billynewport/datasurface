@@ -76,7 +76,7 @@ class ArrayType(BoundedDataType):
     """An Array of a specific data type with an optional bound on the number of elements"""
     def __init__(self, maxSize: Optional[int], type: DataType) -> None:
         super().__init__(maxSize)
-        self.dataType = type
+        self.dataType: DataType = type
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, ArrayType) and self.dataType == __value.dataType
