@@ -68,7 +68,7 @@ class AzureDataplatform(DataPlatform):
         return f"AzureDataPlatform({self.name})"
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
-        return dc.isUsingVendorsOnly(eco, {CloudVendor.AZURE})
+        return dc.areLocationsOwnedByTheseVendors(eco, {CloudVendor.AZURE})
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         # TODO: Implement this method

@@ -28,7 +28,7 @@ class AmazonAWSDataPlatform(DataPlatform):
         return super().__eq__(__value) and isinstance(__value, AmazonAWSDataPlatform)
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
-        return dc.isUsingVendorsOnly(eco, {CloudVendor.AWS})
+        return dc.areLocationsOwnedByTheseVendors(eco, {CloudVendor.AWS})
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         pass
@@ -61,8 +61,8 @@ class AmazonAWSKinesis(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().mapDataset(dataset)
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
 
 
 class AmazonAWSDynamoDB(DataContainer):
@@ -77,8 +77,8 @@ class AmazonAWSDynamoDB(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().mapDataset(dataset)
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
 
 
 class AmazonAWSSQS(DataContainer):
@@ -93,8 +93,8 @@ class AmazonAWSSQS(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().mapDataset(dataset)
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
 
 
 class GlueDDLSchemaMapper(SchemaProjector):

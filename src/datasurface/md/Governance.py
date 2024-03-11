@@ -651,18 +651,19 @@ class DataContainer(ABC, Documentable):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def isUsingVendorsOnly(self, eco: 'Ecosystem', vendors: set[CloudVendor]) -> bool:
+    def areLocationsOwnedByTheseVendors(self, eco: 'Ecosystem', vendors: set[CloudVendor]) -> bool:
         """Returns true if the container only uses locations managed by the provided set of cloud vendors"""
         for loc in self.locations:
             if (loc.key is None):
                 return False
             v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
-            if v.hardCloudVendor != CloudVendor.AWS:
+            if v.hardCloudVendor not in vendors:
                 return False
         return True
 
     @abstractmethod
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
         return DefaultSchemaProjector(dataset)
 
 
@@ -680,8 +681,8 @@ class SQLDatabase(DataContainer):
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
         super().lint(eco, gz, t, tree)
 
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().mapDataset(dataset)
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
 
 
 class URLSQLDatabase(SQLDatabase):
@@ -724,8 +725,8 @@ class ObjectStorage(DataContainer):
         self.bucketName: str = bucketName
         self.prefix: Optional[str] = prefix
 
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().mapDataset(dataset)
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
 
 
 class Dataset(ANSI_SQL_NamedObject, Documentable):
@@ -939,8 +940,8 @@ class PyOdbcSourceInfo(DataContainer):
     def __str__(self) -> str:
         return f"PyOdbcSourceInfo({self.serverHost})"
 
-    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().mapDataset(dataset)
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
 
 
 class CaptureType(Enum):
