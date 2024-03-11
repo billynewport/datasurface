@@ -45,3 +45,9 @@ graph TD
 * StoragePolicy
 * InfrastructureVendorPolicy
 * InfrastructureLocationPolicy
+
+## DataContainers and Schemas
+
+DataContainers will have a supported schema. They support methods to take a producer schema and derive a compatible loss less schema that is compatible with the DataContainer.
+
+This is important because the datacontainer used by the data producer will likely be different than the one used by this DataContainer. For example, a data producer may use an Oracle database where as a consumer Workspace may use an AWS Glue IceBerg columnar store. The producer schema needs to be mapped to a compatible schema for the consumer workspace data container.

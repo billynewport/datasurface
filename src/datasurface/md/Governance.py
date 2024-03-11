@@ -566,6 +566,34 @@ class EncryptionSystem:
         return cyclic_safe_eq(self, __value, set())
 
 
+class SchemaProjector(ABC):
+    """This class takes a Schema and projects it to a Schema compatible with an underlying DataContainer"""
+    def __init__(self, dataset: 'Dataset'):
+        self.dataset: Dataset = dataset
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, SchemaProjector) and self.dataset == __value.dataset
+
+    @abstractmethod
+    def computeSchema(self) -> Optional[Schema]:
+        pass
+
+
+class DefaultSchemaProjector(SchemaProjector):
+    """This is a default schema projector which projects the dataset schema to the original schema of the dataset. This is used when
+    the data container doesn't have a specific schema projector. However, its likely that most data containers will require a specific
+    projector to be written"""
+    def __init__(self, dataset: 'Dataset'):
+        super().__init__(dataset)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, DefaultSchemaProjector)
+
+    def computeSchema(self) -> Optional[Schema]:
+        """This returns the original schema for this implementation"""
+        return self.dataset.originalSchema
+
+
 class DataContainer(ABC, Documentable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
@@ -633,6 +661,10 @@ class DataContainer(ABC, Documentable):
                 return False
         return True
 
+    @abstractmethod
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return DefaultSchemaProjector(dataset)
+
 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
@@ -647,6 +679,9 @@ class SQLDatabase(DataContainer):
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
         super().lint(eco, gz, t, tree)
+
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().mapDataset(dataset)
 
 
 class URLSQLDatabase(SQLDatabase):
@@ -688,6 +723,9 @@ class ObjectStorage(DataContainer):
         self.endPointURI: Optional[str] = endPointURI
         self.bucketName: str = bucketName
         self.prefix: Optional[str] = prefix
+
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().mapDataset(dataset)
 
 
 class Dataset(ANSI_SQL_NamedObject, Documentable):
@@ -900,6 +938,9 @@ class PyOdbcSourceInfo(DataContainer):
 
     def __str__(self) -> str:
         return f"PyOdbcSourceInfo({self.serverHost})"
+
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().mapDataset(dataset)
 
 
 class CaptureType(Enum):

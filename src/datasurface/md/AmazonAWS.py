@@ -1,10 +1,12 @@
 from typing import Any, Optional, Type
-from datasurface.md import Documentation
-from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+from datasurface.md.AvroSchema import AvroSchema as AvSchema
+from datasurface.md.Documentation import Documentation
+
+from datasurface.md.Governance import CloudVendor, DataContainer, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage
 from datasurface.md.Lint import ValidationTree
-from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
-    NullableStatus, PrimaryKeyStatus, SmallInt, Timestamp, TinyInt, VarChar, Variant
+from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
+    NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
 
 class AmazonAWSDataPlatform(DataPlatform):
@@ -59,6 +61,9 @@ class AmazonAWSKinesis(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().mapDataset(dataset)
+
 
 class AmazonAWSDynamoDB(DataContainer):
     def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str]):
@@ -72,6 +77,9 @@ class AmazonAWSDynamoDB(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().mapDataset(dataset)
+
 
 class AmazonAWSSQS(DataContainer):
     def __init__(self, name: str, loc: InfrastructureLocation, queueURL: Optional[str]):
@@ -84,6 +92,39 @@ class AmazonAWSSQS(DataContainer):
 
     def __hash__(self) -> int:
         return hash(self.name)
+
+    def mapDataset(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().mapDataset(dataset)
+
+
+class GlueDDLSchemaMapper(SchemaProjector):
+    def __init__(self, dataset: Dataset):
+        super().__init__(dataset)
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, GlueDDLSchemaMapper)
+
+    def convertDDLTable(self, table: DDLTable) -> DDLTable:
+        glueTable: DDLTable = DDLTable()
+        for col in table.columns.values():
+            glueType: DataType = col.type
+            glueCol: DDLColumn = DDLColumn(col.name, glueType, col.nullable, col.primaryKey)
+            if (col.classification):
+                for dc in col.classification:
+                    glueCol.add(dc)
+            glueTable.add(glueCol)
+        return glueTable
+
+    def convertAvroTable(self, table: AvSchema) -> AvSchema:
+        pass
+
+    def computeSchema(self) -> Optional[Schema]:
+        if (self.dataset.originalSchema is None):
+            return self.dataset.originalSchema
+        if (isinstance(self.dataset.originalSchema, DDLTable)):
+            return self.convertDDLTable(self.dataset.originalSchema)
+        elif (isinstance(self.dataset.originalSchema, AvSchema)):
+            return self.dataset.originalSchema
 
 
 class GlueTable:

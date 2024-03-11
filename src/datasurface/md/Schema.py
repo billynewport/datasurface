@@ -72,6 +72,74 @@ class BoundedDataType(DataType):
         return not vTree.hasErrors()
 
 
+class ArrayType(BoundedDataType):
+    """An Array of a specific data type with an optional bound on the number of elements"""
+    def __init__(self, maxSize: Optional[int], type: DataType) -> None:
+        super().__init__(maxSize)
+        self.dataType = type
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, ArrayType) and self.dataType == __value.dataType
+
+    def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
+        rc = super().isBackwardsCompatibleWith(other, vTree)
+        if rc and isinstance(other, ArrayType):
+            rc = rc and self.dataType.isBackwardsCompatibleWith(other.dataType, vTree)
+        else:
+            rc = False
+        return rc
+
+
+class MapType(DataType):
+    """A map of a specific data type"""
+    def __init__(self, key_type: DataType, value_type: DataType) -> None:
+        super().__init__()
+        self.keyType: DataType = key_type
+        self.valueType: DataType = value_type
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, MapType) and \
+            self.keyType == __value.keyType and self.valueType == __value.valueType
+
+    def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
+        rc: bool = super().isBackwardsCompatibleWith(other, vTree)
+        if rc and isinstance(other, MapType):
+            if not self.keyType.isBackwardsCompatibleWith(other.keyType, vTree):
+                vTree.addProblem(f"Key type {self.keyType} is not backwards compatible with {other.keyType}")
+                rc = False
+            if not self.valueType.isBackwardsCompatibleWith(other.valueType, vTree):
+                vTree.addProblem(f"Value type {self.valueType} is not backwards compatible with {other.valueType}")
+                rc = False
+        else:
+            rc = False
+        return rc
+
+
+class StructType(DataType):
+    """A struct is a collection of named fields"""
+    def __init__(self, fields: OrderedDict[str, DataType]) -> None:
+        super().__init__()
+        self.fields: OrderedDict[str, DataType] = fields
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, StructType) and self.fields == __value.fields
+
+    def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
+        rc: bool = super().isBackwardsCompatibleWith(other, vTree)
+        if rc and isinstance(other, StructType):
+            for key, value in self.fields.items():
+                if key in other.fields:
+                    if not value.isBackwardsCompatibleWith(other.fields[key], vTree):
+                        vTree.addProblem(f"Field {key} is not backwards compatible")
+                        rc = False
+                else:
+                    vTree.addProblem(f"Field {key} is not present in other")
+                    rc = False
+        else:
+            rc = False
+        return rc
+
+
 class TextDataType(BoundedDataType):
     def __init__(self, maxSize: Optional[int], collationString: Optional[str]) -> None:
         super().__init__(maxSize)
@@ -671,6 +739,9 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         self.primaryKey: PrimaryKeyStatus = DEFAULT_primaryKey
         self.classification: Optional[list[DataClassification]] = None
         self.nullable: NullableStatus = DEFAULT_nullable
+        self.add(*args)
+
+    def add(self, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         for arg in args:
             if (isinstance(arg, NullableStatus)):
                 self.nullable = arg

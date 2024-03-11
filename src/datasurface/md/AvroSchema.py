@@ -1,5 +1,5 @@
 from typing import Optional, cast
-from datasurface.md import Schema, PrimaryKeyList, PartitionKeyList
+from datasurface.md.Schema import Schema, PrimaryKeyList, PartitionKeyList
 
 from avro.schema import Schema as AvSchema
 from avro.schema import parse
@@ -52,14 +52,22 @@ class AvroSchema(Schema):
 
     def checkColumnsArePrimitiveTypes(self, cols: list[str], tree: ValidationTree):
         """Check all columns exist in the top level record and are primitive types"""
+        rec: RecordSchema = cast(RecordSchema, self.schema)
         for col in cols:
-            rec: RecordSchema = cast(RecordSchema, self.schema)
             try:
                 attribute: Field = cast(Field, rec.fields_dict[col])  # type: ignore
                 if (not isinstance(attribute.type, PrimitiveSchema)):  # type: ignore
                     tree.addProblem(f"Column {col} is not a primitive type")
             except KeyError:
                 tree.addProblem(f"Unknown column {col}")
+
+    def checkIfSchemaIsFlat(self) -> bool:
+        """Check if the schema is flat, i.e. no nested records"""
+        rec: RecordSchema = cast(RecordSchema, self.schema)
+        for field in rec.fields:
+            if (isinstance(field.type, RecordSchema)):
+                return False
+        return True
 
     def lint(self, tree: ValidationTree) -> None:
         if (self.primaryKeyColumns):
