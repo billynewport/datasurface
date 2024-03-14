@@ -22,6 +22,8 @@ Alternatively, a data producer may be using a columnar store such as AWS Glue Ta
 
 Similarly, data containers have limitations. A SQL Database may limit strings to 64k characters. If a producer schema has a string with a maximum length of 100k characters then this will need to be truncated when it's projected on to the SQL database schema and the consumer may be forced to acklowedge this truncation or the DataPlatform will refuse to hydrate the Workspace for the consumer.
 
+Names are similarly constrained. Some DataContainers may have shorter limits than the producer data container. Maybe, it's a legacy database with restrictions based on its reserved words, characters allowed and so on. This means that when the names used for Datasets/Workspaces/Attributes are 'mapped' on to those objects on a data container, the platform will need to figure out a compatible alias which is permissible on that container that doesn't clash with other dataplatforms also placed potentially the same datasets with a different SLA on the same data container.
+
 ## Schema depends on the context of the caller
 
 DataSurface supports a tabular style schema call DDLTable and an Avro schema with a record as the primary attribute. The DDLTable is designed to be a close representation of a SQL table. Both schemas can specify primary keys and primary partition attributes for ingestion.
