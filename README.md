@@ -45,7 +45,7 @@ graph TD
 
 ## Modern Data Types
 
-DataSurface supports the multiple of floating point formats (low precision floating point types) widely using in machine learning and artificial intelligence research. It also supports the traditional data types such as strings, integers, dates and times.
+DataSurface supports the multiple of floating point formats (low precision floating point types) widely using in machine learning and artificial intelligence research. It also supports the traditional data types such as strings, integers, dates, arrays, maps, structures and times. See the [Data Types](docs/DataTypes.md) document for more information.
 
 ## Traditional Data pipeline systems
 
