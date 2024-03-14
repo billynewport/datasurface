@@ -19,6 +19,8 @@ from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, 
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
         UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationTree
 
+import hashlib
+
 
 class ProductionStatus(Enum):
     """This indicates whether the team is in production or not"""
@@ -596,9 +598,23 @@ class DefaultSchemaProjector(SchemaProjector):
 
 class DataContainerNamingMapper:
     """This is an interface for mapping dataset names and attributes to the underlying data container. This is used to map
-    the name of model elements to concrete data container names which may have different standards for naming"""
+    the name of model elements to concrete data container names which may have different standards for naming. Given, consumers
+    should be able to use any producer data, this name mapping must succeed. This may require character substitution or even
+    truncation of names possibly with an additional hash on the end of the name to ensure uniqueness"""
     def __init__(self) -> None:
         pass
+
+    def truncateIdentifier(self, s: str, maxLen: int) -> str:
+        """This truncates the string to the maximum length. This truncation will add a 3 digit hex hash
+        to the end of the string. This, the string may be truncated to maxLen - 4 and then the hash is added
+        with an underscore seperator."""
+
+        if len(s) > maxLen:
+            truncated = s[:maxLen - 4]
+            hash: str = hashlib.sha1(s.encode()).hexdigest()[:3]  # Get the first 3 characters of the hash
+            return f"{truncated}_{hash}"
+        else:
+            return s
 
     @abstractmethod
     def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
@@ -710,7 +726,7 @@ class DataContainer(ABC, Documentable):
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
         return DefaultSchemaProjector(dataset)
-    
+
     @abstractmethod
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""

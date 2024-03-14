@@ -51,3 +51,7 @@ graph TD
 DataContainers will have a supported schema. They support methods to take a producer schema and derive a compatible loss less schema that is compatible with the DataContainer.
 
 This is important because the datacontainer used by the data producer will likely be different than the one used by this DataContainer. For example, a data producer may use an Oracle database where as a consumer Workspace may use an AWS Glue IceBerg columnar store. The producer schema needs to be mapped to a compatible schema for the consumer workspace data container.
+
+## DataContainer and DataPlatform
+
+DataContainers abstract the DataPlatform from the nuances of individual DataContainers. DataContainer is subclassed to provide a DataPlatform with an abstraction to interact with it. This means it provides schema mapping and naming assistance. The producer schema in the model needs to be converted to a schema that is compatible with the DataContainer. The DataContainer provides this service to the DataPlatform. The DataContainer also provides naming assistance for underlying table holding the raw data as well as the views that the consumer will use to query the data.
