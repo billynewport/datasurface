@@ -594,6 +594,51 @@ class DefaultSchemaProjector(SchemaProjector):
         return self.dataset.originalSchema
 
 
+class DataContainerNamingMapper:
+    """This is an interface for mapping dataset names and attributes to the underlying data container. This is used to map
+    the name of model elements to concrete data container names which may have different standards for naming"""
+    def __init__(self) -> None:
+        pass
+
+    @abstractmethod
+    def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+        """This maps the data set name to a physical table which may be then shared by views for each Workspace using
+        that dataset for a data platform. This name should not be exposed for use by consumers. They should use the view
+        instead."""
+        pass
+
+    @abstractmethod
+    def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+        """This names the workspace view name for a dataset used in a DSG. This is the actual name used by
+        consumers, the view, not the underlying table holding the data"""
+        pass
+
+    @abstractmethod
+    def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
+        """This maps the model attribute name in a schema to the physical attribute/column name allowed by a data container"""
+        pass
+
+
+class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
+    """This is a default naming adapter which maps the dataset name to the dataset name and the attribute name to the attribute name"""
+    def __init__(self) -> None:
+        super().__init__()
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, DefaultDataContainerNamingMapper)
+
+    def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+        """The table which data is materialized in. This is the raw table name containing data"""
+        return f"{store.name}_{ds.name}"
+
+    def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+        """This is the view name which consumers should use to access the data."""
+        return f"{w.name}_{dsg.name}_{store.name}_{ds.name}"
+
+    def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
+        return attributeName
+
+
 class DataContainer(ABC, Documentable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
@@ -665,6 +710,11 @@ class DataContainer(ABC, Documentable):
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
         return DefaultSchemaProjector(dataset)
+    
+    @abstractmethod
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
+        pass
 
 
 class SQLDatabase(DataContainer):
@@ -683,6 +733,9 @@ class SQLDatabase(DataContainer):
 
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         return super().projectDatasetSchema(dataset)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return DefaultDataContainerNamingMapper()
 
 
 class URLSQLDatabase(SQLDatabase):
@@ -915,14 +968,13 @@ class ClearTextCredential(UserPasswordCredential):
         return f"ClearTextCredential({self.username})"
 
 
-class PyOdbcSourceInfo(DataContainer):
+class PyOdbcSourceInfo(SQLDatabase):
     """This describes how to connect to a database using pyodbc"""
     def __init__(self, name: str, loc: InfrastructureLocation, serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
         if (loc.key is None):
             raise Exception("Location key not set")
-        super().__init__(name, loc)
+        super().__init__(name, loc, databaseName)
         self.serverHost: str = serverHost
-        self.databaseName: str = databaseName
         self.driver: str = driver
         self.connectionStringTemplate: str = connectionStringTemplate
 

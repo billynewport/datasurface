@@ -1,6 +1,6 @@
 from enum import Enum
 from datasurface.md import Documentation
-from datasurface.md.Governance import DataContainer
+from datasurface.md.Governance import DataContainer, DataContainerNamingMapper
 from .Governance import CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
 from .Lint import NameHasBadSynthax, ValidationTree
 from .utils import is_valid_azure_key_vault_name
@@ -96,3 +96,6 @@ class AzureSQLDatabase(HostPortSQLDatabase):
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, AzureSQLDatabase)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return super().getNamingAdapter()
