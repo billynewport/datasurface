@@ -1,4 +1,5 @@
 {
     "asciidoc.antora.enableAntoraSupport": true,
-    "livePreview.defaultPreviewPath": "/htmlcov/d_cf9251f5d08362f1_Azure_py.html"
+    "livePreview.defaultPreviewPath": "/htmlcov/d_cf9251f5d08362f1_Azure_py.html",
+    "workbench.editor.limit.value": 8
 }

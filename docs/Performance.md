@@ -8,7 +8,7 @@ The first performance aspect to consider is how quickly can developers who make 
 
 ## DataSurface CI/CD speeds
 
-Do developers need to wait for their pull requests to be validated/approved and merged in to the main branch. Once there, how long does it take DataSurface to render the changes resulting from that pull request. If a large development team was waiting for a change in test to go live when iterating then this could be a significant bottleneck.
+Do developers need to wait for their pull requests to be validated/approved and merged in to the main branch. Once there, how long does it take DataSurface to render the changes resulting from that pull request.
 
 Render the changes means, providing revised data graphs representing the data movement to the existing DataPlatforms selected for a section of the total model. How long will it take a particular DataPlatform to reconcile the current reality of the data pipelines with those in the newly changed model. Most DataPlatforms will use IaC techniques to make these changes. The graph provided from DataSurface will be changed in to a terraform or cloudformation script and then applied to Amazon AWS or Microsoft Azure infrastructure. The terraform or cloudformation provider will take time to do this reconciliation and it will also take time for infrastructure to be provisioned when required by the changes.
 

@@ -2,6 +2,21 @@
 
 These are consumers which produce derivative data for further use in the Ecosystem. The consumer creates a Workspace with the data that is required for the data transform. The consumer defines an output Datastore for the derivative datasets produced from the Workspace. The consumer also defines a trigger which when the data transformer is executed. Even in a streaming pipeline, there will still be triggers. For example, a streaming pipeline may produce data over 60 second time windows and so on.
 
+```mermaid
+
+graph TD
+    W[Workspace] --> TR[Transformers]
+    W --> DSG[Dataset Groups]
+    DSG --> DS[Datasets]
+    DSG --> PC[Data Platform Chooser]
+    W --> DC[Data Container]
+
+    TR --> TRO[Output Datastores]
+    TR --> TRG[Trigger]
+    TR --> CPU[Code Artifact]
+    TR --> CEE[Code Execution Environment]
+```
+
 ## Defining the inputs
 
 A Data transformer is associated with a Workspace and a Workspace can have an optional single DataTransformer. Workspaces can only have one Datatransformer with the intent that the datasets in the Workspace are required for the data transformer to function. Data transformer developers should maintain the datasets in the Workspace to reflect their input requirements.

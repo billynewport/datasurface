@@ -1,6 +1,6 @@
 # Introduction
 
-DataSurface has been designed with an extensible data type system. The system is designed to support the traditional data types such as strings, integers, dates and times. It also supports the multiple of floating point formats (low precision floating point types) widely using in machine learning and artificial intelligence research. The genesis of this design comes from how LLVM deals with types. The DataSurface types system is designed to describe types precisely and allow them to be compared with each other in terms of can type A be represented by type B.
+DataSurface has been designed with an extensible data type system. The system is designed to support the traditional data types such as strings, integers, dates and times as well as arrays, maps and structures. It also supports the multiple of floating point formats (low precision floating point types) widely using in machine learning and artificial intelligence research. The genesis of this design comes from how LLVM deals with types. The DataSurface types system is designed to describe types precisely and allow them to be compared with each other in terms of can type A be represented by type B.
 
 It does this by introducing type meta attributes. For example, an integer type has a notion of how many bits are available and is it signed. A floating type number has a number of bits assigned to the mantissa and exponent and whether its signed and so on.
 

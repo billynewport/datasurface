@@ -12,6 +12,10 @@ The Team operates under the policies of a specific Governance Zone. The policies
 ```mermaid
 graph TD
     T[Team] --> DS[Datastores]
+    DS --> D[Datasets]
+    DS --> CMD[CaptureMetaData]
+    CMD --> DCI[Data Container]
+    
     T --> W[Workspaces]
 
     DS --> D[Datasets]

@@ -1,6 +1,6 @@
 # Amazon AWS Batch Data Pipeline design
 
-This document describes the philisophy behind the design of the first AWS Batch DataPlatform. It isn't intended to be the best data platform. It's intended to show how a particular design philosophy can be implemented with a DataSurface Data platform.
+This document describes the philisophy behind the design of the first AWS Batch DataPlatform. It isn't intended to be the best DataSurface data platform. It's intended to show how a particular design philosophy can be implemented with a DataSurface Data platform.
 
 ## Design Philosophy
 
@@ -19,7 +19,7 @@ AWS DMS copies initial snapshots and then changes to the S3 bucket.
 
 ## Alternatives for ingestion/staging and buffering
 
-This is a relatively heavy weight way to ingest data and keep it in a snapshot + delta format for use downstream hydration of data containers used by consumers. For example, there are products such as [Estuary](http://estuary.dev) which can be used to ingest the data in to a streamstore (managed by them) and from there, the data can be materialized in other data containers. This is more efficient that using the approach described above and is under consideration as an alternative in this initial implementation.
+This is a relatively heavy weight way to ingest data and keep it in a snapshot + delta format for use downstream hydration of data containers used by consumers. For example, there are products such as [Estuary](http://estuary.dev) which can be used to ingest the data in to a streamstore (managed by them) and from there, the data can be materialized in other data containers. This is more efficient than using the approach described above and is under consideration as an alternative in this initial implementation.
 
 ## How the DataPlatform interacts with the DataSurface model
 
