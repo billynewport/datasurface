@@ -2,9 +2,9 @@ from typing import Any, Optional, Type
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
 
-from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, DataContainer, DataContainerNamingMapper, DatasetGroup, \
-    Datastore, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
-    ObjectStorage, Workspace
+from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, DataContainerNamingMapper, DatasetGroup, \
+    Datastore, GovernanceZone, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    ObjectStorage, Team, Workspace
 
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
@@ -69,6 +69,9 @@ class AmazonAWSS3Bucket(ObjectStorage):
 
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         return AWSGlueNamingMapper()
+
+    def lint(self, eco: Ecosystem, gz: GovernanceZone, t: Team, tree: ValidationTree):
+        super().lint(eco, gz, t, tree)
 
 
 class AmazonAWSKinesis(DataContainer):
@@ -212,3 +215,37 @@ class GlueTable:
                     for col in schema.columns.values()
                 ]
         return glue_schema
+
+
+class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
+    """This data platform ingests data using AWS DMS in to an S3 based staging area before maintaining an Iceberg based AWS Glue data lake."""
+    def __init__(
+            self,
+            name: str,
+            doc: Documentation,
+            platformCredential: Credential,
+            region: InfrastructureLocation,
+            stagingBucketName: str, stagingBucketPrefix: Optional[str],
+            dataBucketName: str, dataBucketPrefix: Optional[str],
+            catalogDatabaseName: str,
+            stagingIAMRole: str,
+            dataIAMRole: str,
+            awsGlueIAMRole: str):
+        super().__init__(name, doc)
+        self.platformCredential: Credential = platformCredential
+        self.region: InfrastructureLocation = region
+        self.stagingBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("staging", region, None, stagingBucketName, stagingBucketPrefix)
+        self.dataBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("data", region, None, dataBucketName, dataBucketPrefix)
+        self.catalogDatabaseName: str = catalogDatabaseName
+        self.stagingIAMRole: str = stagingIAMRole
+        self.dataIAMRole: str = dataIAMRole
+        self.awsGlueIAMRole: str = awsGlueIAMRole
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, AWSDMSIceBergDataPlatform)
+
+    def _str__(self) -> str:
+        return f"AWSDMSIceBergDataPlatform({self.name})"
+
+    def getInternalDataContainers(self) -> set[DataContainer]:
+        return {self.stagingBucket, self.dataBucket}

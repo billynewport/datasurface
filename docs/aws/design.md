@@ -17,9 +17,11 @@ AWS DMS brings the following benefits to the data platform:
 
 AWS DMS copies initial snapshots and then changes to the S3 bucket.
 
+AWS DMS with AWS Glue has lots of disadvantages also. AWS Glue jobs uses job bookmarks to track where they are in terms of processing the input files. However, I don't see a way for this code to track when DMS transitions from LOADing to sending DELTAs. When LOADing, the Glue job can simply do upserts for every record found. When doing DELTAs then a MERGE type operation of handling new records, updated records and deleted records is needed. This is not supported by AWS Glue. This means that the data platform will need to use a custom solution to handle the DELTAs. This is a significant disadvantage of using AWS DMS with AWS Glue. The AWS examples all assume the user will switch the Glue code after DMS finishes loading to a DELTA code program manually. I'd prefer this to be seamless.
+
 ## Alternatives for ingestion/staging and buffering
 
-This is a relatively heavy weight way to ingest data and keep it in a snapshot + delta format for use downstream hydration of data containers used by consumers. For example, there are products such as [Estuary](http://estuary.dev) which can be used to ingest the data in to a streamstore (managed by them) and from there, the data can be materialized in other data containers. This is more efficient than using the approach described above and is under consideration as an alternative in this initial implementation.
+This is a relatively heavy weight and clunky way to ingest data and keep it in a snapshot + delta format for use downstream hydration of data containers used by consumers. For example, there are products such as [Estuary](http://estuary.dev) which can be used to ingest the data in to a streamstore (managed by them) and from there, the data can be materialized in other data containers. This is more efficient than using the approach described above and is under consideration as an alternative in this initial implementation.
 
 ## How the DataPlatform interacts with the DataSurface model
 
@@ -104,3 +106,19 @@ Thus, choosing which DataPlatform is the primary can have an impact on the overa
 It's also possible to use an AWS DataPlatform for the data producers and consumers. Later, some new data consumers can be added which want to use a data container provided by a different cloud vendor. There are many ways to handle this. One approach is to make a buffer in the second cloud vendor, The data is moved from AWS to the buffer (which could be iceberg based also), Once, it's in the buffer then its distributed from there to the data containers on the second cloud vendor. This minimize network egress costs because data is just transferred to the second vendor once and then fanned out from there to the data containers on the second cloud vendor.
 
 This applies whether there is two cloud vendors or five cloud vendors. There will be a federating DataPlatform which manages this over multiple data platforms.
+
+## Parameters for DataPlatform
+
+The DataPlatform will have the following parameters:
+
+* The DataPlatform name
+* The DataPlatform AWS Region
+* The DataPlatform AWS Account
+* The DataPlatform AWS IAM Role
+* The Staging AWS Bucket
+* The Staging AWS Bucket Prefix
+* The IceBerg AWS Bucket
+* The IceBerg AWS Bucket Prefix
+* The AWS Glue Database
+
+The DataPlatform will use these parameters to create the AWS resources for the data platform. More than one DataPlatform can be created, for example, one for development, one for production. Governance Zone policies can restrict non production data stores to using non production DataPlatforms.

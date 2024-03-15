@@ -108,3 +108,7 @@ A PRODUCTION dataset must have DataClassifications available for all schema attr
 ## Schemas supported
 
 DataSurface supports a tabular style schema and an Avro schema with a record as the primary attribute. The DataSurface schema and type system is discussed [here](DataTypes.md) for further information.
+
+## Dataset partitioning
+
+Producers specify a partitioning strategy for ingestion as part of their metadata. This works in terms of splitting the data for efficient ingestion. The problem is consumers, in my experience, sometimes want a different partitioning strategy. Re-partitioning a dataset is actually very expensive to do. For now, consumers cannot specify alternative partitioning strategies but this is something that could be added in the future.
