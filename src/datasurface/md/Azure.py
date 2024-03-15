@@ -1,7 +1,7 @@
 from enum import Enum
 from datasurface.md import Documentation
 from datasurface.md.Governance import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
-from .Governance import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, EncryptionSystem, Ecosystem, \
+from .Governance import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, EncryptionSystem, Ecosystem, \
     GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
 from .Lint import NameHasBadSynthax, ValidationTree
 from .utils import is_valid_azure_key_vault_name
@@ -46,8 +46,8 @@ class AzureKeyVault(EncryptionSystem):
 
 class AzureDataplatform(DataPlatform):
     """This platform manages pipelines for resources within Azure"""
-    def __init__(self, name: str, doc: Documentation, platformCredential: AzureKeyVaultCredential):
-        super().__init__(name, doc)
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor, platformCredential: AzureKeyVaultCredential):
+        super().__init__(name, doc, executor)
         self.platformCredential = platformCredential
 
     def __hash__(self) -> int:
@@ -77,8 +77,8 @@ class AzureDataplatform(DataPlatform):
 
 
 class AzureBatchDataPlatform(AzureDataplatform):
-    def __init__(self, name: str, doc: Documentation, platformCredential: AzureKeyVaultCredential):
-        super().__init__(name, doc, platformCredential)
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor, platformCredential: AzureKeyVaultCredential):
+        super().__init__(name, doc, executor, platformCredential)
 
 
 # SQL Server Naming Rules

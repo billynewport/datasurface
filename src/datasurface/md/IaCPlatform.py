@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Type
 from datasurface.md import Documentation
 from datasurface.md.Documentation import Documentable
-from datasurface.md.Governance import DataPlatform, Ecosystem
+from datasurface.md.Governance import DataPlatform, DataPlatformExecutor, Ecosystem
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PipelineNode, \
     PlatformPipelineGraph, TriggerNode
@@ -41,8 +41,8 @@ class CombineToStringFragmentManager(IaCFragmentManager):
 
 class IaCDataPlatform(DataPlatform):
     """This is intended to be a base class for IaC style DataPlatforms"""
-    def __init__(self, name: str, doc: Documentation):
-        super().__init__(name, doc)
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor):
+        super().__init__(name, doc, executor)
 
     def __hash__(self) -> int:
         return hash(self.name)

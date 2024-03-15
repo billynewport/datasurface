@@ -4,7 +4,7 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy
+from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, InfraStructureLocationPolicy
 from datasurface.md.Lint import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
@@ -16,8 +16,13 @@ def createEcosystem() -> Ecosystem:
         GitHubRepository("billynewport/repo", "ECOmain"),
 
         # Data Platforms
-        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
+        DefaultDataPlatform(
+            AzureDataplatform(
+                "Azure Platform",
+                PlainTextDocumentation("Test"),
+                DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
+                AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
 
         # GovernanceZones
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),

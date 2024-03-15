@@ -5,7 +5,8 @@ from datasurface.md.Azure import AzureBatchDataPlatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 
-from datasurface.md.Governance import CloudVendor, DefaultDataPlatform, Ecosystem, GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
+from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \
+    GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 from datasurface.md.Lint import UnknownChangeSource, ValidationTree
 import tests.nwdb.eco
@@ -117,6 +118,7 @@ class TestEcoNameChange(unittest.TestCase):
                     AzureBatchDataPlatform(
                         "AzureBatch",
                         PlainTextDocumentation("Azure Batch"),
+                        DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
                         AzureKeyVaultCredential("keyvault", "mysecret"))),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
@@ -150,6 +152,7 @@ class TestEcoNameChange(unittest.TestCase):
                     AzureBatchDataPlatform(
                         "AzureBatch",
                         PlainTextDocumentation("Azure Batch"),
+                        DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
                         AzureKeyVaultCredential("myKeyVault", "mySecret"))),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )

@@ -3,7 +3,8 @@ import unittest
 from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import GovernanceZone, GovernanceZoneDeclaration, InfraStructureLocationPolicy, InfrastructureLocation, \
+from datasurface.md.Governance import DataPlatformCICDExecutor, GovernanceZone, GovernanceZoneDeclaration, \
+    InfraStructureLocationPolicy, InfrastructureLocation, \
     InfrastructureVendor, Repository, TeamDeclaration
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, \
@@ -92,7 +93,12 @@ class TestEcosystemValidation(unittest.TestCase):
         self.assertNoIssue(Date())
 
     def test_equality(self):
-        self.assertEqual(AmazonAWSDataPlatform("name", PlainTextDocumentation("Test")), AmazonAWSDataPlatform("name", PlainTextDocumentation("Test")))
+        self.assertEqual(
+            AmazonAWSDataPlatform(
+                "name",
+                PlainTextDocumentation("Test"),
+                DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
+            AmazonAWSDataPlatform("name", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))))
 
         ghr: GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
         self.assertEqual(ghr, ghr)

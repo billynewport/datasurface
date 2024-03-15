@@ -2198,20 +2198,55 @@ class DockerContainer:
         self.cmd: str = cmd
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, DockerContainer) and self.name == __value.name and self.image == __value.image and self.version == __value.version and self.cmd == __value.cmd
+        return isinstance(__value, DockerContainer) and self.name == __value.name and self.image == __value.image and \
+            self.version == __value.version and self.cmd == __value.cmd
 
     def __str__(self) -> str:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatform(ABC, Documentable):
-    """This is a system which can interpret data flows in the metadata and realize those flows"""
-    def __init__(self, name: str, doc: Documentation) -> None:
-        Documentable.__init__(self, doc)
-        self.name: str = name
+class DataPlatformExecutor(ABC):
+    """This specifies how a DataPlatform should execute"""
+    def __init__(self) -> None:
+        super().__init__()
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, DataPlatform) and self.name == __value.name
+        return isinstance(__value, DataPlatformExecutor)
+
+    def __str__(self) -> str:
+        return f"DataPlatformExecutor()"
+
+    @abstractmethod
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        pass
+
+
+class DataPlatformCICDExecutor(DataPlatformExecutor):
+    """This is a DataPlatformExecutor for DataPlatforms which generate an IaC representation of the
+    DataSurface intention graph and stores the generated IaC in a git repository. The IaC platform
+    such as terraform or AWS cdk then checks for events on that repository and applies then changes
+    from the repository when they are detected."""
+    def __init__(self, repo: Repository) -> None:
+        super().__init__()
+        self.iacRepo: Repository = repo
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, DataPlatformCICDExecutor) and self.iacRepo == __value.iacRepo
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        super().lint(eco, tree)
+        self.iacRepo.lint(tree)
+
+
+class DataPlatform(ABC, Documentable):
+    """This is a system which can interpret data flows in the metadata and realize those flows"""
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor) -> None:
+        Documentable.__init__(self, doc)
+        self.name: str = name
+        self.executor: DataPlatformExecutor = executor
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, DataPlatform) and self.name == __value.name and self.executor == __value.executor and Documentable.__eq__(self, __value)
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -2236,6 +2271,7 @@ class DataPlatform(ABC, Documentable):
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         if (self.documentation):
             self.documentation.lint(tree)
+        self.executor.lint(eco, tree.addSubTree(self.executor))
 
 
 class DataLatency(Enum):

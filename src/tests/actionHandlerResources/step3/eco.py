@@ -2,7 +2,7 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CloudVendor, DataPlatformPolicy, DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, \
+from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 from tests.actionHandlerResources.step3.defineEU_GZ import defineEU_GZ
 
@@ -12,8 +12,8 @@ from tests.actionHandlerResources.step3.defineEU_GZ import defineEU_GZ
 def createEcosystem() -> Ecosystem:
     e: Ecosystem = Ecosystem(
         "Test", GitHubRepository("billynewport/test_step1", "main"),
-        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
+        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch")), AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),

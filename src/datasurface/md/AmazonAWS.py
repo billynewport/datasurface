@@ -2,7 +2,8 @@ from typing import Any, Optional, Type
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
 
-from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, DataContainerNamingMapper, DatasetGroup, \
+from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
+    DataContainerNamingMapper, DataPlatformExecutor, DatasetGroup, \
     Datastore, GovernanceZone, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage, Team, Workspace
 
@@ -12,8 +13,8 @@ from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLCo
 
 
 class AmazonAWSDataPlatform(DataPlatform):
-    def __init__(self, name: str, doc: Documentation):
-        super().__init__(name, doc)
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor):
+        super().__init__(name, doc, executor)
 
     def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:
         rc: set[CloudVendor] = set()
@@ -225,6 +226,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             self,
             name: str,
             doc: Documentation,
+            executor: DataPlatformExecutor,
             platformCredential: Credential,
             region: InfrastructureLocation,
             stagingBucketName: str, stagingBucketPrefix: Optional[str],
@@ -233,7 +235,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             stagingIAMRole: str,
             dataIAMRole: str,
             awsGlueIAMRole: str):
-        super().__init__(name, doc)
+        super().__init__(name, doc, executor)
         self.platformCredential: Credential = platformCredential
         self.region: InfrastructureLocation = region
         self.stagingBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("staging", region, None, stagingBucketName, stagingBucketPrefix)

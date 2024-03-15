@@ -9,7 +9,8 @@ from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import FakeRepository, GitHubRepository
-from datasurface.md.Governance import CDCCaptureIngestion, CloudVendor, DataTransformerOutput, DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, \
+from datasurface.md.Governance import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
+    DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
@@ -26,8 +27,8 @@ class TestWorkspace(unittest.TestCase):
             GitHubRepository("a", "b"),
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
-            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
-            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
+            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
             )
 
         self.assertEqual(eco, eco)
@@ -56,8 +57,8 @@ class TestWorkspace(unittest.TestCase):
             GovernanceZoneDeclaration(
                 chinaZoneName,
                 GitHubRepository("aa", "cc")),
-            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
-            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
+            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
             )
 
         gzUSA: GovernanceZone = eco.getZoneOrThrow(usZoneName)
@@ -360,7 +361,11 @@ class TestWorkspace(unittest.TestCase):
         e: Ecosystem = Ecosystem(
                 "BigCorp", FakeRepository("a"),
                 DefaultDataPlatform(
-                    AzureDataplatform("Azure", PlainTextDocumentation("Test"), AzureKeyVaultCredential("keyvault", "aa"))
+                    AzureDataplatform(
+                        "Azure",
+                        PlainTextDocumentation("Test"),
+                        DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
+                        AzureKeyVaultCredential("keyvault", "aa"))
                     ),
                 InfrastructureVendor(
                     "Azure",
@@ -473,8 +478,14 @@ class TestWorkspace(unittest.TestCase):
         self.assertTrue(eTree.hasWarnings())
 
     def test_WorkspaceEquality(self):
-        fastP: DataPlatform = AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"))
-        slowP: DataPlatform = AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+        fastP: DataPlatform = AmazonAWSDataPlatform(
+            "FastPlatform",
+            PlainTextDocumentation("Test"),
+            DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
+        slowP: DataPlatform = AmazonAWSDataPlatform(
+            "SlowPlatform",
+            PlainTextDocumentation("Test"),
+            DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
 
         self.assertEqual(fastP, fastP)
         self.assertNotEqual(fastP, slowP)
