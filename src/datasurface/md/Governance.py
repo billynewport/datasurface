@@ -2214,7 +2214,7 @@ class DataPlatformExecutor(ABC):
         return isinstance(__value, DataPlatformExecutor)
 
     def __str__(self) -> str:
-        return f"DataPlatformExecutor()"
+        return "DataPlatformExecutor()"
 
     @abstractmethod
     def lint(self, eco: Ecosystem, tree: ValidationTree):
