@@ -2,8 +2,10 @@ from typing import Any, Optional, Type
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
 
-from datasurface.md.Governance import CloudVendor, DataContainer, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
-    ObjectStorage
+from datasurface.md.Governance import CloudVendor, DataContainer, DataContainerNamingMapper, DatasetGroup, \
+    Datastore, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    ObjectStorage, Workspace
+
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
@@ -38,6 +40,26 @@ class AmazonAWSDataPlatform(DataPlatform):
         return set()
 
 
+class AWSGlueNamingMapper(DataContainerNamingMapper):
+    """This is the identifier mapping adapter for AWS Glue. It truncates identifiers to 255 characters and
+    as they are case insensitive, it uppercases all identifiers."""
+
+    def __init__(self):
+        super().__init__()
+
+    def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+        name: str = f"{self.truncateIdentifier(super().mapRawDatasetName(w, dsg, store, ds).upper(), 255)}"
+        return name
+
+    def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+        name: str = f"{self.truncateIdentifier(super().mapRawDatasetView(w, dsg, store, ds).upper(), 255)}"
+        return name
+
+    def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
+        name: str = f"{self.truncateIdentifier(super().mapAttributeName(w, dsg, store, ds, attributeName) .upper(), 255)}"
+        return name
+
+
 class AmazonAWSS3Bucket(ObjectStorage):
     def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
         super().__init__(name, loc, endPointURI, bucketName, prefix)
@@ -47,6 +69,9 @@ class AmazonAWSS3Bucket(ObjectStorage):
 
     def __hash__(self) -> int:
         return hash(self.name)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return AWSGlueNamingMapper()
 
 
 class AmazonAWSKinesis(DataContainer):
@@ -64,6 +89,9 @@ class AmazonAWSKinesis(DataContainer):
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         return super().projectDatasetSchema(dataset)
 
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return AWSGlueNamingMapper()
+
 
 class AmazonAWSDynamoDB(DataContainer):
     def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str]):
@@ -80,6 +108,9 @@ class AmazonAWSDynamoDB(DataContainer):
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         return super().projectDatasetSchema(dataset)
 
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return AWSGlueNamingMapper()
+
 
 class AmazonAWSSQS(DataContainer):
     def __init__(self, name: str, loc: InfrastructureLocation, queueURL: Optional[str]):
@@ -95,6 +126,9 @@ class AmazonAWSSQS(DataContainer):
 
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         return super().projectDatasetSchema(dataset)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return AWSGlueNamingMapper()
 
 
 class GlueDDLSchemaMapper(SchemaProjector):

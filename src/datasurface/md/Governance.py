@@ -621,18 +621,18 @@ class DataContainerNamingMapper:
         """This maps the data set name to a physical table which may be then shared by views for each Workspace using
         that dataset for a data platform. This name should not be exposed for use by consumers. They should use the view
         instead."""
-        pass
+        return f"{store.name}_{ds.name}"
 
     @abstractmethod
     def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This names the workspace view name for a dataset used in a DSG. This is the actual name used by
         consumers, the view, not the underlying table holding the data"""
-        pass
+        return f"{w.name}_{dsg.name}_{store.name}_{ds.name}"
 
     @abstractmethod
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
         """This maps the model attribute name in a schema to the physical attribute/column name allowed by a data container"""
-        pass
+        return attributeName
 
 
 class DefaultDataContainerNamingMapper(DataContainerNamingMapper):

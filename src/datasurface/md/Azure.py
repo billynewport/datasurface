@@ -119,17 +119,24 @@ AZURE_RESERVED_NAMES: set[str] = {
 
 
 class SQLServerNamingMapper(DataContainerNamingMapper):
+    """This is a naming adapter for SQL Server. It truncates names to 128 characters and
+    encloses them in back quotes in case they contain spaces or special symbols. Enclosing them
+    in quotes also allows for reserved words to be used as identifiers."""
+
     def __init__(self):
         super().__init__()
 
     def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
-        return super().mapRawDatasetName(w, dsg, store, ds)
+        name: str = f"`{self.truncateIdentifier(super().mapRawDatasetName(w, dsg, store, ds).upper(), 128)}`"
+        return name
 
     def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
-        return super().mapRawDatasetView(w, dsg, store, ds)
+        name: str = f"`{self.truncateIdentifier(super().mapRawDatasetView(w, dsg, store, ds).upper(), 128)}`"
+        return name
 
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
-        return super().mapAttributeName(w, dsg, store, ds, attributeName)
+        name: str = f"`{self.truncateIdentifier(super().mapAttributeName(w, dsg, store, ds, attributeName) .upper(), 128)}`"
+        return name
 
 
 class AzureSQLDatabase(HostPortSQLDatabase):
