@@ -57,3 +57,20 @@ A data platform is a mechanism to handle the follow chores:
 ## Example DataPlatform implementations
 
 DataSurface is provided with a AWS Batch DataPlatform. You can read about it [here](aws/design.md).
+
+## Packaging DataPlatforms as Docker containers
+
+The Ecosystem model allows DataPlatforms to be declared, parameterized/configured. The DataPlatform class and its subclasses are not intended to be the DataPlatform implementations.
+
+The DataPlatform implementations are intended to be packaged and distributed as a seperate package. The package will be a docker container image referenced by the DataPlatform in the model. DataSurface will use Kubernetes and the DataPlatforms container image to stand up a container for each instance of Dataplatform. The docker container will receive a copy of the model, any necessary secrets for credentials and its parameters so it can located its own configuration in the model. It's going to be easiest for the platform implementation to also be written in python given the model is described in python. This is a pro and con for the python based model.
+
+## DataPlatforms and Terraform
+
+However, a simpler approach may be to simply render the IaC code representation the DataPlatform implementation to a folder, check it in to a github branch and then configure Terraform cloud or similar to use that branch to render the infrastructure or keep it up to date when ever it changes. This may be a much simpler approach.
+
+Now, even a simple cron job can be used to run DataSurface to:
+
+* Generate the intention graphs for all the DataPlatforms chosen for Consumers
+* Provide each DataPlatform instance with its intention graph
+* The DataPlatform instance will then render the graph in to a physical system and write the IaC code to a folder which is checked in to a github branch
+* Terraform will then see the commit and render the infrastructure from that definition or revise it when it changes

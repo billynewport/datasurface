@@ -218,7 +218,9 @@ class GlueTable:
 
 
 class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
-    """This data platform ingests data using AWS DMS in to an S3 based staging area before maintaining an Iceberg based AWS Glue data lake."""
+    """This data platform ingests data using AWS DMS in to an S3 based staging area before maintaining an Iceberg based AWS Glue data lake.
+    This class is used for declare the instance parameters for this platform. The actual platform will load the ecosystem model and then
+    initialize itself using the instance variables of this class."""
     def __init__(
             self,
             name: str,

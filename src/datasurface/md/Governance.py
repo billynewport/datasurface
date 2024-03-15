@@ -2189,6 +2189,21 @@ class Deliverable:
     pass
 
 
+class DockerContainer:
+    """This is a docker container which can be used to run some code such as a DataPlatform"""
+    def __init__(self, name: str, image: str, version: str, cmd: str) -> None:
+        self.name: str = name
+        self.image: str = image
+        self.version: str = version
+        self.cmd: str = cmd
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, DockerContainer) and self.name == __value.name and self.image == __value.image and self.version == __value.version and self.cmd == __value.cmd
+
+    def __str__(self) -> str:
+        return f"DockerContainer({self.name})"
+
+
 class DataPlatform(ABC, Documentable):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str, doc: Documentation) -> None:
