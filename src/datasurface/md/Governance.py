@@ -596,13 +596,28 @@ class DefaultSchemaProjector(SchemaProjector):
         return self.dataset.originalSchema
 
 
+class CaseSensitiveEnum(Enum):
+    CASE_SENSITIVE = 0
+    """This is a case sensitive enum"""
+    CASE_INSENSITIVE = 1
+
+
 class DataContainerNamingMapper:
     """This is an interface for mapping dataset names and attributes to the underlying data container. This is used to map
     the name of model elements to concrete data container names which may have different standards for naming. Given, consumers
     should be able to use any producer data, this name mapping must succeed. This may require character substitution or even
     truncation of names possibly with an additional hash on the end of the name to ensure uniqueness"""
-    def __init__(self) -> None:
-        pass
+    def __init__(self, maxLen: int = 255, caseSensitive: CaseSensitiveEnum = CaseSensitiveEnum.CASE_SENSITIVE, allowQuotes: Optional[str] = None) -> None:
+        self.maxLen = maxLen
+        self.caseSensitive = caseSensitive
+        self.allowQuotes = allowQuotes
+
+    def formatIdentifier(self, s: str) -> str:
+        if self.caseSensitive == CaseSensitiveEnum.CASE_INSENSITIVE:
+            s = s.upper()
+        if self.allowQuotes is not None:
+            s = f'{self.allowQuotes}{s}{self.allowQuotes}'
+        return s
 
     def truncateIdentifier(self, s: str, maxLen: int) -> str:
         """This truncates the string to the maximum length. This truncation will add a 3 digit hex hash
@@ -621,18 +636,18 @@ class DataContainerNamingMapper:
         """This maps the data set name to a physical table which may be then shared by views for each Workspace using
         that dataset for a data platform. This name should not be exposed for use by consumers. They should use the view
         instead."""
-        return f"{store.name}_{ds.name}"
+        return self.formatIdentifier(f"{store.name}_{ds.name}")
 
     @abstractmethod
     def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This names the workspace view name for a dataset used in a DSG. This is the actual name used by
         consumers, the view, not the underlying table holding the data"""
-        return f"{w.name}_{dsg.name}_{store.name}_{ds.name}"
+        return self.formatIdentifier(f"{w.name}_{dsg.name}_{store.name}_{ds.name}")
 
     @abstractmethod
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
         """This maps the model attribute name in a schema to the physical attribute/column name allowed by a data container"""
-        return attributeName
+        return self.formatIdentifier(attributeName)
 
 
 class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
@@ -645,14 +660,14 @@ class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
 
     def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """The table which data is materialized in. This is the raw table name containing data"""
-        return f"{store.name}_{ds.name}"
+        return super().mapRawDatasetName(w, dsg, store, ds)
 
     def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This is the view name which consumers should use to access the data."""
-        return f"{w.name}_{dsg.name}_{store.name}_{ds.name}"
+        return super().mapRawDatasetView(w, dsg, store, ds)
 
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
-        return attributeName
+        return super().mapAttributeName(w, dsg, store, ds, attributeName)
 
 
 class DataContainer(ABC, Documentable):

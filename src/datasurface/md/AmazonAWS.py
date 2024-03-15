@@ -2,7 +2,7 @@ from typing import Any, Optional, Type
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
 
-from datasurface.md.Governance import CloudVendor, DataContainer, DataContainerNamingMapper, DatasetGroup, \
+from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, DataContainer, DataContainerNamingMapper, DatasetGroup, \
     Datastore, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage, Workspace
 
@@ -45,19 +45,16 @@ class AWSGlueNamingMapper(DataContainerNamingMapper):
     as they are case insensitive, it uppercases all identifiers."""
 
     def __init__(self):
-        super().__init__()
+        super().__init__(255, CaseSensitiveEnum.CASE_INSENSITIVE, None)
 
     def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
-        name: str = f"{self.truncateIdentifier(super().mapRawDatasetName(w, dsg, store, ds).upper(), 255)}"
-        return name
+        return super().mapRawDatasetName(w, dsg, store, ds)
 
     def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
-        name: str = f"{self.truncateIdentifier(super().mapRawDatasetView(w, dsg, store, ds).upper(), 255)}"
-        return name
+        return super().mapRawDatasetView(w, dsg, store, ds)
 
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
-        name: str = f"{self.truncateIdentifier(super().mapAttributeName(w, dsg, store, ds, attributeName) .upper(), 255)}"
-        return name
+        return super().mapAttributeName(w, dsg, store, ds, attributeName)
 
 
 class AmazonAWSS3Bucket(ObjectStorage):
