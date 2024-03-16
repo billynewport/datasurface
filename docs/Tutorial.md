@@ -42,6 +42,9 @@ From now on, we will make changes to the ecosystem using the eco_edits branch. W
 
 Likewise, for changes to different parts of the model which have their own repository or branch, we do the same thing. Clone to the edits branch of the specified repository for that part of the model. Make the changes, push the changes back to the edit branch and then make a pull request to the test-surface/main repository.
 
+## Procedure to make changes using vscode
+
+See [here](vscodeeditbranch.md) for the procedure to make changes using Visual Studio Code.
 
 ## Adding a vendor and some locations
 
