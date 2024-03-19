@@ -348,6 +348,15 @@ class InfrastructureLocation(Documentable):
             rc = rc.union(loc.getEveryChildLocation())
         return rc
 
+    def containsLocation(self, child: 'InfrastructureLocation') -> bool:
+        """This true if this or a child matches the passed location"""
+        if (self == child):
+            return True
+        for loc in self.locations.values():
+            if loc.containsLocation(child):
+                return True
+        return False
+
     def getLocationOrThrow(self, locationName: str) -> 'InfrastructureLocation':
         """Returns the location with the specified name or throws an exception"""
         loc: Optional[InfrastructureLocation] = self.locations.get(locationName)
@@ -714,15 +723,14 @@ class DataContainer(ABC, Documentable):
         return f"{self.__class__.__name__}({self.name})"
 
     @abstractmethod
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        # Verify that the location on the data container doesn't violate
-        # the governance zone policies for vendor or location
-        for loc in self.locations:
-            gz.checkLocationIsAllowed(eco, loc, tree)
         if (self.documentation):
             dTree: ValidationTree = tree.addSubTree(self.documentation)
             self.documentation.lint(dTree)
+
+        for loc in self.locations:
+            loc.lint(tree.addSubTree(loc))
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -734,6 +742,13 @@ class DataContainer(ABC, Documentable):
                 return False
             v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
             if v.hardCloudVendor not in vendors:
+                return False
+        return True
+
+    def areAllLocationsInLocations(self, locations: set[InfrastructureLocation]) -> bool:
+        """Returns true if all locations are in the provided set of locations"""
+        for loc in self.locations:
+            if loc not in locations:
                 return False
         return True
 
@@ -759,8 +774,8 @@ class SQLDatabase(DataContainer):
             return super().__eq__(__value) and self.databaseName == __value.databaseName
         return False
 
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
-        super().lint(eco, gz, t, tree)
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
 
     def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
         return super().projectDatasetSchema(dataset)
@@ -793,8 +808,8 @@ class HostPortSQLDatabase(SQLDatabase):
             return super().__eq__(__value) and self.host == __value.host and self.port == __value.port
         return False
 
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
-        super().lint(eco, gz, t, tree)
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
         if not is_valid_hostname_or_ip(self.host):
             tree.addRaw(NameHasBadSynthax(f"Host '{self.host}' is not a valid hostname or IP address"))
         if self.port < 0 or self.port > 65535:
@@ -1013,9 +1028,9 @@ class PyOdbcSourceInfo(SQLDatabase):
         return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and \
             self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
 
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        super().lint(eco, gz, t, tree)
+        super().lint(eco, tree)
 # TODO validate the server string, its not just a host name
 #        if (not is_valid_hostname_or_ip(self.serverHost)):
 #            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
@@ -1105,7 +1120,7 @@ class CaptureMetaData(ABC):
             tree.addRaw(AttributeNotSet("Container not specified"))
         else:
             cTree: ValidationTree = tree.addSubTree(self.dataContainer)
-            self.dataContainer.lint(eco, gz, t, cTree)
+            self.dataContainer.lint(eco, cTree)
 
         if (self.stepTrigger):
             self.stepTrigger.lint(eco, gz, t, tree)
@@ -1176,7 +1191,7 @@ class IngestionMetadata(CaptureMetaData):
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         if (self.dataContainer):
             capTree: ValidationTree = tree.addSubTree(self.dataContainer)
-            self.dataContainer.lint(eco, gz, t, capTree)
+            self.dataContainer.lint(eco, capTree)
         # Credential is needed for a platform connect to a datacontainer and ingest data
         if (self.credential is None):
             tree.addRaw(AttributeNotSet("credential"))
@@ -2415,7 +2430,9 @@ class DatasetSink(object):
                 if (store.key):
                     gzStore: GovernanceZone = eco.getZoneOrThrow(store.key.gzName)
                     if (ws.dataContainer):
-                        ws.dataContainer.lint(eco, gzStore, team, tree)
+                        ws.dataContainer.lint(eco, tree)
+                        for loc in ws.dataContainer.locations:
+                            gzStore.checkLocationIsAllowed(eco, loc, tree)
                 else:
                     tree.addRaw(AttributeNotSet(f"{store} key is None"))
 
@@ -2691,7 +2708,7 @@ class Workspace(ANSI_SQL_NamedObject, Documentable):
         # and location policies for this GZ
         if (self.dataContainer):
             cntTree: ValidationTree = tree.addSubTree(self.dataContainer)
-            self.dataContainer.lint(eco, gz, t, cntTree)
+            self.dataContainer.lint(eco, cntTree)
 
         # Check production status of workspace matches all datasets in use
         # Check deprecation status of workspace generates warnings for all datasets in use

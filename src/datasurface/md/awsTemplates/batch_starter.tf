@@ -65,32 +65,6 @@ resource "aws_iam_role" "dms_access_for_staging_bucket" {
 EOF
 }
 
-# Policy to allow DMS to access the S3 bucket
-resource "aws_iam_role_policy" "dms_s3_access" {
-  name = "dms-s3-access"
-  role = aws_iam_role.dms_access_for_staging_bucket.id
-
-  policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Action": [
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ],
-      "Effect": "Allow",
-      "Resource": [
-        "${aws_s3_bucket.staging_bucket.arn}",
-        "${aws_s3_bucket.staging_bucket.arn}/*"
-      ]
-    }
-  ]
-}
-EOF
-}
-
 # Get the secret from AWS Secrets Manager
 data "aws_secretsmanager_secret_version" "source_aurora_credentials" {
   # Source database parameter
@@ -122,7 +96,33 @@ resource "aws_dms_endpoint" "source" {
   password      = jsondecode(data.aws_secretsmanager_secret_version.source_aurora_credentials.secret_string)["password"]
   # Source database parameters
   server_name   = data.aws_rds_cluster.source_aurora.endpoint
-  port          = 3306
+  port          = data.aws_rds_cluster.source_aurora.port
+}
+
+# Policy to allow DMS to access the S3 bucket
+resource "aws_iam_role_policy" "dms_s3_access" {
+  name = "dms-s3-access"
+  role = aws_iam_role.dms_access_for_staging_bucket.id
+
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "${aws_s3_bucket.staging_bucket.arn}",
+        "${aws_s3_bucket.staging_bucket.arn}/*"
+      ]
+    }
+  ]
+}
+EOF
 }
 
 # Staging bucket to hold AWS DMS output for all tables ingested

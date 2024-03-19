@@ -5,8 +5,8 @@ from datasurface.md.Documentation import Documentation
 
 from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
     DataContainerNamingMapper, DataPlatformExecutor, DatasetGroup, \
-    Datastore, GovernanceZone, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
-    ObjectStorage, Team, Workspace
+    Datastore, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    ObjectStorage, Workspace
 
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
@@ -40,6 +40,19 @@ class AmazonAWSDataPlatform(DataPlatform):
     def getInternalDataContainers(self) -> set[DataContainer]:
         # TODO: Implement this method
         return set()
+
+
+class AWSAuroraCluster(SQLDatabase):
+    """This is a link to an existing Aurora database. It identifies the cluster using its
+    clusterId and the database using its databaseName. The location is the location/region of the cluster. We can using Terraform
+    retrieve the hostname and port for this database."""
+    def __init__(self, name: str, loc: InfrastructureLocation, clusterId: str, databaseName: str):
+        super().__init__(name, loc, databaseName)
+        self.clusterId: str = clusterId
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, AWSAuroraCluster) and \
+            self.clusterId == o.clusterId
 
 
 class AWSSecret(Credential):
@@ -94,8 +107,8 @@ class AmazonAWSS3Bucket(ObjectStorage):
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         return AWSGlueNamingMapper()
 
-    def lint(self, eco: Ecosystem, gz: GovernanceZone, t: Team, tree: ValidationTree):
-        super().lint(eco, gz, t, tree)
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        super().lint(eco, tree)
 
 
 class AmazonAWSKinesis(DataContainer):
@@ -253,8 +266,8 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             vpcId: str,
             iacCredential: AWSSecret,
             region: InfrastructureLocation,
-            stagingBucketName: str, stagingBucketPrefix: Optional[str],
-            dataBucketName: str, dataBucketPrefix: Optional[str],
+            stagingBucket: AmazonAWSS3Bucket,
+            dataBucket: AmazonAWSS3Bucket,
             catalogDatabaseName: str,
             stagingIAMRole: str,
             dataIAMRole: str,
@@ -263,8 +276,8 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         self.vpcId: str = vpcId
         self.iacCredential: Credential = iacCredential
         self.region: InfrastructureLocation = region
-        self.stagingBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("staging", region, None, stagingBucketName, stagingBucketPrefix)
-        self.dataBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("data", region, None, dataBucketName, dataBucketPrefix)
+        self.stagingBucket: AmazonAWSS3Bucket = stagingBucket
+        self.dataBucket: AmazonAWSS3Bucket = dataBucket
         self.catalogDatabaseName: str = catalogDatabaseName
         self.stagingIAMRole: str = stagingIAMRole
         self.dataIAMRole: str = dataIAMRole
@@ -278,3 +291,13 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         return {self.stagingBucket, self.dataBucket}
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        super().lint(eco, tree)
+        self.stagingBucket.lint(eco, tree)
+        self.dataBucket.lint(eco, tree)
+        self.iacCredential.lint(eco, tree)
+        if (not self.stagingBucket.areAllLocationsInLocations({self.region})):
+            tree.addRaw(NameHasBadSynthax(f"Staging bucket location {self.stagingBucket} does not match region {self.region}"))
+        if (not self.dataBucket.areAllLocationsInLocations({self.region})):
+            tree.addRaw(NameHasBadSynthax(f"Data bucket location {self.dataBucket} does not match region {self.region}"))

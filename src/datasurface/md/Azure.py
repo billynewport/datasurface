@@ -120,8 +120,8 @@ class AzureSQLDatabase(HostPortSQLDatabase):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def lint(self, eco: Ecosystem, gz: GovernanceZone, t: Team, tree: ValidationTree) -> None:
-        super().lint(eco, gz, t, tree)
+    def lint(self, eco: Ecosystem, tree: ValidationTree) -> None:
+        super().lint(eco, tree)
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, AzureSQLDatabase)
