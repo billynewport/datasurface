@@ -111,14 +111,12 @@ This applies whether there is two cloud vendors or five cloud vendors. There wil
 
 The DataPlatform will have the following parameters:
 
-* The DataPlatform name
+* The DataPlatform instance name
 * The DataPlatform AWS Region
 * The DataPlatform AWS Account
 * The DataPlatform AWS IAM Role
-* The Staging AWS Bucket
-* The Staging AWS Bucket Prefix
-* The IceBerg AWS Bucket
-* The IceBerg AWS Bucket Prefix
-* The AWS Glue Database
+* The Staging AWS Bucket (Name, IAM Role and prefix)
+* The IceBerg AWS Bucket (Name, IAM Role and prefix)
+* The AWS Glue Database Name and IAM Role.
 
 The DataPlatform will use these parameters to create the AWS resources for the data platform. More than one DataPlatform can be created, for example, one for development, one for production. Governance Zone policies can restrict non production data stores to using non production DataPlatforms.

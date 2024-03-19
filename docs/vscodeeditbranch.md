@@ -16,7 +16,7 @@ Edit the files: Navigate to the files you want to edit in the Explorer view (Cmd
 
 Create a new branch: Go back to the Source Control view, click on the current branch at the top, then select Create new branch... from the dropdown list. Enter a name for your new branch and press Enter.
 
-## Comnmit and push
+## Commit and push
 
 Commit your changes: In the Source Control view, you'll see a list of changes. Enter a commit message in the text box at the top, then click the checkmark icon to commit the changes to your new branch.
 
