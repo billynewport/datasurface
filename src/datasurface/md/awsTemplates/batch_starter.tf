@@ -17,6 +17,7 @@ provider "aws" {
   access_key = jsondecode(data.aws_secretsmanager_secret_version.creds.secret_string)["access_key"]
   secret_key = jsondecode(data.aws_secretsmanager_secret_version.creds.secret_string)["secret_key"]
 
+  # Role for Terraform to use to do everything here
   assume_role {
     role_arn     = "arn:aws:iam::123456789012:role/ROLE_NAME"
     session_name = "SESSION_NAME"
@@ -24,14 +25,15 @@ provider "aws" {
   }
 }
 
-# Create a VPC
-resource "aws_vpc" "example" {
-  cidr_block = "10.0.0.0/16"
+# Use a VPC
+data "aws_vpc" "example" {
+  # DataPlatform Parameter
+  id = "vpc-xxxyyyzzz"
 }
 
 # Create a subnet in the VPC
 resource "aws_subnet" "example" {
-  vpc_id     = aws_vpc.example.id
+  vpc_id     = data.aws_vpc.example.id
   cidr_block = "10.0.1.0/24"
 }
 
@@ -41,6 +43,7 @@ resource "aws_dms_replication_subnet_group" "example" {
   replication_subnet_group_description = "My replication subnet group"
   subnet_ids = [aws_subnet.example.id]
 }
+
 # IAM role for DMS to access resources
 resource "aws_iam_role" "dms_access_for_staging_bucket" {
   name = "dms-access-for-endpoint"
@@ -90,10 +93,12 @@ EOF
 
 # Get the secret from AWS Secrets Manager
 data "aws_secretsmanager_secret_version" "source_aurora_credentials" {
+  # Source database parameter
   secret_id = "my-secret-id"
 }
 
 data "aws_rds_cluster" "source_aurora" {
+  # Source database parameter
   cluster_identifier = "my-cluster-identifier"
 }
 
@@ -115,12 +120,14 @@ resource "aws_dms_endpoint" "source" {
   engine_name   = "aurora"
   username      = jsondecode(data.aws_secretsmanager_secret_version.source_aurora_credentials.secret_string)["username"]
   password      = jsondecode(data.aws_secretsmanager_secret_version.source_aurora_credentials.secret_string)["password"]
+  # Source database parameters
   server_name   = data.aws_rds_cluster.source_aurora.endpoint
   port          = 3306
 }
 
 # Staging bucket to hold AWS DMS output for all tables ingested
 resource "aws_s3_bucket" "staging_bucket" {
+  # Staging parameter
   bucket = "mybucket"
   acl    = "private"
 
@@ -142,7 +149,7 @@ resource "aws_dms_endpoint" "target" {
 # Create a security group for the DMS subnet
 resource "aws_security_group" "dms_sg" {
   name   = "dms_sg"
-  vpc_id = aws_vpc.example.id
+  vpc_id = data.aws_vpc.example.id
 }
 
 # Allow inbound traffic from the Aurora subnet
@@ -227,6 +234,7 @@ resource "aws_glue_catalog_table" "source_aurora_x" {
   }
 
   storage_descriptor {
+    # prefix should be a parameter per table
     location      = "s3://${aws_s3_bucket.ingested_data_bucket.bucket}/prefix"
 
     input_format  = "org.apache.iceberg.mr.hive.HiveIcebergInputFormat"

@@ -1,3 +1,4 @@
+import re
 from typing import Any, Optional, Type
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
@@ -7,7 +8,7 @@ from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential
     Datastore, GovernanceZone, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage, Team, Workspace
 
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
@@ -39,6 +40,28 @@ class AmazonAWSDataPlatform(DataPlatform):
     def getInternalDataContainers(self) -> set[DataContainer]:
         # TODO: Implement this method
         return set()
+
+
+class AWSSecret(Credential):
+    """This represents a secret stored in AWS Secret Manager. It is used to store sensitive information such as passwords, tokens, etc."""
+    def __init__(self, secretName: str, loc: InfrastructureLocation):
+        super().__init__()
+        self.secretName: str = secretName
+        self.loc: InfrastructureLocation = loc
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, AWSSecret) and \
+            self.secretName == o.secretName and self.loc == o.loc
+
+    def __hash__(self) -> int:
+        return hash(self.secretName)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
+        # Check secretName has only alphanumeric characters and /_+=.@- using a regular expression
+        pattern = re.compile('^[a-zA-Z0-9/_+=.@-]*$')
+        if not pattern.match(self.secretName):
+            tree.addRaw(NameHasBadSynthax(f"Secret name {self.secretName} contains invalid characters. Only alphanumeric characters and /_+=.@- are allowed."))
 
 
 class AWSGlueNamingMapper(DataContainerNamingMapper):
@@ -227,7 +250,8 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             name: str,
             doc: Documentation,
             executor: DataPlatformExecutor,
-            platformCredential: Credential,
+            vpcId: str,
+            iacCredential: AWSSecret,
             region: InfrastructureLocation,
             stagingBucketName: str, stagingBucketPrefix: Optional[str],
             dataBucketName: str, dataBucketPrefix: Optional[str],
@@ -236,7 +260,8 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             dataIAMRole: str,
             awsGlueIAMRole: str):
         super().__init__(name, doc, executor)
-        self.platformCredential: Credential = platformCredential
+        self.vpcId: str = vpcId
+        self.iacCredential: Credential = iacCredential
         self.region: InfrastructureLocation = region
         self.stagingBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("staging", region, None, stagingBucketName, stagingBucketPrefix)
         self.dataBucket: AmazonAWSS3Bucket = AmazonAWSS3Bucket("data", region, None, dataBucketName, dataBucketPrefix)
