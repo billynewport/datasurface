@@ -174,36 +174,14 @@ resource "aws_dms_replication_instance" "dms_replication_instance" {
 }
 
 # DMS replication task
-resource "aws_dms_replication_task" "task" {
-  replication_task_id       = "my-task"
-  migration_type            = "full-load-and-cdc"
-  table_mappings            = jsonencode({
-    "rules" = [
-      {
-        "rule-type"    = "selection"
-        "rule-id"      = "1"
-        "rule-name"    = "1"
-        "object-locator" = {
-          "schema-name" = "%"
-          "table-name"  = "X" # replace with your table name
-        }
-        "rule-action"  = "include"
-      },
-      {
-        "rule-type"    = "selection"
-        "rule-id"      = "2"
-        "rule-name"    = "2"
-        "object-locator" = {
-          "schema-name" = "%"
-          "table-name"  = "Y" # replace with your table name
-        }
-        "rule-action"  = "include"
-      }
-    ]
-  })
-  replication_instance_arn  = aws_dms_replication_instance.dms_replication_instance.replication_instance_arn
+
+module "Ingest-source-aurora" {
+  source                  = "./modules/dms_ingest"
+  replication_task_id     = "my-task"
+  table_names             = ["table1", "table2"]
   source_endpoint_arn       = aws_dms_endpoint.source.endpoint_arn
   target_endpoint_arn       = aws_dms_endpoint.target.endpoint_arn
+  replication_instance_arn  = aws_dms_replication_instance.dms_replication_instance.replication_instance_arn
 }
 
 # Staging bucket to hold AWS DMS output for all tables ingested
@@ -217,60 +195,31 @@ resource "aws_s3_bucket" "ingested_data_bucket" {
   }
 }
 
-resource "aws_glue_catalog_table" "source_aurora_x" {
-  name          = "source_aurora_x"
-  database_name = "ingestion"
+module "source_aurora_x_ingest_table" {
+  source        = "./modules/glue_table"
+  table_name    = "source_aurora_x"
+  database_name = "ingestion_db"
+  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/x"
 
-  table_type = "EXTERNAL_TABLE"
+  schema = ["firstName:string", "surname:string"]
 
-  open_table_format_input {
-    iceberg_input {
-        metadata_operation = "CREATE"
-    }
-  }
-  parameters = {
-    EXTERNAL              = "TRUE"
-    "parquet.compression" = "SNAPPY"
-  }
-
-  storage_descriptor {
-    # prefix should be a parameter per table
-    location      = "s3://${aws_s3_bucket.ingested_data_bucket.bucket}/prefix"
-
-    input_format  = "org.apache.iceberg.mr.hive.HiveIcebergInputFormat"
-    output_format = "org.apache.iceberg.mr.hive.HiveIcebergOutputFormat"
-
-    ser_de_info {
-      name                  = "my-stream"
-      serialization_library = "org.apache.iceberg.mr.hive.HiveIcebergSerDe"
-    }
-
-    columns {
-      name = "my_string"
-      type = "string"
-    }
-
-    columns {
-      name = "my_double"
-      type = "double"
-    }
-
-    columns {
-      name    = "my_date"
-      type    = "date"
-      comment = ""
-    }
-
-    columns {
-      name    = "my_bigint"
-      type    = "bigint"
-      comment = ""
-    }
-
-    columns {
-      name    = "my_struct"
-      type    = "struct<my_nested_string:string>"
-      comment = ""
-    }
-  }
+  columns = [for c in schema : {
+    name = split(":", c)[0]
+    type = split(":", c)[1]
+  }]
 }
+
+module "source_aurora_y_ingest_table" {
+  source        = "./modules/glue_table"
+  table_name    = "source_aurora_y"
+  database_name = "ingestion_db"
+  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/y"
+
+  schema = ["firstName:string", "surname:string"]
+
+  columns = [for c in schema : {
+    name = split(":", c)[0]
+    type = split(":", c)[1]
+  }]
+}
+
