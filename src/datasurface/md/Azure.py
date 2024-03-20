@@ -2,7 +2,7 @@ from enum import Enum
 from datasurface.md import Documentation
 from datasurface.md.Governance import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
 from .Governance import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, EncryptionSystem, Ecosystem, \
-    GovernanceZone, HostPortSQLDatabase, InfrastructureLocation, Team
+    HostPortSQLDatabase, InfrastructureLocation
 from .Lint import NameHasBadSynthax, ValidationTree
 from .utils import is_valid_azure_key_vault_name
 

@@ -7,41 +7,33 @@ terraform {
   }
 }
 
+variable "AWS_VPC_ID" {
+  description = "VPC to use"
+  type = string
+  default = ""
+}
+
 data "aws_secretsmanager_secret_version" "creds" {
   secret_id = "my-secret-id"
 }
 
-# Configure the AWS Provider
-provider "aws" {
-  region = "us-east-1"
-  access_key = jsondecode(data.aws_secretsmanager_secret_version.creds.secret_string)["access_key"]
-  secret_key = jsondecode(data.aws_secretsmanager_secret_version.creds.secret_string)["secret_key"]
-
-  # Role for Terraform to use to do everything here
-  assume_role {
-    role_arn     = "arn:aws:iam::123456789012:role/ROLE_NAME"
-    session_name = "SESSION_NAME"
-    external_id  = "EXTERNAL_ID"
-  }
-}
-
 # Use a VPC
-data "aws_vpc" "example" {
+data "aws_vpc" "dms_vpc" {
   # DataPlatform Parameter
-  id = "vpc-xxxyyyzzz"
+  id = var.AWS_VPC_ID
 }
 
 # Create a subnet in the VPC
-resource "aws_subnet" "example" {
-  vpc_id     = data.aws_vpc.example.id
+resource "aws_subnet" "dms_subnet" {
+  vpc_id     = data.aws_vpc.dms_vpc.id
   cidr_block = "10.0.1.0/24"
 }
 
 # Create a replication subnet group
-resource "aws_dms_replication_subnet_group" "example" {
+resource "aws_dms_replication_subnet_group" "dms_repl_subnet_group" {
   replication_subnet_group_id   = "my-replication-subnet-group"
   replication_subnet_group_description = "My replication subnet group"
-  subnet_ids = [aws_subnet.example.id]
+  subnet_ids = [aws_subnet.dms_subnet.id]
 }
 
 # IAM role for DMS to access resources
@@ -149,7 +141,7 @@ resource "aws_dms_endpoint" "target" {
 # Create a security group for the DMS subnet
 resource "aws_security_group" "dms_sg" {
   name   = "dms_sg"
-  vpc_id = data.aws_vpc.example.id
+  vpc_id = data.aws_vpc.dms_vpc.id
 }
 
 # Allow inbound traffic from the Aurora subnet
@@ -169,14 +161,14 @@ resource "aws_dms_replication_instance" "dms_replication_instance" {
   replication_instance_class = "dms.r5.large"
   allocated_storage         = 20
   vpc_security_group_ids    = [aws_security_group.dms_sg.id]
-  replication_subnet_group_id = aws_dms_replication_subnet_group.example.id
+  replication_subnet_group_id = aws_dms_replication_subnet_group.dms_repl_subnet_group.id
   publicly_accessible       = true
 }
 
 # DMS replication task
 
 module "Ingest-source-aurora" {
-  source                  = "./modules/dms_ingest"
+  source                  = "./module/dms_ingest"
   replication_task_id     = "my-task"
   table_names             = ["table1", "table2"]
   source_endpoint_arn       = aws_dms_endpoint.source.endpoint_arn
@@ -196,7 +188,7 @@ resource "aws_s3_bucket" "ingested_data_bucket" {
 }
 
 module "source_aurora_x_ingest_table" {
-  source        = "./modules/glue_table"
+  source        = "./module/glue_table"
   table_name    = "source_aurora_x"
   database_name = "ingestion_db"
   bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/x"
@@ -210,7 +202,7 @@ module "source_aurora_x_ingest_table" {
 }
 
 module "source_aurora_y_ingest_table" {
-  source        = "./modules/glue_table"
+  source        = "./module/glue_table"
   table_name    = "source_aurora_y"
   database_name = "ingestion_db"
   bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/y"

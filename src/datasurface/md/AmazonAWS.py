@@ -1,7 +1,9 @@
 import re
 from typing import Any, Optional, Type
+
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
+from urllib import parse
 
 from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
     DataContainerNamingMapper, DataPlatformExecutor, DatasetGroup, \
@@ -55,6 +57,33 @@ class AWSAuroraCluster(SQLDatabase):
             self.clusterId == o.clusterId
 
 
+def is_valid_aws_name(name: str) -> bool:
+    # Check name has only alphanumeric characters and /_+=.@- using a regular expression
+    pattern = re.compile('^[a-zA-Z0-9/_+=.@-]*$')
+    return pattern.match(name) is not None
+
+
+def is_valid_s3_bucket_name(name: str) -> bool:
+    # Bucket names must be a series of one or more labels, separated
+    # by a single period (.). Each label must start and end with a lowercase letter or a number.
+    # Bucket names must contain only lowercase letters, numbers, dots (.), and hyphens (-).
+    # Each label in the bucket name must be between 1 and 63 characters long.
+    # Bucket names cannot be formatted as an IP address (for example, 192.168.5.4).
+    # Bucket names cannot begin with a hyphen (-) or contain two consecutive hyphens (--).
+    # Bucket names cannot end with a hyphen (-) or contain a dot followed by a hyphen (. -) or a hyphen followed by a dot (- .).
+    if len(name) < 1 or len(name) > 63:
+        return False
+    if name[-1] == '-' or name[0] == '-':
+        return False
+    if '--' in name or '.-' in name or '-.' in name:
+        return False
+    if re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])*(\.[a-z0-9]([-a-z0-9]*[a-z0-9])*)*$', name) is None:
+        return False
+    if re.match(r'^\d+\.\d+\.\d+\.\d+$', name):  # check if name is formatted as an IP address
+        return False
+    return True
+
+
 class AWSSecret(Credential):
     """This represents a secret stored in AWS Secret Manager. It is used to store sensitive information such as passwords, tokens, etc."""
     def __init__(self, secretName: str, loc: InfrastructureLocation):
@@ -72,8 +101,7 @@ class AWSSecret(Credential):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
         # Check secretName has only alphanumeric characters and /_+=.@- using a regular expression
-        pattern = re.compile('^[a-zA-Z0-9/_+=.@-]*$')
-        if not pattern.match(self.secretName):
+        if not is_valid_aws_name(self.secretName):
             tree.addRaw(NameHasBadSynthax(f"Secret name {self.secretName} contains invalid characters. Only alphanumeric characters and /_+=.@- are allowed."))
 
 
@@ -107,8 +135,19 @@ class AmazonAWSS3Bucket(ObjectStorage):
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         return AWSGlueNamingMapper()
 
+    def is_valid_s3_bucket_prefix(self, prefix: str) -> bool:
+        if len(prefix) > 1024:
+            return False
+        if prefix != parse.unquote(parse.quote(prefix)):
+            return False
+        return True    # Validate the bucket name
+
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         super().lint(eco, tree)
+        if not is_valid_s3_bucket_name(self.bucketName):
+            tree.addRaw(NameHasBadSynthax(f"S3 bucket name {self.bucketName} is invalid."))
+        if self.prefix and not self.is_valid_s3_bucket_prefix(self.prefix):
+            tree.addRaw(NameHasBadSynthax(f"S3 bucket prefix {self.prefix} is invalid."))
 
 
 class AmazonAWSKinesis(DataContainer):
@@ -301,3 +340,11 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             tree.addRaw(NameHasBadSynthax(f"Staging bucket location {self.stagingBucket} does not match region {self.region}"))
         if (not self.dataBucket.areAllLocationsInLocations({self.region})):
             tree.addRaw(NameHasBadSynthax(f"Data bucket location {self.dataBucket} does not match region {self.region}"))
+        if not is_valid_aws_name(self.stagingIAMRole):
+            tree.addRaw(NameHasBadSynthax(
+                (f"Staging IAM role {self.stagingIAMRole} contains invalid characters."
+                 f" Only alphanumeric characters and /_+=.@- are allowed.")))
+        if not is_valid_aws_name(self.dataIAMRole):
+            tree.addRaw(NameHasBadSynthax(
+                (f"Data IAM role {self.dataIAMRole} contains invalid characters. Only "
+                 f"alphanumeric characters and /_+=.@- are allowed.")))

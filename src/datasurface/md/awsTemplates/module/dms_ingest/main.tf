@@ -33,7 +33,7 @@ resource "aws_dms_replication_task" "task" {
   dynamic "table_mappings" {
     for_each = var.table_names
     content {
-      "rules" = [
+      rules = [
         {
           "rule-type"    = "selection"
           "rule-id"      = "${table_mappings.key + 1}"

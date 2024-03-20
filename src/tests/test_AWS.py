@@ -30,12 +30,12 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         p: AWSDMSIceBergDataPlatform = AWSDMSIceBergDataPlatform(
             "TestBatch",
             PlainTextDocumentation("Test docs"),
-            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "main")),
+            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "main")),  # Push generated IaC to this repo
             "vpcId",
             AWSSecret("platformRole", eastRegion),
             eastRegion,
-            AmazonAWSS3Bucket("Staging", eastRegion, None, "TestStaging", "staging"),
-            AmazonAWSS3Bucket("Ingestion", eastRegion, None, "TestStaging", "ingestion"),
+            AmazonAWSS3Bucket("Staging", eastRegion, None, "test-staging", "staging"),
+            AmazonAWSS3Bucket("Ingestion", eastRegion, None, "test-staging", "ingestion"),
             "GlueDatabaseName",
             "stagingIAMRole",
             "dataIAMRole",
@@ -44,4 +44,5 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         e.add(p)
 
         t: ValidationTree = e.lintAndHydrateCaches()
+        t.printTree()
         self.assertFalse(t.hasErrors())
