@@ -134,8 +134,10 @@ resource "aws_dms_endpoint" "target" {
   endpoint_id   = "s3-target-endpoint"
   endpoint_type = "target"
   engine_name   = "s3"
-  bucket_name   = aws_s3_bucket.staging_bucket.bucket
   service_access_role = aws_iam_role.dms_access_for_staging_bucket.arn
+  s3_settings {
+    bucket_name = aws_s3_bucket.staging_bucket.bucket
+  }
 }
 
 # Create a security group for the DMS subnet
@@ -187,17 +189,22 @@ resource "aws_s3_bucket" "ingested_data_bucket" {
   }
 }
 
+locals {
+  schema_aurora_table_x = ["firstName:string", "surname:string"]
+  schema_aurora_table_y = ["firstName:string", "surname:string"]
+}
+
 module "source_aurora_x_ingest_table" {
   source        = "./module/glue_table"
   table_name    = "source_aurora_x"
   database_name = "ingestion_db"
   bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/x"
 
-  schema = ["firstName:string", "surname:string"]
 
-  columns = [for c in schema : {
+  columns = [for c in local.schema_aurora_table_x : {
     name = split(":", c)[0]
     type = split(":", c)[1]
+    comment = ""
   }]
 }
 
@@ -207,11 +214,10 @@ module "source_aurora_y_ingest_table" {
   database_name = "ingestion_db"
   bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/y"
 
-  schema = ["firstName:string", "surname:string"]
-
-  columns = [for c in schema : {
+  columns = [for c in local.schema_aurora_table_y : {
     name = split(":", c)[0]
     type = split(":", c)[1]
+    comment = ""
   }]
 }
 

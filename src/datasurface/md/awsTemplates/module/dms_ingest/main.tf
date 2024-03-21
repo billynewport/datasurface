@@ -30,21 +30,16 @@ resource "aws_dms_replication_task" "task" {
   source_endpoint_arn      = var.source_endpoint_arn
   target_endpoint_arn      = var.target_endpoint_arn
 
-  dynamic "table_mappings" {
-    for_each = var.table_names
-    content {
-      rules = [
-        {
-          "rule-type"    = "selection"
-          "rule-id"      = "${table_mappings.key + 1}"
-          "rule-name"    = "${table_mappings.key + 1}"
-          "object-locator" = {
-            "schema-name" = "%"
-            "table-name"  = table_mappings.value
-          }
-          "rule-action"  = "include"
-        }
-      ]
-    }
-  }
+ table_mappings = jsonencode({
+    rules = [for idx, name in var.table_names : {
+      "rule-type"    = "selection"
+      "rule-id"      = "${idx + 1}"
+      "rule-name"    = "${idx + 1}"
+      "object-locator" = {
+        "schema-name" = "%"
+        "table-name"  = name
+      }
+      "rule-action"  = "include"
+    }]
+  })
 }
