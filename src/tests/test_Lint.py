@@ -46,3 +46,10 @@ class TestLint(unittest.TestCase):
 
         v = ValidationProblem("This is a problem", ProblemSeverity.WARNING)
         self.assertEqual(str(v), "WARNING:This is a problem")
+
+    def test_printEmptyTree(self):
+        tree = ValidationTree("")
+
+        self.assertFalse(tree.hasErrors())
+        self.assertFalse(tree.hasWarnings())
+        tree.printTree()

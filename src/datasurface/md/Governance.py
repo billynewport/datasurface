@@ -1308,6 +1308,8 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
             self.cmd.lint(eco, gz, t, self, cmdTree)
         else:
             storeTree.addRaw(AttributeNotSet("CaptureMetaData not set"))
+        if (len(self.datasets) == 0):
+            storeTree.addRaw(AttributeNotSet("No datasets in store"))
 
     def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
@@ -2461,7 +2463,7 @@ class DatasetSink(object):
 class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace. The name should be
     ANSI SQL compliant because it could be used as part of a SQL View/Table name in a Workspace database"""
-    def __init__(self, name: str, *args: Union[DatasetSink, WorkspacePlatformConfig, Documentation]) -> None:
+    def __init__(self, name: str, *args: Union[DatasetSink, DataPlatformChooser, Documentation]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         self.platformMD: Optional[DataPlatformChooser] = None
@@ -2474,7 +2476,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                 self.sinks[sink.key] = sink
             elif (isinstance(arg, Documentation)):
                 self.documentation = arg
-            elif (isinstance(arg, WorkspacePlatformConfig)):
+            elif (isinstance(arg, DataPlatformChooser)):
                 if self.platformMD is None:
                     self.platformMD = arg
                 else:
@@ -2500,6 +2502,8 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                 tree.addProblem("DSG doesnt choose a dataplatform")
         else:
             tree.addRaw(AttributeNotSet("DSG has no data platform chooser"))
+        if (len(self.sinks) == 0):
+            tree.addRaw(AttributeNotSet("No datasetsinks in group"))
 
     def __str__(self) -> str:
         return f"DatasetGroup({self.name})"

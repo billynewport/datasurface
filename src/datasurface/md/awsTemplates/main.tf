@@ -7,20 +7,16 @@ terraform {
   }
 }
 
-variable "AWS_VPC_ID" {
+variable "aws_vpc_id" {
   description = "VPC to use"
   type = string
   default = ""
 }
 
-data "aws_secretsmanager_secret_version" "creds" {
-  secret_id = "my-secret-id"
-}
-
 # Use a VPC
 data "aws_vpc" "dms_vpc" {
   # DataPlatform Parameter
-  id = var.AWS_VPC_ID
+  id = "${var.aws_vpc_id}"
 }
 
 # Create a subnet in the VPC
@@ -60,12 +56,12 @@ EOF
 # Get the secret from AWS Secrets Manager
 data "aws_secretsmanager_secret_version" "source_aurora_credentials" {
   # Source database parameter
-  secret_id = "my-secret-id"
+  secret_id = "rds!cluster-b3087781-457b-4ed4-9865-989c10a5600d"
 }
 
 data "aws_rds_cluster" "source_aurora" {
   # Source database parameter
-  cluster_identifier = "my-cluster-identifier"
+  cluster_identifier = "arn:aws:rds:us-east-1:176502344450:cluster:nwdb-src"
 }
 
 # Get the DB subnet group of the Aurora cluster
@@ -119,14 +115,22 @@ EOF
 
 # Staging bucket to hold AWS DMS output for all tables ingested
 resource "aws_s3_bucket" "staging_bucket" {
-  # Staging parameter
-  bucket = "mybucket"
-  acl    = "private"
+  bucket = "my-staging-bucket"
+}
 
-  tags = {
-    Name = "My bucket"
-    Environment = "Dev"
+resource "aws_s3_bucket_ownership_controls" "staging_bucket" {
+  bucket = aws_s3_bucket.staging_bucket.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
   }
+}
+
+resource "aws_s3_bucket_acl" "staging_bucket" {
+  depends_on = [aws_s3_bucket_ownership_controls.staging_bucket]
+
+  # Staging parameter
+  bucket = aws_s3_bucket.staging_bucket.id
+  acl    = "private"
 }
 
 # Target S3 bucket
@@ -180,14 +184,25 @@ module "Ingest-source-aurora" {
 
 # Staging bucket to hold AWS DMS output for all tables ingested
 resource "aws_s3_bucket" "ingested_data_bucket" {
+  # Staging parameter
   bucket = "ingested_data"
-  acl    = "private"
+}
 
-  tags = {
-    Name = "My bucket"
-    Environment = "Dev"
+resource "aws_s3_bucket_ownership_controls" "ingested_data_bucket" {
+  bucket = aws_s3_bucket.ingested_data_bucket.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
   }
 }
+
+resource "aws_s3_bucket_acl" "ingested_data_bucket" {
+  depends_on = [aws_s3_bucket_ownership_controls.ingested_data_bucket]
+
+  bucket = aws_s3_bucket.ingested_data_bucket.id
+  acl    = "private"
+}
+
+
 
 locals {
   schema_aurora_table_x = ["firstName:string", "surname:string"]

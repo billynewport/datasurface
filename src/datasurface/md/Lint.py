@@ -246,7 +246,7 @@ class ValidationTree:
 
     def getWarnings(self) -> Generator[ValidationProblem, None, None]:
         """This returns all warnings if this object or any of its children have non ERROR severity problems"""
-        return self.findMatchingProblems(lambda p: p.sev != ProblemSeverity.ERROR)
+        return self.findMatchingProblems(lambda p: p.sev == ProblemSeverity.WARNING)
 
     def checkTypeMatches(self, obj: object, *expectedType: type) -> bool:
         """Returns true if any type matches, false if not and adds a problem"""
@@ -261,7 +261,7 @@ class ValidationTree:
         """This prints the tree of objects"""
         self.numErrors = 0
         self.numWarnings = 0
-        if (self.getErrors() or self.getWarnings()):  # If something to see here or in the children then
+        if (self.hasErrors() or self.hasWarnings()):  # If something to see here or in the children then
             print(" " * indent, self.object)
             for problem in self.problems:
                 print(" " * (indent + 2), str(problem))

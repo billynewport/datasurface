@@ -1,10 +1,13 @@
 import unittest
 
-from datasurface.md.AmazonAWS import AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket
+from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import DataPlatformCICDExecutor, Ecosystem, InfrastructureLocation
+from datasurface.md.Governance import CDCCaptureIngestion, DataPlatform, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, Datastore, DeprecationInfo, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, Team, Workspace, WorkspaceFixedDataPlatform, WorkspacePlatformConfig
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
+from datasurface.md.PipelineGraph import EcosystemPipelineGraph, PlatformPipelineGraph
+from datasurface.md.Policy import SimpleDC, SimpleDCTypes
+from datasurface.md.Schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, VarChar
 from tests.nwdb.eco import createEcosystem
 
 
@@ -23,26 +26,112 @@ class TestAWS(unittest.TestCase):
 
 
 class TestAWSBatchDMSPlatform(unittest.TestCase):
-    def test_AWSBatchDMSPlatform(self):
-        e: Ecosystem = createEcosystem()
-        eastRegion: InfrastructureLocation = e.getLocationOrThrow("AWS", ["USA", "us-east-1"])
 
+    def createAWSBatchPlatform(self, loc: InfrastructureLocation) -> AWSDMSIceBergDataPlatform:
         p: AWSDMSIceBergDataPlatform = AWSDMSIceBergDataPlatform(
             "TestBatch",
             PlainTextDocumentation("Test docs"),
             DataPlatformCICDExecutor(GitHubRepository("owner/repo", "main")),  # Push generated IaC to this repo
             "vpcId",
-            AWSSecret("platformRole", eastRegion),
-            eastRegion,
-            AmazonAWSS3Bucket("Staging", eastRegion, None, "test-staging", "staging"),
-            AmazonAWSS3Bucket("Ingestion", eastRegion, None, "test-staging", "ingestion"),
+            AWSSecret("platformRole", loc),
+            loc,
+            AmazonAWSS3Bucket("Staging", loc, None, "test-staging", "staging"),
+            AmazonAWSS3Bucket("Ingestion", loc, None, "test-staging", "ingestion"),
             "GlueDatabaseName",
             "stagingIAMRole",
             "dataIAMRole",
             "awsGlueIAMRole")
+        return p
+
+    def test_AWSBatchDMSPlatform(self):
+        e: Ecosystem = createEcosystem()
+        eastRegion: InfrastructureLocation = e.getLocationOrThrow("AWS", ["USA", "us-east-1"])
+
+        p: AWSDMSIceBergDataPlatform = self.createAWSBatchPlatform(eastRegion)
 
         e.add(p)
 
         t: ValidationTree = e.lintAndHydrateCaches()
         t.printTree()
         self.assertFalse(t.hasErrors())
+
+    def test_awsProducer(self):
+        eco: Ecosystem = createEcosystem()
+        eu_west_3: InfrastructureLocation = eco.getLocationOrThrow("AWS", ["EU", "eu-west-3"])
+
+        # Add AWS Batch DMS Platform
+        eco.add(self.createAWSBatchPlatform(eu_west_3))
+
+        dmsPlat: DataPlatform = eco.getDataPlatformOrThrow("TestBatch")
+
+        producer: Datastore = Datastore(
+            "TestProducer",
+            PlainTextDocumentation("Test docs"),
+            CDCCaptureIngestion(
+                AWSAuroraDatabase(
+                    "TestDB",
+                    eu_west_3,
+                    "endpoint",
+                    "CustomerDB"
+                ),
+                AWSSecret(
+                    "TestProducerIngestionCred",
+                    eu_west_3),
+                IngestionConsistencyType.MULTI_DATASET
+                ),
+            ProductionStatus.PRODUCTION,
+            Dataset(
+                "customers",
+                SimpleDC(SimpleDCTypes.PC3),
+                PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
+                DDLTable(
+                    DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                    DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),
+                    DDLColumn("contact_name", VarChar(30)),
+                    DDLColumn("contact_title", VarChar(30)),
+                    DDLColumn("address", VarChar(60)),
+                    DDLColumn("city", VarChar(15)),
+                    DDLColumn("region", VarChar(15)),
+                    DDLColumn("postal_code", VarChar(10)),
+                    DDLColumn("country", VarChar(15)),
+                    DDLColumn("phone", VarChar(24)),
+                    DDLColumn("fax", VarChar(24))
+                )
+            ),
+        )
+
+        teamFrontOffice: Team = eco.getTeamOrThrow("EU", "FrontOffice")
+        teamFrontOffice.add(producer)
+
+        tree: ValidationTree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+
+        w: Workspace = Workspace(
+            "TestWorkspace",
+            PlainTextDocumentation("Test docs"),
+            AWSAuroraDatabase(
+                "TestConsumerDB",
+                eu_west_3,
+                "endpoint",
+                "CustomerDB"
+            ),
+            ProductionStatus.PRODUCTION,
+            DatasetGroup(
+                "ConsumerGroupA",
+                PlainTextDocumentation("Test docs"),
+                WorkspaceFixedDataPlatform(dmsPlat),
+                DatasetSink("TestProducer", "customers", DeprecationsAllowed.NEVER)
+            )
+        )
+
+        teamFrontOffice.add(w)
+        tree = eco.lintAndHydrateCaches()
+        tree.printTree()
+        self.assertFalse(tree.hasErrors())
+
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+
+        self.assertIsNotNone(graph.roots.get(dmsPlat))
+
+        pi: PlatformPipelineGraph = graph.roots[dmsPlat]
+        self.assertEqual(len(pi.workspaces), 1)

@@ -44,17 +44,23 @@ class AmazonAWSDataPlatform(DataPlatform):
         return set()
 
 
-class AWSAuroraCluster(SQLDatabase):
+class AWSAuroraDatabase(SQLDatabase):
     """This is a link to an existing Aurora database. It identifies the cluster using its
-    clusterId and the database using its databaseName. The location is the location/region of the cluster. We can using Terraform
+    endpointName and the database using its databaseName. The location is the location/region of the cluster. We can using Terraform
     retrieve the hostname and port for this database."""
-    def __init__(self, name: str, loc: InfrastructureLocation, clusterId: str, databaseName: str):
+    def __init__(self, name: str, loc: InfrastructureLocation, endpointName: str, databaseName: str):
         super().__init__(name, loc, databaseName)
-        self.clusterId: str = clusterId
+        self.endpointName: str = endpointName
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, AWSAuroraCluster) and \
-            self.clusterId == o.clusterId
+        return super().__eq__(o) and isinstance(o, AWSAuroraDatabase) and \
+            self.endpointName == o.endpointName
+
+    def __str__(self) -> str:
+        return f"AWSAuroraDatabase({self.name}, {self.endpointName})"
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
 
 
 def is_valid_aws_name(name: str) -> bool:
@@ -323,13 +329,21 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         self.awsGlueIAMRole: str = awsGlueIAMRole
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AWSDMSIceBergDataPlatform)
+        return super().__eq__(__value) and isinstance(__value, AWSDMSIceBergDataPlatform) and \
+            self.vpcId == __value.vpcId and self.iacCredential == __value.iacCredential and \
+            self.region == __value.region and self.stagingBucket == __value.stagingBucket and \
+            self.dataBucket == __value.dataBucket and self.catalogDatabaseName == __value.catalogDatabaseName and \
+            self.stagingIAMRole == __value.stagingIAMRole and self.dataIAMRole == __value.dataIAMRole and \
+            self.awsGlueIAMRole == __value.awsGlueIAMRole
 
     def _str__(self) -> str:
         return f"AWSDMSIceBergDataPlatform({self.name})"
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         return {self.stagingBucket, self.dataBucket}
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         super().lint(eco, tree)
