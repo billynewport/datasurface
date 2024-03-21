@@ -58,7 +58,7 @@ class AWSAuroraDatabase(SQLDatabase):
 
     def __str__(self) -> str:
         return f"AWSAuroraDatabase({self.name}, {self.endpointName})"
-    
+
     def __hash__(self) -> int:
         return hash(self.name)
 
@@ -341,7 +341,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         return {self.stagingBucket, self.dataBucket}
-    
+
     def __hash__(self) -> int:
         return hash(self.name)
 

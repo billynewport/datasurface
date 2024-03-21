@@ -3,7 +3,9 @@ import unittest
 from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CDCCaptureIngestion, DataPlatform, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, Datastore, DeprecationInfo, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, Team, Workspace, WorkspaceFixedDataPlatform, WorkspacePlatformConfig
+from datasurface.md.Governance import CDCCaptureIngestion, DataPlatform, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
+    Datastore, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, \
+    Team, Workspace, WorkspaceFixedDataPlatform
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
 from datasurface.md.PipelineGraph import EcosystemPipelineGraph, PlatformPipelineGraph
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes

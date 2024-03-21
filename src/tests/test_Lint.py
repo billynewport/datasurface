@@ -52,4 +52,3 @@ class TestLint(unittest.TestCase):
 
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasWarnings())
-        tree.printTree()
