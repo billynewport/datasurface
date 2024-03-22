@@ -96,7 +96,7 @@ def is_valid_s3_bucket_name(name: str) -> bool:
         if label[0] == '-' or label[-1] == '-':
             return False
         # Check allowed characters and consecutive hyphens
-        if re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', label) is None:
+        if re.match(r'^[a-z0-9]([-a-z0-9]?[a-z0-9])*$', label) is None:
             return False
 
     return True

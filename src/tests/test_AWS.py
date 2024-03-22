@@ -1,6 +1,6 @@
 import unittest
 
-from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket
+from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, is_valid_s3_bucket_name
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Governance import CDCCaptureIngestion, DataPlatform, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
@@ -25,6 +25,27 @@ class TestAWS(unittest.TestCase):
         s.secretName = "Secrets cannot have spaces"
         s.lint(e, t)
         self.assertTrue(t.containsProblemType(NameHasBadSynthax))
+
+
+class TestAWSValidation(unittest.TestCase):
+    def test_is_valid_s3_bucket_name(self):
+        self.assertTrue(is_valid_s3_bucket_name('mybucket'))  # Valid name
+        self.assertTrue(is_valid_s3_bucket_name('my.bucket'))  # Valid name with a dot
+        self.assertTrue(is_valid_s3_bucket_name('my-bucket'))  # Valid name with a hyphen
+        self.assertTrue(is_valid_s3_bucket_name('my.bucket-with.multiple.labels'))  # Valid name with multiple labels
+
+        self.assertFalse(is_valid_s3_bucket_name('MyBucket'))  # Invalid name (contains uppercase letters)
+        self.assertFalse(is_valid_s3_bucket_name('my_bucket'))  # Invalid name (contains underscore)
+        self.assertFalse(is_valid_s3_bucket_name('mybucket.'))  # Invalid name (ends with a dot)
+        self.assertFalse(is_valid_s3_bucket_name('.mybucket'))  # Invalid name (starts with a dot)
+        self.assertFalse(is_valid_s3_bucket_name('mybucket-'))  # Invalid name (ends with a hyphen)
+        self.assertFalse(is_valid_s3_bucket_name('-mybucket'))  # Invalid name (starts with a hyphen)
+        self.assertFalse(is_valid_s3_bucket_name('my--bucket'))  # Invalid name (contains two consecutive hyphens)
+        self.assertFalse(is_valid_s3_bucket_name('my.-bucket'))  # Invalid name (contains a dot followed by a hyphen)
+        self.assertFalse(is_valid_s3_bucket_name('my-.bucket'))  # Invalid name (contains a hyphen followed by a dot)
+        self.assertFalse(is_valid_s3_bucket_name('192.168.5.4'))  # Invalid name (formatted as an IP address)
+        self.assertFalse(is_valid_s3_bucket_name('a'*256))  # Invalid name (too long)
+        self.assertFalse(is_valid_s3_bucket_name(''))  # Invalid name (empty string)
 
 
 class TestAWSBatchDMSPlatform(unittest.TestCase):
