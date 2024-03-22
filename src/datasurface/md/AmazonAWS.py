@@ -77,16 +77,28 @@ def is_valid_s3_bucket_name(name: str) -> bool:
     # Bucket names cannot be formatted as an IP address (for example, 192.168.5.4).
     # Bucket names cannot begin with a hyphen (-) or contain two consecutive hyphens (--).
     # Bucket names cannot end with a hyphen (-) or contain a dot followed by a hyphen (. -) or a hyphen followed by a dot (- .).
-    if len(name) < 1 or len(name) > 63:
+
+    # Check length
+    if len(name) < 1 or len(name) > 255:
         return False
-    if name[-1] == '-' or name[0] == '-':
+
+    # Check if name is formatted as an IP address
+    if re.match(r'^\d+\.\d+\.\d+\.\d+$', name):
         return False
-    if '--' in name or '.-' in name or '-.' in name:
-        return False
-    if re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])*(\.[a-z0-9]([-a-z0-9]*[a-z0-9])*)*$', name) is None:
-        return False
-    if re.match(r'^\d+\.\d+\.\d+\.\d+$', name):  # check if name is formatted as an IP address
-        return False
+
+    # Check each label
+    labels = name.split('.')
+    for label in labels:
+        # Check length
+        if len(label) < 1 or len(label) > 63:
+            return False
+        # Check start and end characters
+        if label[0] == '-' or label[-1] == '-':
+            return False
+        # Check allowed characters and consecutive hyphens
+        if re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', label) is None:
+            return False
+
     return True
 
 
