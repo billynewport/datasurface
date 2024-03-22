@@ -39,20 +39,21 @@ class CombineToStringFragmentManager(IaCFragmentManager):
         return rc
 
 
-class IaCDataPlatform(DataPlatform):
+class IaCDataPlatform:
     """This is intended to be a base class for IaC style DataPlatforms"""
-    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor):
-        super().__init__(name, doc, executor)
-
-    def __hash__(self) -> int:
-        return hash(self.name)
+    def __init__(self, executor: DataPlatformExecutor, graph: PlatformPipelineGraph, platform: DataPlatform):
+        super().__init__()
+        self.executor: DataPlatformExecutor = executor
+        self.graph: PlatformPipelineGraph = graph
+        self.platform: DataPlatform = platform
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IaCDataPlatform)
+        return super().__eq__(__value) and isinstance(__value, IaCDataPlatform) and self.executor == __value.executor and \
+            self.graph == __value.graph and self.platform == __value.platform
 
-    def renderIaC(self, fragments: IaCFragmentManager, graph: PlatformPipelineGraph) -> IaCFragmentManager:
+    def renderIaC(self, fragments: IaCFragmentManager) -> IaCFragmentManager:
         """This renders the IaC for the given graph"""
-        for node in graph.nodes:
+        for node in self.graph.nodes:
             if isinstance(node, IngestionSingleNode):
                 fragments.addFragment(node.__class__, str(node), self.renderIngestionSingle(node))
             elif isinstance(node, IngestionMultiNode):
@@ -107,11 +108,11 @@ class IaCDataPlatform(DataPlatform):
     def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
         pass
 
-    def lintGraph(self, eco: Ecosystem, graph: PlatformPipelineGraph, tree: ValidationTree):
+    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
         """Check that the platform can handle every node in the pipeline graph. Nodes may fail because there is no supported
         connector for an ingestion or export node or because there are missing parameters or because a certain type of
         trigger or data transformer is not supported. It may also fail because an infrastructure vendor or datacontainer is not supported"""
-        for node in graph.nodes.values():
+        for node in self.graph.nodes.values():
             if (isinstance(node, IngestionSingleNode)):
                 self.lintIngestionSingleNode(eco, node, tree.addSubTree(node))
             elif (isinstance(node, IngestionMultiNode)):

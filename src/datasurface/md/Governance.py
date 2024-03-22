@@ -1461,7 +1461,7 @@ class Ecosystem(GitControlledObject):
         if (d.name in self.dataPlatforms):
             return self.dataPlatforms[d.name] == d
         return False
-    
+
     def getVendorOrThrow(self, name: str) -> InfrastructureVendor:
         v: Optional[InfrastructureVendor] = self.getVendor(name)
         if (v):
@@ -2259,7 +2259,7 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         super().lint(eco, tree)
-        self.iacRepo.lint(tree)
+        self.iacRepo.lint(tree.addSubTree(self.iacRepo))
 
 
 class DataPlatform(ABC, Documentable):

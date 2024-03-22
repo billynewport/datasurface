@@ -6,6 +6,8 @@
 
 The goals of this project to make it much easier and lower cost for actors within an enterprise or between enterprises to share data. The project introduces a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. The set of data pipelines the data platforms construct is hidden from the actors.
 
+DataSurface redefines IaC from "Infrastructure as Code" to IaC 2.0 or "Intention As Code". This is a better way for the actors within an enterprise to express their intentions for the data ecosystem. The ecosystem broker then interprets these intentions and creates the data pipelines needed to support the intentions in the model as well as makes sure these pipelines do not violate the governance policies of the enterprise.
+
 The data ecosystem has the following actors:
 
 * Data Producers. The owners of data. They have an application which produces data that is useful to the rest of the enterprise.
