@@ -16,9 +16,9 @@ def createEcosystem() -> Ecosystem:
             AzureDataplatform(
                 "Azure Platform",
                 PlainTextDocumentation("Test"),
-                DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
+                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
                 AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),

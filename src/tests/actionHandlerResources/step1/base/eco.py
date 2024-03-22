@@ -11,9 +11,13 @@ from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, Def
 def createEcosystem() -> Ecosystem:
     e: Ecosystem = Ecosystem(
         "Test", GitHubRepository("billynewport/test_step1", "main"),
-        DefaultDataPlatform(AzureDataplatform("Azure Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
-                            AzureKeyVaultCredential("vault", "maincred"))),
-        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
+        DefaultDataPlatform(AzureDataplatform(
+            "Azure Platform",
+            PlainTextDocumentation("Test"),
+            DataPlatformCICDExecutor(
+                GitHubRepository("owner/repo", "branch")),
+            AzureKeyVaultCredential("vault", "maincred"))),
+        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),

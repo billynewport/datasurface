@@ -364,7 +364,7 @@ class TestWorkspace(unittest.TestCase):
                     AzureDataplatform(
                         "Azure",
                         PlainTextDocumentation("Test"),
-                        DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
+                        DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
                         AzureKeyVaultCredential("keyvault", "aa"))
                     ),
                 InfrastructureVendor(
@@ -481,11 +481,11 @@ class TestWorkspace(unittest.TestCase):
         fastP: DataPlatform = AmazonAWSDataPlatform(
             "FastPlatform",
             PlainTextDocumentation("Test"),
-            DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
+            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")))
         slowP: DataPlatform = AmazonAWSDataPlatform(
             "SlowPlatform",
             PlainTextDocumentation("Test"),
-            DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
+            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")))
 
         self.assertEqual(fastP, fastP)
         self.assertNotEqual(fastP, slowP)

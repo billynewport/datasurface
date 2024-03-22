@@ -118,7 +118,7 @@ class TestEcoNameChange(unittest.TestCase):
                     AzureBatchDataPlatform(
                         "AzureBatch",
                         PlainTextDocumentation("Azure Batch"),
-                        DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
+                        DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
                         AzureKeyVaultCredential("keyvault", "mysecret"))),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
@@ -152,7 +152,7 @@ class TestEcoNameChange(unittest.TestCase):
                     AzureBatchDataPlatform(
                         "AzureBatch",
                         PlainTextDocumentation("Azure Batch"),
-                        DataPlatformCICDExecutor(GitHubRepository("repo", "branch")),
+                        DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
                         AzureKeyVaultCredential("myKeyVault", "mySecret"))),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )

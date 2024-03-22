@@ -37,7 +37,7 @@ class AmazonAWSDataPlatform(DataPlatform):
         return dc.areLocationsOwnedByTheseVendors(eco, {CloudVendor.AWS})
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
-        pass
+        super().lint(eco, tree)
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         # TODO: Implement this method

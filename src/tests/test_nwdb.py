@@ -97,8 +97,8 @@ class TestEcosystemValidation(unittest.TestCase):
             AmazonAWSDataPlatform(
                 "name",
                 PlainTextDocumentation("Test"),
-                DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
-            AmazonAWSDataPlatform("name", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))))
+                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
+            AmazonAWSDataPlatform("name", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))))
 
         ghr: GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
         self.assertEqual(ghr, ghr)

@@ -17,7 +17,7 @@ from .Exceptions import AttributeAlreadySetException, ObjectAlreadyExistsExcepti
 from .Exceptions import UnknownArgumentException, DatastoreDoesntExistException, WorkspaceDoesntExistException
 from .Lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
-        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationTree
+        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree
 
 import hashlib
 
@@ -1455,6 +1455,13 @@ class Ecosystem(GitControlledObject):
     def getVendor(self, name: str) -> Optional[InfrastructureVendor]:
         return self.vendors.get(name)
 
+    def checkDataPlatformExists(self, d: 'DataPlatform') -> bool:
+        """This checks if the data platform exists in the ecosystem and is equal to the one in the ecosystem
+        with the same name"""
+        if (d.name in self.dataPlatforms):
+            return self.dataPlatforms[d.name] == d
+        return False
+    
     def getVendorOrThrow(self, name: str) -> InfrastructureVendor:
         v: Optional[InfrastructureVendor] = self.getVendor(name)
         if (v):
@@ -2289,6 +2296,8 @@ class DataPlatform(ABC, Documentable):
         if (self.documentation):
             self.documentation.lint(tree)
         self.executor.lint(eco, tree.addSubTree(self.executor))
+        if (not eco.checkDataPlatformExists(self)):
+            tree.addRaw(ValidationProblem(f"DataPlatform {self} not found in ecosystem {eco}", ProblemSeverity.ERROR))
 
 
 class DataLatency(Enum):
@@ -2497,9 +2506,17 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
             sinkTree: ValidationTree = tree.addSubTree(sink)
             sink.lint(eco, team, ws, sinkTree)
         if (self.platformMD):
+            # PlatformChooser needs to choose a platform and that platform must perfectly match the same named platform in the Ecosystem
             platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
             if (platform is None):
                 tree.addProblem("DSG doesnt choose a dataplatform")
+            else:
+                ecoPlat: Optional[DataPlatform] = eco.dataPlatforms.get(platform.name)
+                if (ecoPlat is None):
+                    tree.addRaw(UnknownObjectReference(f"DataPlatform {platform.name} is not in the Ecosystem", ProblemSeverity.ERROR))
+                else:
+                    if (ecoPlat != platform):
+                        tree.addProblem("DSG chooses a platform which is different from the same named platform in the Ecosystem", ProblemSeverity.ERROR)
         else:
             tree.addRaw(AttributeNotSet("DSG has no data platform chooser"))
         if (len(self.sinks) == 0):

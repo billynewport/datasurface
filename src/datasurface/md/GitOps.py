@@ -240,7 +240,11 @@ class GitHubRepository(Repository):
     def is_valid_github_repo_name(self, name: str) -> bool:
         if not 1 <= len(name) <= 100:
             return False
-        owner, repo = name.split('/')
+        parts: list[str] = name.split('/')
+        if len(parts) != 2:
+            return False
+        owner: str = parts[0]
+        repo: str = parts[1]
         if (owner == '' or repo == ''):
             return False
 
