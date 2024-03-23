@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 from typing import Type
 from datasurface.md import Documentation
 from datasurface.md.Documentation import Documentable
-from datasurface.md.Governance import DataPlatform, DataPlatformExecutor, Ecosystem
-from datasurface.md.Lint import ValidationTree
+from datasurface.md.Governance import DataContainer, DataPlatform, DataPlatformExecutor, Ecosystem
+from datasurface.md.Lint import ValidationProblem, ValidationTree
 from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PipelineNode, \
     PlatformPipelineGraph, TriggerNode
 
@@ -123,3 +123,18 @@ class IaCDataPlatform:
                 self.lintTriggerNode(eco, node, tree.addSubTree(node))
             elif (isinstance(node, DataTransformerNode)):
                 self.lintDataTransformerNode(eco, node, tree.addSubTree(node))
+
+    def isDataContainerSupported(self, dc: DataContainer, allowedContainers: set[Type[DataContainer]]) -> bool:
+        """Check if a data container is supported"""
+        return dc.__class__ in allowedContainers
+
+
+class UnsupportedDataContainer(ValidationProblem):
+    def __init__(self, dc: DataContainer):
+        super().__init__(f"DataContainer {dc} is not supported")
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, UnsupportedDataContainer)
+
+    def __hash__(self) -> int:
+        return hash(self.description)

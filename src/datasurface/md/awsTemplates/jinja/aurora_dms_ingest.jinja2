@@ -1,11 +1,11 @@
-# Get the secret from AWS Secrets Manager
-data "aws_secretsmanager_secret_version" "{{sourceName}}credentials" {
-  # Source database parameter
-  secret_id = "{{sourceSecretCredentials"
+// Get the secret from AWS Secrets Manager
+data "aws_secretsmanager_secret_version" "{{sourceName}}_credentials" {
+  // Source database parameter
+  secret_id = "{{sourceSecretCredentials}}"
 }
 
 data "aws_rds_cluster" "{{sourceName}}" {
-  # Source database parameter
+  // Source database parameter
   cluster_identifier = "{{sourceClusterName}}"
 }
 
@@ -14,13 +14,13 @@ data "aws_db_subnet_group" "{{sourceName}}" {
   name = data.aws_rds_cluster.{{sourceName}}.db_subnet_group_name
 }
 
-# Get the subnets of the DB subnet group
+// Get the subnets of the DB subnet group
 data "aws_subnet" "{{sourceName}}" {
   for_each = toset(data.aws_db_subnet_group.{{sourceName}}.subnet_ids)
   id       = each.value
 }
 
-# Allow inbound traffic from the Aurora subnet
+// Allow inbound traffic from the Aurora subnet
 resource "aws_security_group_rule" "allow_{{sourceName}}" {
   for_each          = data.aws_subnet.{{sourceName}}
   type              = "ingress"
@@ -32,9 +32,9 @@ resource "aws_security_group_rule" "allow_{{sourceName}}" {
 }
 
 
-# Source Aurora database
-resource "aws_dms_endpoint" "{{sourceName}}" {
-  endpoint_id   = "{{sourceName}}-endpoint"
+// Source Aurora database
+resource "aws_dms_endpoint" "{{platformName}}_{{sourceName}}" {
+  endpoint_id   = "{{platformName}}-{{sourceName}}-endpoint"
   endpoint_type = "source"
   engine_name   = "aurora"
   username      = jsondecode(data.aws_secretsmanager_secret_version.{{sourceName}}_credentials.secret_string)["username"]
@@ -53,7 +53,7 @@ module "{{sourceName}}_x_ingest_table" {
   source        = "./module/glue_table"
   table_name    = "source_aurora_x"
   database_name = "ingestion_db"
-  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/{{sourceName}}_x"
+  bucket_name   = "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.bucket}/{{sourceName}}_x"
 
 
   columns = [for c in local.{{sourceName}}_table_x : {
@@ -63,11 +63,11 @@ module "{{sourceName}}_x_ingest_table" {
   }]
 }
 
-module "Ingest-source-aurora" {
+module "Ingest-{{sourceName}}" {
   source                  = "./module/dms_ingest"
-  replication_task_id     = "{{sourceName}}-ingest-task"
+  replication_task_id     = "{{platformName}}-{{sourceName}}-ingest-task"
   table_names             = ["table1", "table2"]
-  source_endpoint_arn       = aws_dms_endpoint.{{sourceName}}.endpoint_arn
-  target_endpoint_arn       = aws_dms_endpoint.target.endpoint_arn
-  replication_instance_arn  = aws_dms_replication_instance.dms_replication_instance.replication_instance_arn
+  source_endpoint_arn       = aws_dms_endpoint.{{platformName}}_{{sourceName}}.endpoint_arn
+  target_endpoint_arn       = aws_dms_endpoint.{{platformName}}_staging_target.endpoint_arn
+  replication_instance_arn  = aws_dms_replication_instance.{{platformName}}_dms_replication_instance.replication_instance_arn
 }

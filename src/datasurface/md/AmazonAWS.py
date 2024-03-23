@@ -1,5 +1,7 @@
 import re
-from typing import Any, Optional, Type
+from typing import Any, Optional, Type, cast
+
+from jinja2 import Environment, PackageLoader, Template, select_autoescape
 
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
 from datasurface.md.Documentation import Documentation
@@ -7,10 +9,12 @@ from urllib import parse
 
 from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
     DataContainerNamingMapper, DataPlatformExecutor, DatasetGroup, \
-    Datastore, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    Datastore, DatastoreCacheEntry, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage, Workspace
 
+from datasurface.md.IaCPlatform import IaCDataPlatform, UnsupportedDataContainer
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
+from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PlatformPipelineGraph, TriggerNode
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
@@ -374,3 +378,66 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             tree.addRaw(NameHasBadSynthax(
                 (f"Data IAM role {self.dataIAMRole} contains invalid characters. Only "
                  f"alphanumeric characters and /_+=.@- are allowed.")))
+
+
+class AWSDMSIac(IaCDataPlatform):
+    def __init__(self, executor: DataPlatformExecutor, graph: PlatformPipelineGraph, platform: AWSDMSIceBergDataPlatform):
+        super().__init__(executor, graph, platform)
+        self.supportedIngestContainers: set[Type[DataContainer]] = {AWSAuroraDatabase}
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, AWSDMSIac) and self.executor == __value.executor and \
+            self.graph == __value.graph and self.platform == __value.platform
+
+    def renderIngestionSingle(self, ingestNode: IngestionSingleNode) -> str:
+        return ""
+
+    def renderIngestionMulti(self, ingestNode: IngestionMultiNode) -> str:
+        env = Environment(
+            loader=PackageLoader('datasurface.md.templates', 'jinja'),
+            autoescape=select_autoescape(['html', 'xml'])
+        )
+
+        awsp: AWSDMSIceBergDataPlatform = cast(AWSDMSIceBergDataPlatform, self.platform)
+
+        # Nodes do not have enough information
+        # Reorg templates in folders that make sense
+
+        template: Template = env.get_template('datastore.jinja2', None)
+
+        data: dict[str, Any] = {}
+        data["platformName"] = self.platform.name
+        data["sourceName"] = ingestNode.storeName
+        data["aws_region"] = awsp.region.name
+        code: str = template.render(data)
+        return code
+
+    def renderExport(self, exportNode: ExportNode) -> str:
+        return ""
+
+    def renderTrigger(self, triggerNode: TriggerNode) -> str:
+        return ""
+
+    def renderDataTransformer(self, dtNode: DataTransformerNode) -> str:
+        return ""
+
+    def checkDatastore(self, eco: Ecosystem, storeName: str, tree: ValidationTree):
+        storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
+        if (storeEntry.datastore.cmd is None):
+            tree.addProblem(f"Datastore {storeName} does not have a CaptureMetadata.")
+        else:
+            dc: Optional[DataContainer] = storeEntry.datastore.cmd.dataContainer
+            if dc is not None and not self.isDataContainerSupported(dc, self.supportedIngestContainers):
+                tree.addRaw(UnsupportedDataContainer(dc))
+
+    def lintIngestionSingleNode(self, eco: Ecosystem, node: IngestionSingleNode, tree: ValidationTree) -> None:
+        self.checkDatastore(eco, node.storeName, tree)
+
+    def lintIngestionMultiNode(self, eco: Ecosystem, node: IngestionMultiNode, tree: ValidationTree) -> None:
+        self.checkDatastore(eco, node.storeName, tree)
+
+    def lintExportNode(self, eco: Ecosystem, node: ExportNode, tree: ValidationTree) -> None:
+        pass
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        pass
