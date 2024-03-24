@@ -4,7 +4,7 @@
 
 # Data surface, a data ecosystem broker
 
-The goals of this project to make it much easier and lower cost for actors within an enterprise or between enterprises to share data. The project introduces a new concept, the ecosystem broker which arbitrates between the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. The set of data pipelines the data platforms construct is hidden from the actors.
+The goals of this project to make it much easier and lower cost for actors within an enterprise or between enterprises to share data. The project introduces a new concept, the ecosystem broker which arbitrates between a CI/CD based model which emcompasses the intentions of the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. The set of data pipelines the data platforms construct is hidden from the actors. The broker takes the intentions of the actors and constructs the data pipelines needed to meet the intentions of the actors. The broker also makes sure the data pipelines do not violate the governance policies of the enterprise.
 
 ## Redefining IaC as "Intention As Code"
 
