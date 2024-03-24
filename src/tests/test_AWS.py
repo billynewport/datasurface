@@ -1,13 +1,16 @@
+import os
+from typing import cast
 import unittest
 
-from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIac, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, \
-    is_valid_s3_bucket_name, terraFormGetPipelineNodeFileName
+from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSTerraformFileFragmentManager, AWSDMSTerraformIaC, \
+    AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, \
+    is_valid_s3_bucket_name
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CDCCaptureIngestion, DataPlatform, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
+from datasurface.md.Governance import CDCCaptureIngestion, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
     Datastore, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, \
     Team, Workspace, WorkspaceFixedDataPlatform
-from datasurface.md.IaCPlatform import FileBasedFragmentManager, IaCDataPlatformRenderer
+from datasurface.md.IaCPlatform import FileBasedFragmentManager
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
 from datasurface.md.PipelineGraph import EcosystemPipelineGraph, PlatformPipelineGraph
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
@@ -87,7 +90,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         # Add AWS Batch DMS Platform
         eco.add(self.createAWSBatchPlatform(eu_west_3))
 
-        dmsPlat: DataPlatform = eco.getDataPlatformOrThrow("TestBatch")
+        dmsPlat: AWSDMSIceBergDataPlatform = cast(AWSDMSIceBergDataPlatform, eco.getDataPlatformOrThrow("TestBatch"))
 
         producer: Datastore = Datastore(
             "TestProducer",
@@ -161,16 +164,17 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         pi: PlatformPipelineGraph = graph.roots[dmsPlat]
         self.assertEqual(len(pi.workspaces), 1)
 
-        render: IaCDataPlatformRenderer = AWSDMSIac(dmsPlat.executor, pi)
+        render: AWSDMSTerraformIaC = AWSDMSTerraformIaC(dmsPlat.executor, pi)
 
-        fileMgr: FileBasedFragmentManager = FileBasedFragmentManager(
-            "Test",
-            PlainTextDocumentation("Test docs"),
-            terraFormGetPipelineNodeFileName
+        fileMgr: FileBasedFragmentManager = AWSDMSTerraformFileFragmentManager(
+            dmsPlat,
+            render
         )
 
         # Add the boiler plate code for the IaC to fileMgr here
 
         render.renderIaC(fileMgr)
 
-        print(fileMgr.rootDir)
+        self.assertTrue(os.path.exists(fileMgr.rootDir))
+        self.assertTrue(os.path.exists(fileMgr.rootDir + "/module/dms_ingest/main.tf"))
+        self.assertTrue(os.path.exists(fileMgr.rootDir + "/module/glue_table/main.tf"))

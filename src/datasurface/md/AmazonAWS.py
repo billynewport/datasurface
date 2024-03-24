@@ -4,7 +4,7 @@ from typing import Any, Optional, Type, cast
 from jinja2 import Environment, PackageLoader, Template, select_autoescape
 
 from datasurface.md.AvroSchema import AvroSchema as AvSchema
-from datasurface.md.Documentation import Documentation
+from datasurface.md.Documentation import Documentation, PlainTextDocumentation
 from urllib import parse
 
 from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
@@ -12,10 +12,13 @@ from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential
     Datastore, DatastoreCacheEntry, IngestionMetadata, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage, Workspace
 
-from datasurface.md.IaCPlatform import IaCDataPlatformRenderer, UnsupportedDataContainer, defaultPipelineNodeFileName
+from datasurface.md.IaCPlatform import FileBasedFragmentManager, IaCDataPlatformRenderer, \
+    UnsupportedDataContainer, defaultPipelineNodeFileName
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
-from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PipelineNode, PlatformPipelineGraph, TriggerNode
-from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
+from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, \
+    IngestionSingleNode, PipelineNode, PlatformPipelineGraph, TriggerNode
+from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, \
+    DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
 
@@ -385,7 +388,9 @@ def terraFormGetPipelineNodeFileName(node: PipelineNode) -> str:
     return defaultPipelineNodeFileName(node) + ".tf"
 
 
-class AWSDMSIac(IaCDataPlatformRenderer):
+class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
+    """This class renders the Terraform IaC for the AWS DMS Iceberg Data Platform. It is used to
+    generate the Terraform IaC for the platform"""
     def __init__(self, executor: DataPlatformExecutor, graph: PlatformPipelineGraph):
         super().__init__(executor, graph)
         self.supportedIngestContainers: set[Type[DataContainer]] = {AWSAuroraDatabase}
@@ -395,7 +400,7 @@ class AWSDMSIac(IaCDataPlatformRenderer):
         )
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AWSDMSIac)
+        return super().__eq__(__value) and isinstance(__value, AWSDMSTerraformIaC)
 
     def renderIngestionSingle(self, ingestNode: IngestionSingleNode) -> str:
         return ""
@@ -469,3 +474,31 @@ class AWSDMSIac(IaCDataPlatformRenderer):
 
     def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
         pass
+
+
+class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
+    """This adds a preRender step to the standard file frag manager. It leverages
+    jinja to read the static module files and create them in the render output folder. It uses
+    jinja because jinja handles all the getting the static file content regardless of how
+    the python is packaged etc. It is a simple way to get the static files into the render output folder."""
+    def __init__(self, platform: AWSDMSIceBergDataPlatform, render: AWSDMSTerraformIaC):
+        super().__init__(platform.name, PlainTextDocumentation("FragMgr for "), terraFormGetPipelineNodeFileName)
+        self.renderMgr: AWSDMSTerraformIaC = render
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, AWSDMSTerraformFileFragmentManager) \
+            and self.renderMgr == __value.renderMgr
+
+    def preRender(self):
+        """This adds the terraform modules used by the generated IaC. It is called before the render method."""
+        # Create the glue table module
+        gtTemplate: Template = self.renderMgr.createTemplate('glue_table_module.jinja2')
+        self.addStaticFile("module/dms_ingest", "main.tf", gtTemplate.render({}))
+
+        # Create the dms ingest module
+        ingestTemplate: Template = self.renderMgr.createTemplate('dms_ingest_module.jinja2')
+        self.addStaticFile("module/glue_table", "main.tf", ingestTemplate.render({}))
+        return super().preRender()
+
+    def postRender(self):
+        return super().postRender()

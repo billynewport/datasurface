@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import os
 import tempfile
 from typing import Callable, Optional, Type
 from datasurface.md import Documentation
@@ -16,7 +17,18 @@ class IaCFragmentManager(ABC, Documentable):
         self.name: str = name
 
     @abstractmethod
+    def preRender(self):
+        """This is called before the rendering of the fragments. It can be used to set up the fragment manager."""
+        pass
+
+    @abstractmethod
+    def postRender(self):
+        """This is called after the rendering of the fragments. It can be used to clean up the fragment manager."""
+        pass
+
+    @abstractmethod
     def addFragment(self, node: PipelineNode, fragment: str):
+        """Add a fragment to the fragment manager"""
         pass
 
 
@@ -71,6 +83,16 @@ class FileBasedFragmentManager(IaCFragmentManager):
         with open(f"{self.rootDir}/{name}", "w") as file:
             file.write(fragment)
 
+    def addStaticFile(self, folder: str, name: str, fragment: str):
+        """Add a static file to the fragment manager. This is useful for adding files like
+        provider.tf or variables.tf which are not associated with a particular node."""
+        # Create the folder if it does not exist
+        full_folder_path = f"{self.rootDir}/{folder}"
+        if not os.path.exists(full_folder_path):
+            os.makedirs(full_folder_path)
+        with open(f"{full_folder_path}/{name}", "w") as file:
+            file.write(fragment)
+
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name}, rootDir={self.rootDir})"
 
@@ -96,6 +118,7 @@ class IaCDataPlatformRenderer(ABC):
             self.graph == __value.graph
 
     def renderIaC(self, fragments: IaCFragmentManager) -> IaCFragmentManager:
+        fragments.preRender()
         """This renders the IaC for the given graph"""
         for node in self.graph.nodes.values():
             if isinstance(node, IngestionSingleNode):
@@ -110,6 +133,7 @@ class IaCDataPlatformRenderer(ABC):
                 fragments.addFragment(node, self.renderDataTransformer(node))
             else:
                 raise Exception(f"Unknown node type {node.__class__.__name__}")
+        fragments.postRender()
         return fragments
 
     @abstractmethod
