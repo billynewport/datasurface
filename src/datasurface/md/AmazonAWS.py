@@ -484,6 +484,7 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
     def __init__(self, platform: AWSDMSIceBergDataPlatform, render: AWSDMSTerraformIaC):
         super().__init__(platform.name, PlainTextDocumentation("FragMgr for "), terraFormGetPipelineNodeFileName)
         self.renderMgr: AWSDMSTerraformIaC = render
+        self.platform: AWSDMSIceBergDataPlatform = platform
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, AWSDMSTerraformFileFragmentManager) \
@@ -491,6 +492,8 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
 
     def preRender(self):
         """This adds the terraform modules used by the generated IaC. It is called before the render method."""
+
+        data: dict[str, Any] = {}
         # Create the glue table module
         gtTemplate: Template = self.renderMgr.createTemplate('glue_table_module.jinja2')
         self.addStaticFile("module/dms_ingest", "main.tf", gtTemplate.render({}))
@@ -498,6 +501,22 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
         # Create the dms ingest module
         ingestTemplate: Template = self.renderMgr.createTemplate('dms_ingest_module.jinja2')
         self.addStaticFile("module/glue_table", "main.tf", ingestTemplate.render({}))
+
+        # Provider tf
+        data = {}
+        data["aws_region"] = self.platform.region.name
+        ingestTemplate: Template = self.renderMgr.createTemplate('provider.jinja2')
+        self.addStaticFile("", "provider.tf", ingestTemplate.render(data))
+
+        # main.tf
+        data = {}
+        data: dict[str, Any] = {}
+        data["platformName"] = self.platform.name
+        data["aws_region"] = self.platform.region.name
+        data["aws_vpc_id"] = self.platform.vpcId
+        ingestTemplate: Template = self.renderMgr.createTemplate('main.jinja2')
+        self.addStaticFile("", "main.tf", ingestTemplate.render(data))
+
         return super().preRender()
 
     def postRender(self):

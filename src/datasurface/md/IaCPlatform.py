@@ -87,7 +87,7 @@ class FileBasedFragmentManager(IaCFragmentManager):
         """Add a static file to the fragment manager. This is useful for adding files like
         provider.tf or variables.tf which are not associated with a particular node."""
         # Create the folder if it does not exist
-        full_folder_path = f"{self.rootDir}/{folder}"
+        full_folder_path: str = f"{self.rootDir}/{folder}" if len(folder) > 0 else self.rootDir
         if not os.path.exists(full_folder_path):
             os.makedirs(full_folder_path)
         with open(f"{full_folder_path}/{name}", "w") as file:

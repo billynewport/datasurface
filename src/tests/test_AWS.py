@@ -178,3 +178,5 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         self.assertTrue(os.path.exists(fileMgr.rootDir))
         self.assertTrue(os.path.exists(fileMgr.rootDir + "/module/dms_ingest/main.tf"))
         self.assertTrue(os.path.exists(fileMgr.rootDir + "/module/glue_table/main.tf"))
+        self.assertTrue(os.path.exists(fileMgr.rootDir + "/provider.tf"))
+        self.assertTrue(os.path.exists(fileMgr.rootDir + "/main.tf"))
