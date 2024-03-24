@@ -9,12 +9,12 @@ from urllib import parse
 
 from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
     DataContainerNamingMapper, DataPlatformExecutor, DatasetGroup, \
-    Datastore, DatastoreCacheEntry, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    Datastore, DatastoreCacheEntry, IngestionMetadata, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
     ObjectStorage, Workspace
 
-from datasurface.md.IaCPlatform import IaCDataPlatform, UnsupportedDataContainer
+from datasurface.md.IaCPlatform import IaCDataPlatformRenderer, UnsupportedDataContainer, defaultPipelineNodeFileName
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
-from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PlatformPipelineGraph, TriggerNode
+from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, IngestionSingleNode, PipelineNode, PlatformPipelineGraph, TriggerNode
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
@@ -380,35 +380,57 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
                  f"alphanumeric characters and /_+=.@- are allowed.")))
 
 
-class AWSDMSIac(IaCDataPlatform):
-    def __init__(self, executor: DataPlatformExecutor, graph: PlatformPipelineGraph, platform: AWSDMSIceBergDataPlatform):
-        super().__init__(executor, graph, platform)
+def terraFormGetPipelineNodeFileName(node: PipelineNode) -> str:
+    """This function returns the Terraform file name for a given pipeline node. It is used to generate Terraform files for the pipeline nodes."""
+    return defaultPipelineNodeFileName(node) + ".tf"
+
+
+class AWSDMSIac(IaCDataPlatformRenderer):
+    def __init__(self, executor: DataPlatformExecutor, graph: PlatformPipelineGraph):
+        super().__init__(executor, graph)
         self.supportedIngestContainers: set[Type[DataContainer]] = {AWSAuroraDatabase}
+        self.env: Environment = Environment(
+            loader=PackageLoader('datasurface.md.awsTemplates', 'jinja'),
+            autoescape=select_autoescape(['html', 'xml'])
+        )
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AWSDMSIac) and self.executor == __value.executor and \
-            self.graph == __value.graph and self.platform == __value.platform
+        return super().__eq__(__value) and isinstance(__value, AWSDMSIac)
 
     def renderIngestionSingle(self, ingestNode: IngestionSingleNode) -> str:
         return ""
 
-    def renderIngestionMulti(self, ingestNode: IngestionMultiNode) -> str:
-        env = Environment(
-            loader=PackageLoader('datasurface.md.templates', 'jinja'),
-            autoescape=select_autoescape(['html', 'xml'])
-        )
+    def createTemplate(self, name: str) -> Template:
+        template: Template = self.env.get_template(name, None)
+        return template
 
-        awsp: AWSDMSIceBergDataPlatform = cast(AWSDMSIceBergDataPlatform, self.platform)
+    def renderIngestionMulti(self, ingestNode: IngestionMultiNode) -> str:
+
+        awsp: AWSDMSIceBergDataPlatform = cast(AWSDMSIceBergDataPlatform, self.graph.platform)
+        dc: Optional[DataContainer] = self.getDataContainerForDatastore(ingestNode.storeName)
+        store: Datastore = self.graph.eco.cache_getDatastoreOrThrow(ingestNode.storeName).datastore
+
+        if store.cmd is None:
+            raise Exception(f"Datastore {ingestNode.storeName} does not have a CaptureMetadata.")
+        if (not isinstance(store.cmd, IngestionMetadata)):
+            raise Exception(f"Datastore {ingestNode.storeName} does not have a IngestionMetadata.")
+        if dc is None:
+            raise Exception(f"Datastore {ingestNode.storeName} does not have a CaptureMetadata.")
+        aurora: AWSAuroraDatabase = cast(AWSAuroraDatabase, dc)
 
         # Nodes do not have enough information
         # Reorg templates in folders that make sense
 
-        template: Template = env.get_template('datastore.jinja2', None)
+        template: Template = self.createTemplate('aurora_dms_ingest.jinja2')
 
         data: dict[str, Any] = {}
-        data["platformName"] = self.platform.name
+        data["platformName"] = self.graph.platform.name
         data["sourceName"] = ingestNode.storeName
         data["aws_region"] = awsp.region.name
+        data["sourceClusterName"] = aurora.endpointName
+        data["glueDatabaseName"] = awsp.catalogDatabaseName
+        secret: AWSSecret = cast(AWSSecret, awsp.iacCredential)
+        data["sourceSecretCredentials"] = secret.secretName
         code: str = template.render(data)
         return code
 
@@ -440,4 +462,10 @@ class AWSDMSIac(IaCDataPlatform):
         pass
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
+        pass
+
+    def lintTriggerNode(self, eco: Ecosystem, node: TriggerNode, tree: ValidationTree) -> None:
+        pass
+
+    def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
         pass

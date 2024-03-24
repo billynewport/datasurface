@@ -1,11 +1,13 @@
 import unittest
 
-from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, is_valid_s3_bucket_name
+from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSIac, AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, \
+    is_valid_s3_bucket_name, terraFormGetPipelineNodeFileName
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Governance import CDCCaptureIngestion, DataPlatform, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
     Datastore, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, \
     Team, Workspace, WorkspaceFixedDataPlatform
+from datasurface.md.IaCPlatform import FileBasedFragmentManager, IaCDataPlatformRenderer
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
 from datasurface.md.PipelineGraph import EcosystemPipelineGraph, PlatformPipelineGraph
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
@@ -94,7 +96,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
                 AWSAuroraDatabase(
                     "TestDB",
                     eu_west_3,
-                    "endpoint",
+                    "endpoint_producer",
                     "CustomerDB"
                 ),
                 AWSSecret(
@@ -135,7 +137,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
             AWSAuroraDatabase(
                 "TestConsumerDB",
                 eu_west_3,
-                "endpoint",
+                "endpoint_consumer",
                 "CustomerDB"
             ),
             ProductionStatus.PRODUCTION,
@@ -158,3 +160,17 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
 
         pi: PlatformPipelineGraph = graph.roots[dmsPlat]
         self.assertEqual(len(pi.workspaces), 1)
+
+        render: IaCDataPlatformRenderer = AWSDMSIac(dmsPlat.executor, pi)
+
+        fileMgr: FileBasedFragmentManager = FileBasedFragmentManager(
+            "Test",
+            PlainTextDocumentation("Test docs"),
+            terraFormGetPipelineNodeFileName
+        )
+
+        # Add the boiler plate code for the IaC to fileMgr here
+
+        render.renderIaC(fileMgr)
+
+        print(fileMgr.rootDir)

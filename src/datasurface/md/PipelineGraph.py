@@ -65,13 +65,13 @@ class IngestionMultiNode(IngestionNode):
 class IngestionSingleNode(IngestionNode):
     def __init__(self, platform: DataPlatform, storeName: str, dataset: str, captureTrigger: Optional[StepTrigger]):
         super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName, captureTrigger)
-        self.dataset: str = dataset
+        self.datasetName: str = dataset
 
     def __hash__(self) -> int:
         return hash(self.name)
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, IngestionSingleNode) and self.dataset == o.dataset
+        return super().__eq__(o) and isinstance(o, IngestionSingleNode) and self.datasetName == o.datasetName
 
 
 class TriggerNode(PipelineNode):

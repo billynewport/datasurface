@@ -207,32 +207,32 @@ resource "aws_s3_bucket_acl" "ingested_data_bucket" {
 locals {
   schema_aurora_table_x = ["firstName:string", "surname:string"]
   schema_aurora_table_y = ["firstName:string", "surname:string"]
+
+  tables = {
+    x = {
+      name = "tableX",
+      schema = ["firstName:string", "surname:string"],
+      bucket = "x"
+    },
+    y = {
+      name = "tableY",
+      schema = ["firstName:string", "surname:string"],
+      bucket = "y"
+    }
+  }
 }
 
-module "source_aurora_x_ingest_table" {
+module "ingest_from_aurora_to_staging_bucket" {
+  for_each = local.tables
   source        = "./module/glue_table"
-  table_name    = "source_aurora_x"
+  table_name    = each.value.name
   database_name = "ingestion_db"
-  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/x"
+  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/${each.value.bucket}"
 
 
-  columns = [for c in local.schema_aurora_table_x : {
+  columns = [for c in each.value.schema : {
     name = split(":", c)[0]
     type = split(":", c)[1]
     comment = ""
   }]
 }
-
-module "source_aurora_y_ingest_table" {
-  source        = "./module/glue_table"
-  table_name    = "source_aurora_y"
-  database_name = "ingestion_db"
-  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/y"
-
-  columns = [for c in local.schema_aurora_table_y : {
-    name = split(":", c)[0]
-    type = split(":", c)[1]
-    comment = ""
-  }]
-}
-

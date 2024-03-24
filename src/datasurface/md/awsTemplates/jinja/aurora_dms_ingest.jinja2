@@ -45,28 +45,40 @@ resource "aws_dms_endpoint" "{{platformName}}_{{sourceName}}" {
 }
 
 locals {
-  schema_{{sourceName}}_table_x = ["firstName:string", "surname:string"]
+  tables = {
+    x = {
+      name = "tableX",
+      schema = ["firstName:string", "surname:string"],
+      prefix = "x"
+    },
+    y = {
+      name = "tableY",
+      schema = ["firstName:string", "surname:string"],
+      prefix = "y"
+    }
+  }
 }
 
-// This creates the glue table pointing at the iceberg data in the specified s3 bucket and prefix
-module "{{sourceName}}_x_ingest_table" {
+// Create a glue table for each aurora table
+module "ingest_from_aurora_to_staging_bucket" {
+  for_each = local.tables
   source        = "./module/glue_table"
-  table_name    = "source_aurora_x"
-  database_name = "ingestion_db"
-  bucket_name   = "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.bucket}/{{sourceName}}_x"
+  table_name    = each.value.name
+  database_name = "{{glueDatabaseName}}"
+  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/${each.value.prefix}"
 
-
-  columns = [for c in local.{{sourceName}}_table_x : {
+  columns = [for c in each.value.schema : {
     name = split(":", c)[0]
     type = split(":", c)[1]
     comment = ""
   }]
 }
 
+// Make a task for each aurora table to staging operation
 module "Ingest-{{sourceName}}" {
   source                  = "./module/dms_ingest"
   replication_task_id     = "{{platformName}}-{{sourceName}}-ingest-task"
-  table_names             = ["table1", "table2"]
+  table_names             = [for t in local.tables : t.value.name]
   source_endpoint_arn       = aws_dms_endpoint.{{platformName}}_{{sourceName}}.endpoint_arn
   target_endpoint_arn       = aws_dms_endpoint.{{platformName}}_staging_target.endpoint_arn
   replication_instance_arn  = aws_dms_replication_instance.{{platformName}}_dms_replication_instance.replication_instance_arn
