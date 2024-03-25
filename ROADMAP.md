@@ -1,10 +1,10 @@
 # Data surface ROAD MAP
 
-## Phase 1: GitHub model working
+## Phase 1: GitHub model **(COMPLETE)**
 
 This is the basic model, the github action handlers, model validations, model authorization checks, backwards compatibility. This is currently functional as of end Feb 2024. Documentation is a major deliverable in this phase also.
 
-## Phase 2: Amazon AWS support
+## Phase 2: Amazon AWS support (IN PROGRESS)
 
 This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md).
 
