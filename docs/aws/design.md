@@ -6,6 +6,10 @@ This document describes the philisophy behind the design of the first AWS Batch 
 
 This will be a conventional batch data pipeline. It will ingest data from sources in to a staging area. The staging area will then be processing in to a set of tables which allow the data to be replayed to other data containers used by consumers. Data Transformations will be supported by any data container supported by the data platform.
 
+The pipeline will be fully generated from the Ecosystem model. The subset of that model which was selected to run on this platform will be rendered as a Terraform IaC project and kept up to date in a Github Repository. Terraform will be configured to watch that repo and apply all changes to an AWS account.
+
+This means that when the ecosystem model is modified then the IaC will be updated and the AWS resources will be updated. This is a very powerful way to manage the data platform. It allows the data platform to be managed by the data producers and consumers.
+
 ## Ingestion and staging
 
 The data platform uses AWS DMS to ingest data from sources in to an S3 based staging area. AWS DMS is a managed service that can be used to move data from a source to a target. The source can be a database, a data warehouse or a data lake. The target can be a database, a data warehouse or a data lake. The data platform uses S3 as the target for the DMS service. The data platform uses the DMS service to move data from the source to the staging area.
