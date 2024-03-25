@@ -6,7 +6,9 @@ This is the basic model, the github action handlers, model validations, model au
 
 ## Phase 2: Amazon AWS support (IN PROGRESS)
 
-This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md).
+This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md). The intention is to render a terraform IaC definition of the total pipeline in to a github branch which Terraform is watching. As the branch changes, Terraform will apply the changes to the infrastructure.
+
+Thus, we have a github action looking for changes on the main branch and then generating the IaC for its, committing that to a different branch in Github which terraform is watching. This will allow the infrastructure to be updated in a controlled manner.
 
 ## Phase 2: Streaming/Data pipeline
 
