@@ -5,7 +5,7 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
+from datasurface.md.aws.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import FakeRepository, GitHubRepository

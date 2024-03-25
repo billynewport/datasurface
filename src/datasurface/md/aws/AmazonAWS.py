@@ -404,7 +404,7 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
         super().__init__(executor, graph)
         self.supportedIngestContainers: set[Type[DataContainer]] = {AWSAuroraDatabase}
         self.env: Environment = Environment(
-            loader=PackageLoader('datasurface.md.awsTemplates', 'jinja'),
+            loader=PackageLoader('datasurface.md.aws.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
         )
 

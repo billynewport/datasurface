@@ -2,7 +2,7 @@ import os
 from typing import cast
 import unittest
 
-from datasurface.md.AmazonAWS import AWSAuroraDatabase, AWSDMSTerraformFileFragmentManager, AWSDMSTerraformIaC, \
+from datasurface.md.aws.AmazonAWS import AWSAuroraDatabase, AWSDMSTerraformFileFragmentManager, AWSDMSTerraformIaC, \
     AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, \
     is_valid_s3_bucket_name
 from datasurface.md.Documentation import PlainTextDocumentation

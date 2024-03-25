@@ -1,6 +1,6 @@
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem
-from datasurface.md.AmazonAWS import AmazonAWSDataPlatform
+from datasurface.md.aws.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.md.Azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
