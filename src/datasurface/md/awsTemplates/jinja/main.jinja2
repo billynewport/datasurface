@@ -14,14 +14,14 @@ variable "aws_vpc_id" {
 }
 
 # Use a VPC
-data "aws_vpc" "dms_{platformName}_vpc" {
+data "aws_vpc" "dms_{{platformName}}_vpc" {
   # DataPlatform Parameter
   id = "${var.aws_vpc_id}"
 }
 
 # Create a subnet in the VPC
 resource "aws_subnet" "dms_{{platformName}}_subnet" {
-  vpc_id     = data.aws_vpc.dms_{platformName}_vpc.id
+  vpc_id     = data.aws_vpc.dms_{{platformName}}_vpc.id
   cidr_block = "10.0.1.0/24"
 }
 

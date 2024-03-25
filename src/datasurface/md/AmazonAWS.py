@@ -317,6 +317,15 @@ class GlueTable:
                 ]
         return glue_schema
 
+    def generateTerraformGlueTable(self) -> list[str]:
+        ddl: DDLTable = cast(DDLTable, self.srcTable.originalSchema)
+        colList: list[str] = []
+
+        for col in ddl.columns.values():
+            colList.append(f'{col.name}:{self.convertToAWSType(col.type)}')
+
+        return colList
+
 
 class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
     """This data platform ingests data using AWS DMS in to an S3 based staging area before maintaining an Iceberg based AWS Glue data lake.
@@ -409,6 +418,17 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
         template: Template = self.env.get_template(name, None)
         return template
 
+    def generateTableSchema(self, store: Datastore) -> dict[str, Any]:
+
+        tables: dict[str, list[str]] = {}
+
+        for ds in store.datasets.values():
+            if ds.originalSchema is not None:
+                gt: GlueTable = GlueTable(ds)
+                tables[ds.name] = gt.generateTerraformGlueTable()
+
+        return tables
+
     def renderIngestionMulti(self, ingestNode: IngestionMultiNode) -> str:
 
         awsp: AWSDMSIceBergDataPlatform = cast(AWSDMSIceBergDataPlatform, self.graph.platform)
@@ -436,6 +456,8 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
         data["glueDatabaseName"] = awsp.catalogDatabaseName
         secret: AWSSecret = cast(AWSSecret, awsp.iacCredential)
         data["sourceSecretCredentials"] = secret.secretName
+        data["tables"] = self.generateTableSchema(store)
+
         code: str = template.render(data)
         return code
 
@@ -514,8 +536,8 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
         data["platformName"] = self.platform.name
         data["aws_region"] = self.platform.region.name
         data["aws_vpc_id"] = self.platform.vpcId
-        ingestTemplate: Template = self.renderMgr.createTemplate('main.jinja2')
-        self.addStaticFile("", "main.tf", ingestTemplate.render(data))
+        mainTemplate: Template = self.renderMgr.createTemplate('main.jinja2')
+        self.addStaticFile("", "main.tf", mainTemplate.render(data))
 
         return super().preRender()
 

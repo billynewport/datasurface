@@ -46,16 +46,17 @@ resource "aws_dms_endpoint" "{{platformName}}_{{sourceName}}" {
 
 locals {
   tables = {
-    x = {
-      name = "tableX",
-      schema = ["firstName:string", "surname:string"],
-      prefix = "x"
-    },
-    y = {
-      name = "tableY",
-      schema = ["firstName:string", "surname:string"],
-      prefix = "y"
-    }
+{%- for table in tables %}
+    {{table}} = {
+      name = "{{table}}",
+      schema = [
+{%- for column in tables[table] %}
+        "{{column}}"{{ "," if not loop.last else ""}}
+{%- endfor %}
+      ],
+      prefix = "{{table}}"
+    }{{ "," if not loop.last else ""}}
+{%- endfor %}
   }
 }
 
