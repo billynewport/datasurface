@@ -65,6 +65,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
             loc,
             AmazonAWSS3Bucket("Staging", loc, None, "test-staging", "staging"),
             AmazonAWSS3Bucket("Ingestion", loc, None, "test-staging", "ingestion"),
+            AmazonAWSS3Bucket("Code", loc, None, "test-staging", "code"),
             "GlueDatabaseName",
             "stagingIAMRole",
             "dataIAMRole",

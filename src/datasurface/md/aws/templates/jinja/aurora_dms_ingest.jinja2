@@ -66,7 +66,8 @@ module "ingest_from_aurora_to_staging_bucket" {
   source        = "./module/glue_table"
   table_name    = each.value.name
   database_name = "{{glueDatabaseName}}"
-  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}/${each.value.prefix}"
+  bucket_name   = "${aws_s3_bucket.ingested_data_bucket.bucket}"
+  prefix        = each.value.prefix
 
   columns = [for c in each.value.schema : {
     name = split(":", c)[0]
@@ -81,6 +82,6 @@ module "Ingest-{{sourceName}}" {
   replication_task_id     = "{{platformName}}-{{sourceName}}-ingest-task"
   table_names             = [for t in local.tables : t.value.name]
   source_endpoint_arn       = aws_dms_endpoint.{{platformName}}_{{sourceName}}.endpoint_arn
-  target_endpoint_arn       = aws_dms_endpoint.{{platformName}}_staging_target.endpoint_arn
+  target_endpoint_arn       = aws_dms_endpoint.{{platformName}}_{{sourceName}}_staging_target.endpoint_arn
   replication_instance_arn  = aws_dms_replication_instance.{{platformName}}_dms_replication_instance.replication_instance_arn
 }

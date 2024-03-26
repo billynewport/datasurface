@@ -84,6 +84,12 @@ resource "aws_s3_bucket" "{{platformName}}_staging_bucket" {
   bucket = "{{platformName}}-staging"
 }
 
+resource "aws_s3_bucket" "{{platformName}}_code_bucket" {
+  bucket = "{{platformName}}-code"
+}
+
+// Need entitlements on code bucket
+
 resource "aws_s3_bucket_ownership_controls" "{{platformName}}_staging_bucket" {
   bucket = aws_s3_bucket.{{platformName}}_staging_bucket.id
   rule {

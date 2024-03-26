@@ -341,6 +341,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             region: InfrastructureLocation,
             stagingBucket: AmazonAWSS3Bucket,
             dataBucket: AmazonAWSS3Bucket,
+            codeBucket: AmazonAWSS3Bucket,
             catalogDatabaseName: str,
             stagingIAMRole: str,
             dataIAMRole: str,
@@ -353,6 +354,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         self.dataBucket: AmazonAWSS3Bucket = dataBucket
         self.catalogDatabaseName: str = catalogDatabaseName
         self.stagingIAMRole: str = stagingIAMRole
+        self.codeBucket: AmazonAWSS3Bucket = codeBucket
         self.dataIAMRole: str = dataIAMRole
         self.awsGlueIAMRole: str = awsGlueIAMRole
 
@@ -362,7 +364,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             self.region == __value.region and self.stagingBucket == __value.stagingBucket and \
             self.dataBucket == __value.dataBucket and self.catalogDatabaseName == __value.catalogDatabaseName and \
             self.stagingIAMRole == __value.stagingIAMRole and self.dataIAMRole == __value.dataIAMRole and \
-            self.awsGlueIAMRole == __value.awsGlueIAMRole
+            self.awsGlueIAMRole == __value.awsGlueIAMRole and self.codeBucket == __value.codeBucket
 
     def _str__(self) -> str:
         return f"AWSDMSIceBergDataPlatform({self.name})"
@@ -382,6 +384,8 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             tree.addRaw(NameHasBadSynthax(f"Staging bucket location {self.stagingBucket} does not match region {self.region}"))
         if (not self.dataBucket.areAllLocationsInLocations({self.region})):
             tree.addRaw(NameHasBadSynthax(f"Data bucket location {self.dataBucket} does not match region {self.region}"))
+        if (not self.codeBucket.areAllLocationsInLocations({self.region})):
+            tree.addRaw(NameHasBadSynthax(f"Code bucket location {self.codeBucket} does not match region {self.region}"))
         if not is_valid_aws_name(self.stagingIAMRole):
             tree.addRaw(NameHasBadSynthax(
                 (f"Staging IAM role {self.stagingIAMRole} contains invalid characters."
