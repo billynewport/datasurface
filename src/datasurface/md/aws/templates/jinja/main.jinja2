@@ -1,3 +1,5 @@
+# main.jinja2
+
 terraform {
   required_providers {
     aws = {
@@ -71,7 +73,10 @@ resource "aws_iam_role_policy" "{{platformName}}_dms_s3_access" {
       "Effect": "Allow",
       "Resource": [
         "${aws_s3_bucket.{{platformName}}_staging_bucket.arn}",
-        "${aws_s3_bucket.{{platformName}}_staging_bucket.arn}/*"
+        "${aws_s3_bucket.{{platformName}}_staging_bucket.arn}/*",
+
+        "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.arn}",
+        "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.arn}/*"
       ]
     }
   ]
@@ -86,6 +91,25 @@ resource "aws_s3_bucket" "{{platformName}}_staging_bucket" {
 
 resource "aws_s3_bucket" "{{platformName}}_code_bucket" {
   bucket = "{{platformName}}-code"
+}
+
+# Ingestion bucket to hold Iceberg ingested data for all tables ingested
+resource "aws_s3_bucket" "{{platformName}}_ingested_data_bucket" {
+  bucket = "{{platformName}}-ingested_data"
+}
+
+resource "aws_s3_bucket_ownership_controls" "{{platformName}}_ingested_data_bucket" {
+  bucket = aws_s3_bucket.{{platformName}}_ingested_data_bucket.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "{{platformName}}_ingested_data_bucket" {
+  depends_on = [aws_s3_bucket_ownership_controls.{{platformName}}_ingested_data_bucket]
+
+  bucket = aws_s3_bucket.{{platformName}}_ingested_data_bucket.id
+  acl    = "private"
 }
 
 // Need entitlements on code bucket
@@ -122,17 +146,6 @@ resource "aws_security_group" "dms_{{platformName}}_sg" {
   vpc_id = data.aws_vpc.dms_{{platformName}}_vpc.id
 }
 
-# Allow inbound traffic from the Aurora subnet ** Needs to be each source somehow
-resource "aws_security_group_rule" "{{platformName}}_allow_aurora" {
-  for_each          = data.aws_subnet.source_aurora
-  type              = "ingress"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"  # Allow all traffic
-  cidr_blocks       = [each.value.cidr_block]
-  security_group_id = aws_security_group.dms_{{platformName}}_sg.id
-}
-
 # DMS replication instance
 resource "aws_dms_replication_instance" "{{platformName}}_dms_replication_instance" {
   replication_instance_id   = "{{platformName}}-replication-instance-tf"
@@ -144,25 +157,4 @@ resource "aws_dms_replication_instance" "{{platformName}}_dms_replication_instan
 }
 
 # DMS replication task
-
-# Staging bucket to hold AWS DMS output for all tables ingested
-resource "aws_s3_bucket" "{{platformName}}_ingested_data_bucket" {
-  # Staging parameter
-  bucket = "{{platformName}}_ingested_data"
-}
-
-resource "aws_s3_bucket_ownership_controls" "ingested_data_bucket" {
-  bucket = aws_s3_bucket.{{platformName}}_ingested_data_bucket.id
-  rule {
-    object_ownership = "BucketOwnerPreferred"
-  }
-}
-
-resource "aws_s3_bucket_acl" "{{platformName}}_ingested_data_bucket" {
-  depends_on = [aws_s3_bucket_ownership_controls.{{platformName}}_ingested_data_bucket]
-
-  bucket = aws_s3_bucket.{{platformName}}_ingested_data_bucket.id
-  acl    = "private"
-}
-
 

@@ -519,14 +519,17 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
     def preRender(self):
         """This adds the terraform modules used by the generated IaC. It is called before the render method."""
 
-        data: dict[str, Any] = {}
         # Create the glue table module
+        data: dict[str, Any] = {}
+        data["platformName"] = self.platform.name
         gtTemplate: Template = self.renderMgr.createTemplate('glue_table_module.jinja2')
-        self.addStaticFile("module/dms_ingest", "main.tf", gtTemplate.render({}))
+        self.addStaticFile("module/glue_table", "main.tf", gtTemplate.render(data))
 
         # Create the dms ingest module
+        data: dict[str, Any] = {}
+        data["platformName"] = self.platform.name
         ingestTemplate: Template = self.renderMgr.createTemplate('dms_ingest_module.jinja2')
-        self.addStaticFile("module/glue_table", "main.tf", ingestTemplate.render({}))
+        self.addStaticFile("module/dms_ingest", "main.tf", ingestTemplate.render(data))
 
         # Provider tf
         data = {}
