@@ -362,10 +362,8 @@ class InfrastructureLocation(Documentable):
     def getLocationOrThrow(self, locationName: str) -> 'InfrastructureLocation':
         """Returns the location with the specified name or throws an exception"""
         loc: Optional[InfrastructureLocation] = self.locations.get(locationName)
-        if (loc):
-            return loc
-        else:
-            raise Exception(f"Location {locationName} not found")
+        assert loc is not None
+        return loc
 
     def getLocation(self, locationName: str) -> Optional['InfrastructureLocation']:
         """Returns the location with the specified name or None"""
@@ -456,10 +454,8 @@ class InfrastructureVendor(Documentable):
     def getLocationOrThrow(self, locationName: str) -> 'InfrastructureLocation':
         """Returns the location with the specified name or throws an exception"""
         loc: Optional[InfrastructureLocation] = self.locations.get(locationName)
-        if (loc):
-            return loc
-        else:
-            raise Exception(f"Location {locationName} not found")
+        assert loc is not None
+        return loc
 
     def getLocation(self, locationName: str) -> Optional['InfrastructureLocation']:
         """Returns the location with the specified name or None"""
@@ -1478,10 +1474,8 @@ class Ecosystem(GitControlledObject):
 
     def getDataPlatformOrThrow(self, name: str) -> 'DataPlatform':
         p: Optional['DataPlatform'] = self.getDataPlatform(name)
-        if (p):
-            return p
-        else:
-            raise ObjectDoesntExistException(f"Unknown data platform {name}")
+        assert p is not None
+        return p
 
     def getLocation(self, vendorName: str, locKey: list[str]) -> Optional[InfrastructureLocation]:
         vendor: Optional[InfrastructureVendor] = self.getVendor(vendorName)
@@ -1493,8 +1487,7 @@ class Ecosystem(GitControlledObject):
     def getLocationOrThrow(self, vendorName: str, locKey: list[str]) -> InfrastructureLocation:
         vendor: InfrastructureVendor = self.getVendorOrThrow(vendorName)
         loc: Optional[InfrastructureLocation] = vendor.findLocationUsingKey(locKey)
-        if (loc is None):
-            raise ObjectDoesntExistException(f"Unknown location vendor: {vendor.name}/{locKey} ")
+        assert loc is not None
         return loc
 
     def getAllChildLocations(self, vendorName: str, locKey: list[str]) -> set[InfrastructureLocation]:
@@ -1525,17 +1518,13 @@ class Ecosystem(GitControlledObject):
     def cache_getWorkspaceOrThrow(self, work: str) -> WorkspaceCacheEntry:
         """This returns the named workspace if it exists"""
         w: Optional[WorkspaceCacheEntry] = self.workSpaceCache.get(work)
-        if (w):
-            return w
-        else:
-            raise WorkspaceDoesntExistException(f"Unknown workspace {work}")
+        assert w is not None
+        return w
 
     def cache_getDatastoreOrThrow(self, store: str) -> DatastoreCacheEntry:
         s: Optional[DatastoreCacheEntry] = self.datastoreCache.get(store)
-        if (s):
-            return s
-        else:
-            raise DatastoreDoesntExistException(f"Unknown datastore {store}")
+        assert s is not None
+        return s
 
     def cache_getDataset(self, storeName: str, datasetName: str) -> Optional[Dataset]:
         """This returns the named dataset if it exists"""
@@ -1582,14 +1571,21 @@ class Ecosystem(GitControlledObject):
         if (self.documentation):
             self.documentation.lint(ecoTree)
 
+        # If there are no errors at this point then
         # Generate pipeline graphs and lint them.
+        # This will ask each DataPlatform to verify that it
+        # can generate a pipeline graph for its assigned DAG subset. This
+        # can fail for a variety of reasons such as the DataPlatform does not
+        # support certain DataContainers or even schema mapping issues to underlying
+        # infrastructure.
 
-        try:
-            graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self)
+        if not ecoTree.hasErrors():
+            try:
+                graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self)
 
-            graph.lint(ecoTree.addSubTree(graph))
-        except Exception as e:
-            ecoTree.addProblem(f"Error generating pipeline graph {e}", ProblemSeverity.ERROR)
+                graph.lint(ecoTree.addSubTree(graph))
+            except Exception as e:
+                ecoTree.addProblem(f"Error generating pipeline graph {e}", ProblemSeverity.ERROR)
 
         return ecoTree
 
@@ -1674,10 +1670,8 @@ class Ecosystem(GitControlledObject):
 
     def getZoneOrThrow(self, gz: str) -> 'GovernanceZone':
         z: Optional[GovernanceZone] = self.getZone(gz)
-        if (z):
-            return z
-        else:
-            raise ObjectDoesntExistException(f"Unknown governance zone {gz}")
+        assert z is not None
+        return z
 
     def getTeam(self, gz: str, teamName: str) -> Optional['Team']:
         """Returns the team with the specified name in the specified zone"""
@@ -1690,10 +1684,8 @@ class Ecosystem(GitControlledObject):
 
     def getTeamOrThrow(self, gz: str, teamName: str) -> 'Team':
         t: Optional[Team] = self.getTeam(gz, teamName)
-        if (t):
-            return t
-        else:
-            raise ObjectDoesntExistException(f"Unknown team {teamName} in governance zone {gz}")
+        assert t is not None
+        return t
 
     def __str__(self) -> str:
         return f"Ecosystem({self.name})"
@@ -1807,10 +1799,8 @@ class Team(GitControlledObject):
 
     def getStoreOrThrow(self, storeName: str) -> Datastore:
         rc: Optional[Datastore] = self.dataStores.get(storeName)
-        if rc:
-            return rc
-        else:
-            raise ObjectDoesntExistException(f"Unknown datastore {storeName}")
+        assert rc is not None
+        return rc
 
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
         """This is a shallow equality check for the top level team object"""
@@ -2112,10 +2102,8 @@ class GovernanceZone(GitControlledObject):
 
     def getTeamOrThrow(self, name: str) -> Team:
         t: Optional[Team] = self.getTeam(name)
-        if (t):
-            return t
-        else:
-            raise ObjectDoesntExistException(f"Unknown team {name}")
+        assert t is not None
+        return t
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, GovernanceZone):
@@ -2882,7 +2870,12 @@ class DSGRootNode:
 class PlatformPipelineGraph:
     """This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include
     provisioning Workspace views, provisioning dataContainer tables. Exporting data to dataContainer tables. Ingesting data from datastores,
-    executing data transformers"""
+    executing data transformers. We always build the graph starting on the right hand side, the consumer side which is typically a
+    Workspace. We work left-wards towards data producers using the datasets used in DatasetGroups in the Workspace. Any datasets
+    used by a Workspace need to have exports to the Workspace for those datasets. All datasets exported must also have been
+    ingested. So we add an ingestion step. If a dataset is produced by a DataTransformer then we need to have the ingestion
+    triggered by the execution of the DataTransformer. The DataTransformer is triggered itself by exports to the Workspace which
+    owns it."""
     def __init__(self, eco: Ecosystem, platform: DataPlatform):
         self.platform: DataPlatform = platform
         self.eco: Ecosystem = eco
@@ -2959,6 +2952,42 @@ class PlatformPipelineGraph:
         else:
             raise Exception(f"Store {storeName} cmd is None")
 
+    def createIngestionStepForDataStore(self, store: Datastore, exportStep: ExportNode) -> PipelineNode:
+        # Create a step for a single or multi dataset ingestion
+        ingestionStep: Optional[PipelineNode] = None
+        assert store.cmd is not None
+        if (store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
+            ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger)
+        else:  # MULTI_DATASET
+            ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.stepTrigger)
+        ingestionStep = self.findExistingOrCreateStep(ingestionStep)
+        return ingestionStep
+
+    def createGraphForDataTransformer(self, dt: DataTransformerOutput, exportStep: ExportNode) -> None:
+        """If a store is the output for a DataTransformer then we need to ingest it from the Workspace
+        which defines the DataTransformer."""
+        w: Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
+        if w.dataContainer:
+            # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
+            dtStep: DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
+            triggerStep: TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
+            # Add ingestion for transfomer
+            dtIngestStep: PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None))
+            dtStep.addRightHandNode(dtIngestStep)
+            # Ingesting Transformer causes Export
+            dtIngestStep.addRightHandNode(exportStep)
+            # Trigger calls Transformer Step
+            triggerStep.addRightHandNode(dtStep)
+            # Add Exports to call trigger
+            for dsgR in self.roots:
+                if dsgR.workspace == w:
+                    for sink in dsgR.dsg.sinks.values():
+                        dsrExportStep: ExportNode = cast(ExportNode, self.findExistingOrCreateStep(
+                                ExportNode(self.platform, w.dataContainer, sink.storeName, sink.datasetName)))
+                        self.addExportToPriorIngestion(dsrExportStep)
+                        # Add Trigger for DT after export
+                        dsrExportStep.addRightHandNode(triggerStep)
+
     def addExportToPriorIngestion(self, exportStep: ExportNode):
         """This makes sure the ingestion steps for a the datasets in an export step exist"""
         assert (self.nodes.get(str(exportStep)) is not None)
@@ -2966,39 +2995,12 @@ class PlatformPipelineGraph:
         a transformer then it is INGEST -> EXPORT -> TRIGGER -> TRANSFORM -> INGEST -> EXPORT"""
         store: Datastore = self.eco.cache_getDatastoreOrThrow(exportStep.storeName).datastore
         if (store.cmd):
-            ingestionStep: Optional[PipelineNode] = None
             # Create a step for a single or multi dataset ingestion
-            if (store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
-                ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger)
-            else:  # MULTI_DATASET
-                ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.stepTrigger)
-            ingestionStep = self.findExistingOrCreateStep(ingestionStep)
-
+            ingestionStep: PipelineNode = self.createIngestionStepForDataStore(store, exportStep)
             ingestionStep.addRightHandNode(exportStep)
             # If this store is a transformer then we need to create the transformer job
             if isinstance(store.cmd, DataTransformerOutput):
-                dt: DataTransformerOutput = store.cmd
-                w: Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
-                if w.dataContainer:
-                    # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
-                    dtStep: DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
-                    triggerStep: TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
-                    # Add ingestion for transfomer
-                    dtIngestStep: PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None))
-                    dtStep.addRightHandNode(dtIngestStep)
-                    # Ingesting Transformer causes Export
-                    dtIngestStep.addRightHandNode(exportStep)
-                    # Trigger calls Transformer Step
-                    triggerStep.addRightHandNode(dtStep)
-                    # Add Exports to call trigger
-                    for dsgR in self.roots:
-                        if dsgR.workspace == w:
-                            for sink in dsgR.dsg.sinks.values():
-                                dsrExportStep: ExportNode = cast(ExportNode, self.findExistingOrCreateStep(
-                                        ExportNode(self.platform, w.dataContainer, sink.storeName, sink.datasetName)))
-                                self.addExportToPriorIngestion(dsrExportStep)
-                                # Add Trigger for DT after export
-                                dsrExportStep.addRightHandNode(triggerStep)
+                self.createGraphForDataTransformer(store.cmd, exportStep)
 
     def getLeftSideOfGraph(self) -> set[PipelineNode]:
         """This returns ingestions which don't depend on anything else, the left end of a pipeline"""
