@@ -10,9 +10,9 @@ from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Governance import CDCCaptureIngestion, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
     Datastore, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, \
     Team, Workspace, WorkspaceFixedDataPlatform
-from datasurface.md.IaCPlatform import FileBasedFragmentManager
+from datasurface.md.Governance import FileBasedFragmentManager
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
-from datasurface.md.PipelineGraph import EcosystemPipelineGraph, PlatformPipelineGraph
+from datasurface.md.Governance import EcosystemPipelineGraph, PlatformPipelineGraph
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
 from datasurface.md.Schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, VarChar
 from tests.nwdb.eco import createEcosystem

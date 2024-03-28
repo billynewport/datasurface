@@ -8,15 +8,13 @@ from datasurface.md.Documentation import Documentation, PlainTextDocumentation
 from urllib import parse
 
 from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
-    DataContainerNamingMapper, DataPlatformExecutor, DatasetGroup, \
-    Datastore, DatastoreCacheEntry, IngestionMetadata, SQLDatabase, SchemaProjector, DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
-    ObjectStorage, Workspace
+    DataContainerNamingMapper, DataPlatformExecutor, DataTransformerNode, DatasetGroup, \
+    Datastore, DatastoreCacheEntry, ExportNode, FileBasedFragmentManager, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, \
+    IngestionMetadata, IngestionMultiNode, IngestionSingleNode, PipelineNode, PlatformPipelineGraph, SQLDatabase, SchemaProjector, \
+    DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    ObjectStorage, TriggerNode, UnsupportedDataContainer, Workspace, defaultPipelineNodeFileName
 
-from datasurface.md.IaCPlatform import FileBasedFragmentManager, IaCDataPlatformRenderer, \
-    UnsupportedDataContainer, defaultPipelineNodeFileName
 from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
-from datasurface.md.PipelineGraph import DataTransformerNode, ExportNode, IngestionMultiNode, \
-    IngestionSingleNode, PipelineNode, PlatformPipelineGraph, TriggerNode
 from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, \
     DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
@@ -49,6 +47,9 @@ class AmazonAWSDataPlatform(DataPlatform):
     def getInternalDataContainers(self) -> set[DataContainer]:
         # TODO: Implement this method
         return set()
+
+    def createIaCRender(self, graph: PlatformPipelineGraph) -> IaCDataPlatformRenderer:
+        return IaCDataPlatformRendererShim(self.executor, graph)
 
 
 class AWSAuroraDatabase(SQLDatabase):
@@ -394,6 +395,9 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             tree.addRaw(NameHasBadSynthax(
                 (f"Data IAM role {self.dataIAMRole} contains invalid characters. Only "
                  f"alphanumeric characters and /_+=.@- are allowed.")))
+
+    def createIaCRender(self, graph: PlatformPipelineGraph) -> IaCDataPlatformRenderer:
+        return AWSDMSTerraformIaC(self.executor, graph)
 
 
 def terraFormGetPipelineNodeFileName(node: PipelineNode) -> str:

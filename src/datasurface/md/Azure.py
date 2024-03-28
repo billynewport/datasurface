@@ -2,7 +2,7 @@ from enum import Enum
 from datasurface.md import Documentation
 from datasurface.md.Governance import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
 from .Governance import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, EncryptionSystem, Ecosystem, \
-    HostPortSQLDatabase, InfrastructureLocation
+    HostPortSQLDatabase, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, InfrastructureLocation, PlatformPipelineGraph
 from .Lint import NameHasBadSynthax, ValidationTree
 from .utils import is_valid_azure_key_vault_name
 
@@ -74,6 +74,9 @@ class AzureDataplatform(DataPlatform):
     def getInternalDataContainers(self) -> set[DataContainer]:
         # TODO: Implement this method
         return set()
+
+    def createIaCRender(self, graph: 'PlatformPipelineGraph') -> 'IaCDataPlatformRenderer':
+        return IaCDataPlatformRendererShim(self.executor, graph)
 
 
 class AzureBatchDataPlatform(AzureDataplatform):

@@ -1,7 +1,6 @@
 import unittest
-from datasurface.md.Governance import DataPlatform, Ecosystem
-from datasurface.md.PipelineGraph import DataTransformerNode, EcosystemPipelineGraph, ExportNode, IngestionNode, PipelineNode, \
-    PlatformPipelineGraph, TriggerNode
+from datasurface.md.Governance import DataPlatform, DataTransformerNode, Ecosystem, EcosystemPipelineGraph, \
+    ExportNode, IngestionNode, PipelineNode, PlatformPipelineGraph, TriggerNode
 
 from tests.nwdb.eco import createEcosystem
 
