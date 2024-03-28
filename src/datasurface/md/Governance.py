@@ -2875,7 +2875,13 @@ class PlatformPipelineGraph:
     used by a Workspace need to have exports to the Workspace for those datasets. All datasets exported must also have been
     ingested. So we add an ingestion step. If a dataset is produced by a DataTransformer then we need to have the ingestion
     triggered by the execution of the DataTransformer. The DataTransformer is triggered itself by exports to the Workspace which
-    owns it."""
+    owns it.
+    Thus the right hand side of the graph should all be Exports to Workspaces. The left hand side should be
+    all ingestion steps. Every ingestion should have a right hand side node which are exports to Workspaces.
+    Exports will have a trigger for each dataset used by a DataTransformer. The trigger will be a join on all the exports to
+    a single Workspace and will always trigger a DataTransformer node. The Datatransformer node will have an ingestion
+    node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore"""
+    
     def __init__(self, eco: Ecosystem, platform: DataPlatform):
         self.platform: DataPlatform = platform
         self.eco: Ecosystem = eco
