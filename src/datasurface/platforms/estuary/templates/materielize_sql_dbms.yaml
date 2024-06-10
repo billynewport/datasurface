@@ -1,0 +1,32 @@
+materializations:
+  acmeCo/postgres-views:
+    endpoint:
+      connector:
+        # 1: Provide the image that implements your endpoint connector.
+        # The `dev` tag uses the most recent version (the web app chooses this tag automatically)
+        image: ghcr.io/estuary/materialize-postgres:dev
+        # 2: Provide endpoint configuration that the connector requires.
+        config:
+          address: localhost:5432
+          password: password
+          database: postgres
+          user: postgres
+    bindings:
+      - source: acmeCo/products/anvils
+        # 3: Provide resource configuration for the binding between the Flow
+        #    collection and the endpoint resource. This connector interfaces
+        #    with a SQL database and its resources are database tables. Here,
+        #    we provide a table to create and materialize which is bound to the
+        #    `acmeCo/products/anvils` source collection.
+        resource:
+          table: anvil_products
+
+      # Multiple resources can be configured through a single connector.
+      # Bind additional collections to tables as part of this connector instance:
+      - source: acmeCo/products/TNT
+        resource:
+          table: tnt_products
+
+      - source: acmeCo/customers
+        resource:
+          table: customers

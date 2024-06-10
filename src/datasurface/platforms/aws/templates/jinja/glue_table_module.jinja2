@@ -1,0 +1,73 @@
+# glue_table_module.jinja2
+
+variable "table_name" {
+  description = "The name of the Glue table"
+  type        = string
+}
+
+variable "database_name" {
+  description = "The name of the Glue database"
+  type        = string
+}
+
+variable "bucket_name" {
+  description = "The name of the S3 bucket"
+  type        = string
+}
+
+variable "prefix" {
+  description = "The name of the S3 bucket prefix"
+  type        = string
+}
+
+variable "sourceName" {
+  description = "The name of the sourcet"
+  type        = string
+}
+
+variable "columns" {
+  description = "List of columns for the Glue table"
+  type        = list(object({
+    name    = string
+    type    = string
+    comment = string
+  }))
+}
+
+resource "aws_glue_catalog_table" "table" {
+  name          = var.table_name
+  database_name = var.database_name
+
+  table_type = "EXTERNAL_TABLE"
+
+  open_table_format_input {
+    iceberg_input {
+        metadata_operation = "CREATE"
+    }
+  }
+  parameters = {
+    EXTERNAL              = "TRUE"
+    "parquet.compression" = "SNAPPY"
+  }
+
+  storage_descriptor {
+    location      = "s3://${var.bucket_name}"
+
+    input_format  = "org.apache.iceberg.mr.hive.HiveIcebergInputFormat"
+    output_format = "org.apache.iceberg.mr.hive.HiveIcebergOutputFormat"
+
+    ser_de_info {
+      name                  = "my-stream"
+      serialization_library = "org.apache.iceberg.mr.hive.HiveIcebergSerDe"
+    }
+
+    dynamic "columns" {
+      for_each = var.columns
+      content {
+        name    = columns.value.name
+        type    = columns.value.type
+        comment = columns.value.comment
+      }
+    }
+  }
+}

@@ -1,0 +1,146 @@
+# main.jinja2
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+variable "aws_vpc_id" {
+  description = "VPC to use"
+  type = string
+  default = "{{aws_vpc_id}}"
+}
+
+# Use a VPC
+data "aws_vpc" "dms_{{platformName}}_vpc" {
+  # DataPlatform Parameter
+  id = "${var.aws_vpc_id}"
+}
+
+# Create a subnet in the VPC
+resource "aws_subnet" "dms_{{platformName}}_subnet" {
+  vpc_id     = data.aws_vpc.dms_{{platformName}}_vpc.id
+  cidr_block = "10.0.1.0/24"
+}
+
+# Create a replication subnet group
+resource "aws_dms_replication_subnet_group" "dms_{{platformName}}_repl_subnet_group" {
+  replication_subnet_group_id   = "{{platformName}}-replication-subnet-group"
+  replication_subnet_group_description = "{{platformName}} replication subnet group"
+  subnet_ids = [aws_subnet.dms_{{platformName}}_subnet.id]
+}
+
+# IAM role for DMS to access resources
+resource "aws_iam_role" "{{platformName}}_dms_access_for_staging_bucket" {
+  name = "{{platformName}}-dms-access-for-endpoint"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "dms.amazonaws.com"
+      },
+      "Effect": "Allow",
+      "Sid": ""
+    }
+  ]
+}
+EOF
+}
+
+# Policy to allow DMS to access the S3 bucket
+resource "aws_iam_role_policy" "{{platformName}}_dms_s3_access" {
+  name = "{{platformName}}-dms-s3-access"
+  role = aws_iam_role.{{platformName}}_dms_access_for_staging_bucket.id
+
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "${aws_s3_bucket.{{platformName}}_staging_bucket.arn}",
+        "${aws_s3_bucket.{{platformName}}_staging_bucket.arn}/*",
+
+        "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.arn}",
+        "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.arn}/*"
+      ]
+    }
+  ]
+}
+EOF
+}
+
+# Staging bucket to hold AWS DMS output for all tables ingested
+resource "aws_s3_bucket" "{{platformName}}_staging_bucket" {
+  bucket = "{{platformName}}-staging"
+}
+
+resource "aws_s3_bucket" "{{platformName}}_code_bucket" {
+  bucket = "{{platformName}}-code"
+}
+
+# Ingestion bucket to hold Iceberg ingested data for all tables ingested
+resource "aws_s3_bucket" "{{platformName}}_ingested_data_bucket" {
+  bucket = "{{platformName}}-ingested_data"
+}
+
+resource "aws_s3_bucket_ownership_controls" "{{platformName}}_ingested_data_bucket" {
+  bucket = aws_s3_bucket.{{platformName}}_ingested_data_bucket.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "{{platformName}}_ingested_data_bucket" {
+  depends_on = [aws_s3_bucket_ownership_controls.{{platformName}}_ingested_data_bucket]
+
+  bucket = aws_s3_bucket.{{platformName}}_ingested_data_bucket.id
+  acl    = "private"
+}
+
+// Need entitlements on code bucket
+
+resource "aws_s3_bucket_ownership_controls" "{{platformName}}_staging_bucket" {
+  bucket = aws_s3_bucket.{{platformName}}_staging_bucket.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "{{platformName}}_staging_bucket" {
+  depends_on = [aws_s3_bucket_ownership_controls.{{platformName}}_staging_bucket]
+
+  # Staging parameter
+  bucket = aws_s3_bucket.{{platformName}}_staging_bucket.id
+  acl    = "private"
+}
+
+# Create a security group for the DMS subnet
+resource "aws_security_group" "dms_{{platformName}}_sg" {
+  name   = "dms_{{platformName}}sg"
+  vpc_id = data.aws_vpc.dms_{{platformName}}_vpc.id
+}
+
+# DMS replication instance
+resource "aws_dms_replication_instance" "{{platformName}}_dms_replication_instance" {
+  replication_instance_id   = "{{platformName}}-replication-instance-tf"
+  replication_instance_class = "dms.r5.large"
+  allocated_storage         = 20
+  vpc_security_group_ids    = [aws_security_group.dms_{{platformName}}_sg.id]
+  replication_subnet_group_id = aws_dms_replication_subnet_group.dms_{{platformName}}_repl_subnet_group.id
+  publicly_accessible       = true
+}

@@ -1,0 +1,115 @@
+# aurora_dms_ingest.jinja2
+
+// Get the secret from AWS Secrets Manager
+data "aws_secretsmanager_secret_version" "{{sourceName}}_credentials" {
+  // Source database parameter
+  secret_id = "{{sourceSecretCredentials}}"
+}
+
+data "aws_rds_cluster" "{{sourceName}}" {
+  // Source database parameter
+  cluster_identifier = "{{sourceClusterName}}"
+}
+
+# Get the DB subnet group of the Aurora cluster
+data "aws_db_subnet_group" "{{sourceName}}" {
+  name = data.aws_rds_cluster.{{sourceName}}.db_subnet_group_name
+}
+
+// Get the subnets of the DB subnet group
+data "aws_subnet" "{{sourceName}}" {
+  for_each = toset(data.aws_db_subnet_group.{{sourceName}}.subnet_ids)
+  id       = each.value
+}
+
+// Allow inbound traffic from the Aurora subnet
+resource "aws_security_group_rule" "allow_{{sourceName}}" {
+  for_each          = data.aws_subnet.{{sourceName}}
+  type              = "ingress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"  # Allow all traffic
+  cidr_blocks       = [each.value.cidr_block]
+  security_group_id = aws_security_group.dms_{{platformName}}_sg.id
+}
+
+
+// Source Aurora database
+resource "aws_dms_endpoint" "{{platformName}}_{{sourceName}}" {
+  endpoint_id   = "{{platformName}}-{{sourceName}}-endpoint"
+  endpoint_type = "source"
+  engine_name   = "aurora"
+  username      = jsondecode(data.aws_secretsmanager_secret_version.{{sourceName}}_credentials.secret_string)["username"]
+  password      = jsondecode(data.aws_secretsmanager_secret_version.{{sourceName}}_credentials.secret_string)["password"]
+  # Source database parameters
+  server_name   = data.aws_rds_cluster.{{sourceName}}.endpoint
+  port          = data.aws_rds_cluster.{{sourceName}}.port
+}
+
+# Allow inbound traffic from the Aurora subnet ** Needs to be each source somehow
+resource "aws_security_group_rule" "{{platformName}}_allow_aurora" {
+  for_each          = data.aws_subnet.{{sourceName}}
+  type              = "ingress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"  # Allow all traffic
+  cidr_blocks       = [each.value.cidr_block]
+  security_group_id = aws_security_group.dms_{{platformName}}_sg.id
+}
+
+
+locals {
+  tables = {
+{%- for table in tables %}
+    {{table}} = {
+      name = "{{table}}",
+      schema = [
+{%- for column in tables[table] %}
+        "{{column}}"{{ "," if not loop.last else ""}}
+{%- endfor %}
+      ],
+      prefix = "{{table}}"
+    }{{ "," if not loop.last else ""}}
+{%- endfor %}
+  }
+}
+
+// Create a glue table for each aurora table
+module "ingest_from_aurora_to_staging_bucket" {
+  for_each = local.tables
+  source        = "./module/glue_table"
+  sourceName    = "{{sourceName}}"
+  table_name    = each.value.name
+  database_name = "{{glueDatabaseName}}"
+  bucket_name   = "${aws_s3_bucket.{{platformName}}_ingested_data_bucket.bucket}"
+  prefix        = each.value.prefix
+
+  columns = [for c in each.value.schema : {
+    name = split(":", c)[0]
+    type = split(":", c)[1]
+    comment = ""
+  }]
+}
+
+# Target S3 bucket
+resource "aws_dms_endpoint" "{{platformName}}_{{sourceName}}_staging_target" {
+  endpoint_id   = "{{platformName}}-{{sourceName}}-s3-target-endpoint"
+  endpoint_type = "target"
+  engine_name   = "s3"
+  service_access_role = aws_iam_role.{{platformName}}_dms_access_for_staging_bucket.arn
+  s3_settings {
+    bucket_name = "${aws_s3_bucket.{{platformName}}_staging_bucket.bucket}/{{sourceName}}"
+  }
+}
+
+
+
+// Make a task for each aurora table to staging operation
+module "Ingest-{{sourceName}}" {
+  source                  = "./module/dms_ingest"
+  replication_task_id     = "{{platformName}}-{{sourceName}}-ingest-task"
+  table_names             = [for t in local.tables : t.name]
+  source_endpoint_arn       = aws_dms_endpoint.{{platformName}}_{{sourceName}}.endpoint_arn
+  target_endpoint_arn       = aws_dms_endpoint.{{platformName}}_{{sourceName}}_staging_target.endpoint_arn
+  replication_instance_arn  = aws_dms_replication_instance.{{platformName}}_dms_replication_instance.replication_instance_arn
+}

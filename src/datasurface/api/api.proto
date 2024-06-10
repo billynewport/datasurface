@@ -1,0 +1,165 @@
+// Copyright (c) William Newport
+// SPDX-License-Identifier: BUSL-1.1
+
+syntax = "proto3";
+
+package datasurface;
+
+enum ProductionStatus {
+    PRODUCTION = 0;
+    NON_PRODUCTION = 1;
+}
+
+enum DeprecationStatus {
+    DEPRECATED = 0;
+    NOT_DEPRECATED = 1;
+}
+
+enum IngestionConsistencyType {
+    SINGLE_DATASET = 0;
+    MULTI_DATASET = 1;
+}
+
+message InfrastructureLocation {
+    repeated string name = 1;
+    string vendorName = 2;
+}
+
+enum CloudVendor {
+    AWS = 0;
+    AZURE = 1;
+    GCP = 2;
+    IBM = 3;
+    ORACLE = 4;
+    ALIBABA = 5;
+    AWS_CHINA = 6;
+    TEN_CENT = 7;
+    HUAWEI = 8;
+    AZURE_CHINA = 9;
+}
+
+message InfrastructureVendor {
+    string name = 1;
+    CloudVendor hardCloudVendor = 2;
+    map<string, InfrastructureLocation> locations = 3;
+}
+
+message Dataset {
+    string name = 1;
+    string datastoreName = 2;
+    Schema schema = 3;
+}
+
+message Schema {
+    repeated string primaryKeys = 1;
+    repeated string ingestionPartitionKeys = 2;
+    oneof schemaType {
+        DDLSchema ddlSchema = 4;
+    }
+}
+message DDLSchema {
+    string ddl = 1;
+    repeated DDLColumn columns = 2;
+}
+
+message DDLColumn {
+    string name = 1;
+    string type = 2;
+    bool isNullable = 3;
+}
+
+message CaptureMetaData {
+    IngestionConsistencyType ingestionConsistencyType = 1;
+    DataContainer container = 2;
+}
+
+message Datastore {
+    string name = 1;
+    string teamName = 2;
+    repeated Dataset datasets = 3;
+    CaptureMetaData captureMetaData = 4;
+}
+
+message Team {
+    string name = 1;
+    string zoneName = 2;
+    map<string, Datastore> datastores = 3;
+}
+
+message GovernanceZone {
+    string name = 1;
+    string ecosystemName = 2;
+    map<string, Team> teams = 3;
+}
+
+message Ecosystem {
+    string name = 1;
+    map<string, GovernanceZone> zones = 2;
+}
+
+message ObjectStorage {
+    optional string endPointURI = 1;
+    string bucketName = 2;
+    optional string prefix = 3;
+}
+
+message SQLDatabase {
+    string databaseName = 1;
+}
+
+message AuroraDatabase {
+    string databaseName = 1;
+    string endpointName = 2;
+}
+
+message DataContainer {
+    string name = 1;
+    repeated InfrastructureLocation locations = 2;
+
+    oneof dataContainerType {
+        ObjectStorage s3Bucket = 3;
+        AuroraDatabase auroraDatabase = 5;
+    }
+}
+
+message Credential {
+    oneof credentialType {
+        UserPasswordCredential userPasswordCredential = 1;
+        AWSSecretCredential awsSecretCredential = 2;
+        AzureKeyVaultCredential azureKeyVaultCredential = 3;
+    }
+}
+
+message UserPasswordCredential {
+    string username = 1;
+    string password = 2;
+}
+
+message AWSSecretCredential {
+    string secretName = 1;
+    InfrastructureLocation location = 2;
+}
+
+enum AzureVaultObjectType {
+    HSM_KEYS = 0;
+    SOFTWARE_KEYS = 1;
+    SECRETS = 2;
+    CERTIFICATES = 3;
+    STORAGE_ACTION_KEYS = 4;
+}
+
+message AzureKeyVaultCredential {
+    string vaultName = 1;
+    AzureVaultObjectType objectType = 2;
+    string objectName = 3;
+}
+
+message DataStoreRequest
+{
+    string ecoSystemName = 1;
+    string dataStoreName = 2;
+}
+
+service ProducerService {
+    rpc getDatastore(DataStoreRequest) returns (Datastore);
+}

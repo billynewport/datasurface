@@ -1,0 +1,43 @@
+name: Publish DataSurface GRPC Server Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DOCKER_USERNAME: datafracture
+  DOCKER_IMAGE_NAME: datasurface_api
+  DOCKERFILE_PATH: src/datasurface/api/Docker/Dockerfile
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Build Docker image
+      run: docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest -f ${{ env.DOCKERFILE_PATH }} .
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v1
+      with:
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+    - name: Push Docker image
+      run: docker push ${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+
+  run-container:
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Run Docker container
+      run: |
+        docker run --name your-container-name \
+          -e REPO_URL="https://github.com/your-username/your-repo.git" \
+          -e BRANCH="your-branch" \
+          -e FOLDER="path/to/folder" \
+          ${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
