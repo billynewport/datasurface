@@ -4,7 +4,8 @@
 """
 
 from datasurface.md.Documentation import Documentation
-from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, DataPlatformExecutor, Ecosystem, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, PlatformPipelineGraph
+from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, DataPlatformExecutor, Ecosystem, \
+    IaCDataPlatformRenderer, IaCDataPlatformRendererShim, PlatformPipelineGraph
 from datasurface.md.Lint import ValidationTree
 
 
