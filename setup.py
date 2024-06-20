@@ -45,7 +45,7 @@ setup(
     author_email='billy@datasurface.com',
     url='https://github.com/billynewport/datasurface',
     classifiers=[
-        'License :: BPL-1.1',
+        'License :: Other/Proprietary License',
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',
