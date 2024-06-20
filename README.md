@@ -1,4 +1,4 @@
-[![License: BPL v1.1](https://img.shields.io/badge/License-BPL%20v1.1-blue.svg)](https://mariadb.com/bsl11/) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE-OF-CONDUCT.md)
+[![License: BSL v1.1](https://img.shields.io/badge/License-BSL%20v1.1-blue.svg)](https://mariadb.com/bsl11/) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE-OF-CONDUCT.md)
 
 > :warning: **Work in progress**: This project is being implemented in phases. Phase 1 is complete as of March 2024. Work on an Amazon AWS Batch DataPlatform is underway. Please see the [roadmap](ROADMAP.md) for details on when features should drop and the road map.
 
