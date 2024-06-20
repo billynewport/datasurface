@@ -1000,6 +1000,27 @@ class UserPasswordCredential(Credential):
         return f"UserPasswordCredential({self.username})"
 
 
+class CertificateCredential(Credential):
+    """This is a certificate based credential. The key for authentication is provided along with an optional
+    certificate for the CA."""
+    def __init__(self, certificate: Optional[str], key: str, authIsInSecure: bool) -> None:
+        super().__init__()
+        self.certificate: Optional[str] = certificate  # File name of the certification agent certificate
+        self.key: str = key  # File name of the public key
+        self.authIsInSecure: bool = authIsInSecure  # Is the authentication insecure
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and type(__value) is CertificateCredential and \
+            self.certificate == __value.certificate and self.key == __value.key and self.authIsInSecure == __value.authIsInSecure
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.key})"
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        if (self.key == ""):
+            tree.addProblem("Key is empty")
+
+
 class ClearTextCredential(UserPasswordCredential):
     """This is implemented for testing but should never be used in production. All
     credentials should be stored and retrieved using secrets Credential objects also

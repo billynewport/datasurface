@@ -661,6 +661,19 @@ class Decimal(BoundedDataType):
         return str(self.__class__.__name__) + f"({self.maxSize},{self.precision})"
 
 
+class TimeZone:
+    """This specifies a timezone. The string can be either a supported timezone string or a custom timezone based around
+    GMT. The string is in the format GMT+/-HH:MM or GMT+/-HH"""
+    def __init__(self, timeZone: str) -> None:
+        self.timeZone: str = timeZone
+
+    def __eq__(self, __value: object) -> bool:
+        return isinstance(__value, TimeZone) and self.timeZone == __value.timeZone
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.timeZone})"
+
+
 class TemporalDataType(DataType):
     """Base class for all temporal data types"""
     def __init__(self) -> None:
@@ -675,15 +688,18 @@ class TemporalDataType(DataType):
 
 class Timestamp(TemporalDataType):
     """Timestamp with microsecond precision, this includes a Date and a timestamp with microsecond precision"""
-    def __init__(self) -> None:
+    def __init__(self, tz: TimeZone = TimeZone("UTC")) -> None:
         super().__init__()
+        self.timeZone: TimeZone = tz
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Timestamp)
+        return super().__eq__(__value) and isinstance(__value, Timestamp) and self.timeZone == __value.timeZone
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
         vTree.checkTypeMatches(other, Timestamp, Date)
+        if isinstance(other, Timestamp) and self.timeZone != other.timeZone:
+            vTree.addProblem(f"Timezone has changed from {other.timeZone} to {self.timeZone}")
         return not vTree.hasErrors()
 
 
