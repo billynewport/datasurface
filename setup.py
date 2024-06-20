@@ -36,7 +36,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='datasurface',
-    version='0.0.16',
+    version='0.0.17',
     license='BSL_v1.1',
     description='Automate the governance, management and movement of data within your enterprise',
     long_description=long_description,
@@ -45,7 +45,7 @@ setup(
     author_email='billy@datasurface.com',
     url='https://github.com/billynewport/datasurface',
     classifiers=[
-        'License :: OSI Approved :: GNU Affero General Public License v3',
+        'License :: BPL-1.1',
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',
