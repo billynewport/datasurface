@@ -8,7 +8,7 @@ This is the basic model, the github action handlers, model validations, model au
 
 We're building a REST API to the datasurface models. This is being packaged as a scalable docker container which uses a checked out github version of the model and makes it available using a REST API. This scales very easily. We just make a stateless cluster that runs on Kubernetes or similar. We just run as many instances as we need for the load. The APIs are written in python using FastAPI and pydantic for the JSON objects returned to the callers. This is necessary for non python consumers of the model such as Java Spark Jobs which need the schemas for data being ingested and so on. See [here](docs/REST_API.md) for more information.
 
-## Phase 2: Amazon AWS support (IN PROGRESS)
+## Phase 2: Amazon AWS support (Paused)
 
 This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md). The intention is to render a terraform IaC definition of the total pipeline in to a github branch which Terraform is watching. As the branch changes, Terraform will apply the changes to the infrastructure.
 
@@ -24,9 +24,9 @@ This will allow an ecosystem to be rendered on top of Microsoft Azure. It will a
 
 This DataPlatform will generate a bicep definition of the total pipeline for an Ecosystem which can then be used to maintain the data pipelines for the ecosystem on Azure. Periodically, the operation team can generate another bicep definition of the Ecosystem and then push this against the current infrastructure. Once the current infrastructure has been updated to match the new bicep definition then another revision can be pushed.
 
-## Phase 2: Private Compute Batch Support
+## Phase 2: Private Compute Batch Support using Kafka Connect/Confluent (IN PROGRESS)
 
-This will be a batch data platform that can run on private compute.
+This will be a batch/streaming data platform that can run on private compute or the cloud using Confluent.
 
 ## Phase 3: Federated Data platform support
 
