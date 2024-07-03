@@ -38,7 +38,7 @@ The data ecosystem has the following actors:
 * Data Consumers. The owners of applications that consume data. They need data to do their job.
 * Data Transformers. The owners of applications that transform data thats already available in the enterprise in to new data that is useful to the rest of the enterprise.
 * Data Platform owners (new). Development teams who create a Data platform product that can be used to satisfy the needs of data consumers.
-* Ecosystem Broker (new). This arbitrates between the data producers, consumers and transformers intentions and the available data platform products to meet the data actors needs.
+* Ecosystem Broker (new). This arbitrates between consumers intentions and the available data platform products to meet the data actors needs.
 
 ```mermaid
 graph TD
