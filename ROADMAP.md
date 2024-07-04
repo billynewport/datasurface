@@ -14,7 +14,7 @@ We're building a REST API to the datasurface models. This is being packaged as a
 
 The way this would be used is as a sidekick container in a Kubernetes job for example. The sidekick or init container runs with a copy of the model checked out of the repository. Then it runs on a localhost and the job can query the model easily. If the job is written in python then it can be consumed directly.
 
-## Phase 2: Private Compute Batch Support using Kafka Connect/Confluent (IN PROGRESS)
+## Phase 2: Private Compute Batch/Streaming Support using Kafka Connect/Confluent (IN PROGRESS)
 
 This will be a batch/streaming data platform that can run on private compute using Kafka Connect/Minio as its backbone or the cloud using Confluent/S3. The code for this is in another private repository for now until it's ready.
 
@@ -23,10 +23,6 @@ This will be a batch/streaming data platform that can run on private compute usi
 This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md). The intention is to render a terraform IaC definition of the total pipeline in to a github branch which Terraform is watching. As the branch changes, Terraform will apply the changes to the infrastructure.
 
 Thus, we have a github action looking for changes on the main branch and then generating the IaC for its, committing that to a different branch in Github which terraform is watching. This will allow the infrastructure to be updated in a controlled manner.
-
-## Phase 2: Streaming/Data pipeline
-
-The intention is to use Apache Beam or similar technology to run a unified streaming/batch pipeline when possible. The project will try to use Python/Mojo as much as possible also.
 
 ## Phase 2:  Batch Microsoft Azure Data Platform
 
