@@ -18,7 +18,7 @@ repositories {
 
 def grpcVersion = '1.62.2'
 def protobufVersion = '4.26.1'
-def sparkVersion = '3.5.1'
+def sparkVersion = '4.0.0-preview2'
 def sparkCoreVersion = '2.13'
 def icebergVersion = '1.5.1'
 

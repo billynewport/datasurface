@@ -20,3 +20,4 @@ src/datasurface.egg-info/*
 **/spark-warehouse/*
 **/ice_warehouse/*
 
+java/dmsingester/bin/**
