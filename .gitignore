@@ -21,3 +21,4 @@ src/datasurface.egg-info/*
 **/ice_warehouse/*
 
 java/dmsingester/bin/**
+**/venv/*
