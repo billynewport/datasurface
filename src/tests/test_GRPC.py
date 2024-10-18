@@ -63,21 +63,21 @@ class Test_GRPC(unittest.TestCase):
 
                 # Check ingestion partition keys match
                 if (origSchema.ingestionPartitionColumns is not None):
-                    self.assertEquals(len(customersDataset.schema.ingestionPartitionKeys), len(origSchema.ingestionPartitionColumns.colNames))
+                    self.assertEqual(len(customersDataset.schema.ingestionPartitionKeys), len(origSchema.ingestionPartitionColumns.colNames))
                     for colName in customersDataset.schema.ingestionPartitionKeys:
                         self.assertTrue(colName in origSchema.ingestionPartitionColumns.colNames)
                 else:
-                    self.assertEquals(len(customersDataset.schema.ingestionPartitionKeys), 0)
+                    self.assertEqual(len(customersDataset.schema.ingestionPartitionKeys), 0)
 
                 # Check primary keys match
                 assert origSchema.primaryKeyColumns is not None
-                self.assertEquals(len(customersDataset.schema.primaryKeys), len(origSchema.primaryKeyColumns.colNames))
+                self.assertEqual(len(customersDataset.schema.primaryKeys), len(origSchema.primaryKeyColumns.colNames))
                 for colName in customersDataset.schema.primaryKeys:
                     self.assertTrue(colName in origSchema.primaryKeyColumns.colNames)
 
                 # Check columns match
                 custSchema: DDLSchemaProto = customersDataset.schema.ddlSchema
-                self.assertEquals(len(custSchema.columns), len(origSchema.columns))
+                self.assertEqual(len(custSchema.columns), len(origSchema.columns))
                 protoColumns: dict[str, DDLColumnProto] = {column.name: column for column in custSchema.columns}
                 for origColumn in origSchema.columns.values():
                     custColumn = protoColumns[origColumn.name]
