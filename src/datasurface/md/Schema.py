@@ -29,7 +29,7 @@ class DataType(ABC):
         pass
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(self, DataType) and type(self) is type(__value)
+        return type(self) is type(__value)
 
     def __str__(self) -> str:
         return str(self.__class__.__name__) + "()"

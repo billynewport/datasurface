@@ -50,7 +50,7 @@ setup(
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',
         'Natural Language :: English',
-        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Topic :: Database :: Database Engines/Servers',
     ],
     packages=find_packages(where='src'),
