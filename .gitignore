@@ -22,3 +22,4 @@ src/datasurface.egg-info/*
 
 java/dmsingester/bin/**
 **/venv/*
+**/gitlab_vols/*
