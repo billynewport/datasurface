@@ -1,7 +1,7 @@
 version: '3.6'
 services:
   gitlab:
-    image: gitlab/gitlab-ce:latest
+    image: 'gitlab/gitlab-ce:$GITLABVERSION'
     container_name: gitlab
     restart: always
     hostname: '$HOSTNAME'
@@ -11,7 +11,7 @@ services:
         external_url 'http://$HOSTNAME'
     ports:
       - '80:80'
-      - '443:9443'
+      - '443:443'
       - '8022:9022'
     volumes:
       - '$GITLAB_HOME/config:/etc/gitlab'
@@ -22,7 +22,7 @@ services:
       - gitlab_default
 
   gitlab-runner:
-    image: gitlab/gitlab-runner:latest
+    image: 'gitlab/gitlab-runner:$GITRUNNERVERSION'
     container_name: gitlab-runner
     restart: always
     volumes:
