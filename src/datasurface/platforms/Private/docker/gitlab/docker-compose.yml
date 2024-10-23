@@ -9,14 +9,17 @@ services:
       GITLAB_OMNIBUS_CONFIG: |
         # Add any other gitlab.rb configuration here, each on its own line
         external_url 'http://$HOSTNAME'
+        # Explicitly set file permissions
+        user['username'] = "git"
+        user['group'] = "git"
     ports:
       - '80:80'
       - '443:443'
       - '8022:9022'
     volumes:
-      - '$GITLAB_HOME/config:/etc/gitlab'
-      - '$GITLAB_HOME/logs:/var/log/gitlab'
-      - '$GITLAB_HOME/data:/var/opt/gitlab'
+      - '$GITLAB_HOME/config:/etc/gitlab:rw'
+      - '$GITLAB_HOME/logs:/var/log/gitlab:rw'
+      - '$GITLAB_HOME/data:/var/opt/gitlab:rw'
     shm_size: '256m'
     networks:
       - gitlab_default
@@ -30,6 +33,8 @@ services:
       - '$GITLAB_HOME/runner-config:/etc/gitlab-runner'
     networks:
       - gitlab_default
+    depends_on:
+      - gitlab
 
 networks:
   gitlab_default:
