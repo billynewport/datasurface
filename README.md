@@ -7,6 +7,8 @@
 ``` text
 |-- .github                     # Contains the GitHub Actions for the project
 |-- docs                        # Contains documentation for the project
+|-- Diary                       # Contains the diary of the project, this is a stream of consciousness type of writing about whats happening or the thinking at a given point in time
+    |-- BillyN                  # Contains the diary of BillyN with a file per month.
 |-- java                        # Contains the Java code for the DataSurface
     |-- dmsingestor             # Contains the DataSurface Ingestor Spark Job code
         |-- build.gradle        # Gradle build file for the DataSurface Ingestor Spark Job
