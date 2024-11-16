@@ -2331,6 +2331,29 @@ class DataPlatform(ABC, Documentable):
         pass
 
 
+class LegacyDataPlatformExecutor(DataPlatformExecutor):
+    """This is a no-op DataPlatformExecutor. It's intent is to specify that the data flows are already realized and externally managed"""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        pass
+
+    def __str__(self) -> str:
+        return "LegacyDataPlatformExecutor()"
+
+
+class LegacyDataPlatform(DataPlatform):
+    """This is a no-op DataPlatform. It's intent is to specify that the data flows are already realized and externally managed
+    by existing systems. However, DataSurface will still track the data flows and manage governance for the data."""
+    def __init__(self, name: str, doc: Documentation) -> None:
+        super().__init__(name, doc, LegacyDataPlatformExecutor())
+
+    def __str__(self) -> str:
+        return f"LegacyDataPlatform({self.name})"
+
+
 class DataLatency(Enum):
     """Specifies the acceptable latency range from a consumer"""
     SECONDS = 0
@@ -2872,7 +2895,7 @@ class TriggerNode(PipelineNode):
         return hash(self.name)
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, TriggerNode) and self.workspace == o.workspace
+        return super().__eq__(o) and isinstance(o, TriggerNode) and self.workspace == o.workspace 
 
 
 class DataTransformerNode(PipelineNode):

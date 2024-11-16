@@ -18,8 +18,8 @@ repositories {
 
 def grpcVersion = '1.62.2'
 def protobufVersion = '4.26.1'
-def sparkVersion = '4.0.0-preview2'
-def sparkCoreVersion = '2.13'
+def sparkVersion = '3.5.1'
+def sparkCoreVersion = '2.12'
 def icebergVersion = '1.5.1'
 
 protobuf {
@@ -53,13 +53,13 @@ sourceSets {
 
 dependencies {
     // https://mvnrepository.com/artifact/com.holdenkarau/spark-testing-base
-    implementation group: 'com.holdenkarau', name: 'spark-testing-base_2.12', version: '3.5.1_1.5.1'
+    implementation group: 'com.holdenkarau', name: "spark-testing-base_${sparkCoreVersion}", version: "${sparkVersion}_${icebergVersion}"
 
 //    implementation "org.apache.spark:spark-core_${sparkCoreVersion}:${sparkVersion}"
 //    implementation "org.apache.spark:spark-sql_${sparkCoreVersion}:${sparkVersion}"
-    implementation group: 'org.apache.iceberg', name: 'iceberg-spark-runtime-3.5_2.12', version: '1.5.1'
-    implementation group: 'org.apache.iceberg', name: 'iceberg-hive-metastore', version: '1.5.1'
-    implementation 'org.apache.iceberg:iceberg-core:1.5.1'
+    implementation group: 'org.apache.iceberg', name: "iceberg-spark-runtime-3.5_${sparkCoreVersion}", version: "${icebergVersion}"
+    implementation group: 'org.apache.iceberg', name: 'iceberg-hive-metastore', version: "${icebergVersion}"
+    implementation "org.apache.iceberg:iceberg-core:${icebergVersion}"
 // https://mvnrepository.com/artifact/org.apache.hive/hive-metastore
 //    implementation ('org.apache.hive:hive-metastore:3.1.3')
 //    {
