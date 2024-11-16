@@ -14,6 +14,8 @@ from .Lint import ValidationProblem, ValidationTree
 from .utils import ANSI_SQL_NamedObject, is_valid_sql_identifier
 from .Documentation import Documentable, Documentation
 
+from .Lint import ProblemSeverity
+
 
 def handleUnsupportedObjectsToJson(obj: object) -> str:
     if isinstance(obj, Enum):
@@ -1011,7 +1013,7 @@ class PartitionKeyList(AttributeList):
 class NotBackwardsCompatible(ValidationProblem):
     """This is a validation problem that indicates that the schema is not backwards compatible"""
     def __init__(self, problem: str) -> None:
-        super().__init__(problem)
+        super().__init__(problem, ProblemSeverity.ERROR)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, NotBackwardsCompatible)

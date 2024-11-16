@@ -3379,7 +3379,7 @@ class IaCDataPlatformRendererShim(IaCDataPlatformRenderer):
 
 class UnsupportedDataContainer(ValidationProblem):
     def __init__(self, dc: DataContainer):
-        super().__init__(f"DataContainer {dc} is not supported")
+        super().__init__(f"DataContainer {dc} is not supported", ProblemSeverity.ERROR)
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, UnsupportedDataContainer)
