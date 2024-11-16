@@ -24,7 +24,7 @@ class Documentation(ABC):
     def __eq__(self, other: object) -> bool:
         if other is None or not isinstance(other, Documentation):
             return False
-        return (self.description == other.description and 
+        return (self.description == other.description and
                 (self.tags == other.tags if self.tags and other.tags else self.tags is other.tags))
 
     def __str__(self) -> str:

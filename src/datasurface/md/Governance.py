@@ -2895,7 +2895,7 @@ class TriggerNode(PipelineNode):
         return hash(self.name)
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, TriggerNode) and self.workspace == o.workspace 
+        return super().__eq__(o) and isinstance(o, TriggerNode) and self.workspace == o.workspace
 
 
 class DataTransformerNode(PipelineNode):
