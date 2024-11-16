@@ -274,10 +274,6 @@ class GitHubRepository(Repository):
         if branch.endswith('.'):
             return False
 
-        # Branch names cannot have multiple consecutive . characters
-        if '..' in branch:
-            return False
-
         # Branch names cannot contain any of the following characters: ~ ^ : \ * ? [ ] /
         if any(char in branch for char in ['~', '^', ':', '\\', '*', '?', '[', ']', '/']):
             return False
@@ -293,6 +289,6 @@ class GitHubRepository(Repository):
     def lint(self, tree: ValidationTree):
         """This checks if repository is valid syntaxically"""
         if (not self.is_valid_github_repo_name(self.repositoryName)):
-            tree.addProblem("Repository name <{self.repositoryName}> is not valid")
+            tree.addProblem(f"Repository name <{self.repositoryName}> is not valid")
         if (not self.is_valid_github_branch(self.branchName)):
-            tree.addProblem("Branch name <{self.branchName}> is not valid")
+            tree.addProblem(f"Branch name <{self.branchName}> is not valid")
