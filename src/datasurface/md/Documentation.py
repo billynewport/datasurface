@@ -12,16 +12,24 @@ from datasurface.md.Lint import ValidationTree
 
 class Documentation(ABC):
     def __init__(self, description: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
+        if not description:
+            raise ValueError("Description cannot be empty")
+        if tags is not None:
+            for key, value in tags.items():
+                if not key or not value:
+                    raise ValueError("Tag keys and values cannot be empty")
         self.description: str = description
         self.tags: Optional[OrderedDict[str, str]] = tags
 
-    def __eq__(self, other: object):
-        if (not isinstance(other, Documentation)):
+    def __eq__(self, other: object) -> bool:
+        if other is None or not isinstance(other, Documentation):
             return False
-        return self.description == other.description and self.tags == other.tags
+        return (self.description == other.description and 
+                (self.tags == other.tags if self.tags and other.tags else self.tags is other.tags))
 
     def __str__(self) -> str:
-        return "Documentation()"
+        tags_str = f", tags={self.tags}" if self.tags else ""
+        return f"Documentation(description='{self.description}'{tags_str})"
 
     @abstractmethod
     def lint(self, tree: ValidationTree):
