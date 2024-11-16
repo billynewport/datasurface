@@ -26,7 +26,8 @@ def handleUnsupportedObjectsToJson(obj: object) -> str:
 
 
 class DataType(ABC):
-    """Base class for all data types"""
+    """Base class for all data types. These DataTypes are not nullable. Nullable status is a property of
+    columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
         pass
 
@@ -159,19 +160,27 @@ class StructType(DataType):
         return super().__eq__(__value) and isinstance(__value, StructType) and self.fields == __value.fields
 
     def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
-        rc: bool = super().isBackwardsCompatibleWith(other, vTree)
-        if rc and isinstance(other, StructType):
-            for key, value in self.fields.items():
-                if key in other.fields:
-                    if not value.isBackwardsCompatibleWith(other.fields[key], vTree):
-                        vTree.addProblem(f"Field {key} is not backwards compatible")
-                        rc = False
-                else:
-                    vTree.addProblem(f"Field {key} is not present in other")
-                    rc = False
-        else:
-            rc = False
-        return rc
+        if not super().isBackwardsCompatibleWith(other, vTree):
+            return False
+        if not isinstance(other, StructType):
+            return False
+
+        # Check for removed or modified fields
+        for key, value in other.fields.items():
+            if key not in self.fields:
+                vTree.addProblem(f"Field {key} has been removed")
+                return False
+
+        # Check for added or modified fields
+        for key, value in self.fields.items():
+            if key not in other.fields:
+                vTree.addProblem(f"Field {key} has been added")
+                return False
+            if not value.isBackwardsCompatibleWith(other.fields[key], vTree):
+                vTree.addProblem(f"Field {key} is not backwards compatible")
+                return False
+
+        return True
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.fields})"
