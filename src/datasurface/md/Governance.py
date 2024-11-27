@@ -2331,29 +2331,6 @@ class DataPlatform(ABC, Documentable):
         pass
 
 
-class LegacyDataPlatformExecutor(DataPlatformExecutor):
-    """This is a no-op DataPlatformExecutor. It's intent is to specify that the data flows are already realized and externally managed"""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def lint(self, eco: Ecosystem, tree: ValidationTree):
-        pass
-
-    def __str__(self) -> str:
-        return "LegacyDataPlatformExecutor()"
-
-
-class LegacyDataPlatform(DataPlatform):
-    """This is a no-op DataPlatform. It's intent is to specify that the data flows are already realized and externally managed
-    by existing systems. However, DataSurface will still track the data flows and manage governance for the data."""
-    def __init__(self, name: str, doc: Documentation) -> None:
-        super().__init__(name, doc, LegacyDataPlatformExecutor())
-
-    def __str__(self) -> str:
-        return f"LegacyDataPlatform({self.name})"
-
-
 class DataLatency(Enum):
     """Specifies the acceptable latency range from a consumer"""
     SECONDS = 0
@@ -2390,6 +2367,9 @@ class ConsumerRetentionRequirements:
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+
+    def __hash__(self) -> int:
+        return hash((self.policy, self.latency, self.minRetentionTime, self.regulator))
 
 
 class DataPlatformChooser(ABC):
@@ -2437,6 +2417,9 @@ class WorkspacePlatformConfig(DataPlatformChooser):
     def __str__(self) -> str:
         return f"WorkspacePlatformConfig({self.retention})"
 
+    def __hash__(self) -> int:
+        return hash(self.retention)
+
 
 class WorkspaceFixedDataPlatform(DataPlatformChooser):
     """This specifies a fixed DataPlatform for a Workspace"""
@@ -2451,6 +2434,9 @@ class WorkspaceFixedDataPlatform(DataPlatformChooser):
 
     def __str__(self) -> str:
         return f"WorkspaceFixedDataPlatform({self.dataPlatform})"
+
+    def __hash__(self) -> int:
+        return hash(self.dataPlatform)
 
 
 class DeprecationsAllowed(Enum):
@@ -2549,6 +2535,9 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+
+    def __hash__(self) -> int:
+        return hash((self.name, tuple(self.sinks.items()), self.platformMD))
 
     def lint(self, eco: Ecosystem, team: Team, ws: 'Workspace', tree: ValidationTree):
         super().nameLint(tree)
@@ -2955,6 +2944,11 @@ class PlatformPipelineGraph:
         # Views need to be aliased on top providing the Workspace/DSG named object for consumers to query
         self.dataContainerExports: dict[DataContainer, set[DatasetSink]] = dict()
 
+        # This tracks which DatasetGroups are consumers of a DataContainer. This is necessary because
+        # The DataPlatform may need to create view objects for each DatasetSink in the DataContainer
+        # pointed at the underlying raw table
+        self.dataContainerConsumers: dict[DataContainer, set[tuple[Workspace, DatasetGroup]]] = dict()
+
         # These are all the datastores used in the pipelinegraph for this platform. Note, this may be
         # a subset of the datastores in total in the ecosystem
         self.storesToIngest: set[str] = set()
@@ -2969,6 +2963,8 @@ class PlatformPipelineGraph:
         """This generates the pipeline graph for the platform. This is a directed graph with nodes representing
         ingestion, export, trigger, and data transformation operations"""
         self.dataContainerExports = dict()
+        self.dataContainerConsumers = dict()
+        self.storesToIngest = set()
 
         # Split DSGs by Asset hosting Workspaces
         for dsg in self.roots:
@@ -2979,8 +2975,11 @@ class PlatformPipelineGraph:
                 sinks: set[DatasetSink] = self.dataContainerExports[dataContainer]
                 for sink in dsg.dsg.sinks.values():
                     sinks.add(sink)
+                if self.dataContainerConsumers.get(dataContainer) is None:
+                    self.dataContainerConsumers[dataContainer] = set()
+                self.dataContainerConsumers[dataContainer].add((dsg.workspace, dsg.dsg))
+
         # Now collect stores to ingest per platform
-        self.storesToIngest = set()
         for sinkset in self.dataContainerExports.values():
             for sink in sinkset:
                 self.storesToIngest.add(sink.storeName)
