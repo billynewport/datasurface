@@ -95,9 +95,20 @@ class TestEcoNameChange(unittest.TestCase):
 
     def test_GZCannotBeDefinedFromEcoBranch(self):
 
+        # Need to define an ecosystem with the basic params and the DataPlatform
+        # The dataplatform needs to be defined first because it cannot be looked up
+        # if referenced in the same constructor call. So, create an Ecosystem first with
+        # the dataplatform and then add the remaining elements which can now reference
+        # the dataplatform by name
         eOriginal: Ecosystem = Ecosystem(
             "AcmeEco",
             GitHubRepository("billynewport/test-surface", "eco_edits"),
+            AzureBatchDataPlatform(
+                "AzureBatch",
+                PlainTextDocumentation("Azure Batch"),
+                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
+                AzureKeyVaultCredential("myKeyVault", "mySecret")))
+        eOriginal.add(
             InfrastructureVendor(
                 "Azure",
                 CloudVendor.AZURE,
@@ -121,17 +132,19 @@ class TestEcoNameChange(unittest.TestCase):
                         InfrastructureLocation("West US 2"),  # Washington
                         InfrastructureLocation("West US 3")))),  # Arizona
                 DefaultDataPlatform(
-                    AzureBatchDataPlatform(
-                        "AzureBatch",
-                        PlainTextDocumentation("Azure Batch"),
-                        DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                        AzureKeyVaultCredential("keyvault", "mysecret"))),
+                    eOriginal.getDataPlatformOrThrow("AzureBatch")),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
 
         eProposed: Ecosystem = Ecosystem(
             "AcmeEco",
             GitHubRepository("billynewport/test-surface", "eco_edits"),
+            AzureBatchDataPlatform(
+                "AzureBatch",
+                PlainTextDocumentation("Azure Batch"),
+                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
+                AzureKeyVaultCredential("myKeyVault", "mySecret")))
+        eProposed.add(
             InfrastructureVendor(
                 "Azure",
                 CloudVendor.AZURE,
@@ -155,11 +168,7 @@ class TestEcoNameChange(unittest.TestCase):
                         InfrastructureLocation("West US 2"),  # Washington
                         InfrastructureLocation("West US 3")))),  # Arizona
                 DefaultDataPlatform(
-                    AzureBatchDataPlatform(
-                        "AzureBatch",
-                        PlainTextDocumentation("Azure Batch"),
-                        DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                        AzureKeyVaultCredential("myKeyVault", "mySecret"))),
+                    eProposed.getDataPlatformOrThrow("AzureBatch")),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
         gz: GovernanceZone = eProposed.getZoneOrThrow("GZ")
