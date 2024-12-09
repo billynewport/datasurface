@@ -1501,7 +1501,8 @@ class Ecosystem(GitControlledObject):
 
     def getDataPlatformOrThrow(self, name: str) -> 'DataPlatform':
         p: Optional['DataPlatform'] = self.getDataPlatform(name)
-        assert p is not None
+        if (p is None):
+            raise ObjectDoesntExistException(f"Unknown data platform {name}")
         return p
 
     def getLocation(self, vendorName: str, locKey: list[str]) -> Optional[InfrastructureLocation]:
@@ -1514,7 +1515,8 @@ class Ecosystem(GitControlledObject):
     def getLocationOrThrow(self, vendorName: str, locKey: list[str]) -> InfrastructureLocation:
         vendor: InfrastructureVendor = self.getVendorOrThrow(vendorName)
         loc: Optional[InfrastructureLocation] = vendor.findLocationUsingKey(locKey)
-        assert loc is not None
+        if loc is None:
+            raise ObjectDoesntExistException(f"Unknown location {locKey} in vendor {vendorName}")
         return loc
 
     def getAllChildLocations(self, vendorName: str, locKey: list[str]) -> set[InfrastructureLocation]:
@@ -1545,12 +1547,14 @@ class Ecosystem(GitControlledObject):
     def cache_getWorkspaceOrThrow(self, work: str) -> WorkspaceCacheEntry:
         """This returns the named workspace if it exists"""
         w: Optional[WorkspaceCacheEntry] = self.workSpaceCache.get(work)
-        assert w is not None
+        if (w is None):
+            raise ObjectDoesntExistException(f"Unknown workspace {work}")
         return w
 
     def cache_getDatastoreOrThrow(self, store: str) -> DatastoreCacheEntry:
         s: Optional[DatastoreCacheEntry] = self.datastoreCache.get(store)
-        assert s is not None
+        if s is None:
+            raise ObjectDoesntExistException(f"Unknown datastore {store}")
         return s
 
     def cache_getDataset(self, storeName: str, datasetName: str) -> Optional[Dataset]:
@@ -1697,7 +1701,8 @@ class Ecosystem(GitControlledObject):
 
     def getZoneOrThrow(self, gz: str) -> 'GovernanceZone':
         z: Optional[GovernanceZone] = self.getZone(gz)
-        assert z is not None
+        if (z is None):
+            raise ObjectDoesntExistException(f"Unknown zone {gz}")
         return z
 
     def getTeam(self, gz: str, teamName: str) -> Optional['Team']:
@@ -1711,7 +1716,8 @@ class Ecosystem(GitControlledObject):
 
     def getTeamOrThrow(self, gz: str, teamName: str) -> 'Team':
         t: Optional[Team] = self.getTeam(gz, teamName)
-        assert t is not None
+        if (t is None):
+            raise ObjectDoesntExistException(f"Unknown team {teamName} in zone {gz}")
         return t
 
     def __str__(self) -> str:
@@ -1826,7 +1832,8 @@ class Team(GitControlledObject):
 
     def getStoreOrThrow(self, storeName: str) -> Datastore:
         rc: Optional[Datastore] = self.dataStores.get(storeName)
-        assert rc is not None
+        if rc is None:
+            raise ObjectDoesntExistException(f"Unknown datastore {storeName}")
         return rc
 
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
@@ -2129,7 +2136,8 @@ class GovernanceZone(GitControlledObject):
 
     def getTeamOrThrow(self, name: str) -> Team:
         t: Optional[Team] = self.getTeam(name)
-        assert t is not None
+        if (t is None):
+            raise ObjectDoesntExistException(f"Unknown team {name}")
         return t
 
     def __eq__(self, __value: object) -> bool:
@@ -3023,7 +3031,8 @@ class PlatformPipelineGraph:
     def createIngestionStepForDataStore(self, store: Datastore, exportStep: ExportNode) -> PipelineNode:
         # Create a step for a single or multi dataset ingestion
         ingestionStep: Optional[PipelineNode] = None
-        assert store.cmd is not None
+        if store.cmd is None:
+            raise Exception(f"Store {store.name} cmd is None")
         if (store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
             ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger)
         else:  # MULTI_DATASET
