@@ -9,7 +9,7 @@ from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import GitHubRepository
 from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, GovernanceZone, \
     GovernanceZoneDeclaration, InfraStructureLocationPolicy, \
-    InfrastructureLocation, InfrastructureVendor, TeamDeclaration
+    InfrastructureLocation, InfrastructureVendor, TeamDeclaration, DataPlatformKey
 
 # Base branch for step 1, define an Ecosystem, data platforms, infrastructure vendors/locations and 3 Governance Zones
 
@@ -18,12 +18,13 @@ def createEcosystem() -> Ecosystem:
     e: Ecosystem = Ecosystem(
         "Test",
         GitHubRepository("billynewport/test_step1", "main"),
-        DefaultDataPlatform(
-            AzureDataplatform(
-                "Azure Platform",
-                PlainTextDocumentation("Test"),
-                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                AzureKeyVaultCredential("vault", "maincred"))),
+        AzureDataplatform(
+            "Azure Platform",
+            PlainTextDocumentation("Test"),
+            DataPlatformCICDExecutor(
+                GitHubRepository("owner/repo", "branch")),
+            AzureKeyVaultCredential("vault", "maincred")),
+        DefaultDataPlatform(DataPlatformKey("Azure Platform")),
         AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),

@@ -553,9 +553,9 @@ class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
         return super().__hash__()
 
 
-class DataPlatformPolicy(AllowDisallowPolicy['DataPlatform']):
-    def __init__(self, name: str, doc: Optional[Documentation], allowed: Optional[set['DataPlatform']] = None,
-                 notAllowed: Optional[set['DataPlatform']] = None):
+class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
+    def __init__(self, name: str, doc: Optional[Documentation], allowed: Optional[set['DataPlatformKey']] = None,
+                 notAllowed: Optional[set['DataPlatformKey']] = None):
         super().__init__(name, doc, allowed, notAllowed)
 
     def __str__(self):
@@ -1409,8 +1409,22 @@ class DependentWorkspaces:
 
 
 class DefaultDataPlatform:
-    def __init__(self, p: 'DataPlatform'):
-        self.defaultPlatform = p
+    def __init__(self, p: 'DataPlatformKey'):
+        self.defaultPlatform: 'DataPlatformKey' = p
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        if (eco.getDataPlatform(self.defaultPlatform.name) is None):
+            tree.addRaw(ValidationProblem("Default Data Platform not set", ProblemSeverity.ERROR))
+        else:
+            self.defaultPlatform.lint(eco, tree.addSubTree("DefaultDataPlatform"))
+
+    def get(self, eco: 'Ecosystem') -> 'DataPlatform':
+        return eco.getDataPlatformOrThrow(self.defaultPlatform.name)
+
+    def __eq__(self, __value: object) -> bool:
+        if (isinstance(__value, DefaultDataPlatform)):
+            return self.defaultPlatform == __value.defaultPlatform
+        return False
 
 
 # Add regulators here with their named retention policies for reference in Workspaces
@@ -1434,7 +1448,7 @@ class Ecosystem(GitControlledObject):
 
         self.vendors: dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.dataPlatforms: dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
-        self.defaultDataPlatform: Optional[DataPlatform] = None
+        self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
         self.resetCaches()
         self.add(*args)
 
@@ -1461,8 +1475,7 @@ class Ecosystem(GitControlledObject):
                 if (self.defaultDataPlatform is not None):
                     raise AttributeAlreadySetException("Default DataPlatform already specified")
                 else:
-                    self.defaultDataPlatform = arg.defaultPlatform
-                    self.dataPlatforms[self.defaultDataPlatform.name] = self.defaultDataPlatform
+                    self.defaultDataPlatform = arg
             else:
                 self.zones.addAuthorization(arg)
                 arg.key = GovernanceZoneKey(self.key, arg.name)
@@ -1473,7 +1486,7 @@ class Ecosystem(GitControlledObject):
     def getDefaultDataPlatform(self) -> 'DataPlatform':
         """This returns the default DataPlatform or throws an Exception if it has not been specified"""
         if (self.defaultDataPlatform):
-            return self.defaultDataPlatform
+            return self.defaultDataPlatform.get(self)
         else:
             raise Exception("No default data platform specified")
 
@@ -1601,6 +1614,9 @@ class Ecosystem(GitControlledObject):
         self.zones.lint(ecoTree)
         if (self.documentation):
             self.documentation.lint(ecoTree)
+
+        if (self.defaultDataPlatform is not None):
+            self.defaultDataPlatform.lint(self, ecoTree)
 
         # If there are no errors at this point then
         # Generate pipeline graphs and lint them.
@@ -2337,6 +2353,28 @@ class DataPlatform(ABC, Documentable):
     @abstractmethod
     def createIaCRender(self, graph: 'PlatformPipelineGraph') -> 'IaCDataPlatformRenderer':
         pass
+
+
+class DataPlatformKey:
+    """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
+    resolved later at lint time."""
+    def __init__(self, name: str) -> None:
+        self.name: str = name
+        self.platform: Optional[DataPlatform] = None
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        if (not self.name):
+            tree.addRaw(AttributeNotSet("name"))
+        else:
+            self.platform = eco.getDataPlatform(self.name)
+            if (self.platform is None):
+                tree.addRaw(ValidationProblem(f"Unknown DataPlatform {self.name}", ProblemSeverity.ERROR))
+
+    def __eq__(self, value: object) -> bool:
+        return isinstance(value, DataPlatformKey) and self.name == value.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
 
 class DataLatency(Enum):

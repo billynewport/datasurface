@@ -16,7 +16,7 @@ from datasurface.platforms.azure.Azure import AzureSQLDatabase, AzureDataplatfor
 from datasurface.md.Documentation import PlainTextDocumentation
 from datasurface.md.GitOps import FakeRepository, GitHubRepository
 from datasurface.md.Governance import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
-    DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, \
+    DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DataPlatformKey, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md.Lint import ValidationTree
 from datasurface.md.Policy import SimpleDC, SimpleDCTypes
@@ -366,13 +366,12 @@ class TestWorkspace(unittest.TestCase):
         # Make ecosystem and declare a single zone US
         e: Ecosystem = Ecosystem(
                 "BigCorp", FakeRepository("a"),
-                DefaultDataPlatform(
-                    AzureDataplatform(
-                        "Azure",
-                        PlainTextDocumentation("Test"),
-                        DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                        AzureKeyVaultCredential("keyvault", "aa"))
-                    ),
+                AzureDataplatform(
+                    "Azure",
+                    PlainTextDocumentation("Test"),
+                    DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
+                    AzureKeyVaultCredential("keyvault", "aa")),
+                DefaultDataPlatform(DataPlatformKey("Azure")),
                 InfrastructureVendor(
                     "Azure",
                     CloudVendor.AWS,
