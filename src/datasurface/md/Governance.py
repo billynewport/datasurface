@@ -1414,11 +1414,14 @@ class DefaultDataPlatform:
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         if (eco.getDataPlatform(self.defaultPlatform.name) is None):
-            tree.addRaw(ValidationProblem("Default Data Platform not set", ProblemSeverity.ERROR))
+            tree.addRaw(AttributeNotSet("Default Data Platform not set"))
         else:
             self.defaultPlatform.lint(eco, tree.addSubTree("DefaultDataPlatform"))
 
     def get(self, eco: 'Ecosystem') -> 'DataPlatform':
+        """This returns the default DataPlatform or throws an Exception if it has not been specified"""
+        if (self.defaultPlatform is None):
+            raise Exception("No default data platform specified")
         return eco.getDataPlatformOrThrow(self.defaultPlatform.name)
 
     def __eq__(self, __value: object) -> bool:
@@ -2432,20 +2435,6 @@ class DataPlatformChooser(ABC):
         return f"{self.__class__.__name__}()"
 
 
-class FixedDataPlatform(DataPlatformChooser):
-    def __init__(self, dp: DataPlatform):
-        self.fixedDataPlatform: DataPlatform = dp
-
-    def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
-        return self.fixedDataPlatform
-
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FixedDataPlatform) and self.fixedDataPlatform == __value.fixedDataPlatform
-
-    def __str__(self) -> str:
-        return f"FixedDataPlatform({self.fixedDataPlatform})"
-
-
 class WorkspacePlatformConfig(DataPlatformChooser):
     """This allows a Workspace to specify per pipeline hints for behavior, i.e.
     allowed latency and so on"""
@@ -2469,14 +2458,14 @@ class WorkspacePlatformConfig(DataPlatformChooser):
 
 class WorkspaceFixedDataPlatform(DataPlatformChooser):
     """This specifies a fixed DataPlatform for a Workspace"""
-    def __init__(self, dp: DataPlatform):
-        self.dataPlatform: DataPlatform = dp
+    def __init__(self, dp: DataPlatformKey):
+        self.dataPlatform: DataPlatformKey = dp
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, WorkspaceFixedDataPlatform) and self.dataPlatform == o.dataPlatform
 
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
-        return self.dataPlatform
+        return eco.getDataPlatform(self.dataPlatform.name)
 
     def __str__(self) -> str:
         return f"WorkspaceFixedDataPlatform({self.dataPlatform})"
