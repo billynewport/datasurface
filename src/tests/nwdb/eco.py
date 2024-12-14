@@ -6,13 +6,13 @@
 
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem
-from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.platforms.azure.Azure import AzureDataplatform, AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, InfraStructureLocationPolicy, \
+from datasurface.platforms.aws import AmazonAWSDataPlatform
+from datasurface.platforms.azure import AzureDataplatform, AzureKeyVaultCredential
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
+from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, InfraStructureLocationPolicy, \
         DataPlatformKey
-from datasurface.md.Lint import ValidationTree
+from datasurface.md import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 

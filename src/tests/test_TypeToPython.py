@@ -6,8 +6,8 @@
 
 import unittest
 
-from datasurface.md.Schema import Vector, Binary, Variant, Boolean, NChar, Char, String, VarChar
-from datasurface.md.Schema import NVarChar, Interval, Date, Timestamp, Decimal, FP8_E4M3FNUZ
+from datasurface.md import Vector, Binary, Variant, Boolean, NChar, Char, String, VarChar
+from datasurface.md import NVarChar, Interval, Date, Timestamp, Decimal, FP8_E4M3FNUZ
 
 
 class Test_ColumnCodeGen(unittest.TestCase):

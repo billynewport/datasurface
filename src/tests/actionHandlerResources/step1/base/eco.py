@@ -5,9 +5,9 @@
 
 from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
 from datasurface.platforms.azure.Azure import AzureDataplatform, AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
+from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \
     GovernanceZoneDeclaration, InfrastructureLocation, InfrastructureVendor, DataPlatformKey
 
 # Base branch for step 1, define an Ecosystem, data platforms, infrastructure vendors/locations and 3 Governance Zones

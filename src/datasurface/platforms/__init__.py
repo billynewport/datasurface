@@ -4,3 +4,5 @@
 """
 
 from .legacy import *  # noqa
+from .aws import *  # noqa
+from .azure import *  # noqa

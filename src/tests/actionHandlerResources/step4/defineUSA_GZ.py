@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.azure.Azure import AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
+from datasurface.platforms.azure import AzureKeyVaultCredential
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
     PyOdbcSourceInfo, Team
-from datasurface.md.Policy import SimpleDC, SimpleDCTypes
-from datasurface.md.Schema import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
+from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
 
 
 def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):

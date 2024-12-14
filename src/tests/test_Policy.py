@@ -5,9 +5,9 @@
 
 
 import unittest
-from datasurface.md.Documentation import PlainTextDocumentation
+from datasurface.md import PlainTextDocumentation
 
-from datasurface.md.Policy import AllowDisallowPolicy
+from datasurface.md import AllowDisallowPolicy
 
 
 class Test_Policy(unittest.TestCase):

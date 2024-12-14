@@ -6,8 +6,8 @@
 
 import unittest
 
-from datasurface.platforms.azure.Azure import SQLServerNamingMapper
-from datasurface.md.Governance import DataContainerNamingMapper
+from datasurface.platforms.azure import SQLServerNamingMapper
+from datasurface.md import DataContainerNamingMapper
 
 
 class Test_DataContainerMapper(unittest.TestCase):

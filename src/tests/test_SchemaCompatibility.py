@@ -9,8 +9,8 @@ import copy
 
 from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32, IEEE64, IEEE16, IEEE128, BigInt, SmallInt, Decimal
 from datasurface.md import DDLTable
-from datasurface.md.Lint import ValidationTree
-from datasurface.md.Schema import Binary, Boolean, Char, Date, Interval, NVarChar, Timestamp, VarChar, Variant, Vector
+from datasurface.md import ValidationTree
+from datasurface.md import Binary, Boolean, Char, Date, Interval, NVarChar, Timestamp, VarChar, Variant, Vector
 
 
 class TestSchemaCompatibility(unittest.TestCase):

@@ -14,7 +14,7 @@ from datasurface.api.api_pb2 import DataStoreRequest, Datastore as DatastoreProt
 from datasurface.handler.action import GitHubCICD
 from datasurface.handler.cicd import RepositorywithCICD
 from datasurface.md import Schema, DDLTable, NullableStatus
-from datasurface.md.Governance import Datastore, Ecosystem
+from datasurface.md import Datastore, Ecosystem
 
 
 class Test_GRPC(unittest.TestCase):

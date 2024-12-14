@@ -10,9 +10,9 @@ import sys
 from types import ModuleType
 from typing import Optional
 
-from datasurface.md.Governance import Ecosystem
-from datasurface.md.GitOps import Repository
-from datasurface.md.Lint import ValidationTree
+from datasurface.md import Ecosystem
+from datasurface.md import Repository
+from datasurface.md import ValidationTree
 
 
 class RepositorywithCICD(ABC):

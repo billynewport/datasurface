@@ -10,10 +10,10 @@ import unittest
 
 from datasurface.md import AvroSchema, DDLColumn, Schema, String, NullableStatus, PrimaryKeyStatus
 from datasurface.md import DDLTable, PrimaryKeyList
-from datasurface.md.Exceptions import NameMustBeANSISQLIdentifierException
-from datasurface.md.Governance import Dataset, Datastore, Ecosystem, ProductionStatus
-from datasurface.md.Lint import ProductionDatastoreMustHaveClassifications, ValidationTree
-from datasurface.md.Policy import SimpleDC, SimpleDCTypes
+from datasurface.md import NameMustBeANSISQLIdentifierException
+from datasurface.md import Dataset, Datastore, Ecosystem, ProductionStatus
+from datasurface.md import ProductionDatastoreMustHaveClassifications, ValidationTree
+from datasurface.md import SimpleDC, SimpleDCTypes
 from tests.nwdb.eco import createEcosystem
 
 
@@ -77,8 +77,8 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertEqual(t.columns['lastName'].primaryKey, PrimaryKeyStatus.NOT_PK)
 
     def test_AvroSchema(self):
-        s1: Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f1","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
-        s2: Schema = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
+        s1: Schema = AvroSchema('{"type":"record","name":"test","fields":[{"name":"f1","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
+        s2: Schema = AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
 
         self.assertEqual(s1, s1)
         self.assertNotEqual(s1, s2)
@@ -90,7 +90,7 @@ class TestSchemaCreation(unittest.TestCase):
         self.assertNotEqual(s1, s2)
 
         # Modify schema
-        s2 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
+        s2 = AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)])
         self.assertNotEqual(s1, s2)
 
         # s1 is compatible with s1
@@ -108,8 +108,8 @@ class TestSchemaCreation(unittest.TestCase):
         s2.checkForBackwardsCompatibility(s1, tree)
         self.assertTrue(tree.hasErrors())
 
-        s1 = AvroSchema.AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)],
-                                   PrimaryKeyList(["f2other"]))
+        s1 = AvroSchema('{"type":"record","name":"test","fields":[{"name":"f2other","type":"string"}]}', [SimpleDC(SimpleDCTypes.PC3)],
+                        PrimaryKeyList(["f2other"]))
 
         tree = ValidationTree(s1)
         s1.lint(tree)

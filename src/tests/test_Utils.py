@@ -5,10 +5,10 @@
 
 
 import unittest
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Lint import ValidationTree
+from datasurface.md import GitHubRepository
+from datasurface.md import ValidationTree
 
-from datasurface.md.utils import is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
+from datasurface.md import is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string
 
 
 class Test_Utils(unittest.TestCase):

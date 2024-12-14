@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.platforms.azure.Azure import AzureDataplatform, AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, \
+from datasurface.platforms.aws import AmazonAWSDataPlatform
+from datasurface.platforms.azure import AzureDataplatform, AzureKeyVaultCredential
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
+from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, \
     DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 from tests.actionHandlerResources.step3.defineEU_GZ import defineEU_GZ

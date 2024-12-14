@@ -8,8 +8,8 @@ import sys
 from typing import Optional
 from datasurface.handler.cicd import RepositorywithCICD
 
-from datasurface.md.GitOps import GitHubRepository, Repository
-from datasurface.md.Lint import ValidationTree
+from datasurface.md import GitHubRepository, Repository
+from datasurface.md import ValidationTree
 
 
 class GitHubCICD(RepositorywithCICD):

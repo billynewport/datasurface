@@ -14,7 +14,7 @@ from datasurface.api.api_pb2 import DataStoreRequest
 from datasurface.handler.action import GitHubCICD
 from datasurface.handler.cicd import RepositorywithCICD
 from datasurface.md import Schema, DDLTable, NullableStatus
-from datasurface.md.Governance import Datastore, DatastoreCacheEntry, Ecosystem
+from datasurface.md import Datastore, DatastoreCacheEntry, Ecosystem
 from datasurface.api.api_pb2 import Datastore as DatastoreProto
 from datasurface.api.api_pb2 import Dataset as DatasetProto
 from datasurface.api.api_pb2 import Schema as SchemaProto

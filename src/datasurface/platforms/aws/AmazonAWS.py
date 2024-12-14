@@ -8,19 +8,19 @@ from typing import Any, Optional, Type, cast
 
 from jinja2 import Environment, PackageLoader, Template, select_autoescape
 
-from datasurface.md.AvroSchema import AvroSchema as AvSchema
-from datasurface.md.Documentation import Documentation, PlainTextDocumentation
+from datasurface.md import AvroSchema as AvSchema
+from datasurface.md import Documentation, PlainTextDocumentation
 from urllib import parse
 
-from datasurface.md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
+from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
     DataContainerNamingMapper, DataPlatformExecutor, DataTransformerNode, DatasetGroup, \
     Datastore, DatastoreCacheEntry, ExportNode, FileBasedFragmentManager, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, \
     IngestionMetadata, IngestionMultiNode, IngestionSingleNode, PipelineNode, PlatformPipelineGraph, SQLDatabase, SchemaProjector, \
     DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
-    ObjectStorage, TriggerNode, UnsupportedDataContainer, Workspace, defaultPipelineNodeFileName
+    ObjectStorage, TriggerNode, UnsupportedDataContainer, Workspace, defaultPipelineNodeFileName, DataPlatformGraphHandler
 
-from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
-from datasurface.md.Schema import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, \
+from datasurface.md import NameHasBadSynthax, ValidationTree
+from datasurface.md import IEEE16, IEEE32, IEEE64, BigInt, Boolean, DDLColumn, DDLTable, \
     DataType, Date, Decimal, Integer, NVarChar, \
     NullableStatus, PrimaryKeyStatus, Schema, SmallInt, Timestamp, TinyInt, VarChar, Variant
 
@@ -53,7 +53,7 @@ class AmazonAWSDataPlatform(DataPlatform):
         # TODO: Implement this method
         return set()
 
-    def createIaCRender(self, graph: PlatformPipelineGraph) -> IaCDataPlatformRenderer:
+    def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
         return IaCDataPlatformRendererShim(self.executor, graph)
 
 
@@ -401,7 +401,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
                 (f"Data IAM role {self.dataIAMRole} contains invalid characters. Only "
                  f"alphanumeric characters and /_+=.@- are allowed.")))
 
-    def createIaCRender(self, graph: PlatformPipelineGraph) -> IaCDataPlatformRenderer:
+    def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
         return AWSDMSTerraformIaC(self.executor, graph)
 
 
@@ -509,6 +509,9 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
 
     def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
         pass
+
+    def getInternalDataContainers(self) -> set[DataContainer]:
+        raise NotImplementedError()
 
 
 class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):

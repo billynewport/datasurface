@@ -5,11 +5,12 @@
 
 from enum import Enum
 from datasurface.md import Documentation
-from datasurface.md.Governance import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
-from ...md.Governance import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, EncryptionSystem, Ecosystem, \
-    HostPortSQLDatabase, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, InfrastructureLocation, PlatformPipelineGraph
-from ...md.Lint import NameHasBadSynthax, ValidationTree
-from ...md.utils import is_valid_azure_key_vault_name
+from datasurface.md import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
+from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, EncryptionSystem, Ecosystem, \
+    HostPortSQLDatabase, IaCDataPlatformRendererShim, InfrastructureLocation, PlatformPipelineGraph, \
+    DataPlatformGraphHandler
+from datasurface.md import NameHasBadSynthax, ValidationTree
+from datasurface.md import is_valid_azure_key_vault_name
 
 
 class AzureVaultObjectType(Enum):
@@ -36,7 +37,7 @@ class AzureKeyVaultCredential(Credential):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
         if (not is_valid_azure_key_vault_name(self.keyVaultName)):
-            tree.addRaw(NameHasBadSynthax(f"Azure Key Vault name <{self.keyVaultName}> needs to match [a-z0-9]{3,24}"))
+            tree.addRaw(NameHasBadSynthax(f"Azure Key Vault name <{self.keyVaultName}> needs to match [a-z0-9]{3, 24}"))
 
     def __str__(self) -> str:
         return f"AzureKeyVaultCredential({self.keyVaultName}/{self.objectName})"
@@ -80,7 +81,7 @@ class AzureDataplatform(DataPlatform):
         # TODO: Implement this method
         return set()
 
-    def createIaCRender(self, graph: 'PlatformPipelineGraph') -> 'IaCDataPlatformRenderer':
+    def createGraphHandler(self, graph: 'PlatformPipelineGraph') -> 'DataPlatformGraphHandler':
         return IaCDataPlatformRendererShim(self.executor, graph)
 
 

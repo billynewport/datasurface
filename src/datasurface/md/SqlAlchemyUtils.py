@@ -9,7 +9,7 @@ from datasurface.md import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, D
     VarChar, NVarChar, DDLColumn
 import sqlalchemy
 from datasurface.md import Dataset, DDLTable, DataType, Datastore
-from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
+from datasurface.md import NullableStatus, PrimaryKeyStatus
 
 
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> sqlalchemy.Column[Any]:

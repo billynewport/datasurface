@@ -7,14 +7,14 @@
 import copy
 from typing import Optional
 import unittest
-from datasurface.platforms.azure.Azure import AzureBatchDataPlatform, AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
+from datasurface.platforms.azure import AzureBatchDataPlatform, AzureKeyVaultCredential
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
 
-from datasurface.md.Governance import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \
+from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \
     GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
-from datasurface.md.Lint import UnknownChangeSource, ValidationTree
+from datasurface.md import UnknownChangeSource, ValidationTree, DataPlatformKey
 import tests.nwdb.eco
 import tests.nwdb.nwdb
 
@@ -131,8 +131,7 @@ class TestEcoNameChange(unittest.TestCase):
                         InfrastructureLocation("West US"),  # California
                         InfrastructureLocation("West US 2"),  # Washington
                         InfrastructureLocation("West US 3")))),  # Arizona
-                DefaultDataPlatform(
-                    eOriginal.getDataPlatformOrThrow("AzureBatch")),
+                DefaultDataPlatform(DataPlatformKey("AzureBatch")),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
 
@@ -167,8 +166,7 @@ class TestEcoNameChange(unittest.TestCase):
                         InfrastructureLocation("West US"),  # California
                         InfrastructureLocation("West US 2"),  # Washington
                         InfrastructureLocation("West US 3")))),  # Arizona
-                DefaultDataPlatform(
-                    eProposed.getDataPlatformOrThrow("AzureBatch")),
+                DefaultDataPlatform(DataPlatformKey("AzureBatch")),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
         gz: GovernanceZone = eProposed.getZoneOrThrow("GZ")

@@ -8,19 +8,19 @@ import os
 from typing import cast
 import unittest
 
-from datasurface.platforms.aws.AmazonAWS import AWSAuroraDatabase, AWSDMSTerraformFileFragmentManager, AWSDMSTerraformIaC, \
+from datasurface.platforms.aws import AWSAuroraDatabase, AWSDMSTerraformFileFragmentManager, AWSDMSTerraformIaC, \
     AWSDMSIceBergDataPlatform, AWSSecret, AmazonAWSS3Bucket, \
     is_valid_s3_bucket_name
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import CDCCaptureIngestion, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
+from datasurface.md import CDCCaptureIngestion, DataPlatformCICDExecutor, Dataset, DatasetGroup, DatasetSink, \
     Datastore, DeprecationsAllowed, Ecosystem, InfrastructureLocation, IngestionConsistencyType, ProductionStatus, \
     Team, Workspace, WorkspaceFixedDataPlatform
-from datasurface.md.Governance import FileBasedFragmentManager
-from datasurface.md.Lint import NameHasBadSynthax, ValidationTree
-from datasurface.md.Governance import EcosystemPipelineGraph, PlatformPipelineGraph
-from datasurface.md.Policy import SimpleDC, SimpleDCTypes
-from datasurface.md.Schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, VarChar
+from datasurface.md import FileBasedFragmentManager
+from datasurface.md import NameHasBadSynthax, ValidationTree
+from datasurface.md import EcosystemPipelineGraph, PlatformPipelineGraph, DataPlatformKey
+from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus, VarChar
 from tests.nwdb.eco import createEcosystem
 
 
@@ -154,7 +154,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
             DatasetGroup(
                 "ConsumerGroupA",
                 PlainTextDocumentation("Test docs"),
-                WorkspaceFixedDataPlatform(dmsPlat),
+                WorkspaceFixedDataPlatform(DataPlatformKey("TestBatch")),
                 DatasetSink("TestProducer", "customers", DeprecationsAllowed.NEVER)
             )
         )

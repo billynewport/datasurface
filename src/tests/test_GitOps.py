@@ -5,9 +5,9 @@
 
 
 import unittest
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Lint import ValidationTree
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
+from datasurface.md import ValidationTree
 
 from tests.nwdb.eco import createEcosystem
 

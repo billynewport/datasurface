@@ -7,7 +7,7 @@
 from typing import Optional
 import unittest
 
-from datasurface.md.Governance import InfrastructureLocation, InfrastructureVendor
+from datasurface.md import InfrastructureLocation, InfrastructureVendor
 
 
 class Test_VendorLocation(unittest.TestCase):

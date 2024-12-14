@@ -5,14 +5,14 @@
 
 
 from datasurface.platforms.azure.Azure import AzureSQLDatabase, AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.Governance import CDCCaptureIngestion, ConsumerRetentionRequirements, CronTrigger, DataContainer, DataLatency, \
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import CDCCaptureIngestion, ConsumerRetentionRequirements, CronTrigger, DataContainer, DataLatency, \
         DataRetentionPolicy, DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         InfrastructureLocation, IngestionConsistencyType, KubernetesEnvironment, PythonCodeArtifact, Team, TimedTransformerTrigger, \
         Workspace, WorkspacePlatformConfig
 
-from datasurface.md.Policy import SimpleDC, SimpleDCTypes
-from datasurface.md.Schema import IEEE32, DDLColumn, DDLTable, Date, Integer, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar, Variant
+from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, Integer, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar, Variant
 
 
 def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):

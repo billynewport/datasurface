@@ -7,7 +7,7 @@
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.exc import OperationalError
 from datasurface.md import Datastore
-from datasurface.md.SqlAlchemyUtils import convertSQLAlchemyTableSetToDatastore
+from datasurface.md import convertSQLAlchemyTableSetToDatastore
 from datasurface.codegen import generate_code
 
 """This test assumes a local postgres database with the northwind database loaded in the postgres database."""

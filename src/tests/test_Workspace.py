@@ -11,17 +11,17 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.platforms.azure.Azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import FakeRepository, GitHubRepository
-from datasurface.md.Governance import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
+from datasurface.platforms.aws import AmazonAWSDataPlatform
+from datasurface.platforms.azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import FakeRepository, GitHubRepository
+from datasurface.md import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
     DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DataPlatformKey, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
-from datasurface.md.Lint import ValidationTree
-from datasurface.md.Policy import SimpleDC, SimpleDCTypes
+from datasurface.md import ValidationTree
+from datasurface.md import SimpleDC, SimpleDCTypes
 
-from datasurface.md.Schema import NullableStatus, PrimaryKeyStatus
+from datasurface.md import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
 
 

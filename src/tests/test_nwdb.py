@@ -7,13 +7,13 @@
 import copy
 import unittest
 from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.md.Documentation import PlainTextDocumentation
-from datasurface.md.GitOps import GitHubRepository
-from datasurface.md.Governance import DataPlatformCICDExecutor, GovernanceZone, GovernanceZoneDeclaration, \
+from datasurface.md import PlainTextDocumentation
+from datasurface.md import GitHubRepository
+from datasurface.md import DataPlatformCICDExecutor, GovernanceZone, GovernanceZoneDeclaration, \
     InfraStructureLocationPolicy, InfrastructureLocation, \
     InfrastructureVendor, Repository, TeamDeclaration
-from datasurface.md.Lint import ValidationTree
-from datasurface.md.Schema import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, \
+from datasurface.md import ValidationTree
+from datasurface.md import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, \
     PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
 from datasurface.md import Ecosystem

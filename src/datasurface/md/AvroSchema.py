@@ -4,15 +4,15 @@
 """
 
 from typing import Optional, cast
-from datasurface.md.Schema import Schema, PrimaryKeyList, PartitionKeyList
+from datasurface.md import Schema, PrimaryKeyList, PartitionKeyList
 
 from avro.schema import Schema as AvSchema
 from avro.schema import parse
 
 from avro.schema import RecordSchema, Field, PrimitiveSchema
 
-from datasurface.md.Lint import ValidationTree
-from datasurface.md.Policy import DataClassification, DataClassificationPolicy
+from datasurface.md.lint import ValidationTree
+from datasurface.md import DataClassification, DataClassificationPolicy
 
 
 class AvroSchema(Schema):
