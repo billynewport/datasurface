@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md.Documentation import Documentation
-from datasurface.md.Governance import CloudVendor, DataContainer, DataPlatform, DataPlatformExecutor, Ecosystem, IaCDataPlatformRenderer, \
+from datasurface.md import Documentation
+from datasurface.md import CloudVendor, DataContainer, DataPlatform, DataPlatformExecutor, Ecosystem, IaCDataPlatformRenderer, \
     IaCDataPlatformRendererShim, PlatformPipelineGraph
-from datasurface.md.Lint import ValidationTree
+from datasurface.md import ValidationTree
 
 
 class K8SGenericDataPlatform(DataPlatform):
