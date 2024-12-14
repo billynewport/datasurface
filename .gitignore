@@ -5,7 +5,6 @@ src/tests/__pycache__/test_nwdb.cpython-311-pytest-7.4.0.pyc
 src/tests/__pycache__/test_nwdb.cpython-311-pytest-7.4.0.pyc
 src/tests/nwdb/__pycache__/eco.cpython-311.pyc
 src/datasurface/md/__pycache__/Governance.cpython-311.pyc
-**/env/*
 **/.gradle/*
 dist/*
 src/datasurface.egg-info/*
@@ -21,5 +20,5 @@ src/datasurface.egg-info/*
 **/ice_warehouse/*
 
 java/dmsingester/bin/**
-**/venv/*
+**/.venv/*
 **/gitlab_vols/*
