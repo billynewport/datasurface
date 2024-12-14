@@ -20,7 +20,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
         Datastore(
             "NW_Data",
             CDCCaptureIngestion(
-                AzureSQLDatabase("NW_DB", "hostName", 1344, "DBName", eco.getLocationOrThrow("Azure", ["USA", "East US"])),
+                AzureSQLDatabase("NW_DB", "hostName", 1344, "DBName", {eco.getLocationOrThrow("Azure", ["USA", "East US"])}),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 AzureKeyVaultCredential("mykeyvault", "NWDB_Creds")
@@ -207,11 +207,11 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     )
 
 
-def defineWorkspaces(eco: Ecosystem, t: Team, location: InfrastructureLocation):
+def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocation]):
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db: DataContainer = AzureSQLDatabase("AzureSQL", "hostName", 1344, "DBName", location)
+    ws_db: DataContainer = AzureSQLDatabase("AzureSQL", "hostName", 1344, "DBName", locations)
 
     w: Workspace = Workspace(
         "ProductLiveAdhocReporting",
@@ -268,7 +268,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, location: InfrastructureLocation):
             KubernetesEnvironment(
                 "kubcluster.here.com",
                 AzureKeyVaultCredential("myvault", "Kubernetes_Creds"),
-                location
+                ws_db.locations
                 )
             )
         )

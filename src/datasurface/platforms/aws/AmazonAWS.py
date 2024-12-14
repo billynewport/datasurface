@@ -61,8 +61,8 @@ class AWSAuroraDatabase(SQLDatabase):
     """This is a link to an existing Aurora database. It identifies the cluster using its
     endpointName and the database using its databaseName. The location is the location/region of the cluster. We can using Terraform
     retrieve the hostname and port for this database."""
-    def __init__(self, name: str, loc: InfrastructureLocation, endpointName: str, databaseName: str):
-        super().__init__(name, loc, databaseName)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], endpointName: str, databaseName: str):
+        super().__init__(name, locs, databaseName)
         self.endpointName: str = endpointName
 
     def __eq__(self, o: object) -> bool:
@@ -117,14 +117,14 @@ def is_valid_s3_bucket_name(name: str) -> bool:
 
 class AWSSecret(Credential):
     """This represents a secret stored in AWS Secret Manager. It is used to store sensitive information such as passwords, tokens, etc."""
-    def __init__(self, secretName: str, loc: InfrastructureLocation):
+    def __init__(self, secretName: str, locs: set[InfrastructureLocation]):
         super().__init__()
         self.secretName: str = secretName
-        self.loc: InfrastructureLocation = loc
+        self.locs: set[InfrastructureLocation] = locs
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, AWSSecret) and \
-            self.secretName == o.secretName and self.loc == o.loc
+            self.secretName == o.secretName and self.locs == o.locs
 
     def __hash__(self) -> int:
         return hash(self.secretName)
@@ -154,8 +154,8 @@ class AWSGlueNamingMapper(DataContainerNamingMapper):
 
 
 class AmazonAWSS3Bucket(ObjectStorage):
-    def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
-        super().__init__(name, loc, endPointURI, bucketName, prefix)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
+        super().__init__(name, locs, endPointURI, bucketName, prefix)
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, AmazonAWSS3Bucket)
@@ -182,8 +182,8 @@ class AmazonAWSS3Bucket(ObjectStorage):
 
 
 class AmazonAWSKinesis(DataContainer):
-    def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str]):
-        super().__init__(name, loc)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str]):
+        super().__init__(name, locs)
         self.endPointURI: Optional[str] = endPointURI
 
     def __eq__(self, o: object) -> bool:
@@ -201,8 +201,8 @@ class AmazonAWSKinesis(DataContainer):
 
 
 class AmazonAWSDynamoDB(DataContainer):
-    def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str]):
-        super().__init__(name, loc)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str]):
+        super().__init__(name, locs)
         self.endPointURI: Optional[str] = endPointURI
 
     def __eq__(self, o: object) -> bool:
@@ -220,8 +220,8 @@ class AmazonAWSDynamoDB(DataContainer):
 
 
 class AmazonAWSSQS(DataContainer):
-    def __init__(self, name: str, loc: InfrastructureLocation, queueURL: Optional[str]):
-        super().__init__(name, loc)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], queueURL: Optional[str]):
+        super().__init__(name, locs)
         self.queueURL: Optional[str] = queueURL
 
     def __eq__(self, o: object) -> bool:
@@ -344,7 +344,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             executor: DataPlatformExecutor,
             vpcId: str,
             iacCredential: AWSSecret,
-            region: InfrastructureLocation,
+            regions: set[InfrastructureLocation],
             stagingBucket: AmazonAWSS3Bucket,
             dataBucket: AmazonAWSS3Bucket,
             codeBucket: AmazonAWSS3Bucket,
@@ -355,7 +355,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         super().__init__(name, doc, executor)
         self.vpcId: str = vpcId
         self.iacCredential: Credential = iacCredential
-        self.region: InfrastructureLocation = region
+        self.regions: set[InfrastructureLocation] = regions
         self.stagingBucket: AmazonAWSS3Bucket = stagingBucket
         self.dataBucket: AmazonAWSS3Bucket = dataBucket
         self.catalogDatabaseName: str = catalogDatabaseName
@@ -367,7 +367,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, AWSDMSIceBergDataPlatform) and \
             self.vpcId == __value.vpcId and self.iacCredential == __value.iacCredential and \
-            self.region == __value.region and self.stagingBucket == __value.stagingBucket and \
+            self.regions == __value.regions and self.stagingBucket == __value.stagingBucket and \
             self.dataBucket == __value.dataBucket and self.catalogDatabaseName == __value.catalogDatabaseName and \
             self.stagingIAMRole == __value.stagingIAMRole and self.dataIAMRole == __value.dataIAMRole and \
             self.awsGlueIAMRole == __value.awsGlueIAMRole and self.codeBucket == __value.codeBucket
@@ -386,12 +386,12 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         self.stagingBucket.lint(eco, tree)
         self.dataBucket.lint(eco, tree)
         self.iacCredential.lint(eco, tree)
-        if (not self.stagingBucket.areAllLocationsInLocations({self.region})):
-            tree.addRaw(NameHasBadSynthax(f"Staging bucket location {self.stagingBucket} does not match region {self.region}"))
-        if (not self.dataBucket.areAllLocationsInLocations({self.region})):
-            tree.addRaw(NameHasBadSynthax(f"Data bucket location {self.dataBucket} does not match region {self.region}"))
-        if (not self.codeBucket.areAllLocationsInLocations({self.region})):
-            tree.addRaw(NameHasBadSynthax(f"Code bucket location {self.codeBucket} does not match region {self.region}"))
+        if (not self.stagingBucket.areAllLocationsInLocations(self.regions)):
+            tree.addRaw(NameHasBadSynthax(f"Staging bucket location {self.stagingBucket} does not match region {self.regions}"))
+        if (not self.dataBucket.areAllLocationsInLocations(self.regions)):
+            tree.addRaw(NameHasBadSynthax(f"Data bucket location {self.dataBucket} does not match region {self.regions}"))
+        if (not self.codeBucket.areAllLocationsInLocations(self.regions)):
+            tree.addRaw(NameHasBadSynthax(f"Code bucket location {self.codeBucket} does not match region {self.regions}"))
         if not is_valid_aws_name(self.stagingIAMRole):
             tree.addRaw(NameHasBadSynthax(
                 (f"Staging IAM role {self.stagingIAMRole} contains invalid characters."
@@ -461,17 +461,19 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
 
         template: Template = self.createTemplate('aurora_dms_ingest.jinja2')
 
-        data: dict[str, Any] = {}
-        data["platformName"] = self.graph.platform.name
-        data["sourceName"] = ingestNode.storeName
-        data["aws_region"] = awsp.region.name
-        data["sourceClusterName"] = aurora.endpointName
-        data["glueDatabaseName"] = awsp.catalogDatabaseName
-        secret: AWSSecret = cast(AWSSecret, awsp.iacCredential)
-        data["sourceSecretCredentials"] = secret.secretName
-        data["tables"] = self.generateTableSchema(store)
+        code: str = ""
+        for loc in awsp.regions:
+            data: dict[str, Any] = {}
+            data["platformName"] = self.graph.platform.name
+            data["sourceName"] = ingestNode.storeName
+            data["aws_region"] = loc.name
+            data["sourceClusterName"] = aurora.endpointName
+            data["glueDatabaseName"] = awsp.catalogDatabaseName
+            secret: AWSSecret = cast(AWSSecret, awsp.iacCredential)
+            data["sourceSecretCredentials"] = secret.secretName
+            data["tables"] = self.generateTableSchema(store)
 
-        code: str = template.render(data)
+            code = code + template.render(data)
         return code
 
     def renderExport(self, exportNode: ExportNode) -> str:
@@ -545,7 +547,7 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
 
         # Provider tf
         data = {}
-        data["aws_region"] = self.platform.region.name
+#        data["aws_region"] = self.platform.region.name
         ingestTemplate: Template = self.renderMgr.createTemplate('provider.jinja2')
         self.addStaticFile("", "provider.tf", ingestTemplate.render(data))
 
@@ -553,7 +555,7 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
         data = {}
         data: dict[str, Any] = {}
         data["platformName"] = self.platform.name
-        data["aws_region"] = self.platform.region.name
+#        data["aws_region"] = self.platform.region.name
         data["aws_vpc_id"] = self.platform.vpcId
         mainTemplate: Template = self.renderMgr.createTemplate('main.jinja2')
         self.addStaticFile("", "main.tf", mainTemplate.render(data))

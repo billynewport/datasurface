@@ -27,7 +27,7 @@ from tests.nwdb.eco import createEcosystem
 class TestAWS(unittest.TestCase):
     def test_AWSSecret(self):
         e: Ecosystem = createEcosystem()
-        s: AWSSecret = AWSSecret("name", e.getLocationOrThrow("AWS", ["USA", "us-east-1"]))
+        s: AWSSecret = AWSSecret("name", {e.getLocationOrThrow("AWS", ["USA", "us-east-1"])})
 
         t: ValidationTree = ValidationTree(s)
         s.lint(e, t)
@@ -61,17 +61,17 @@ class TestAWSValidation(unittest.TestCase):
 
 class TestAWSBatchDMSPlatform(unittest.TestCase):
 
-    def createAWSBatchPlatform(self, loc: InfrastructureLocation) -> AWSDMSIceBergDataPlatform:
+    def createAWSBatchPlatform(self, locs: set[InfrastructureLocation]) -> AWSDMSIceBergDataPlatform:
         p: AWSDMSIceBergDataPlatform = AWSDMSIceBergDataPlatform(
             "TestBatch",
             PlainTextDocumentation("Test docs"),
             DataPlatformCICDExecutor(GitHubRepository("owner/repo", "main")),  # Push generated IaC to this repo
             "vpcId",
-            AWSSecret("platformRole", loc),
-            loc,
-            AmazonAWSS3Bucket("Staging", loc, None, "test-staging", "staging"),
-            AmazonAWSS3Bucket("Ingestion", loc, None, "test-staging", "ingestion"),
-            AmazonAWSS3Bucket("Code", loc, None, "test-staging", "code"),
+            AWSSecret("platformRole", locs),
+            locs,
+            AmazonAWSS3Bucket("Staging", locs, None, "test-staging", "staging"),
+            AmazonAWSS3Bucket("Ingestion", locs, None, "test-staging", "ingestion"),
+            AmazonAWSS3Bucket("Code", locs, None, "test-staging", "code"),
             "GlueDatabaseName",
             "stagingIAMRole",
             "dataIAMRole",
@@ -82,7 +82,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         e: Ecosystem = createEcosystem()
         eastRegion: InfrastructureLocation = e.getLocationOrThrow("AWS", ["USA", "us-east-1"])
 
-        p: AWSDMSIceBergDataPlatform = self.createAWSBatchPlatform(eastRegion)
+        p: AWSDMSIceBergDataPlatform = self.createAWSBatchPlatform({eastRegion})
 
         e.add(p)
 
@@ -95,7 +95,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
         eu_west_3: InfrastructureLocation = eco.getLocationOrThrow("AWS", ["EU", "eu-west-3"])
 
         # Add AWS Batch DMS Platform
-        eco.add(self.createAWSBatchPlatform(eu_west_3))
+        eco.add(self.createAWSBatchPlatform({eu_west_3}))
 
         dmsPlat: AWSDMSIceBergDataPlatform = cast(AWSDMSIceBergDataPlatform, eco.getDataPlatformOrThrow("TestBatch"))
 
@@ -105,13 +105,13 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
             CDCCaptureIngestion(
                 AWSAuroraDatabase(
                     "TestDB",
-                    eu_west_3,
+                    {eu_west_3},
                     "endpoint_producer",
                     "CustomerDB"
                 ),
                 AWSSecret(
                     "TestProducerIngestionCred",
-                    eu_west_3),
+                    {eu_west_3}),
                 IngestionConsistencyType.MULTI_DATASET
                 ),
             ProductionStatus.PRODUCTION,
@@ -146,7 +146,7 @@ class TestAWSBatchDMSPlatform(unittest.TestCase):
             PlainTextDocumentation("Test docs"),
             AWSAuroraDatabase(
                 "TestConsumerDB",
-                eu_west_3,
+                {eu_west_3},
                 "endpoint_consumer",
                 "CustomerDB"
             ),

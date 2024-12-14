@@ -120,8 +120,8 @@ class SQLServerNamingMapper(DataContainerNamingMapper):
 
 class AzureSQLDatabase(HostPortSQLDatabase):
     """This is an Azure SQL Database resource. """
-    def __init__(self, name: str, hostName: str, port: int, databaseName: str, loc: InfrastructureLocation):
-        super().__init__(name, loc, hostName, port, databaseName)
+    def __init__(self, name: str, hostName: str, port: int, databaseName: str, locs: set[InfrastructureLocation]):
+        super().__init__(name, locs, hostName, port, databaseName)
 
     def __str__(self) -> str:
         return f"AzureDatabaseResource({self.name})"

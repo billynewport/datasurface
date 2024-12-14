@@ -389,7 +389,7 @@ class TestWorkspace(unittest.TestCase):
             Datastore(
                 "Store1",
                 CDCCaptureIngestion(
-                    AzureSQLDatabase("Test", "mysqlserver.database.windows.net", 1344, "dbName", e.getLocationOrThrow("Azure", ["FL"])),
+                    AzureSQLDatabase("Test", "mysqlserver.database.windows.net", 1344, "dbName", {e.getLocationOrThrow("Azure", ["FL"])}),
                     IngestionConsistencyType.MULTI_DATASET,
                     AzureKeyVaultCredential("keyvault", "aa")
                 ),

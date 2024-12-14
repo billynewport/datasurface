@@ -2537,7 +2537,7 @@ class DataContainer(ABC, Documentable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
-    def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation]) -> None:
+    def __init__(self, name: str, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
         ABC.__init__(self)
         Documentable.__init__(self, None)
         self.locations: set[InfrastructureLocation] = set()
@@ -2551,12 +2551,13 @@ class DataContainer(ABC, Documentable):
         self.isReadOnly: bool = False
         self.add(*args)
 
-    def add(self, *args: Union[InfrastructureLocation, Documentation]) -> None:
+    def add(self, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
         for arg in args:
-            if (isinstance(arg, InfrastructureLocation)):
-                if (arg in self.locations):
-                    raise Exception(f"Duplicate Location {arg}")
-                self.locations.add(arg)
+            if (isinstance(arg, set)):
+                for loc in arg:
+                    if (loc in self.locations):
+                        raise Exception(f"Duplicate Location {loc}")
+                    self.locations.add(loc)
             else:
                 self.documentation = arg
 
@@ -2619,8 +2620,8 @@ class DataContainer(ABC, Documentable):
 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
-    def __init__(self, name: str, location: InfrastructureLocation, databaseName: str) -> None:
-        super().__init__(name, location)
+    def __init__(self, name: str, locations: set[InfrastructureLocation], databaseName: str) -> None:
+        super().__init__(name, locations)
         self.databaseName: str = databaseName
 
     def __eq__(self, __value: object) -> bool:
@@ -2640,8 +2641,8 @@ class SQLDatabase(DataContainer):
 
 class URLSQLDatabase(SQLDatabase):
     """This is a SQL database with a URL"""
-    def __init__(self, name: str, location: InfrastructureLocation, url: str, databaseName: str) -> None:
-        super().__init__(name, location, databaseName)
+    def __init__(self, name: str, locations: set[InfrastructureLocation], url: str, databaseName: str) -> None:
+        super().__init__(name, locations, databaseName)
         self.url: str = url
 
     def __eq__(self, __value: object) -> bool:
@@ -2652,8 +2653,8 @@ class URLSQLDatabase(SQLDatabase):
 
 class HostPortSQLDatabase(SQLDatabase):
     """This is a SQL database with a host and port"""
-    def __init__(self, name: str, location: InfrastructureLocation, host: str, port: int, databaseName: str) -> None:
-        super().__init__(name, location, databaseName)
+    def __init__(self, name: str, locations: set[InfrastructureLocation], host: str, port: int, databaseName: str) -> None:
+        super().__init__(name, locations, databaseName)
         self.host: str = host
         self.port: int = port
 
@@ -2672,8 +2673,8 @@ class HostPortSQLDatabase(SQLDatabase):
 
 class ObjectStorage(DataContainer):
     """Generic Object storage service. Flat file storage"""
-    def __init__(self, name: str, loc: InfrastructureLocation, endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
-        super().__init__(name, loc)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
+        super().__init__(name, locs)
         self.endPointURI: Optional[str] = endPointURI
         self.bucketName: str = bucketName
         self.prefix: Optional[str] = prefix
@@ -2891,10 +2892,8 @@ class ClearTextCredential(UserPasswordCredential):
 
 class PyOdbcSourceInfo(SQLDatabase):
     """This describes how to connect to a database using pyodbc"""
-    def __init__(self, name: str, loc: InfrastructureLocation, serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
-        if (loc.key is None):
-            raise Exception("Location key not set")
-        super().__init__(name, loc, databaseName)
+    def __init__(self, name: str, locs: set[InfrastructureLocation], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
+        super().__init__(name, locs, databaseName)
         self.serverHost: str = serverHost
         self.driver: str = driver
         self.connectionStringTemplate: str = connectionStringTemplate
@@ -4506,15 +4505,16 @@ class PythonCodeArtifact(CodeArtifact):
 
 class CodeExecutionEnvironment(ABC):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
-    def __init__(self, loc: InfrastructureLocation):
-        self.location: InfrastructureLocation = loc
+    def __init__(self, loc: set[InfrastructureLocation]):
+        self.location: set[InfrastructureLocation] = loc
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, CodeExecutionEnvironment) and self.location == o.location
 
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        self.location.lint(tree)
+        for loc in self.location:
+            loc.lint(tree)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.location})"
@@ -4522,7 +4522,7 @@ class CodeExecutionEnvironment(ABC):
 
 class KubernetesEnvironment(CodeExecutionEnvironment):
     """This is a Kubernetes environment"""
-    def __init__(self, hostName: str, cred: Credential, loc: InfrastructureLocation) -> None:
+    def __init__(self, hostName: str, cred: Credential, loc: set[InfrastructureLocation]) -> None:
         super().__init__(loc)
         self.hostName: str = hostName
         """This is the hostname of the Kubernetes cluster"""

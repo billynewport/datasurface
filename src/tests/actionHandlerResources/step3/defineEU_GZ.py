@@ -22,7 +22,7 @@ def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):
             CDCCaptureIngestion(
                 PyOdbcSourceInfo(
                     "EU_NWDB",
-                    e.getLocationOrThrow("AWS", ["EU", "eu-central-1"]),  # Where is the database
+                    {e.getLocationOrThrow("AWS", ["EU", "eu-central-1"])},  # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
                     driver="{ODBC Driver 17 for SQL Server}",
