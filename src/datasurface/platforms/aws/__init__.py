@@ -3,4 +3,4 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from .AmazonAWS import *  # noqa
+from .amazonaws import *  # noqa

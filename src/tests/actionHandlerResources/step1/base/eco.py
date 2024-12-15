@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
-from datasurface.platforms.azure.Azure import AzureDataplatform, AzureKeyVaultCredential
+from datasurface.platforms.aws.amazonaws import AmazonAWSDataPlatform
+from datasurface.platforms.azure.azure import AzureDataplatform, AzureKeyVaultCredential
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
 from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \

@@ -6,7 +6,7 @@
 
 import copy
 import unittest
-from datasurface.platforms.aws.AmazonAWS import AmazonAWSDataPlatform
+from datasurface.platforms.aws.amazonaws import AmazonAWSDataPlatform
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
 from datasurface.md import DataPlatformCICDExecutor, GovernanceZone, GovernanceZoneDeclaration, \

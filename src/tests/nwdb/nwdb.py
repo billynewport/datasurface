@@ -4,7 +4,7 @@
 """
 
 
-from datasurface.platforms.azure.Azure import AzureSQLDatabase, AzureKeyVaultCredential
+from datasurface.platforms.azure.azure import AzureSQLDatabase, AzureKeyVaultCredential
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import CDCCaptureIngestion, ConsumerRetentionRequirements, CronTrigger, DataContainer, DataLatency, \
         DataRetentionPolicy, DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
