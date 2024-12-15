@@ -27,6 +27,9 @@ import hashlib
 from typing import Tuple, Dict, Mapping, Iterable
 
 
+"""This file contains the bulk of the objects used in the DSL model used by DataSurface"""
+
+
 sql_reserved_words: list[str] = [
     "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "INSERT", "UPDATE", "DELETE",
     "CREATE", "ALTER", "DROP", "TABLE", "DATABASE", "INDEX", "VIEW", "TRIGGER",
