@@ -2653,6 +2653,9 @@ class URLSQLDatabase(SQLDatabase):
             return super().__eq__(__value) and self.url == __value.url
         return False
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 class HostPortSQLDatabase(SQLDatabase):
     """This is a SQL database with a host and port"""
@@ -2665,6 +2668,9 @@ class HostPortSQLDatabase(SQLDatabase):
         if (isinstance(__value, HostPortSQLDatabase)):
             return super().__eq__(__value) and self.host == __value.host and self.port == __value.port
         return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)

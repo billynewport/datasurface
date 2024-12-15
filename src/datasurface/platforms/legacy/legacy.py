@@ -7,8 +7,6 @@ from datasurface.md import DataPlatform, Ecosystem, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity
 
-from datasurface.md import PlainTextDocumentation
-
 from typing import Optional
 
 
@@ -102,7 +100,7 @@ class LegacyDatPlatformChooser(DataPlatformChooser):
         self.doc: Documentation = doc
 
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
-        return LegacyDataPlatform(self.name, PlainTextDocumentation("Legacy Data Platform"))
+        return eco.getDataPlatformOrThrow(self.name)
 
     def __str__(self) -> str:
         return "LegacyDatPlatformChooser()"

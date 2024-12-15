@@ -13,12 +13,19 @@ from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngesti
 from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDatPlatformChooser
 
 
+"""
+The intention here is to test DataPlatforms with GovernanceZones. We will do this using a LegacyDataPlatform with certain
+characteristics and make sure that Ecosystems using this can be validated correctly.
+"""
+
+
 def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[InfrastructureLocation]):
+    """Create a sample Producer with a couple of tables"""
     t.add(
         Datastore(
             "NW_Data",
             CDCCaptureIngestion(
-                HostPortSQLDatabase("NW_DB", locations, "hostName", 1344, "DBName"),
+                HostPortSQLDatabase("NW_DB", locations, "hostName.com", 1344, "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 UserPasswordCredential("user", "pwd")
@@ -59,7 +66,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db: DataContainer = HostPortSQLDatabase("WHDB", locations, "wh_hostname", 1344, "WHDB")
+    ws_db: DataContainer = HostPortSQLDatabase("WHDB", locations, "whhostname.com", 1344, "WHDB")
 
     w: Workspace = Workspace(
         "ProductLiveAdhocReporting",
@@ -67,7 +74,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
         DatasetGroup(
             "LiveProducts",
             LegacyDatPlatformChooser(
-                "LegacyApplicationA",
+                "LegacyA",
                 PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
                 set()),
             DatasetSink("NW_Data", "customers"),
@@ -77,6 +84,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
 
 
 def createEcosystem() -> Ecosystem:
+    """Create an Ecosystem with a LegacyDataPlatform"""
     ecosys: Ecosystem = Ecosystem(
         "Test",
         GitHubRepository("billynewport/repo", "ECOmain"),
@@ -98,7 +106,7 @@ def createEcosystem() -> Ecosystem:
             InfrastructureLocation(
                 "USA",
                 InfrastructureLocation("ny1"),  # New York City
-                InfrastructureLocation("nj1"))),  # New Jersey
+                InfrastructureLocation("nj1")))  # New Jersey
         )
 
     gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")
@@ -111,7 +119,7 @@ def createEcosystem() -> Ecosystem:
     legacy_Team: Team = ecosys.getTeamOrThrow("USA", "LegacyApplicationTeam")
     locations: set[InfrastructureLocation] = {ecosys.getLocationOrThrow("LegacyA", ["USA", "ny1"])}
     defineTables(ecosys, gzUSA, legacy_Team, locations)
-    defineWorkspaces(ecosys, legacy_Team, locations})
+    defineWorkspaces(ecosys, legacy_Team, locations)
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
     if (tree.hasErrors()):
