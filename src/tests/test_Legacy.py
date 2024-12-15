@@ -5,13 +5,75 @@
 
 import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Team, DataPlatformKey, TeamDeclaration, GovernanceZoneDeclaration
-from datasurface.md import GitHubRepository
+from datasurface.md import GitHubRepository, UserPasswordCredential, DataContainer, Workspace, DatasetGroup
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import ValidationTree
-from datasurface.platforms.legacy import LegacyDataPlatform
-from tests.nwdb.nwdb import defineTables as defineNWTeamTables
-from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
+from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, DatasetSink
+from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngestion, CronTrigger, IngestionConsistencyType, \
+    SimpleDC, SimpleDCTypes, DDLTable, DDLColumn, SmallInt, VarChar, NullableStatus, PrimaryKeyStatus
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDatPlatformChooser
+
+
+def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[InfrastructureLocation]):
+    t.add(
+        Datastore(
+            "NW_Data",
+            CDCCaptureIngestion(
+                HostPortSQLDatabase("NW_DB", locations, "hostName", 1344, "DBName"),
+                CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
+                IngestionConsistencyType.MULTI_DATASET,
+                UserPasswordCredential("user", "pwd")
+                ),
+
+            Dataset(
+                "us_states",
+                SimpleDC(SimpleDCTypes.PUB),
+                DDLTable(
+                    DDLColumn("state_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                    DDLColumn("state_name", VarChar(100)),
+                    DDLColumn("state_abbr", VarChar(2)),
+                    DDLColumn("state_region", VarChar(50))
+                )
+            ),
+            Dataset(
+                "customers",
+                SimpleDC(SimpleDCTypes.PC3),
+                PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
+                DDLTable(
+                    DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                    DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),
+                    DDLColumn("contact_name", VarChar(30)),
+                    DDLColumn("contact_title", VarChar(30)),
+                    DDLColumn("address", VarChar(60)),
+                    DDLColumn("city", VarChar(15)),
+                    DDLColumn("region", VarChar(15)),
+                    DDLColumn("postal_code", VarChar(10)),
+                    DDLColumn("country", VarChar(15)),
+                    DDLColumn("phone", VarChar(24)),
+                    DDLColumn("fax", VarChar(24))
+                )
+            ))
+    )
+
+
+def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocation]):
+    """Create a Workspace and an asset if a location is provided"""
+
+    # Warehouse for Workspaces
+    ws_db: DataContainer = HostPortSQLDatabase("WHDB", locations, "wh_hostname", 1344, "WHDB")
+
+    w: Workspace = Workspace(
+        "ProductLiveAdhocReporting",
+        ws_db,
+        DatasetGroup(
+            "LiveProducts",
+            LegacyDatPlatformChooser(
+                "LegacyApplicationA",
+                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
+                set()),
+            DatasetSink("NW_Data", "customers"),
+            DatasetSink("NW_Data", "us_states")
+        ))
+    t.add(w)
 
 
 def createEcosystem() -> Ecosystem:
@@ -47,8 +109,9 @@ def createEcosystem() -> Ecosystem:
 
     # Fill out the NorthWindTeam managed by the USA governance zone
     legacy_Team: Team = ecosys.getTeamOrThrow("USA", "LegacyApplicationTeam")
-    defineNWTeamTables(ecosys, gzUSA, legacy_Team)
-    defineNWTeamWorkspaces(ecosys, legacy_Team, {ecosys.getLocationOrThrow("LegacyA", ["USA", "ny1"])})
+    locations: set[InfrastructureLocation] = {ecosys.getLocationOrThrow("LegacyA", ["USA", "ny1"])}
+    defineTables(ecosys, gzUSA, legacy_Team, locations)
+    defineWorkspaces(ecosys, legacy_Team, locations})
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
     if (tree.hasErrors()):

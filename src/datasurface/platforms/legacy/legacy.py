@@ -97,8 +97,8 @@ class LegacyDatPlatformChooser(DataPlatformChooser):
     data pipeline to be specified such as DataContainers used"""
     def __init__(self, name: str, doc: Documentation, containers: set[DataContainer]) -> None:
         super().__init__()
-        self.name: str = "LegacyDataPlatformChooser"
-        self.containers: set[DataContainer] = set()
+        self.name: str = name
+        self.containers: set[DataContainer] = containers
         self.doc: Documentation = doc
 
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
