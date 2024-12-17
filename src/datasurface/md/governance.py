@@ -4448,6 +4448,12 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                 else:
                     if (ecoPlat != platform):
                         tree.addProblem("DSG chooses a platform which is different from the same named platform in the Ecosystem", ProblemSeverity.ERROR)
+                # Now check the platform is happy with the containers for the Workspace
+                if (ws.dataContainer):
+                    ws.dataContainer.lint(eco, tree)
+                    if (not platform.isContainerSupported(eco, ws.dataContainer)):
+                        tree.addProblem(f"DataPlatform {platform.name} does not support the Workspace data container {ws.dataContainer.name}",
+                                        ProblemSeverity.ERROR)
         else:
             tree.addRaw(AttributeNotSet("DSG has no data platform chooser"))
         if (len(self.sinks) == 0):

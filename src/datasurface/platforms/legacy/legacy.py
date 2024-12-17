@@ -81,7 +81,8 @@ class LegacyDataPlatform(DataPlatform):
         return {CloudVendor.PRIVATE}
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
-        return False
+        # For a Legacy platform, we assume if its configured then its supported.
+        return True
 
     def lint(self, eco: Ecosystem, tree: ValidationTree) -> None:
         pass
