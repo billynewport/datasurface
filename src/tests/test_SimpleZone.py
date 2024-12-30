@@ -29,10 +29,10 @@ class TestZones(unittest.TestCase):
         tree: ValidationTree = eco.lintAndHydrateCaches()
         self.assertFalse(tree.hasErrors())
 
-        gzEU: GovernanceZone = eco.getZoneOrThrow("EU")
-        self.assertEqual(eco.getTeamOrThrow("EU", "FrontOffice"), gzEU.getTeamOrThrow("FrontOffice"))
-        self.assertEqual(eco.getTeamOrThrow("EU", "MiddleOffice"), gzEU.getTeamOrThrow("MiddleOffice"))
-        self.assertEqual(eco.getTeamOrThrow("EU", "BackOffice"), gzEU.getTeamOrThrow("BackOffice"))
+        gzEU: GovernanceZone = eco.getZoneOrThrow("UK")
+        self.assertEqual(eco.getTeamOrThrow("UK", "FrontOffice"), gzEU.getTeamOrThrow("FrontOffice"))
+        self.assertEqual(eco.getTeamOrThrow("UK", "MiddleOffice"), gzEU.getTeamOrThrow("MiddleOffice"))
+        self.assertEqual(eco.getTeamOrThrow("UK", "BackOffice"), gzEU.getTeamOrThrow("BackOffice"))
 
         tree = eco.lintAndHydrateCaches()
         self.assertFalse(tree.hasErrors())

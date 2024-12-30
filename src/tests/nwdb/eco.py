@@ -6,11 +6,10 @@
 
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem
-from datasurface.platforms.aws import AmazonAWSDataPlatform
-from datasurface.platforms.azure import AzureDataplatform, AzureKeyVaultCredential
+from datasurface.platforms.legacy import LegacyDataPlatform
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
-from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, InfraStructureLocationPolicy, \
+from datasurface.md import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy, \
         DataPlatformKey
 from datasurface.md import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
@@ -21,15 +20,12 @@ def createEcosystem() -> Ecosystem:
     ecosys: Ecosystem = Ecosystem(
         "Test",
         GitHubRepository("billynewport/repo", "ECOmain"),
-        AzureDataplatform(
-            "Azure Platform",
-            PlainTextDocumentation("Test"),
-            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-            AzureKeyVaultCredential("vault", "maincred")),
+        LegacyDataPlatform(
+            "LegacyA",
+            PlainTextDocumentation("Test")),
 
         # Data Platforms
-        DefaultDataPlatform(DataPlatformKey("Azure Platform")),
-        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
+        DefaultDataPlatform(DataPlatformKey("LegacyA")),
 
         # GovernanceZones
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
@@ -37,25 +33,12 @@ def createEcosystem() -> Ecosystem:
         GovernanceZoneDeclaration("UK", GitHubRepository("billynewport/repo", "UKmain")),
 
         # Infra Vendors and locations
-        InfrastructureVendor(
-            "AWS",
-            CloudVendor.AWS,
-            PlainTextDocumentation("Amazon AWS"),
-            InfrastructureLocation(
-                "USA",
-                InfrastructureLocation("us-east-1"),  # Virginia
-                InfrastructureLocation("us-west-1")),
-            InfrastructureLocation(
-                "UK",
-                InfrastructureLocation("eu-west-1"),  # Ireland
-                InfrastructureLocation("eu-west-2")),  # London
-            InfrastructureLocation(
-                "EU",
-                InfrastructureLocation("eu-central-1"),  # Frankfurt
-                InfrastructureLocation("eu-west-3"))),
+
+        # Onsite data centers
         InfrastructureVendor(
             "MyCorp",
-            PlainTextDocumentation("Private USA company data centers"),
+            CloudVendor.PRIVATE,
+            PlainTextDocumentation("Private company data centers"),
             InfrastructureLocation(
                 "USA",
                 InfrastructureLocation("NJ_1"),
@@ -64,23 +47,20 @@ def createEcosystem() -> Ecosystem:
                 "UK",
                 InfrastructureLocation("London"),
                 InfrastructureLocation("Cambridge"))),
+
+        # Outsourced data centers with same location equivalents
         InfrastructureVendor(
-            "Azure",
-            CloudVendor.AZURE,
-            PlainTextDocumentation("Microsoft Azure"),
+            "Outsource",
+            CloudVendor.PRIVATE,
+            PlainTextDocumentation("Outsourced company data centers"),
             InfrastructureLocation(
                 "USA",
-                InfrastructureLocation("Central US"),  # Iowa
-                InfrastructureLocation("East US"),  # Virginia
-                InfrastructureLocation("East US 2"),  # Virginia
-                InfrastructureLocation("East US 3"),  # Georgia
-                InfrastructureLocation("North Central US"),  # Illinois
-                InfrastructureLocation("South Central US"),  # Texas
-                InfrastructureLocation("West Central US"),  # Wyoming
-                InfrastructureLocation("West US"),  # California
-                InfrastructureLocation("West US 2"),  # Washington
-                InfrastructureLocation("West US 3"))  # Arizona
-            )
+                InfrastructureLocation("NJ_1"),
+                InfrastructureLocation("NY_1")),
+            InfrastructureLocation(
+                "UK",
+                InfrastructureLocation("London"),
+                InfrastructureLocation("Cambridge")))
         )
 
     gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")
@@ -90,27 +70,21 @@ def createEcosystem() -> Ecosystem:
             TeamDeclaration("MiddleOffice", GitHubRepository("billynewport/repo", "MOmain")),
             TeamDeclaration("NorthWindTeam", GitHubRepository("billynewport/repo", "NWmain")),
             TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain")),
-            InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), ecosys.getAllChildLocations("Azure", ["USA"]), None)
+            InfraStructureLocationPolicy("Private USA Only", PlainTextDocumentation("Test"), ecosys.getAllChildLocations("MyCorp", ["USA"]), None)
         )
-
-    gzEU: GovernanceZone = ecosys.getZoneOrThrow("EU")
-    gzEU.add(
-            TeamDeclaration("FrontOffice", GitHubRepository("billynewport/repo", "FOmain")),
-            TeamDeclaration("MiddleOffice", GitHubRepository("billynewport/repo", "MOmain")),
-            TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain"))
-            )
 
     gzUK: GovernanceZone = ecosys.getZoneOrThrow("UK")
     gzUK.add(
         TeamDeclaration("FrontOffice", GitHubRepository("billynewport/repo", "FOmain")),
         TeamDeclaration("MiddleOffice", GitHubRepository("billynewport/repo", "MOmain")),
-        TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain"))
+        TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain")),
+        InfraStructureLocationPolicy("Private UK Only", PlainTextDocumentation("Test"), ecosys.getAllChildLocations("MyCorp", ["UK"]), None)
     )
 
     # Fill out the NorthWindTeam managed by the USA governance zone
     nw_team: Team = ecosys.getTeamOrThrow("USA", "NorthWindTeam")
     defineNWTeamTables(ecosys, gzUSA, nw_team)
-    defineNWTeamWorkspaces(ecosys, nw_team, {ecosys.getLocationOrThrow("Azure", ["USA", "Central US"])})
+    defineNWTeamWorkspaces(ecosys, nw_team, {ecosys.getLocationOrThrow("MyCorp", ["USA", "NY_1"])})
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
     if (tree.hasErrors()):

@@ -18,27 +18,27 @@ class TestPolicy(unittest.TestCase):
     def test_InfrastructureVendorPolicy(self):
         eco: Ecosystem = createEcosystem()
 
-        aws: InfrastructureVendor = eco.getVendorOrThrow("AWS")
-        azure: InfrastructureVendor = eco.getVendorOrThrow("Azure")
+        myCorp: InfrastructureVendor = eco.getVendorOrThrow("MyCorp")
+        outsource: InfrastructureVendor = eco.getVendorOrThrow("Outsource")
 
-        p: InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only AWS", PlainTextDocumentation("Test"), {aws})
+        p: InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only MyCorp", PlainTextDocumentation("Test"), {myCorp})
 
-        self.assertEqual(p.name, "Only AWS")
+        self.assertEqual(p.name, "Only MyCorp")
 
-        self.assertTrue(p.isCompatible(aws))
-        self.assertFalse(p.isCompatible(azure))
+        self.assertTrue(p.isCompatible(myCorp))
+        self.assertFalse(p.isCompatible(outsource))
 
     def test_InfrastructureLocationPolicy(self):
         eco: Ecosystem = createEcosystem()
 
-        awsLocation: InfrastructureLocation = eco.getLocationOrThrow("AWS", ["USA", "us-east-1"])
-        azureLocation: InfrastructureLocation = eco.getLocationOrThrow("Azure", ["USA", "Central US"])
+        myCorpNY1Location: InfrastructureLocation = eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])
+        outsourceNJ1Location: InfrastructureLocation = eco.getLocationOrThrow("Outsource", ["USA", "NJ_1"])
 
-        p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), {awsLocation})
-        self.assertEqual(p.name, "Azure USA Only")
+        p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Outsource USA Only", PlainTextDocumentation("Test"), {myCorpNY1Location})
+        self.assertEqual(p.name, "Outsource USA Only")
 
-        self.assertTrue(p.isCompatible(awsLocation))
-        self.assertFalse(p.isCompatible(azureLocation))
+        self.assertTrue(p.isCompatible(myCorpNY1Location))
+        self.assertFalse(p.isCompatible(outsourceNJ1Location))
 
         s: set[InfraStructureLocationPolicy] = set()
         s.add(p)
@@ -54,11 +54,8 @@ class TestPolicy(unittest.TestCase):
 class TestPlatformPolicy(unittest.TestCase):
 
     def test_InfraVendorPolicy(self):
-
-        eco: Ecosystem = createEcosystem()
-
-        aws: InfrastructureVendor = eco.getVendorOrThrow("AWS")
-        azure: InfrastructureVendor = eco.getVendorOrThrow("Azure")
+        aws: InfrastructureVendor = InfrastructureVendor("AWS")
+        azure: InfrastructureVendor = InfrastructureVendor("Azure")
 
         p: InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only AWS", PlainTextDocumentation("Test"), {aws})
 
@@ -68,13 +65,13 @@ class TestPlatformPolicy(unittest.TestCase):
     def test_InfraLocationPolicy(self):
         eco: Ecosystem = createEcosystem()
 
-        awsLocation: InfrastructureLocation = eco.getLocationOrThrow("AWS", ["USA", "us-east-1"])
-        azureLocation: InfrastructureLocation = eco.getLocationOrThrow("Azure", ["USA", "Central US"])
+        ny1Location: InfrastructureLocation = eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])
+        nj1Location: InfrastructureLocation = eco.getLocationOrThrow("MyCorp", ["USA", "NJ_1"])
 
-        p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), {awsLocation})
+        p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("MyCorp USA NY_1 Only", PlainTextDocumentation("Test"), {ny1Location})
 
-        self.assertTrue(p.isCompatible(awsLocation))
-        self.assertFalse(p.isCompatible(azureLocation))
+        self.assertTrue(p.isCompatible(ny1Location))
+        self.assertFalse(p.isCompatible(nj1Location))
 
         s: set[InfraStructureLocationPolicy] = set()
         s.add(p)
@@ -86,26 +83,26 @@ class TestPlatformPolicy(unittest.TestCase):
         tree: ValidationTree = eco.lintAndHydrateCaches()
         self.assertFalse(tree.hasErrors())
 
-        # Add AWS to GZ USA as ONLY allowed Vendor
+        # Add Outsource to GZ USA as ONLY allowed Vendor
         gzUSA: GovernanceZone = eco.getZoneOrThrow("USA")
-        p: InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only AWS", PlainTextDocumentation("Test"), {eco.getVendorOrThrow("AWS")})
+        p: InfraStructureVendorPolicy = InfraStructureVendorPolicy("Only Outsource", PlainTextDocumentation("Test"), {eco.getVendorOrThrow("Outsource")})
         gzUSA.add(p)
 
-        # The NW Store uses Azure, this should fail lint
+        # The NW Store uses MyCorp, this should fail lint
         tree = eco.lintAndHydrateCaches()
         self.assertTrue(tree.hasErrors())
 
-        # Now reset and allow Azure, passes
+        # Now reset and allow MyCorp, passes
         eco = createEcosystem()
-        p = InfraStructureVendorPolicy("Only Azure", PlainTextDocumentation("Test"), {eco.getVendorOrThrow("Azure")})
+        p = InfraStructureVendorPolicy("Only MyCorp", PlainTextDocumentation("Test"), {eco.getVendorOrThrow("MyCorp")})
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
         self.assertFalse(tree.hasErrors())
 
-        # Now, disallow AWS, it only uses Azure so should be fine
+        # Now, disallow Outsource, it only uses MyCorp so should be fine
         eco = createEcosystem()
-        p = InfraStructureVendorPolicy("AWS Not Allowed", PlainTextDocumentation("Test"), None, {eco.getVendorOrThrow("AWS")})
+        p = InfraStructureVendorPolicy("Outsource Not Allowed", PlainTextDocumentation("Test"), None, {eco.getVendorOrThrow("Outsource")})
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()
@@ -113,7 +110,7 @@ class TestPlatformPolicy(unittest.TestCase):
 
         # Now, disallow Azure, it only uses Azure so should fail
         eco = createEcosystem()
-        p = InfraStructureVendorPolicy("Azure not allowed", PlainTextDocumentation("Test"), None, {eco.getVendorOrThrow("Azure")})
+        p = InfraStructureVendorPolicy("MyCorp not allowed", PlainTextDocumentation("Test"), None, {eco.getVendorOrThrow("MyCorp")})
         gzUSA = eco.getZoneOrThrow("USA")
         gzUSA.add(p)
         tree = eco.lintAndHydrateCaches()

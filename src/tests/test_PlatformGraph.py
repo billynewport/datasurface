@@ -16,14 +16,14 @@ class Test_PlatformGraphs(unittest.TestCase):
     def test_PipelineGraph(self):
         eco: Ecosystem = createEcosystem()
 
-        azurePlatform: DataPlatform = eco.getDataPlatformOrThrow("Azure Platform")
-        self.assertEqual(eco.getDefaultDataPlatform(), azurePlatform)
+        legacyA: DataPlatform = eco.getDataPlatformOrThrow("LegacyA")
+        self.assertEqual(eco.getDefaultDataPlatform(), legacyA)
 
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
 
-        self.assertIsNotNone(graph.roots.get(azurePlatform))
+        self.assertIsNotNone(graph.roots.get(legacyA))
 
-        pi: PlatformPipelineGraph = graph.roots[azurePlatform]
+        pi: PlatformPipelineGraph = graph.roots[legacyA]
         self.assertEqual(len(pi.workspaces), 3)
 
         self.assertEqual(len(pi.dataContainerExports), 1)

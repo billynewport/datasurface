@@ -3,13 +3,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-
-from datasurface.platforms.azure.azure import AzureSQLDatabase, AzureKeyVaultCredential
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import CDCCaptureIngestion, ConsumerRetentionRequirements, CronTrigger, DataContainer, DataLatency, \
-        DataRetentionPolicy, DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
-        InfrastructureLocation, IngestionConsistencyType, KubernetesEnvironment, PythonCodeArtifact, Team, TimedTransformerTrigger, \
-        Workspace, WorkspacePlatformConfig
+from datasurface.platforms.legacy import LegacyDatPlatformChooser, LegacyDataTransformer
+from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, UserPasswordCredential
+from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, \
+        DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
+        InfrastructureLocation, IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
+        Workspace
 
 from datasurface.md import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, Integer, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar, Variant
@@ -20,10 +19,10 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
         Datastore(
             "NW_Data",
             CDCCaptureIngestion(
-                AzureSQLDatabase("NW_DB", "hostName", 1344, "DBName", {eco.getLocationOrThrow("Azure", ["USA", "East US"])}),
+                HostPortSQLDatabase("NW_DB", {eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])}, "hostName", 1344, "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                AzureKeyVaultCredential("mykeyvault", "NWDB_Creds")
+                UserPasswordCredential("user", "pwd")
                 ),
 
             Dataset(
@@ -211,20 +210,17 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db: DataContainer = AzureSQLDatabase("AzureSQL", "hostName", 1344, "DBName", locations)
+    ws_db: DataContainer = HostPortSQLDatabase("AzureSQL", locations, "hostName", 1344, "DBName")
 
     w: Workspace = Workspace(
         "ProductLiveAdhocReporting",
         ws_db,
         DatasetGroup(
             "LiveProducts",
-            WorkspacePlatformConfig(
-                ConsumerRetentionRequirements(
-                    DataRetentionPolicy.LIVE_ONLY,
-                    DataLatency.MINUTES,  # Minutes of latency is acceptable
-                    None,  # Regulator
-                    None)  # Data used here has no retention requirement due to this use case
-                ),
+            LegacyDatPlatformChooser(
+                "LegacyA",  # Name of eco level LegacyDataPlatform
+                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
+                set()),
             DatasetSink("NW_Data", "products"),
             DatasetSink("NW_Data", "customers"),
             DatasetSink("NW_Data", "suppliers")
@@ -240,13 +236,10 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
         ws_db,
         DatasetGroup(
             "MaskCustomers",
-            WorkspacePlatformConfig(
-                ConsumerRetentionRequirements(
-                    DataRetentionPolicy.LIVE_ONLY,
-                    DataLatency.MINUTES,  # Minutes of latency is acceptable
-                    None,  # Regulator
-                    None)  # Data used here has no retention requirement due to this use case
-                ),
+            LegacyDatPlatformChooser(
+                "LegacyA",  # Name of eco level LegacyDataPlatform
+                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
+                set()),
             DatasetSink("NW_Data", "customers")
             ),
         DataTransformer(
@@ -265,10 +258,10 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
                     ))),
             TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "*/10 * * * *")),
             PythonCodeArtifact([], {}, "3.11"),
-            KubernetesEnvironment(
-                "kubcluster.here.com",
-                AzureKeyVaultCredential("myvault", "Kubernetes_Creds"),
-                ws_db.locations
+            LegacyDataTransformer(
+                "Legacy Transformer for mask",
+                PlainTextDocumentation("This is a legacy transformer"),
+                set()
                 )
             )
         )
@@ -279,13 +272,10 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
         ws_db,
         DatasetGroup(
             "UseMaskedCustomers",
-            WorkspacePlatformConfig(
-                ConsumerRetentionRequirements(
-                    DataRetentionPolicy.LIVE_ONLY,
-                    DataLatency.MINUTES,  # Minutes of latency is acceptable
-                    None,  # Regulator
-                    None)  # Data used here has no retention requirement due to this use case
-                ),
+            LegacyDatPlatformChooser(
+                "LegacyA",  # Name of eco level LegacyDataPlatform
+                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
+                set()),
             DatasetSink("Masked_NW_Data", "customers")
         ))
     t.add(w)

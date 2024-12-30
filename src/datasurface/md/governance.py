@@ -4534,6 +4534,11 @@ class CodeExecutionEnvironment(ABC):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.location})"
 
+    @abstractmethod
+    def isCodeArtifactSupported(self, eco: 'Ecosystem', ca: CodeArtifact) -> bool:
+        """This checks if the code artifact can be run in this environment"""
+        return False
+
 
 class KubernetesEnvironment(CodeExecutionEnvironment):
     """This is a Kubernetes environment"""
@@ -4550,6 +4555,9 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
             tree.addRaw(NameHasBadSynthax(f"Invalid host name <{self.hostName}>"))
         cTree: ValidationTree = tree.addSubTree(self.credential)
         self.credential.lint(eco, cTree)
+
+    def isCodeArtifactSupported(self, eco: Ecosystem, ca: CodeArtifact) -> bool:
+        return isinstance(ca, PythonCodeArtifact)
 
 
 class DataTransformer(ANSI_SQL_NamedObject, Documentable):
@@ -4588,6 +4596,11 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable):
         self.codeEnv.lint(eco, codeEnvTree)
         codeTree: ValidationTree = tree.addSubTree(self.codeEnv)
         self.code.lint(eco, codeTree)
+
+        # Check the code artifact can be executed by the code execution environment
+        if not self.codeEnv.isCodeArtifactSupported(eco, self.code):
+            codeEnvTree.addRaw(ValidationProblem(f"CodeArtifact {self.code} is not supported in the CodeExecutionEnvironment {self.codeEnv}",
+                                                 ProblemSeverity.ERROR))
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, DataTransformer) and self.name == o.name and self.outputDatastore == o.outputDatastore and \
