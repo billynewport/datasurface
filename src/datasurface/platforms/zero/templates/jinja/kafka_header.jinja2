@@ -1,0 +1,12 @@
+terraform {
+  required_providers {
+    kafka = {
+      source  = "Mongey/kafka"
+      version = "0.3.0"
+    }
+  }
+}
+
+provider "kafka" {
+  bootstrap_servers = "{{kafkaHost}}:{{kafkaPort"}}"
+}

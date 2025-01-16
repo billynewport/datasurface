@@ -1,0 +1,29 @@
+# This defines a kafka topic for a database and the
+# debezium connector that will stream changes to that topic
+
+resource "kafka_topic" "schema_changes_{{storeName}}" {
+  name               = "schema-changes.{{storeName}}"
+  replication_factor = 1
+  partitions         = 3
+  config = {
+    "cleanup.policy" = "delete"
+  }
+}
+
+resource "kafka_connector" "debezium_connector_{{storeName}}" {
+  name = "debezium-connector-{{storeName}}"
+  config = {
+    "connector.class" = "io.debezium.connector.mysql.MySqlConnector"
+    "tasks.max"       = "1"
+    "database.hostname" = "{{databaseHost}}"
+    "database.port"     = "{{databasePort}}"
+    "database.user"     = var.database_user
+    "database.password" = var.database_password
+    "database.server.id" = "{{storeName}}"
+    "database.server.name" = "dbserver1"
+    "database.include.list" = "inventory"
+    "table.include.list" = "database.tableName,database.tableName2"
+    "database.history.kafka.bootstrap.servers" = "{{kafkaHost}}:{{kafkaPort"}}"
+    "database.history.kafka.topic" = kafka_topic.schema_changes_{{storeName}}.name
+  }
+}
