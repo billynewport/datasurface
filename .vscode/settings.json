@@ -7,7 +7,12 @@
     "gradle.nestedProjects": true,
     "python.analysis.exclude": ["**/*_pb2.py", "**/*_pb2_grpc.py", "**/build/**", "**/env/**", "**/java/**", "**/venv/**", "**/.venv/**", "**/*.pyi"],
     "java.jdt.ls.vmargs": "-Xmx4G",
-    "java.jdt.ls.java.home": "/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home",
+    "java.jdt.ls.java.home": "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.13.11-hotspot",
     "java.compile.nullAnalysis.mode": "automatic",
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "python.testing.pytestArgs": [
+        "src"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }
