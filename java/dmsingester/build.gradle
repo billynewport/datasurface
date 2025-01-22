@@ -46,7 +46,7 @@ sourceSets {
             srcDir '../../src/datasurface/api'
         }
         java {
-            srcDirs 'src/main/java', 'src/generated/main/java', 'src/generated/main/grpc'
+            srcDirs 'src/main/java'
         }
     }
 }
