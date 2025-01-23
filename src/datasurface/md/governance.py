@@ -203,6 +203,7 @@ def memoize(func: Callable[[A], R]) -> Memoize[A, R]:
 
 
 class Documentation(ABC):
+    """This is the base class for all documentation objects. There are subclasses for different ways to express documentation such as plain text or markdown and so on."""
     def __init__(self, description: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
         if not description:
             raise ValueError("Description cannot be empty")
@@ -229,6 +230,7 @@ class Documentation(ABC):
 
 
 class Documentable:
+    """This is the base class for all objects which can have documentation."""
     def __init__(self, documentation: Optional[Documentation]) -> None:
         self.documentation: Optional[Documentation] = documentation
 
