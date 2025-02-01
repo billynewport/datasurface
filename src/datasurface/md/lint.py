@@ -21,15 +21,10 @@ class LintableObject:
             self._line_number = linenumber
         else:
             f: Optional[FrameType] = inspect.currentframe()
-            while f is not None:
-                bf: Optional[FrameType] = f.f_back
-                if bf is not None:
-                    module_name = bf.f_globals.get('__name__', '')
-                    if not module_name.startswith('datasurface'):
-                        self._line_number: int = bf.f_lineno
-                        self._file_name: str = bf.f_code.co_filename
-                        break
-                f = bf
+            f = self.findFirstNonDataSurfaceCaller()
+            if f is not None:
+                self._line_number: int = f.f_lineno
+                self._file_name: str = f.f_code.co_filename
 
     def setSource(self, filename: str, line: int):
         """This is used to set the file/line when the model is populated using non python DSLs. For example,
@@ -37,6 +32,19 @@ class LintableObject:
         to do with the code loading the YML into the model."""
         self._file_name = filename
         self._line_number = line
+
+    def findFirstNonDataSurfaceCaller(self) -> Optional[FrameType]:
+        """This walks back the caller stack until it finds a non datasurface caller. This is
+        assumed to be the python module defining the DSL."""
+        f: Optional[FrameType] = inspect.currentframe()
+        while f is not None:
+            bf: Optional[FrameType] = f.f_back
+            if bf is not None:
+                module_name = bf.f_globals.get('__name__', '')
+                if not module_name.startswith('datasurface'):
+                    return bf
+            f = bf
+        return None
 
 
 class InternalLintableObject(LintableObject):
