@@ -4735,7 +4735,7 @@ class PlatformStyle(Enum):
 class PipelineNode(InternalLintableObject):
     """This is a named node in the pipeline graph. It stores node common information and which nodes this node depends on and those that depend on this node"""
     def __init__(self, name: str, platform: DataPlatform):
-        LintableObject.__init__(self)
+        InternalLintableObject.__init__(self)
         self.name: str = name
         self.platform: DataPlatform = platform
         # This node depends on this set of nodes
@@ -4871,7 +4871,7 @@ class PlatformPipelineGraph(InternalLintableObject):
     node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore"""
 
     def __init__(self, eco: Ecosystem, platform: DataPlatform):
-        LintableObject.__init__(self)
+        InternalLintableObject.__init__(self)
         self.platform: DataPlatform = platform
         self.eco: Ecosystem = eco
         self.workspaces: dict[str, Workspace] = dict()
@@ -5071,7 +5071,7 @@ class PlatformPipelineGraph(InternalLintableObject):
 class EcosystemPipelineGraph(InternalLintableObject):
     """This is the total graph for an Ecosystem. It's a list of graphs keyed by DataPlatforms in use. One graph per DataPlatform"""
     def __init__(self, eco: Ecosystem):
-        LintableObject.__init__(self)
+        InternalLintableObject.__init__(self)
         self.eco: Ecosystem = eco
 
         # Store for each DP, the set of DSGRootNodes

@@ -46,6 +46,10 @@ class LintableObject:
             f = bf
         return None
 
+    def getSourceReferenceString(self) -> str:
+        """This returns a string representing where this object was first constructed"""
+        return f"{self.__class__.__name__}@{self._file_name}:{self._line_number}"
+
 
 class InternalLintableObject(LintableObject):
     """This is used for objects that are internal to the model and not part of the DSL. Examples would be
@@ -312,7 +316,7 @@ class ValidationTree:
         self.numErrors = 0
         self.numWarnings = 0
         if (self.hasErrors() or self.hasWarnings()):  # If something to see here or in the children then
-            print(" " * indent, self.object)
+            print(" " * indent, self.object.getSourceReferenceString())
             for problem in self.problems:
                 print(" " * (indent + 2), str(problem))
                 if (problem.sev == ProblemSeverity.ERROR):
