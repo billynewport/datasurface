@@ -9,7 +9,7 @@ import copy
 
 from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32, IEEE64, IEEE16, IEEE128, BigInt, SmallInt, Decimal
 from datasurface.md import DDLTable
-from datasurface.md import ValidationTree
+from datasurface.md import ValidationTree, LintableObject
 from datasurface.md import Binary, Boolean, Char, Date, Interval, NVarChar, Timestamp, VarChar, Variant, Vector
 
 
@@ -71,41 +71,41 @@ class TestSchemaCompatibility(unittest.TestCase):
         self.assertFalse(col2.checkForBackwardsCompatibility(col1, t))
 
         # Check lots of backward compatibility cases
-        self.assertTrue(Decimal(10, 2).isBackwardsCompatibleWith(Decimal(10, 2), ValidationTree("")))
-        self.assertTrue(String(10).isBackwardsCompatibleWith(String(10), ValidationTree("")))
-        self.assertTrue(String().isBackwardsCompatibleWith(String(10), ValidationTree("")))  # Unlimited
-        self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE32(), ValidationTree("")))
-        self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE16(), ValidationTree("")))
-        self.assertFalse(IEEE32().isBackwardsCompatibleWith(IEEE64(), ValidationTree("")))
-        self.assertTrue(IEEE64().isBackwardsCompatibleWith(IEEE64(), ValidationTree("")))
-        self.assertTrue(IEEE128().isBackwardsCompatibleWith(IEEE128(), ValidationTree("")))
+        self.assertTrue(Decimal(10, 2).isBackwardsCompatibleWith(Decimal(10, 2), ValidationTree(LintableObject())))
+        self.assertTrue(String(10).isBackwardsCompatibleWith(String(10), ValidationTree(LintableObject())))
+        self.assertTrue(String().isBackwardsCompatibleWith(String(10), ValidationTree(LintableObject())))  # Unlimited
+        self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE32(), ValidationTree(LintableObject())))
+        self.assertTrue(IEEE32().isBackwardsCompatibleWith(IEEE16(), ValidationTree(LintableObject())))
+        self.assertFalse(IEEE32().isBackwardsCompatibleWith(IEEE64(), ValidationTree(LintableObject())))
+        self.assertTrue(IEEE64().isBackwardsCompatibleWith(IEEE64(), ValidationTree(LintableObject())))
+        self.assertTrue(IEEE128().isBackwardsCompatibleWith(IEEE128(), ValidationTree(LintableObject())))
 
-        self.assertTrue(BigInt().isBackwardsCompatibleWith(BigInt(), ValidationTree("")))
-        self.assertTrue(SmallInt().isBackwardsCompatibleWith(SmallInt(), ValidationTree("")))
+        self.assertTrue(BigInt().isBackwardsCompatibleWith(BigInt(), ValidationTree(LintableObject())))
+        self.assertTrue(SmallInt().isBackwardsCompatibleWith(SmallInt(), ValidationTree(LintableObject())))
 
-        self.assertTrue(Boolean().isBackwardsCompatibleWith(Boolean(), ValidationTree("")))
+        self.assertTrue(Boolean().isBackwardsCompatibleWith(Boolean(), ValidationTree(LintableObject())))
 
-        self.assertTrue(Timestamp().isBackwardsCompatibleWith(Timestamp(), ValidationTree("")))
-        self.assertTrue(Timestamp().isBackwardsCompatibleWith(Date(), ValidationTree("")))
+        self.assertTrue(Timestamp().isBackwardsCompatibleWith(Timestamp(), ValidationTree(LintableObject())))
+        self.assertTrue(Timestamp().isBackwardsCompatibleWith(Date(), ValidationTree(LintableObject())))
 
-        self.assertTrue(Date().isBackwardsCompatibleWith(Date(), ValidationTree("")))
-        self.assertFalse(Date().isBackwardsCompatibleWith(Timestamp(), ValidationTree("")))
+        self.assertTrue(Date().isBackwardsCompatibleWith(Date(), ValidationTree(LintableObject())))
+        self.assertFalse(Date().isBackwardsCompatibleWith(Timestamp(), ValidationTree(LintableObject())))
 
-        self.assertTrue(Interval().isBackwardsCompatibleWith(Interval(), ValidationTree("")))
-        self.assertFalse(Interval().isBackwardsCompatibleWith(Date(), ValidationTree("")))
-        self.assertFalse(Interval().isBackwardsCompatibleWith(Timestamp(), ValidationTree("")))
+        self.assertTrue(Interval().isBackwardsCompatibleWith(Interval(), ValidationTree(LintableObject())))
+        self.assertFalse(Interval().isBackwardsCompatibleWith(Date(), ValidationTree(LintableObject())))
+        self.assertFalse(Interval().isBackwardsCompatibleWith(Timestamp(), ValidationTree(LintableObject())))
 
-        self.assertTrue(VarChar(10).isBackwardsCompatibleWith(VarChar(10),  ValidationTree("")))
-        self.assertTrue(VarChar().isBackwardsCompatibleWith(VarChar(10),  ValidationTree("")))
-        self.assertTrue(NVarChar(10).isBackwardsCompatibleWith(NVarChar(10), ValidationTree("")))
-        self.assertTrue(Char(10).isBackwardsCompatibleWith(Char(10), ValidationTree("")))
+        self.assertTrue(VarChar(10).isBackwardsCompatibleWith(VarChar(10),  ValidationTree(LintableObject())))
+        self.assertTrue(VarChar().isBackwardsCompatibleWith(VarChar(10),  ValidationTree(LintableObject())))
+        self.assertTrue(NVarChar(10).isBackwardsCompatibleWith(NVarChar(10), ValidationTree(LintableObject())))
+        self.assertTrue(Char(10).isBackwardsCompatibleWith(Char(10), ValidationTree(LintableObject())))
 
-        self.assertTrue(Variant(10).isBackwardsCompatibleWith(Variant(10), ValidationTree("")))
-        self.assertTrue(Binary(10).isBackwardsCompatibleWith(Binary(10), ValidationTree("")))
-        self.assertFalse(Variant(10).isBackwardsCompatibleWith(Binary(10), ValidationTree("")))
-        self.assertTrue(Vector(10).isBackwardsCompatibleWith(Vector(10), ValidationTree("")))
+        self.assertTrue(Variant(10).isBackwardsCompatibleWith(Variant(10), ValidationTree(LintableObject())))
+        self.assertTrue(Binary(10).isBackwardsCompatibleWith(Binary(10), ValidationTree(LintableObject())))
+        self.assertFalse(Variant(10).isBackwardsCompatibleWith(Binary(10), ValidationTree(LintableObject())))
+        self.assertTrue(Vector(10).isBackwardsCompatibleWith(Vector(10), ValidationTree(LintableObject())))
 
-        self.assertFalse(Boolean().isBackwardsCompatibleWith(Vector(10), ValidationTree("")))
+        self.assertFalse(Boolean().isBackwardsCompatibleWith(Vector(10), ValidationTree(LintableObject())))
 
     def testDDLTableBackwardsCompatibility(self):
         t1: DDLTable = DDLTable(

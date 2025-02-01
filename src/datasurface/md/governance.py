@@ -21,7 +21,8 @@ from datasurface.md.exceptions import AttributeAlreadySetException, ObjectAlread
 from datasurface.md.exceptions import UnknownArgumentException
 from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
-        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree
+        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, LintableObject, \
+        InternalLintableObject
 
 import hashlib
 from typing import Tuple, Dict, Mapping, Iterable
@@ -92,10 +93,11 @@ def is_valid_hostname_or_ip(s: str) -> bool:
     return False
 
 
-class ANSI_SQL_NamedObject:
+class ANSI_SQL_NamedObject(LintableObject):
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
     def __init__(self, name: str) -> None:
+        super().__init__()
         self.name: str = name
         """The name of the object"""
         if not is_valid_sql_identifier(self.name):
@@ -202,9 +204,11 @@ def memoize(func: Callable[[A], R]) -> Memoize[A, R]:
     return Memoize(func)
 
 
-class Documentation(ABC):
-    """This is the base class for all documentation objects. There are subclasses for different ways to express documentation such as plain text or markdown and so on."""
+class Documentation(ABC, LintableObject):
+    """This is the base class for all documentation objects. There are subclasses for different ways to express documentation such as plain text \
+    or markdown and so on."""
     def __init__(self, description: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
+        LintableObject.__init__(self)
         if not description:
             raise ValueError("Description cannot be empty")
         if tags is not None:
@@ -270,10 +274,11 @@ class MarkdownDocumentation(Documentation):
         pass
 
 
-class Repository(ABC, Documentable):
+class Repository(ABC, Documentable, LintableObject):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc: Optional[Documentation]):
         ABC.__init__(self)
+        LintableObject.__init__(self)
         Documentable.__init__(self, doc)
 
     @abstractmethod
@@ -297,11 +302,12 @@ class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
         super().__init__(f"'{obj}' owned by {owningRepo} cannot be changed by repo {changeSource}", ProblemSeverity.ERROR)
 
 
-class GitControlledObject(ABC, Documentable):
+class GitControlledObject(ABC, Documentable, LintableObject):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo: 'Repository') -> None:
         ABC.__init__(self)
         Documentable.__init__(self, None)
+        LintableObject.__init__(self)
         self.owningRepo: Repository = repo
         """This is the repository which is authorized to make changes to this object"""
 
@@ -313,7 +319,7 @@ class GitControlledObject(ABC, Documentable):
 
     def _check_dict_changes(self, current_dict: dict[str, Any], proposed_dict: dict[str, Any], validation_tree: ValidationTree, dict_name: str) -> bool:
         if current_dict != proposed_dict:
-            self.showDictChangesAsProblems(current_dict, proposed_dict, validation_tree.addSubTree(dict_name))
+            self.showDictChangesAsProblems(current_dict, proposed_dict, validation_tree.addSubTree(self))
             return True
         return False
 
@@ -776,10 +782,12 @@ def handleUnsupportedObjectsToJson(obj: object) -> str:
     raise Exception(f"Unsupported object {obj} in to_json")
 
 
-class DataType(ABC):
+class DataType(ABC, LintableObject):
     """Base class for all data types. These DataTypes are not nullable. Nullable status is a property of
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
+        LintableObject.__init__(self)
+        ABC.__init__(self)
         pass
 
     def __eq__(self, __value: object) -> bool:
@@ -1733,9 +1741,10 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         return f"DDLColumn({self.name})"
 
 
-class AttributeList:
+class AttributeList(LintableObject):
     """A list of column names."""
     def __init__(self, colNames: list[str]) -> None:
+        LintableObject.__init__(self)
         self.colNames: List[str] = []
         for col in colNames:
             self.colNames.append(col)
@@ -1782,10 +1791,12 @@ class NotBackwardsCompatible(ValidationProblem):
         return hash(str(self))
 
 
-class Schema(ABC, Documentable):
+class Schema(ABC, Documentable, LintableObject):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
         Documentable.__init__(self, None)
+        ABC.__init__(self)
+        LintableObject.__init__(self)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
@@ -1938,7 +1949,7 @@ class DDLTable(Schema):
         super().lint(tree)
         if self.primaryKeyColumns:
             pkTree: ValidationTree = tree.addSubTree(self.primaryKeyColumns)
-            self.primaryKeyColumns.lint(tree.addSubTree(pkTree))
+            self.primaryKeyColumns.lint(pkTree)
             for colName in self.primaryKeyColumns.colNames:
                 if (colName not in self.columns):
                     pkTree.addRaw(NotBackwardsCompatible(f"Primary key column {colName} is not in the column list"))
@@ -2144,13 +2155,15 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
             self.name == __value.name and self.mandatory == __value.mandatory
 
 
-class InfrastructureLocation(Documentable):
+class InfrastructureLocation(Documentable, LintableObject):
     """This is a location within a vendors physical location hierarchy. This object
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
     def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
-        super().__init__(None)
+        Documentable.__init__(self, None)
+        LintableObject.__init__(self)
+
         self.name: str = name
         self.key: Optional[InfraLocationKey] = None
 
@@ -2267,11 +2280,12 @@ class CloudVendor(Enum):
     PRIVATE = 10  # Onsite or private cloud
 
 
-class InfrastructureVendor(Documentable):
+class InfrastructureVendor(Documentable, LintableObject):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an
     enterprise or an external cloud provider"""
     def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
-        super().__init__(None)
+        Documentable.__init__(self, None)
+        LintableObject.__init__(self)
         self.name: str = name
         self.key: Optional[InfrastructureVendorKey] = None
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
@@ -2538,12 +2552,13 @@ class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
         return super().mapAttributeName(w, dsg, store, ds, attributeName)
 
 
-class DataContainer(ABC, Documentable):
+class DataContainer(ABC, Documentable, LintableObject):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
     def __init__(self, name: str, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
         ABC.__init__(self)
+        LintableObject.__init__(self)
         Documentable.__init__(self, None)
         self.locations: set[InfrastructureLocation] = set()
         self.name: str = name
@@ -2804,9 +2819,11 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
         return False
 
 
-class Credential(ABC):
+class Credential(ABC, LintableObject):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
+        ABC.__init__(self)
+        LintableObject.__init__(self)
         pass
 
     def __eq__(self, __value: object) -> bool:
@@ -2968,11 +2985,12 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
-class CaptureMetaData(ABC):
+class CaptureMetaData(ABC, LintableObject):
     """This describes how a platform can pull data for a Datastore"""
 
     def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
-        super().__init__()
+        ABC.__init__(self)
+        LintableObject.__init__(self)
         self.singleOrMultiDatasetIngestion: Optional[IngestionConsistencyType] = None
         self.stepTrigger: Optional[StepTrigger] = None
         self.dataContainer: Optional[DataContainer] = None
@@ -3268,15 +3286,16 @@ class DependentWorkspaces:
             return False
 
 
-class DefaultDataPlatform:
+class DefaultDataPlatform(LintableObject):
     def __init__(self, p: 'DataPlatformKey'):
+        LintableObject.__init__(self)
         self.defaultPlatform: 'DataPlatformKey' = p
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         if (eco.getDataPlatform(self.defaultPlatform.name) is None):
             tree.addRaw(AttributeNotSet("Default Data Platform not set"))
         else:
-            self.defaultPlatform.lint(eco, tree.addSubTree("DefaultDataPlatform"))
+            self.defaultPlatform.lint(eco, tree.addSubTree(self))
 
     def get(self, eco: 'Ecosystem') -> 'DataPlatform':
         """This returns the default DataPlatform or throws an Exception if it has not been specified"""
@@ -4143,10 +4162,11 @@ class DockerContainer:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatformExecutor(ABC):
+class DataPlatformExecutor(ABC, LintableObject):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
-        super().__init__()
+        ABC.__init__(self)
+        LintableObject.__init__(self)
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, DataPlatformExecutor)
@@ -4176,10 +4196,12 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
         self.iacRepo.lint(tree.addSubTree(self.iacRepo))
 
 
-class DataPlatform(ABC, Documentable):
+class DataPlatform(ABC, Documentable, LintableObject):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor) -> None:
         Documentable.__init__(self, doc)
+        ABC.__init__(self)
+        LintableObject.__init__(self)
         self.name: str = name
         self.executor: DataPlatformExecutor = executor
 
@@ -4337,9 +4359,10 @@ class DeprecationsAllowed(Enum):
     """Deprecations are allowed but not will generate warnings"""
 
 
-class DatasetSink(object):
+class DatasetSink(LintableObject):
     """This is a reference to a dataset in a Workspace"""
     def __init__(self, storeName: str, datasetName: str, deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER) -> None:
+        LintableObject.__init__(self)
         self.storeName: str = storeName
         self.datasetName: str = datasetName
         self.key = f"{self.storeName}:{self.datasetName}"
@@ -4520,9 +4543,11 @@ class PythonCodeArtifact(CodeArtifact):
             return False
 
 
-class CodeExecutionEnvironment(ABC):
+class CodeExecutionEnvironment(ABC, LintableObject):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
     def __init__(self, loc: set[InfrastructureLocation]):
+        LintableObject.__init__(self)
+        ABC.__init__(self)
         self.location: set[InfrastructureLocation] = loc
 
     def __eq__(self, o: object) -> bool:
@@ -4707,9 +4732,10 @@ class PlatformStyle(Enum):
     OBJECT = 3
 
 
-class PipelineNode:
+class PipelineNode(InternalLintableObject):
     """This is a named node in the pipeline graph. It stores node common information and which nodes this node depends on and those that depend on this node"""
     def __init__(self, name: str, platform: DataPlatform):
+        LintableObject.__init__(self)
         self.name: str = name
         self.platform: DataPlatform = platform
         # This node depends on this set of nodes
@@ -4812,7 +4838,7 @@ class DataTransformerNode(PipelineNode):
 
 
 class DSGRootNode:
-    """This represents a targer for a DataPlatform. A DataPlatforms purpose is to hydrated and maintain
+    """This represents a target for a DataPlatform. A DataPlatforms purpose is to hydrated and maintain
     the datasets for a DatasetGroup. A Workspace owns one or more DatasetGroups and all datasets used in
     its DatasetGroups must be exported to the DataContainer used by the Workspace."""
     def __init__(self, w: Workspace, dsg: DatasetGroup):
@@ -4829,7 +4855,7 @@ class DSGRootNode:
         return f"{self.workspace.name}/{self.dsg.name}"
 
 
-class PlatformPipelineGraph:
+class PlatformPipelineGraph(InternalLintableObject):
     """This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include
     provisioning Workspace views, provisioning dataContainer tables. Exporting data to dataContainer tables. Ingesting data from datastores,
     executing data transformers. We always build the graph starting on the right hand side, the consumer side which is typically a
@@ -4845,6 +4871,7 @@ class PlatformPipelineGraph:
     node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore"""
 
     def __init__(self, eco: Ecosystem, platform: DataPlatform):
+        LintableObject.__init__(self)
         self.platform: DataPlatform = platform
         self.eco: Ecosystem = eco
         self.workspaces: dict[str, Workspace] = dict()
@@ -5041,9 +5068,10 @@ class PlatformPipelineGraph:
         gHandler.lintGraph(self.eco, tree.addSubTree(gHandler))
 
 
-class EcosystemPipelineGraph:
+class EcosystemPipelineGraph(InternalLintableObject):
     """This is the total graph for an Ecosystem. It's a list of graphs keyed by DataPlatforms in use. One graph per DataPlatform"""
     def __init__(self, eco: Ecosystem):
+        LintableObject.__init__(self)
         self.eco: Ecosystem = eco
 
         # Store for each DP, the set of DSGRootNodes
@@ -5172,10 +5200,11 @@ class FileBasedFragmentManager(IaCFragmentManager):
         return hash(self.name)
 
 
-class DataPlatformGraphHandler(ABC):
+class DataPlatformGraphHandler(ABC, LintableObject):
     """This is a base class for DataPlatform code for handling a specific intention graph"""
     def __init__(self, graph: PlatformPipelineGraph):
         ABC.__init__(self)
+        LintableObject.__init__(self)
         self.graph: PlatformPipelineGraph = graph
 
     @abstractmethod

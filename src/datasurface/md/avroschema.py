@@ -76,6 +76,6 @@ class AvroSchema(Schema):
 
     def lint(self, tree: ValidationTree) -> None:
         if (self.primaryKeyColumns):
-            self.checkColumnsArePrimitiveTypes(self.primaryKeyColumns.colNames, tree.addSubTree("PrimaryKeys"))
+            self.checkColumnsArePrimitiveTypes(self.primaryKeyColumns.colNames, tree.addSubTree(self.primaryKeyColumns))
         if (self.ingestionPartitionColumns):
-            self.checkColumnsArePrimitiveTypes(self.ingestionPartitionColumns.colNames, tree.addSubTree("PartitionKeys"))
+            self.checkColumnsArePrimitiveTypes(self.ingestionPartitionColumns.colNames, tree.addSubTree(self.ingestionPartitionColumns))

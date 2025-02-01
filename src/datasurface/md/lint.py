@@ -4,7 +4,46 @@
 """
 
 from enum import Enum
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Optional
+from types import FrameType
+import inspect
+
+
+class LintableObject:
+    """This walks back the stack to find the file and line number constructing the object. It needs
+    to skip all datasurface classes on the call stack until a non datasurface class is found and that is
+    the frame we should use. Objects which we validate in the DSL should inherit from this class"""
+    def __init__(self, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:
+        self._line_number: int = 0  # The _ here causes these variables to be ignore during cyclic reference checks
+        self._file_name: str = ""  # We want this because we can define the identical object in two places and still want them equal
+        if (filename is not None and linenumber is not None):
+            self._file_name = filename
+            self._line_number = linenumber
+        else:
+            f: Optional[FrameType] = inspect.currentframe()
+            while f is not None:
+                bf: Optional[FrameType] = f.f_back
+                if bf is not None:
+                    module_name = bf.f_globals.get('__name__', '')
+                    if not module_name.startswith('datasurface'):
+                        self._line_number: int = bf.f_lineno
+                        self._file_name: str = bf.f_code.co_filename
+                        break
+                f = bf
+
+    def setSource(self, filename: str, line: int):
+        """This is used to set the file/line when the model is populated using non python DSLs. For example,
+        someone can build an adapter to create a model from YML or JSON and then this information has nothing
+        to do with the code loading the YML into the model."""
+        self._file_name = filename
+        self._line_number = line
+
+
+class InternalLintableObject(LintableObject):
+    """This is used for objects that are internal to the model and not part of the DSL. Examples would be
+    objects generated after the DSL has been constructed, there is no 'source' file for the object"""
+    def __init__(self) -> None:
+        super().__init__("Internal", 0)
 
 
 class ProblemSeverity(Enum):
@@ -198,8 +237,8 @@ class UnknownChangeSource(ValidationProblem):
 class ValidationTree:
     """This is a tree of issues found while running a set of checks against the model. It is used to collect issues. Each node in the
     tree represents an object in the model. Each node can list a set of issues found with that node"""
-    def __init__(self, obj: object) -> None:
-        self.object: object = obj
+    def __init__(self, obj: LintableObject) -> None:
+        self.object: LintableObject = obj
         self.numErrors: int = 0
         self.numWarnings: int = 0
 
@@ -209,7 +248,7 @@ class ValidationTree:
         self.problems: list[ValidationProblem] = []
         """The list of problems with this object"""
 
-    def addSubTree(self, obj: object) -> 'ValidationTree':
+    def addSubTree(self, obj: LintableObject) -> 'ValidationTree':
         """This creates a subtree of this object"""
         child: ValidationTree = ValidationTree(obj)
         self.children.append(child)
