@@ -5,11 +5,22 @@
 
 from enum import Enum
 from typing import Any, Callable, Generator, Optional
+from abc import ABC, abstractmethod
 from types import FrameType
 import inspect
 
 
-class LintableObject:
+class ValidatableObject(ABC):
+    def __init__(self) -> None:
+        pass
+
+    @abstractmethod
+    def getSourceReferenceString(self) -> str:
+        """This returns a string representing where this object was first constructed"""
+        pass
+
+
+class UserDSLObject(ValidatableObject):
     """This walks back the stack to find the file and line number constructing the object. It needs
     to skip all datasurface classes on the call stack until a non datasurface class is found and that is
     the frame we should use. Objects which we validate in the DSL should inherit from this class"""
@@ -51,11 +62,14 @@ class LintableObject:
         return f"{self.__class__.__name__}@{self._file_name}:{self._line_number}"
 
 
-class InternalLintableObject(LintableObject):
+class InternalLintableObject(ValidatableObject):
     """This is used for objects that are internal to the model and not part of the DSL. Examples would be
     objects generated after the DSL has been constructed, there is no 'source' file for the object"""
     def __init__(self) -> None:
-        super().__init__("Internal", 0)
+        super().__init__()
+
+    def getSourceReferenceString(self) -> str:
+        return f"Internal:{self}"
 
 
 class ProblemSeverity(Enum):
@@ -249,8 +263,8 @@ class UnknownChangeSource(ValidationProblem):
 class ValidationTree:
     """This is a tree of issues found while running a set of checks against the model. It is used to collect issues. Each node in the
     tree represents an object in the model. Each node can list a set of issues found with that node"""
-    def __init__(self, obj: LintableObject) -> None:
-        self.object: LintableObject = obj
+    def __init__(self, obj: ValidatableObject) -> None:
+        self.object: ValidatableObject = obj
         self.numErrors: int = 0
         self.numWarnings: int = 0
 
@@ -260,7 +274,7 @@ class ValidationTree:
         self.problems: list[ValidationProblem] = []
         """The list of problems with this object"""
 
-    def addSubTree(self, obj: LintableObject) -> 'ValidationTree':
+    def addSubTree(self, obj: ValidatableObject) -> 'ValidationTree':
         """This creates a subtree of this object"""
         child: ValidationTree = ValidationTree(obj)
         self.children.append(child)

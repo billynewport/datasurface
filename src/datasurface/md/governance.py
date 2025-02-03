@@ -21,7 +21,7 @@ from datasurface.md.exceptions import AttributeAlreadySetException, ObjectAlread
 from datasurface.md.exceptions import UnknownArgumentException
 from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
-        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, LintableObject, \
+        UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, UserDSLObject, \
         InternalLintableObject
 
 import hashlib
@@ -93,7 +93,7 @@ def is_valid_hostname_or_ip(s: str) -> bool:
     return False
 
 
-class ANSI_SQL_NamedObject(LintableObject):
+class ANSI_SQL_NamedObject(UserDSLObject):
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
     def __init__(self, name: str) -> None:
@@ -204,11 +204,11 @@ def memoize(func: Callable[[A], R]) -> Memoize[A, R]:
     return Memoize(func)
 
 
-class Documentation(ABC, LintableObject):
+class Documentation(UserDSLObject):
     """This is the base class for all documentation objects. There are subclasses for different ways to express documentation such as plain text \
     or markdown and so on."""
     def __init__(self, description: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         if not description:
             raise ValueError("Description cannot be empty")
         if tags is not None:
@@ -274,11 +274,11 @@ class MarkdownDocumentation(Documentation):
         pass
 
 
-class Repository(ABC, Documentable, LintableObject):
+class Repository(Documentable, UserDSLObject):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc: Optional[Documentation]):
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         Documentable.__init__(self, doc)
 
     @abstractmethod
@@ -302,12 +302,12 @@ class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
         super().__init__(f"'{obj}' owned by {owningRepo} cannot be changed by repo {changeSource}", ProblemSeverity.ERROR)
 
 
-class GitControlledObject(ABC, Documentable, LintableObject):
+class GitControlledObject(Documentable, UserDSLObject):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo: 'Repository') -> None:
         ABC.__init__(self)
         Documentable.__init__(self, None)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.owningRepo: Repository = repo
         """This is the repository which is authorized to make changes to this object"""
 
@@ -782,11 +782,11 @@ def handleUnsupportedObjectsToJson(obj: object) -> str:
     raise Exception(f"Unsupported object {obj} in to_json")
 
 
-class DataType(ABC, LintableObject):
+class DataType(UserDSLObject):
     """Base class for all data types. These DataTypes are not nullable. Nullable status is a property of
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         ABC.__init__(self)
         pass
 
@@ -1741,10 +1741,10 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         return f"DDLColumn({self.name})"
 
 
-class AttributeList(LintableObject):
+class AttributeList(UserDSLObject):
     """A list of column names."""
     def __init__(self, colNames: list[str]) -> None:
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.colNames: List[str] = []
         for col in colNames:
             self.colNames.append(col)
@@ -1791,12 +1791,12 @@ class NotBackwardsCompatible(ValidationProblem):
         return hash(str(self))
 
 
-class Schema(ABC, Documentable, LintableObject):
+class Schema(Documentable, UserDSLObject):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
         Documentable.__init__(self, None)
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
@@ -2155,14 +2155,14 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
             self.name == __value.name and self.mandatory == __value.mandatory
 
 
-class InfrastructureLocation(Documentable, LintableObject):
+class InfrastructureLocation(Documentable, UserDSLObject):
     """This is a location within a vendors physical location hierarchy. This object
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
     def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
         Documentable.__init__(self, None)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
 
         self.name: str = name
         self.key: Optional[InfraLocationKey] = None
@@ -2280,12 +2280,12 @@ class CloudVendor(Enum):
     PRIVATE = 10  # Onsite or private cloud
 
 
-class InfrastructureVendor(Documentable, LintableObject):
+class InfrastructureVendor(Documentable, UserDSLObject):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an
     enterprise or an external cloud provider"""
     def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
         Documentable.__init__(self, None)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.name: str = name
         self.key: Optional[InfrastructureVendorKey] = None
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
@@ -2552,13 +2552,13 @@ class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
         return super().mapAttributeName(w, dsg, store, ds, attributeName)
 
 
-class DataContainer(ABC, Documentable, LintableObject):
+class DataContainer(Documentable, UserDSLObject):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
     def __init__(self, name: str, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         Documentable.__init__(self, None)
         self.locations: set[InfrastructureLocation] = set()
         self.name: str = name
@@ -2819,11 +2819,11 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
         return False
 
 
-class Credential(ABC, LintableObject):
+class Credential(UserDSLObject):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         pass
 
     def __eq__(self, __value: object) -> bool:
@@ -2985,12 +2985,12 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
-class CaptureMetaData(ABC, LintableObject):
+class CaptureMetaData(UserDSLObject):
     """This describes how a platform can pull data for a Datastore"""
 
     def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.singleOrMultiDatasetIngestion: Optional[IngestionConsistencyType] = None
         self.stepTrigger: Optional[StepTrigger] = None
         self.dataContainer: Optional[DataContainer] = None
@@ -3286,9 +3286,9 @@ class DependentWorkspaces:
             return False
 
 
-class DefaultDataPlatform(LintableObject):
+class DefaultDataPlatform(UserDSLObject):
     def __init__(self, p: 'DataPlatformKey'):
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.defaultPlatform: 'DataPlatformKey' = p
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
@@ -4162,11 +4162,11 @@ class DockerContainer:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatformExecutor(ABC, LintableObject):
+class DataPlatformExecutor(UserDSLObject):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, DataPlatformExecutor)
@@ -4196,12 +4196,12 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
         self.iacRepo.lint(tree.addSubTree(self.iacRepo))
 
 
-class DataPlatform(ABC, Documentable, LintableObject):
+class DataPlatform(Documentable, UserDSLObject):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor) -> None:
         Documentable.__init__(self, doc)
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.name: str = name
         self.executor: DataPlatformExecutor = executor
 
@@ -4359,10 +4359,10 @@ class DeprecationsAllowed(Enum):
     """Deprecations are allowed but not will generate warnings"""
 
 
-class DatasetSink(LintableObject):
+class DatasetSink(UserDSLObject):
     """This is a reference to a dataset in a Workspace"""
     def __init__(self, storeName: str, datasetName: str, deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER) -> None:
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.storeName: str = storeName
         self.datasetName: str = datasetName
         self.key = f"{self.storeName}:{self.datasetName}"
@@ -4543,10 +4543,10 @@ class PythonCodeArtifact(CodeArtifact):
             return False
 
 
-class CodeExecutionEnvironment(ABC, LintableObject):
+class CodeExecutionEnvironment(UserDSLObject):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
     def __init__(self, loc: set[InfrastructureLocation]):
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         ABC.__init__(self)
         self.location: set[InfrastructureLocation] = loc
 
@@ -5200,11 +5200,11 @@ class FileBasedFragmentManager(IaCFragmentManager):
         return hash(self.name)
 
 
-class DataPlatformGraphHandler(ABC, LintableObject):
+class DataPlatformGraphHandler(UserDSLObject):
     """This is a base class for DataPlatform code for handling a specific intention graph"""
     def __init__(self, graph: PlatformPipelineGraph):
         ABC.__init__(self)
-        LintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.graph: PlatformPipelineGraph = graph
 
     @abstractmethod

@@ -5,7 +5,7 @@
 
 
 import unittest
-from datasurface.md import GitHubRepository, LintableObject
+from datasurface.md import GitHubRepository, UserDSLObject
 
 from datasurface.md import ProblemSeverity, ValidationProblem, ValidationTree
 
@@ -23,7 +23,7 @@ class TestLint(unittest.TestCase):
         self.assertFalse(tree.hasErrors())
 
         # If tree has any problems marked as ERROR then hasErrors return true
-        tree = ValidationTree(LintableObject())
+        tree = ValidationTree(UserDSLObject())
         tree.addProblem("This is a problem")
         self.assertTrue(tree.hasErrors())
         self.assertFalse(tree.hasWarnings())
@@ -31,7 +31,7 @@ class TestLint(unittest.TestCase):
         self.assertEqual(tree.numErrors, 1)
         self.assertEqual(tree.numWarnings, 0)
 
-        tree = ValidationTree(LintableObject())
+        tree = ValidationTree(UserDSLObject())
         tree.addProblem("This is a problem", sev=ProblemSeverity.WARNING)
         self.assertFalse(tree.hasErrors())
         self.assertTrue(tree.hasWarnings())
@@ -54,7 +54,7 @@ class TestLint(unittest.TestCase):
         self.assertEqual(str(v), "WARNING:This is a problem")
 
     def test_printEmptyTree(self):
-        tree = ValidationTree(LintableObject())
+        tree = ValidationTree(UserDSLObject())
 
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasWarnings())

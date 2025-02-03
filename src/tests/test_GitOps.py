@@ -7,7 +7,7 @@
 import unittest
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
-from datasurface.md import ValidationTree, LintableObject
+from datasurface.md import ValidationTree, UserDSLObject
 
 from tests.nwdb.eco import createEcosystem
 
@@ -26,7 +26,7 @@ class TestGitOps(unittest.TestCase):
             "key1": "value1",
             "key3": "value3"
         }
-        vTree: ValidationTree = ValidationTree(LintableObject())
+        vTree: ValidationTree = ValidationTree(UserDSLObject())
         self.git_ops.showDictChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 1)
@@ -42,7 +42,7 @@ class TestGitOps(unittest.TestCase):
             "key2": "value2",
             "key3": "value3"
         }
-        vTree = ValidationTree(LintableObject())
+        vTree = ValidationTree(UserDSLObject())
         self.git_ops.showDictChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 1)
@@ -59,7 +59,7 @@ class TestGitOps(unittest.TestCase):
             "key2": "updated_value",
             "key3": "value3"
         }
-        vTree = ValidationTree(LintableObject())
+        vTree = ValidationTree(UserDSLObject())
         self.git_ops.showDictChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 1)
@@ -76,7 +76,7 @@ class TestGitOps(unittest.TestCase):
             "key2": "value2",
             "key3": "value3"
         }
-        vTree = ValidationTree(LintableObject())
+        vTree = ValidationTree(UserDSLObject())
         self.git_ops.showDictChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 0)
@@ -84,7 +84,7 @@ class TestGitOps(unittest.TestCase):
     def test_showSetChangesAsProblems_deletedKeys(self):
         current = {1, 2, 3}
         proposed = {1, 3}
-        vTree = ValidationTree(LintableObject())
+        vTree = ValidationTree(UserDSLObject())
         self.git_ops.showSetChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 1)
@@ -93,7 +93,7 @@ class TestGitOps(unittest.TestCase):
     def test_showSetChangesAsProblems_addedKeys(self):
         current = {1, 3}
         proposed = {1, 2, 3}
-        vTree = ValidationTree(LintableObject())
+        vTree = ValidationTree(UserDSLObject())
         self.git_ops.showSetChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 1)
@@ -102,7 +102,7 @@ class TestGitOps(unittest.TestCase):
     def test_showSetChangesAsProblems_noChanges(self):
         current = {1, 2, 3}
         proposed = {1, 2, 3}
-        vTree = ValidationTree(LintableObject())
+        vTree = ValidationTree(UserDSLObject())
         self.git_ops.showSetChangesAsProblems(current, proposed, vTree)
         problems = vTree.getProblems()
         self.assertEqual(len(problems), 0)
