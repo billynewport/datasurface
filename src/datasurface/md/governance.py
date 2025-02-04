@@ -2674,16 +2674,60 @@ class URLSQLDatabase(SQLDatabase):
         return hash(self.name)
 
 
-class HostPortSQLDatabase(SQLDatabase):
-    """This is a SQL database with a host and port"""
-    def __init__(self, name: str, locations: set[InfrastructureLocation], host: str, port: int, databaseName: str) -> None:
-        super().__init__(name, locations, databaseName)
-        self.host: str = host
+class HostPortPair(UserDSLObject):
+    """This represents a host and port pair"""
+    def __init__(self, hostName: str, port: int) -> None:
+        self.hostName: str = hostName
         self.port: int = port
 
     def __eq__(self, __value: object) -> bool:
+        if (isinstance(__value, HostPortPair)):
+            return self.hostName == __value.hostName and self.port == __value.port
+        return False
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+    def __str__(self) -> str:
+        return f"{self.hostName}:{self.port}"
+
+    def lint(self, tree: ValidationTree) -> None:
+        if not is_valid_hostname_or_ip(self.hostName):
+            tree.addRaw(NameHasBadSynthax(f"Host '{self.hostName}' is not a valid hostname or IP address"))
+        if self.port < 0 or self.port > 65535:
+            tree.addProblem(f"Port {self.port} is not a valid port number")
+
+
+class HostPortPairList(UserDSLObject):
+    """This is a list of host port pairs"""
+    def __init__(self, pairs: list[HostPortPair]) -> None:
+        self.pairs: list[HostPortPair] = pairs
+
+    def __eq__(self, __value: object) -> bool:
+        if (isinstance(__value, HostPortPairList)):
+            return self.pairs == __value.pairs
+        return False
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+    def __str__(self) -> str:
+        return ", ".join([str(p) for p in self.pairs])
+
+    def lint(self, tree: ValidationTree) -> None:
+        for pair in self.pairs:
+            pair.lint(tree.addSubTree(pair))
+
+
+class HostPortSQLDatabase(SQLDatabase):
+    """This is a SQL database with a host and port"""
+    def __init__(self, name: str, locations: set[InfrastructureLocation], hostPort: HostPortPair, databaseName: str) -> None:
+        super().__init__(name, locations, databaseName)
+        self.hostPortPair: HostPortPair = hostPort
+
+    def __eq__(self, __value: object) -> bool:
         if (isinstance(__value, HostPortSQLDatabase)):
-            return super().__eq__(__value) and self.host == __value.host and self.port == __value.port
+            return super().__eq__(__value) and self.hostPortPair == __value.hostPortPair
         return False
 
     def __hash__(self) -> int:
@@ -2691,10 +2735,7 @@ class HostPortSQLDatabase(SQLDatabase):
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
-        if not is_valid_hostname_or_ip(self.host):
-            tree.addRaw(NameHasBadSynthax(f"Host '{self.host}' is not a valid hostname or IP address"))
-        if self.port < 0 or self.port > 65535:
-            tree.addProblem(f"Port {self.port} is not a valid port number")
+        self.hostPortPair.lint(tree.addSubTree(self.hostPortPair))
 
 
 class ObjectStorage(DataContainer):
@@ -2819,6 +2860,73 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
         return False
 
 
+class PyOdbcSourceInfo(SQLDatabase):
+    """This describes how to connect to a database using pyodbc"""
+    def __init__(self, name: str, locs: set[InfrastructureLocation], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
+        super().__init__(name, locs, databaseName)
+        self.serverHost: str = serverHost
+        self.driver: str = driver
+        self.connectionStringTemplate: str = connectionStringTemplate
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and \
+            self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        super().lint(eco, tree)
+# TODO validate the server string, its not just a host name
+#        if (not is_valid_hostname_or_ip(self.serverHost)):
+#            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
+
+    def __str__(self) -> str:
+        return f"PyOdbcSourceInfo({self.serverHost})"
+
+    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+        return super().projectDatasetSchema(dataset)
+
+
+class CaptureType(Enum):
+    SNAPSHOT = 0
+    INCREMENTAL = 1
+
+
+class IngestionConsistencyType(Enum):
+    """This determines whether data is ingested in consistent groups across multiple datasets or
+    whether each dataset is ingested independently"""
+    SINGLE_DATASET = 0
+    MULTI_DATASET = 1
+
+
+class StepTrigger(ABC):
+    """A step such as ingestion is driven in pulses triggered by these."""
+    def __init__(self, name: str):
+        super().__init__()
+        self.name: str = name
+
+    def __eq__(self, o: object) -> bool:
+        return isinstance(o, StepTrigger) and self.name == o.name
+
+    @abstractmethod
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+        pass
+
+
+class CronTrigger(StepTrigger):
+    """This allows the ingestion pulses to be specified using a cron string"""
+    def __init__(self, name: str, cron: str):
+        super().__init__(name)
+        self.cron: str = cron
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, CronTrigger) and self.cron == o.cron
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
+        if not validate_cron_string(self.cron):
+            tree.addProblem(f"Invalid cron string <{self.cron}>")
+
+
 class Credential(UserDSLObject):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
@@ -2900,6 +3008,44 @@ class CertificateCredential(Credential):
             tree.addProblem("Key is empty")
 
 
+class CredentialStore(UserDSLObject):
+    """This is a credential store which stores credential data in a set of infra locations"""
+    def __init__(self, name: str, locs: set[InfrastructureLocation]) -> None:
+        UserDSLObject.__init__(self)
+        self.name: str = name
+        self.locs: set[InfrastructureLocation] = locs
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and type(__value) is CredentialStore and self.name == __value.name and self.locs == __value.locs
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        if (self.name == ""):
+            tree.addProblem("Name is empty")
+        for loc in self.locs:
+            loc.lint(tree.addSubTree(loc))
+
+    @abstractmethod
+    def getCredential(self, credName: str) -> Credential:
+        """This returns the credential with the specified name"""
+        pass
+
+
+class LocalFileCredentialStore(CredentialStore):
+    """This is a local file credential store. It represents a folder on the local file system where certificates are stored in files. This could be used with
+    docker secrets or similar"""
+    def __init__(self, name: str, locs: set[InfrastructureLocation], folder: str) -> None:
+        super().__init__(name, locs)
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, LocalFileCredentialStore)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
+
+
 class ClearTextCredential(UserPasswordCredential):
     """This is implemented for testing but should never be used in production. All
     credentials should be stored and retrieved using secrets Credential objects also
@@ -2916,73 +3062,6 @@ class ClearTextCredential(UserPasswordCredential):
 
     def __str__(self) -> str:
         return f"ClearTextCredential({self.username})"
-
-
-class PyOdbcSourceInfo(SQLDatabase):
-    """This describes how to connect to a database using pyodbc"""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
-        super().__init__(name, locs, databaseName)
-        self.serverHost: str = serverHost
-        self.driver: str = driver
-        self.connectionStringTemplate: str = connectionStringTemplate
-
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and \
-            self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        super().lint(eco, tree)
-# TODO validate the server string, its not just a host name
-#        if (not is_valid_hostname_or_ip(self.serverHost)):
-#            tree.addProblem(f"Server host {self.serverHost} is not a valid hostname or IP address")
-
-    def __str__(self) -> str:
-        return f"PyOdbcSourceInfo({self.serverHost})"
-
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
-        return super().projectDatasetSchema(dataset)
-
-
-class CaptureType(Enum):
-    SNAPSHOT = 0
-    INCREMENTAL = 1
-
-
-class IngestionConsistencyType(Enum):
-    """This determines whether data is ingested in consistent groups across multiple datasets or
-    whether each dataset is ingested independently"""
-    SINGLE_DATASET = 0
-    MULTI_DATASET = 1
-
-
-class StepTrigger(ABC):
-    """A step such as ingestion is driven in pulses triggered by these."""
-    def __init__(self, name: str):
-        super().__init__()
-        self.name: str = name
-
-    def __eq__(self, o: object) -> bool:
-        return isinstance(o, StepTrigger) and self.name == o.name
-
-    @abstractmethod
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
-        pass
-
-
-class CronTrigger(StepTrigger):
-    """This allows the ingestion pulses to be specified using a cron string"""
-    def __init__(self, name: str, cron: str):
-        super().__init__(name)
-        self.cron: str = cron
-
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, CronTrigger) and self.cron == o.cron
-
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if not validate_cron_string(self.cron):
-            tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
 class CaptureMetaData(UserDSLObject):
@@ -3142,6 +3221,19 @@ class SQLPullIngestion(IngestionMetadata):
 
     def __str__(self) -> str:
         return "SQLPullIngestion()"
+
+
+class StreamingIngestion(IngestionMetadata):
+    """This is an abstract class for streaming data sources"""
+    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(*args)
+
+
+class KafkaIngestion(StreamingIngestion):
+    """This allows a topic and a schema format to be specified for a source publishing messages to a Kafka topic"""
+    def __init__(self, bootStrapServers: HostPortPairList, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(*args)
+        self.bootStrapServers: HostPortPairList = bootStrapServers
 
 
 class Datastore(ANSI_SQL_NamedObject, Documentable):

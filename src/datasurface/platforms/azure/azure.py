@@ -4,12 +4,12 @@
 """
 
 from enum import Enum
-from datasurface.md import Documentation
+from datasurface.md import Documentation, CredentialStore
 from datasurface.md import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
-from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, EncryptionSystem, Ecosystem, \
+from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, Ecosystem, \
     HostPortSQLDatabase, IaCDataPlatformRendererShim, InfrastructureLocation, PlatformPipelineGraph, \
     DataPlatformGraphHandler
-from datasurface.md import NameHasBadSynthax, ValidationTree
+from datasurface.md import NameHasBadSynthax, ValidationTree, HostPortPair
 from datasurface.md import is_valid_azure_key_vault_name
 
 
@@ -21,40 +21,55 @@ class AzureVaultObjectType(Enum):
     STORAGE_ACCOUNT_KEYS = 5
 
 
+class AzureKeyVault(CredentialStore):
+    """This is a credential store for Azure Key Vault. It is a simple wrapper around the
+    AzureKeyVaultCredential class"""
+    def __init__(self, name: str, locs: set[InfrastructureLocation], vaultName: str, type: AzureVaultObjectType) -> None:
+        super().__init__(name, locs)
+        self.vaultName: str = vaultName
+        self.type: AzureVaultObjectType = type
+
+    def __eq__(self, __value: object) -> bool:
+        return super().__eq__(__value) and isinstance(__value, AzureKeyVault) and self.vaultName == __value.vaultName and \
+            self.type == __value.type
+
+    def __str__(self) -> str:
+        return f"AzureKeyVault({self.name}:{self.vaultName}:{self.type})"
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
+        if (not is_valid_azure_key_vault_name(self.vaultName)):
+            tree.addRaw(NameHasBadSynthax(f"Azure Key Vault name <{self.vaultName}> needs to match [a-z0-9]{3, 24}"))
+
+    def getCredential(self, objectName: str) -> 'Credential':
+        return AzureKeyVaultCredential(self, objectName)
+
+
 class AzureKeyVaultCredential(Credential):
     """This allows a secret to be read from Azure Key Vault. The secret should be in the
     form of 2 lines, first line is user name, second line is password"""
-    def __init__(self, keyVaultName: str, objectName: str) -> None:
+    def __init__(self, vault: AzureKeyVault, objectName: str) -> None:
         super().__init__()
-        self.keyVaultName: str = keyVaultName
+        self.keyVault: AzureKeyVault = vault
         self.objectName: str = objectName
         self.objectType: AzureVaultObjectType = AzureVaultObjectType.SECRETS
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is AzureKeyVaultCredential and self.keyVaultName == __value.keyVaultName and \
+        return super().__eq__(__value) and isinstance(__value, AzureKeyVaultCredential) and self.keyVault == __value.keyVault and \
             self.objectName == __value.objectName
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
-        if (not is_valid_azure_key_vault_name(self.keyVaultName)):
-            tree.addRaw(NameHasBadSynthax(f"Azure Key Vault name <{self.keyVaultName}> needs to match [a-z0-9]{3, 24}"))
 
     def __str__(self) -> str:
-        return f"AzureKeyVaultCredential({self.keyVaultName}/{self.objectName})"
-
-    def getURL(self) -> str:
-        return f"https://{self.keyVaultName}.vault.azure.net/{self.objectType}/{self.objectName}"
-
-
-class AzureKeyVault(EncryptionSystem):
-    pass
+        return f"AzureKeyVaultCredential({self.keyVault.name}:{self.objectName})"
 
 
 class AzureDataplatform(DataPlatform):
     """This platform manages pipelines for resources within Azure"""
-    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor, platformCredential: AzureKeyVaultCredential):
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor, platformCredential: Credential):
         super().__init__(name, doc, executor)
-        self.platformCredential = platformCredential
+        self.platformCredential: Credential = platformCredential
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -86,7 +101,7 @@ class AzureDataplatform(DataPlatform):
 
 
 class AzureBatchDataPlatform(AzureDataplatform):
-    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor, platformCredential: AzureKeyVaultCredential):
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor, platformCredential: Credential):
         super().__init__(name, doc, executor, platformCredential)
 
 
@@ -120,8 +135,8 @@ class SQLServerNamingMapper(DataContainerNamingMapper):
 
 class AzureSQLDatabase(HostPortSQLDatabase):
     """This is an Azure SQL Database resource. """
-    def __init__(self, name: str, hostName: str, port: int, databaseName: str, locs: set[InfrastructureLocation]):
-        super().__init__(name, locs, hostName, port, databaseName)
+    def __init__(self, name: str, hostPort: HostPortPair, databaseName: str, locs: set[InfrastructureLocation]):
+        super().__init__(name, locs, hostPort, databaseName)
 
     def __str__(self) -> str:
         return f"AzureDatabaseResource({self.name})"

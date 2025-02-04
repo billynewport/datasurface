@@ -12,7 +12,7 @@ A GUI was built on top of this database. The GUI worked well for simple things. 
 
 ## Data catalog stored as a Python DSL in CI/CD versioned repositories like GitHub
 
-So, having done this before, we did not want to do it again. Integrating this type of catalog in to an enterprise would be very difficult. Every enterprise would want different workflows, approvals, auditing and so on. 
+So, having done this before, we did not want to do it again. Integrating this type of catalog in to an enterprise would be very difficult. Every enterprise would want different workflows, approvals, auditing and so on.
 
 Metadata is todays world is managed by CI/CD systems with versioned repositories. GitHub is the biggest example. Github can store metadata in the form of objects described in files. It has versioning of course, auditing, it has workflows, authorizations, authentications, plugins, reporting and so on. Why build all this again?
 

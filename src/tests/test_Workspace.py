@@ -18,7 +18,7 @@ from datasurface.md import FakeRepository, GitHubRepository
 from datasurface.md import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
     DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DataPlatformKey, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
-from datasurface.md import ValidationTree
+from datasurface.md import ValidationTree, HostPortPair
 from datasurface.md import SimpleDC, SimpleDCTypes
 
 from datasurface.md import NullableStatus, PrimaryKeyStatus
@@ -389,7 +389,7 @@ class TestWorkspace(unittest.TestCase):
             Datastore(
                 "Store1",
                 CDCCaptureIngestion(
-                    AzureSQLDatabase("Test", "mysqlserver.database.windows.net", 1344, "dbName", {e.getLocationOrThrow("Azure", ["FL"])}),
+                    AzureSQLDatabase("Test", HostPortPair("mysqlserver.database.windows.net", 1344), "dbName", {e.getLocationOrThrow("Azure", ["FL"])}),
                     IngestionConsistencyType.MULTI_DATASET,
                     AzureKeyVaultCredential("keyvault", "aa")
                 ),

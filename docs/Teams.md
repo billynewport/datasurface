@@ -1,5 +1,3 @@
-[//]: # (FILEPATH: /Users/billy/Documents/Code/datasurface/docs/Teams.md)
-
 # What is a team
 
 A team is a group of people working together who own some of the following aspects of a data ecosystem within a firm.

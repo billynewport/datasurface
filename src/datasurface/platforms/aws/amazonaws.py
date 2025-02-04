@@ -12,7 +12,7 @@ from datasurface.md import AvroSchema as AvSchema
 from datasurface.md import Documentation, PlainTextDocumentation
 from urllib import parse
 
-from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, \
+from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataContainer, CredentialStore, \
     DataContainerNamingMapper, DataPlatformExecutor, DataTransformerNode, DatasetGroup, \
     Datastore, DatastoreCacheEntry, ExportNode, FileBasedFragmentManager, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, \
     IngestionMetadata, IngestionMultiNode, IngestionSingleNode, PipelineNode, PlatformPipelineGraph, SQLDatabase, SchemaProjector, \
@@ -115,16 +115,39 @@ def is_valid_s3_bucket_name(name: str) -> bool:
     return True
 
 
+class AWSSecretManager(CredentialStore):
+    """This represents the AWS Secret manager for a region. It's used to reference credentials stored in that region."""
+    def __init__(self, name: str, locs: set[InfrastructureLocation]):
+        super().__init__(name, locs)
+        self.secrets: dict[str, Credential] = {}
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, AWSSecretManager)
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        super().lint(eco, tree)
+
+    def getCredential(self, credName: str) -> Credential:
+        """Get a credential from the store. If it does not exist, create it."""
+        if credName not in self.secrets:
+            cred: Credential = AWSSecret(self, credName)
+            self.secrets[credName] = cred
+        return super().getCredential(credName)
+
+
 class AWSSecret(Credential):
     """This represents a secret stored in AWS Secret Manager. It is used to store sensitive information such as passwords, tokens, etc."""
-    def __init__(self, secretName: str, locs: set[InfrastructureLocation]):
+    def __init__(self, manager: AWSSecretManager, secretName: str):
         super().__init__()
+        self.manager: AWSSecretManager = manager
         self.secretName: str = secretName
-        self.locs: set[InfrastructureLocation] = locs
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, AWSSecret) and \
-            self.secretName == o.secretName and self.locs == o.locs
+            self.secretName == o.secretName and self.manager == o.manager
 
     def __hash__(self) -> int:
         return hash(self.secretName)

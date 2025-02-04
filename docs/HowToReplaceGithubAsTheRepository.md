@@ -1,6 +1,6 @@
 # Using DataSurface with other repositories
 
-DataSurface is independent of GitHub. It has a provided GitHub plugin which allows it to integrate with the GitHub CI/CD mechanisms. Any CI/CD capable repository can be similarly used with DataSurface. 
+DataSurface is independent of GitHub. It has a provided GitHub plugin which allows it to integrate with the GitHub CI/CD mechanisms. Any CI/CD capable repository can be similarly used with DataSurface.
 
 There is a Repository base class in the model. This has a subclass GitHubRepository. Another subclass can be easily added for a different repository. The code for check incoming pull requests for authorization, backwards compatibility, consistency and so on is independent of GitHub and works with Repository objects.
 
@@ -21,7 +21,7 @@ Next, file in src/datasurface/handler called pull-request.yml is what called the
 * Check out the incoming pull request code to a folder 'pr'
 * Check out the existing code to a folder called 'main'
 * Setup python and install the datasurface package. This is done by using pip to install the python modules in the requirements.txt file.
-* Run the python module datasurface.handler.action passing the parameters for the paths to the main and pr folders above. 
+* Run the python module datasurface.handler.action passing the parameters for the paths to the main and pr folders above.
 * If this action.py exists with non zero then the pull request is rejected.
 
 The datasurface.handler.action.py file is a template showing how to implement a GitHub CICD workflow plugin. It subclasses the RepositoryWithCICD class with a GitHub specific subclass. It currently uses some github specific environment variables such as GITHUB_TOKEN and the name of the repository/branch for the incoming pull request. These are used to create a Repository object describing that pull request source. This would be changed to create an instance of the gitlab or bitbucket repository subclass. All of the code for handling the pull requests is contained within the base class RepositoryCICD class. This class is independent of the repository and can be used with any repository.
@@ -38,4 +38,3 @@ A model is just the eco.py and associated python modules. When users submit pull
 * Attempts to modify the requirements.txt file
 
 The set of actions specified here will be expanded as more vulnerabilities are discovered and fixed. The simplest way appears to simply be only allow a pull request to modify python files, i.e. files ending in .py. This is the default behavior of the check-files-changed.yml file. This file would need to be replaced with a similar file for the other repository.
-

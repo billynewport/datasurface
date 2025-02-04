@@ -7,7 +7,7 @@ import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Team, DataPlatformKey, TeamDeclaration, GovernanceZoneDeclaration
 from datasurface.md import GitHubRepository, UserPasswordCredential, DataContainer, Workspace, DatasetGroup
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation
-from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, DatasetSink
+from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, HostPortPair, DatasetSink
 from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngestion, CronTrigger, IngestionConsistencyType, \
     SimpleDC, SimpleDCTypes, DDLTable, DDLColumn, SmallInt, VarChar, NullableStatus, PrimaryKeyStatus
 from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDatPlatformChooser
@@ -25,7 +25,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[Inf
         Datastore(
             "NW_Data",
             CDCCaptureIngestion(
-                HostPortSQLDatabase("NW_DB", locations, "hostName.com", 1344, "DBName"),
+                HostPortSQLDatabase("NW_DB", locations, HostPortPair("hostName.com", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 UserPasswordCredential("user", "pwd")
@@ -66,7 +66,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db: DataContainer = HostPortSQLDatabase("WHDB", locations, "whhostname.com", 1344, "WHDB")
+    ws_db: DataContainer = HostPortSQLDatabase("WHDB", locations, HostPortPair("whhostname.com", 1344), "WHDB")
 
     w: Workspace = Workspace(
         "ProductLiveAdhocReporting",

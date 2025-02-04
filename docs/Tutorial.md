@@ -2,7 +2,7 @@
 
 DataSurface has a starter repository which can be cloned to get started. It's located [here](http://www.github.com/billynewport/datasurfacetemplate). To get started, we need to make a new github repository which will contain the live version of your ecosystem model.
 
-This is named http://www.github.com/billynewport/test-surface in this tutorial. Please use your repository names. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty git repository. Next, we will clone the starter repository and then push it to this repository.
+This is named <http://www.github.com/billynewport/test-surface> in this tutorial. Please use your repository names. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty git repository. Next, we will clone the starter repository and then push it to this repository.
 
 ```shell
 mkdir ~/models
@@ -188,7 +188,7 @@ Now, we can do the pull request on github.com. The checks will run and if they p
 
 At this point, we have an Ecosystem "AcmeEco" defined. A single vendor with some locations for Azure. A single batch Azure DataPlatform added which is the default also. Lastly, a single GovernanceZone "GZ". This is where we will focus from now on. We will add a Team to the GovernanceZone and then create a data producer (data available using CDC in a managed SQL Server database) whose data we want to use and a single consumer that wants to use that data in a Lakehouse using a python notebook.
 
-## Switching to gz_edits branch, declaring our Team.
+## Switching to gz_edits branch, declaring our Team
 
 We just added a GovernanceZone which allows edits from the gz_edits branch. We cannot change the GovernanceZone using the eco_edits branch. We can try here to show that changes to the zone are rejected by the checks.
 

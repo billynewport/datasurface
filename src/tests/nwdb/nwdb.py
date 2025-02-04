@@ -8,7 +8,7 @@ from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, UserPass
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         InfrastructureLocation, IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
-        Workspace
+        Workspace, HostPortPair
 
 from datasurface.md import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, Integer, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar, Variant
@@ -19,7 +19,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
         Datastore(
             "NW_Data",
             CDCCaptureIngestion(
-                HostPortSQLDatabase("NW_DB", {eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])}, "hostName", 1344, "DBName"),
+                HostPortSQLDatabase("NW_DB", {eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])}, HostPortPair("hostName", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 UserPasswordCredential("user", "pwd")
@@ -210,7 +210,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocat
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db: DataContainer = HostPortSQLDatabase("AzureSQL", locations, "hostName", 1344, "DBName")
+    ws_db: DataContainer = HostPortSQLDatabase("AzureSQL", locations, HostPortPair("hostName", 1344), "DBName")
 
     w: Workspace = Workspace(
         "ProductLiveAdhocReporting",
