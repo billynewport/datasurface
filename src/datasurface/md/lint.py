@@ -60,6 +60,10 @@ class UserDSLObject(ValidatableObject):
     def getSourceReferenceString(self) -> str:
         """This returns a string representing where this object was first constructed"""
         return f"{self.__class__.__name__}@{self._file_name}:{self._line_number}"
+    
+    def __eq__(self, __value: object) -> bool:
+        """Ignore the source reference when comparing objects"""
+        return isinstance(__value, self.__class__)
 
 
 class InternalLintableObject(ValidatableObject):

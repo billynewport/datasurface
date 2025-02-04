@@ -7,7 +7,7 @@
 import copy
 from typing import Optional
 import unittest
-from datasurface.platforms.azure import AzureBatchDataPlatform, AzureKeyVaultCredential
+from datasurface.platforms.azure import AzureBatchDataPlatform, AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
 
@@ -107,7 +107,7 @@ class TestEcoNameChange(unittest.TestCase):
                 "AzureBatch",
                 PlainTextDocumentation("Azure Batch"),
                 DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                AzureKeyVaultCredential("myKeyVault", "mySecret")))
+                AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("mySecret")))
         eOriginal.add(
             InfrastructureVendor(
                 "Azure",
@@ -142,7 +142,7 @@ class TestEcoNameChange(unittest.TestCase):
                 "AzureBatch",
                 PlainTextDocumentation("Azure Batch"),
                 DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                AzureKeyVaultCredential("myKeyVault", "mySecret")))
+                AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("mySecret")))
         eProposed.add(
             InfrastructureVendor(
                 "Azure",

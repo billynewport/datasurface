@@ -8,7 +8,8 @@ import os
 import unittest
 
 from datasurface.handler.action import RepositorywithCICD, GitHubCICD
-from datasurface.md import ValidationTree
+from datasurface.md import ValidationTree, Ecosystem
+from typing import Optional
 
 
 class Test_ActionHandlerForGitHub(unittest.TestCase):
@@ -40,6 +41,7 @@ class Test_ActionHandlerForGitHub(unittest.TestCase):
             # first try a repository without permission to make change
             os.environ["HEAD_BRANCH"] = "BAD_BRANCH"
             cicd: RepositorywithCICD = GitHubCICD("GitHub")
+
             tree: ValidationTree = cicd.verifyPullRequest(baseFolder, headFolder)
             tree.printTree()
             self.assertTrue(tree.getErrors())  # Should have errors

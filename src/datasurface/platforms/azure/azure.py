@@ -30,19 +30,24 @@ class AzureKeyVault(CredentialStore):
         self.type: AzureVaultObjectType = type
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AzureKeyVault) and self.vaultName == __value.vaultName and \
+        return super().__eq__(__value) and \
+            isinstance(__value, AzureKeyVault) and \
+            self.vaultName == __value.vaultName and \
             self.type == __value.type
 
     def __str__(self) -> str:
         return f"AzureKeyVault({self.name}:{self.vaultName}:{self.type})"
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
         if (not is_valid_azure_key_vault_name(self.vaultName)):
             tree.addRaw(NameHasBadSynthax(f"Azure Key Vault name <{self.vaultName}> needs to match [a-z0-9]{3, 24}"))
 
-    def getCredential(self, objectName: str) -> 'Credential':
-        return AzureKeyVaultCredential(self, objectName)
+    def getCredential(self, credName: str) -> Credential:
+        return AzureKeyVaultCredential(self, credName)
 
 
 class AzureKeyVaultCredential(Credential):
@@ -52,11 +57,13 @@ class AzureKeyVaultCredential(Credential):
         super().__init__()
         self.keyVault: AzureKeyVault = vault
         self.objectName: str = objectName
-        self.objectType: AzureVaultObjectType = AzureVaultObjectType.SECRETS
 
     def __eq__(self, __value: object) -> bool:
         return super().__eq__(__value) and isinstance(__value, AzureKeyVaultCredential) and self.keyVault == __value.keyVault and \
             self.objectName == __value.objectName
+
+    def __hash__(self) -> int:
+        return hash(self.keyVault) + hash(self.objectName)
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)

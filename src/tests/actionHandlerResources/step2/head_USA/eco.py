@@ -4,7 +4,7 @@
 """
 
 from datasurface.platforms.aws import AmazonAWSDataPlatform
-from datasurface.platforms.azure import AzureDataplatform, AzureKeyVaultCredential
+from datasurface.platforms.azure import AzureDataplatform, AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
 from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, \
@@ -22,7 +22,7 @@ def createEcosystem() -> Ecosystem:
             PlainTextDocumentation("Test"),
             DataPlatformCICDExecutor(
                 GitHubRepository("owner/repo", "branch")),
-            AzureKeyVaultCredential("vault", "maincred")),
+            AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("maincred")),
         DefaultDataPlatform(DataPlatformKey("Azure Platform")),
         AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
 

@@ -3016,7 +3016,10 @@ class CredentialStore(UserDSLObject):
         self.locs: set[InfrastructureLocation] = locs
 
     def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is CredentialStore and self.name == __value.name and self.locs == __value.locs
+        return super().__eq__(__value) and \
+            isinstance(__value, CredentialStore) and \
+            self.name == __value.name and \
+            self.locs == __value.locs
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.azure import AzureKeyVaultCredential
+from datasurface.platforms.azure import AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
     PyOdbcSourceInfo, Team
@@ -30,7 +30,7 @@ def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):
                 ),
                 CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                AzureKeyVaultCredential("mykeyvault", "NWDB_Creds")),
+                AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("NWDB_Creds")),
             Dataset(
                 "customers",
                 SimpleDC(SimpleDCTypes.PC3),
