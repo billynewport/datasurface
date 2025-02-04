@@ -12,7 +12,7 @@ from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, D
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
 from datasurface.platforms.aws import AmazonAWSDataPlatform
-from datasurface.platforms.azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVaultCredential
+from datasurface.platforms.azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import FakeRepository, GitHubRepository
 from datasurface.md import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
@@ -370,7 +370,7 @@ class TestWorkspace(unittest.TestCase):
                     "Azure",
                     PlainTextDocumentation("Test"),
                     DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                    AzureKeyVaultCredential("keyvault", "aa")),
+                    AzureKeyVault("keyvault", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("aa")),
                 DefaultDataPlatform(DataPlatformKey("Azure")),
                 InfrastructureVendor(
                     "Azure",
@@ -391,7 +391,7 @@ class TestWorkspace(unittest.TestCase):
                 CDCCaptureIngestion(
                     AzureSQLDatabase("Test", HostPortPair("mysqlserver.database.windows.net", 1344), "dbName", {e.getLocationOrThrow("Azure", ["FL"])}),
                     IngestionConsistencyType.MULTI_DATASET,
-                    AzureKeyVaultCredential("keyvault", "aa")
+                    AzureKeyVault("keyvault", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("aa")
                 ),
                 Dataset(
                     "Dataset1",

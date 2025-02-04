@@ -37,7 +37,7 @@ class AzureKeyVault(CredentialStore):
 
     def __str__(self) -> str:
         return f"AzureKeyVault({self.name}:{self.vaultName}:{self.type})"
-    
+
     def __hash__(self) -> int:
         return hash(self.name)
 

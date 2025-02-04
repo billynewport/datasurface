@@ -8,8 +8,7 @@ import os
 import unittest
 
 from datasurface.handler.action import RepositorywithCICD, GitHubCICD
-from datasurface.md import ValidationTree, Ecosystem
-from typing import Optional
+from datasurface.md import ValidationTree
 
 
 class Test_ActionHandlerForGitHub(unittest.TestCase):
