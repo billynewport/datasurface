@@ -4009,7 +4009,7 @@ G = TypeVar('G', bound=GitControlledObject)
 N = TypeVar('N', bound=NamedObjectAuthorization)
 
 
-class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
+class AuthorizedObjectManager(GitControlledObject, Generic[G, N]):
     """This tracks a list of named authorizations and the named objects themselves in seperate lists. It is used
     to allow one repository to managed the authorization to create named objects using a second object specific repository or branch.
     Each named object can then be managed by a seperate repository. """

@@ -21,13 +21,13 @@ class AvroSchema(Schema):
     def __init__(self, json_schema: str, classification: Optional[list[DataClassification]] = None,
                  pkCols: Optional[PrimaryKeyList] = None, partCols: Optional[PartitionKeyList] = None):
         super().__init__()
-        self.schema: AvSchema = parse(json_schema)
+        self.avroSchema: AvSchema = parse(json_schema)
         self.classification: Optional[list[DataClassification]] = classification
         self.primaryKeyColumns = pkCols
         self.ingestionPartitionColumns = partCols
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, AvroSchema) and self.schema == o.schema and self.classification == o.classification
+        return super().__eq__(o) and isinstance(o, AvroSchema) and self.avroSchema == o.avroSchema and self.classification == o.classification
 
     def hasDataClassifications(self) -> bool:
         return self.classification is not None
@@ -35,7 +35,7 @@ class AvroSchema(Schema):
 # TODO This means avro schemas cannot be modified, need a python is backwards compatiblility checker
     def checkForBackwardsCompatibility(self, other: Schema, vTree: ValidationTree) -> bool:
         rc: bool = super().checkForBackwardsCompatibility(other, vTree)
-        if (isinstance(other, AvroSchema) and self.schema == other.schema):
+        if (isinstance(other, AvroSchema) and self.avroSchema == other.avroSchema):
             return rc
         else:
             vTree.addProblem("Avro schemas are not equal")
@@ -57,7 +57,7 @@ class AvroSchema(Schema):
 
     def checkColumnsArePrimitiveTypes(self, cols: list[str], tree: ValidationTree):
         """Check all columns exist in the top level record and are primitive types"""
-        rec: RecordSchema = cast(RecordSchema, self.schema)
+        rec: RecordSchema = cast(RecordSchema, self.avroSchema)
         for col in cols:
             try:
                 attribute: Field = cast(Field, rec.fields_dict[col])  # type: ignore
@@ -68,7 +68,7 @@ class AvroSchema(Schema):
 
     def checkIfSchemaIsFlat(self) -> bool:
         """Check if the schema is flat, i.e. no nested records"""
-        rec: RecordSchema = cast(RecordSchema, self.schema)
+        rec: RecordSchema = cast(RecordSchema, self.avroSchema)
         for field in rec.fields:
             if (isinstance(field.type, RecordSchema)):
                 return False
