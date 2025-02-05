@@ -549,9 +549,9 @@ class AWSDMSTerraformFileFragmentManager(FileBasedFragmentManager):
         self.renderMgr: AWSDMSTerraformIaC = render
         self.platform: AWSDMSIceBergDataPlatform = platform
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AWSDMSTerraformFileFragmentManager) \
-            and self.renderMgr == __value.renderMgr
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AWSDMSTerraformFileFragmentManager) \
+            and self.renderMgr == other.renderMgr
 
     def preRender(self):
         """This adds the terraform modules used by the generated IaC. It is called before the render method."""

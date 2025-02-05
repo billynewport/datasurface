@@ -97,7 +97,7 @@ class ANSI_SQL_NamedObject(UserDSLObject):
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
     def __init__(self, name: str) -> None:
-        super().__init__()
+        UserDSLObject.__init__(self)
         self.name: str = name
         """The name of the object"""
         if not is_valid_sql_identifier(self.name):
@@ -233,15 +233,16 @@ class Documentation(UserDSLObject):
         pass
 
 
-class Documentable:
+class Documentable(UserDSLObject):
     """This is the base class for all objects which can have documentation."""
     def __init__(self, documentation: Optional[Documentation]) -> None:
+        UserDSLObject.__init__(self)
         self.documentation: Optional[Documentation] = documentation
 
-    def __eq__(self, __value: object):
-        if (not isinstance(__value, Documentable)):
+    def __eq__(self, other: object):
+        if (not isinstance(other, Documentable)):
             return False
-        return self.documentation == __value.documentation
+        return self.documentation == other.documentation
 
     def __str__(self) -> str:
         return f"Documentable({self.documentation})"
@@ -561,11 +562,10 @@ class GitHubRepository(Repository):
 T = TypeVar('T')
 
 
-class Policy(ABC, Generic[T], Documentable):
+class Policy(Generic[T], Documentable):
     """Base class for all policies"""
     def __init__(self, name: str, doc: Optional[Documentation] = None) -> None:
         Documentable.__init__(self, doc)
-        ABC.__init__(self)
         self.name: str = name
 
     @abstractmethod
@@ -573,8 +573,8 @@ class Policy(ABC, Generic[T], Documentable):
         """Check if obj meets the policy"""
         raise NotImplementedError()
 
-    def __eq__(self, __value: object) -> bool:
-        return ABC.__eq__(self, __value) and Documentable.__eq__(self, __value) and isinstance(__value, Policy) and self.name == __value.name
+    def __eq__(self, other: object) -> bool:
+        return ABC.__eq__(self, other) and Documentable.__eq__(self, other) and isinstance(other, Policy) and self.name == other.name
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -607,8 +607,8 @@ class AllowDisallowPolicy(Policy[P]):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, AllowDisallowPolicy) and self.name == o.name
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AllowDisallowPolicy) and self.name == other.name
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
@@ -619,8 +619,8 @@ class DataClassification(ABC):
     def __init__(self):
         pass
 
-    def __eq__(self, o: object) -> bool:
-        return isinstance(o, DataClassification)
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, DataClassification)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}"
@@ -665,8 +665,8 @@ class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
                  notAllowed: Optional[set[DataClassification]] = None) -> None:
         super().__init__(name, doc, allowed, notAllowed)
 
-    def __eq__(self, v: object) -> bool:
-        return super().__eq__(v) and isinstance(v, DataClassificationPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DataClassificationPolicy) and self.allowed == other.allowed and self.notAllowed == other.notAllowed
 
     def __hash__(self) -> int:
         return super().__hash__()
@@ -708,9 +708,9 @@ class DeprecationInfo(Documentable):
         """If it deprecated or not"""
         """If deprecated then this explains why and what an existing user should do, alternative dataset for example"""
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and \
-            isinstance(__value, DeprecationInfo) and self.status == __value.status
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and \
+            isinstance(other, DeprecationInfo) and self.status == other.status
 
 
 def cyclic_safe_eq(a: object, b: object, visited: set[object]) -> bool:
@@ -2129,9 +2129,9 @@ class StoragePolicy(Policy['DataContainer']):
         self.deprecationStatus: DeprecationInfo = deprecationStatus
         """If true then all data containers MUST comply with this policy regardless of whether a dataset specifies this policy or not"""
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, StoragePolicy) and self.name == __value.name and self.mandatory == __value.mandatory and \
-            self.key == __value.key and self.deprecationStatus == __value.deprecationStatus
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, StoragePolicy) and self.name == other.name and self.mandatory == other.mandatory and \
+            self.key == other.key and self.deprecationStatus == other.deprecationStatus
 
     def setGovernanceZone(self, gz: 'GovernanceZone') -> None:
         if gz.key is None:
@@ -2153,9 +2153,9 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
     def isCompatible(self, obj: 'DataContainer') -> bool:
         return True
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is StoragePolicyAllowAnyContainer and \
-            self.name == __value.name and self.mandatory == __value.mandatory
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is StoragePolicyAllowAnyContainer and \
+            self.name == other.name and self.mandatory == other.mandatory
 
 
 class InfrastructureLocation(Documentable, UserDSLObject):
@@ -5287,7 +5287,7 @@ class EcosystemPipelineGraph(InternalLintableObject):
         return f"EcosystemPipelineGraph({self.eco.name})"
 
 
-class IaCFragmentManager(ABC, Documentable):
+class IaCFragmentManager(Documentable):
     """This is a fragment manager for IaC. It is used to store fragments of IaC code which are generated for a pipeline
     graph."""
     def __init__(self, name: str, doc: Documentation):
@@ -5375,8 +5375,8 @@ class FileBasedFragmentManager(IaCFragmentManager):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name}, rootDir={self.rootDir})"
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FileBasedFragmentManager) and self.rootDir == __value.rootDir
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FileBasedFragmentManager) and self.rootDir == other.rootDir
 
     def __hash__(self) -> int:
         return hash(self.name)

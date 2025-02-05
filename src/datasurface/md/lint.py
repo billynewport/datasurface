@@ -8,7 +8,6 @@ from typing import Any, Callable, Generator, Optional
 from abc import ABC, abstractmethod
 from types import FrameType
 import inspect
-from pydantic import BaseModel
 
 
 class ValidatableObject(ABC):
