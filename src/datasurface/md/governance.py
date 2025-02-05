@@ -103,8 +103,8 @@ class ANSI_SQL_NamedObject(UserDSLObject):
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(self.name)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, ANSI_SQL_NamedObject) and self.name == __value.name
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
 
     def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         if (not isinstance(other, ANSI_SQL_NamedObject)):
@@ -286,8 +286,8 @@ class Repository(Documentable, UserDSLObject):
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         raise NotImplementedError()
 
-    def __eq__(self, __value: object) -> bool:
-        if (ABC.__eq__(self, __value) and Documentable.__eq__(self, __value) and isinstance(__value, Repository)):
+    def __eq__(self, other: object) -> bool:
+        if (ABC.__eq__(self, other) and Documentable.__eq__(self, other) and isinstance(other, Repository)):
             return True
         else:
             return False
@@ -311,9 +311,9 @@ class GitControlledObject(Documentable, UserDSLObject):
         self.owningRepo: Repository = repo
         """This is the repository which is authorized to make changes to this object"""
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, GitControlledObject)):
-            return self.owningRepo == __value.owningRepo and ABC.__eq__(self, __value) and Documentable.__eq__(self, __value)
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, GitControlledObject)):
+            return self.owningRepo == other.owningRepo and ABC.__eq__(self, other) and Documentable.__eq__(self, other)
         else:
             return False
 
@@ -477,9 +477,9 @@ class FakeRepository(Repository):
     def __str__(self) -> str:
         return f"FakeRepository({self.name})"
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, FakeRepository)):
-            return super().__eq__(__value) and self.name == __value.name
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, FakeRepository)):
+            return super().__eq__(other) and self.name == other.name
         else:
             return False
 
@@ -494,9 +494,9 @@ class GitHubRepository(Repository):
         self.branchName: str = branchName
         """The name of the branch containing an eco.py to construct an ecosystem"""
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, GitHubRepository)):
-            return super().__eq__(__value) and self.repositoryName == __value.repositoryName and self.branchName == __value.branchName
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, GitHubRepository)):
+            return super().__eq__(other) and self.repositoryName == other.repositoryName and self.branchName == other.branchName
         else:
             return False
 
@@ -790,8 +790,8 @@ class DataType(UserDSLObject):
         ABC.__init__(self)
         pass
 
-    def __eq__(self, __value: object) -> bool:
-        return type(self) is type(__value)
+    def __eq__(self, other: object) -> bool:
+        return type(self) is type(other)
 
     def __str__(self) -> str:
         return str(self.__class__.__name__) + "()"
@@ -825,8 +825,8 @@ class BoundedDataType(DataType):
         if (self.maxSize is not None and self.maxSize <= 0):
             vTree.addProblem("Max size must be > 0")
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, BoundedDataType) and self.maxSize == __value.maxSize
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, BoundedDataType) and self.maxSize == other.maxSize
 
     def __str__(self) -> str:
         if (self.maxSize is None):
@@ -861,8 +861,8 @@ class ArrayType(BoundedDataType):
         super().__init__(maxSize)
         self.dataType: DataType = type
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, ArrayType) and self.dataType == __value.dataType
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ArrayType) and self.dataType == other.dataType
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         rc = super().isBackwardsCompatibleWith(other, vTree)
@@ -883,9 +883,9 @@ class MapType(DataType):
         self.keyType: DataType = key_type
         self.valueType: DataType = value_type
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MapType) and \
-            self.keyType == __value.keyType and self.valueType == __value.valueType
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MapType) and \
+            self.keyType == other.keyType and self.valueType == other.valueType
 
     def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
         rc: bool = super().isBackwardsCompatibleWith(other, vTree)
@@ -915,8 +915,8 @@ class StructType(DataType):
         super().__init__()
         self.fields: OrderedDict[str, DataType] = fields
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, StructType) and self.fields == __value.fields
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, StructType) and self.fields == other.fields
 
     def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
         if not super().isBackwardsCompatibleWith(other, vTree):
@@ -967,8 +967,8 @@ class TextDataType(BoundedDataType):
         else:
             return str(self.__class__.__name__) + f"({self.maxSize}, '{self.collationString}')"
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, TextDataType) and self.collationString == __value.collationString
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, TextDataType) and self.collationString == other.collationString
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -989,8 +989,8 @@ class NumericDataType(DataType):
         vTree.checkTypeMatches(other, NumericDataType)
         return not vTree.hasErrors()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, NumericDataType)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NumericDataType)
 
 
 class SignedOrNot(Enum):
@@ -1012,9 +1012,9 @@ class FixedIntegerDataType(NumericDataType):
         if (self.sizeInBits <= 0):
             vTree.addProblem("Size must be > 0")
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FixedIntegerDataType) and self.sizeInBits == __value.sizeInBits and \
-                self.isSigned == __value.isSigned
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FixedIntegerDataType) and self.sizeInBits == other.sizeInBits and \
+                self.isSigned == other.isSigned
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1037,8 +1037,8 @@ class TinyInt(FixedIntegerDataType):
     def __init__(self) -> None:
         super().__init__(8, SignedOrNot.SIGNED)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, TinyInt)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, TinyInt)
 
     def __hash__(self) -> int:
         return hash(str(self))
@@ -1049,8 +1049,8 @@ class SmallInt(FixedIntegerDataType):
     def __init__(self) -> None:
         super().__init__(16, SignedOrNot.SIGNED)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, SmallInt)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, SmallInt)
 
     def __hash__(self) -> int:
         return hash(str(self))
@@ -1061,8 +1061,8 @@ class Integer(FixedIntegerDataType):
     def __init__(self) -> None:
         super().__init__(32, SignedOrNot.SIGNED)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Integer)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Integer)
 
     def __hash__(self) -> int:
         return hash(str(self))
@@ -1073,8 +1073,8 @@ class BigInt(FixedIntegerDataType):
     def __init__(self) -> None:
         super().__init__(64, SignedOrNot.SIGNED)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, BigInt)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, BigInt)
 
     def __hash__(self) -> int:
         return hash(str(self))
@@ -1129,10 +1129,10 @@ class CustomFloat(NumericDataType):
         if (self.nonFiniteBehavior == NonFiniteBehavior.NanOnly and self.nanEncoding == FloatNanEncoding.NegativeZero):
             vTree.addProblem("Non finite behavior cannot be NanOnly and nan encoding cannot be NegativeZero")
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, CustomFloat) and self.maxExponent == __value.maxExponent and \
-            self.minExponent == __value.minExponent and self.precision == __value.precision and \
-            self.nonFiniteBehavior == __value.nonFiniteBehavior and self.nanEncoding == __value.nanEncoding
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, CustomFloat) and self.maxExponent == other.maxExponent and \
+            self.minExponent == other.minExponent and self.precision == other.precision and \
+            self.nonFiniteBehavior == other.nonFiniteBehavior and self.nanEncoding == other.nanEncoding
 
     def isRepresentableBy(self, other: 'CustomFloat') -> bool:
         """Returns true if this float can be represented by the other float excluding non finite behaviors"""
@@ -1160,8 +1160,8 @@ class IEEE16(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=16, precision=11, maxExponent=15, minExponent=-14)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IEEE16)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, IEEE16)
 
 
 class IEEE32(CustomFloat):
@@ -1169,8 +1169,8 @@ class IEEE32(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=32, precision=24, maxExponent=127, minExponent=-126)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IEEE32)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, IEEE32)
 
 
 class Float(IEEE32):
@@ -1178,8 +1178,8 @@ class Float(IEEE32):
     def __init__(self) -> None:
         super().__init__()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Float)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Float)
 
 
 class IEEE64(CustomFloat):
@@ -1187,8 +1187,8 @@ class IEEE64(CustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=64, precision=53, maxExponent=1023, minExponent=-1022)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IEEE64)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, IEEE64)
 
 
 class Double(IEEE64):
@@ -1196,8 +1196,8 @@ class Double(IEEE64):
     def __init__(self) -> None:
         super().__init__()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Double)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Double)
 
 
 class SimpleCustomFloat(CustomFloat):
@@ -1216,8 +1216,8 @@ class IEEE128(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=128, precision=113, maxExponent=16383, minExponent=-16382)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IEEE128)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, IEEE128)
 
 
 class IEEE256(SimpleCustomFloat):
@@ -1225,8 +1225,8 @@ class IEEE256(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=256, precision=237, maxExponent=262143, minExponent=-262142)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IEEE256)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, IEEE256)
 
 
 class FP8_E4M3(SimpleCustomFloat):
@@ -1234,8 +1234,8 @@ class FP8_E4M3(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=8, precision=3, maxExponent=15, minExponent=-14)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP8_E4M3)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP8_E4M3)
 
 
 class FP6_E2M3(SimpleCustomFloat):
@@ -1243,8 +1243,8 @@ class FP6_E2M3(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=6, precision=3, maxExponent=3, minExponent=-2)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP6_E2M3)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP6_E2M3)
 
 
 class FP6_E3M2(SimpleCustomFloat):
@@ -1252,8 +1252,8 @@ class FP6_E3M2(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=6, precision=2, maxExponent=7, minExponent=-6)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP6_E3M2)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP6_E3M2)
 
 
 class FP4_E2M1(SimpleCustomFloat):
@@ -1261,8 +1261,8 @@ class FP4_E2M1(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=4, precision=1, maxExponent=3, minExponent=-2)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP4_E2M1)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP4_E2M1)
 
 
 class FP8_E5M2(SimpleCustomFloat):
@@ -1270,8 +1270,8 @@ class FP8_E5M2(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=8, precision=2, maxExponent=31, minExponent=-30)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP8_E5M2)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP8_E5M2)
 
 
 class FP8_E5M2FNUZ(SimpleCustomFloat):
@@ -1280,8 +1280,8 @@ class FP8_E5M2FNUZ(SimpleCustomFloat):
         super().__init__(sizeInBits=8, precision=3, maxExponent=15, minExponent=-15, nonFiniteBehavior=NonFiniteBehavior.NanOnly,
                          nanEncoding=FloatNanEncoding.NegativeZero)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP8_E5M2FNUZ)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP8_E5M2FNUZ)
 
 
 class FP8_E4M3FNUZ(SimpleCustomFloat):
@@ -1290,8 +1290,8 @@ class FP8_E4M3FNUZ(SimpleCustomFloat):
         super().__init__(sizeInBits=8, precision=4, maxExponent=7, minExponent=-7, nonFiniteBehavior=NonFiniteBehavior.NanOnly,
                          nanEncoding=FloatNanEncoding.NegativeZero)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP8_E4M3FNUZ)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP8_E4M3FNUZ)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -1302,8 +1302,8 @@ class FP8_E8M0(SimpleCustomFloat):
     def __init__(self) -> None:
         super().__init__(sizeInBits=8, precision=0, maxExponent=255, minExponent=-254)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, FP8_E8M0)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, FP8_E8M0)
 
 
 class MicroScaling_CustomFloat(NumericDataType):
@@ -1316,9 +1316,9 @@ class MicroScaling_CustomFloat(NumericDataType):
         self.scaleType: Type[CustomFloat] = scaleType
         self.elementType: Type[CustomFloat] = elementType
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MicroScaling_CustomFloat) and self.batchSize == __value.batchSize and \
-            self.scaleType == __value.scaleType and self.elementType == __value.elementType
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MicroScaling_CustomFloat) and self.batchSize == other.batchSize and \
+            self.scaleType == other.scaleType and self.elementType == other.elementType
 
     def isBackwardsCompatibleWith(self, other: DataType, vTree: ValidationTree) -> bool:
         """Must be same type and batchSize, scaleType and elementType must be backwards compatible with other"""
@@ -1342,8 +1342,8 @@ class MXFP8_E4M3(MicroScaling_CustomFloat):
     def __init__(self) -> None:
         super().__init__(batchSize=32, scaleType=FP8_E8M0, elementType=FP8_E4M3)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MXFP8_E4M3)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MXFP8_E4M3)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -1354,8 +1354,8 @@ class MXFP8_E5M2(MicroScaling_CustomFloat):
     def __init__(self) -> None:
         super().__init__(batchSize=32, scaleType=FP8_E8M0, elementType=FP8_E5M2)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MXFP8_E5M2)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MXFP8_E5M2)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -1366,8 +1366,8 @@ class MXFP6_E2M3(MicroScaling_CustomFloat):
     def __init__(self) -> None:
         super().__init__(batchSize=32, scaleType=FP8_E8M0, elementType=FP6_E2M3)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MXFP6_E2M3)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MXFP6_E2M3)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -1378,8 +1378,8 @@ class MXFP6_E3M2(MicroScaling_CustomFloat):
     def __init__(self) -> None:
         super().__init__(batchSize=32, scaleType=FP8_E8M0, elementType=FP6_E3M2)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MXFP6_E3M2)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MXFP6_E3M2)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -1390,8 +1390,8 @@ class MXFP4_E2M1(MicroScaling_CustomFloat):
     def __init__(self) -> None:
         super().__init__(batchSize=32, scaleType=FP8_E8M0, elementType=FP4_E2M1)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, MXFP4_E2M1)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, MXFP4_E2M1)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -1413,8 +1413,8 @@ class Decimal(BoundedDataType):
             if (self.precision > self.maxSize):
                 vTree.addProblem("Precision must be <= maxSize")
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Decimal) and self.precision == __value.precision
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Decimal) and self.precision == other.precision
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1437,8 +1437,8 @@ class TimeZone:
     def __init__(self, timeZone: str) -> None:
         self.timeZone: str = timeZone
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, TimeZone) and self.timeZone == __value.timeZone
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, TimeZone) and self.timeZone == other.timeZone
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.timeZone})"
@@ -1449,8 +1449,8 @@ class TemporalDataType(DataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, TemporalDataType)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, TemporalDataType)
 
     def lint(self, vTree: ValidationTree) -> None:
         super().lint(vTree)
@@ -1462,8 +1462,8 @@ class Timestamp(TemporalDataType):
         super().__init__()
         self.timeZone: TimeZone = tz
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Timestamp) and self.timeZone == __value.timeZone
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Timestamp) and self.timeZone == other.timeZone
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1477,8 +1477,8 @@ class Date(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Date)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Date)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1491,8 +1491,8 @@ class Interval(TemporalDataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Interval)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Interval)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1506,8 +1506,8 @@ class UniCodeType(TextDataType):
     def __init__(self, maxSize: Optional[int], collationString: Optional[str]) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, UniCodeType)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, UniCodeType)
 
     def __str__(self) -> str:
         if (self.maxSize is None and self.collationString is None):
@@ -1531,8 +1531,8 @@ class NonUnicodeString(TextDataType):
     def __init__(self, maxSize: Optional[int], collationString: Optional[str]) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, NonUnicodeString)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NonUnicodeString)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1546,8 +1546,8 @@ class VarChar(NonUnicodeString):
     def __init__(self, maxSize: Optional[int] = None, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, VarChar)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, VarChar)
 
 
 class NVarChar(UniCodeType):
@@ -1555,8 +1555,8 @@ class NVarChar(UniCodeType):
     def __init__(self, maxSize: Optional[int] = None, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, NVarChar)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NVarChar)
 
 
 class String(NVarChar):
@@ -1564,8 +1564,8 @@ class String(NVarChar):
     def __init__(self, maxSize: Optional[int] = None, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, String)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, String)
 
 
 def strForFixedSizeString(clsName: str, maxSize: int, collationString: Optional[str]) -> str:
@@ -1582,8 +1582,8 @@ class Char(NonUnicodeString):
     def __init__(self, maxSize: int = 1, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Char)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Char)
 
     def __str__(self) -> str:
         sz: int = 1 if self.maxSize is None else self.maxSize
@@ -1595,8 +1595,8 @@ class NChar(UniCodeType):
     def __init__(self, maxSize: int = 1, collationString: Optional[str] = None) -> None:
         super().__init__(maxSize, collationString)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, NChar)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NChar)
 
     def __str__(self) -> str:
         sz: int = 1 if self.maxSize is None else self.maxSize
@@ -1608,8 +1608,8 @@ class Boolean(DataType):
     def __init__(self) -> None:
         super().__init__()
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Boolean)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Boolean)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1626,8 +1626,8 @@ class Variant(BoundedDataType):
     def __init__(self, maxSize: Optional[int] = None) -> None:
         super().__init__(maxSize)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Variant)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Variant)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1641,8 +1641,8 @@ class Binary(BoundedDataType):
     def __init__(self, maxSize: Optional[int] = None) -> None:
         super().__init__(maxSize)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, Binary)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Binary)
 
     def isBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> bool:
         """Returns true if this data type is backwards compatible with the other data type"""
@@ -1661,6 +1661,9 @@ class Vector(ArrayType):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.maxSize})"
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, Vector)
 
 
 class NullableStatus(Enum):
@@ -1749,8 +1752,8 @@ class AttributeList(UserDSLObject):
         for col in colNames:
             self.colNames.append(col)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, AttributeList) and self.colNames == __value.colNames
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, AttributeList) and self.colNames == other.colNames
 
     def lint(self, tree: ValidationTree) -> None:
         for col in self.colNames:
@@ -1766,8 +1769,8 @@ class PrimaryKeyList(AttributeList):
     def __init__(self, colNames: list[str]) -> None:
         super().__init__(colNames)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, PrimaryKeyList)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, PrimaryKeyList)
 
 
 class PartitionKeyList(AttributeList):
@@ -1775,8 +1778,8 @@ class PartitionKeyList(AttributeList):
     def __init__(self, colNames: list[str]) -> None:
         super().__init__(colNames)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, PartitionKeyList)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, PartitionKeyList)
 
 
 class NotBackwardsCompatible(ValidationProblem):
@@ -2210,9 +2213,9 @@ class InfrastructureLocation(Documentable, UserDSLObject):
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
 
-    def __eq__(self, __value: object) -> bool:
-        if super().__eq__(__value) and isinstance(__value, InfrastructureLocation):
-            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations
+    def __eq__(self, other: object) -> bool:
+        if super().__eq__(other) and isinstance(other, InfrastructureLocation):
+            return self.name == other.name and self.key == other.key and self.locations == other.locations
         return False
 
     def getEveryChildLocation(self) -> set['InfrastructureLocation']:
@@ -2319,10 +2322,10 @@ class InfrastructureVendor(Documentable, UserDSLObject):
             raise Exception(f"Duplicate Location {loc.name}")
         self.locations[loc.name] = loc
 
-    def __eq__(self, __value: object) -> bool:
-        if super().__eq__(__value) and isinstance(__value, InfrastructureVendor):
-            return self.name == __value.name and self.key == __value.key and self.locations == __value.locations and \
-                self.hardCloudVendor == __value.hardCloudVendor
+    def __eq__(self, other: object) -> bool:
+        if super().__eq__(other) and isinstance(other, InfrastructureVendor):
+            return self.name == other.name and self.key == other.key and self.locations == other.locations and \
+                self.hardCloudVendor == other.hardCloudVendor
         else:
             return False
 
@@ -2581,12 +2584,12 @@ class DataContainer(Documentable, UserDSLObject):
             else:
                 self.documentation = arg
 
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, DataContainer):
-            return self.name == __value.name and self.locations == __value.locations and \
-                self.serverSideEncryptionKeys == __value.serverSideEncryptionKeys and \
-                self.clientSideEncryptionKeys == __value.clientSideEncryptionKeys and \
-                self.isReadOnly == __value.isReadOnly
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, DataContainer):
+            return self.name == other.name and self.locations == other.locations and \
+                self.serverSideEncryptionKeys == other.serverSideEncryptionKeys and \
+                self.clientSideEncryptionKeys == other.clientSideEncryptionKeys and \
+                self.isReadOnly == other.isReadOnly
         else:
             return False
 
@@ -2628,14 +2631,14 @@ class DataContainer(Documentable, UserDSLObject):
         return True
 
     @abstractmethod
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
         return DefaultSchemaProjector(dataset)
 
     @abstractmethod
-    def getNamingAdapter(self) -> DataContainerNamingMapper:
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
-        pass
+        return None
 
 
 class SQLDatabase(DataContainer):
@@ -2644,18 +2647,18 @@ class SQLDatabase(DataContainer):
         super().__init__(name, locations)
         self.databaseName: str = databaseName
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, SQLDatabase)):
-            return super().__eq__(__value) and self.databaseName == __value.databaseName
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, SQLDatabase)):
+            return super().__eq__(other) and self.databaseName == other.databaseName
         return False
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
 
-    def getNamingAdapter(self) -> DataContainerNamingMapper:
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         return DefaultDataContainerNamingMapper()
 
 
@@ -2665,9 +2668,9 @@ class URLSQLDatabase(SQLDatabase):
         super().__init__(name, locations, databaseName)
         self.url: str = url
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, URLSQLDatabase)):
-            return super().__eq__(__value) and self.url == __value.url
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, URLSQLDatabase)):
+            return super().__eq__(other) and self.url == other.url
         return False
 
     def __hash__(self) -> int:
@@ -2680,9 +2683,9 @@ class HostPortPair(UserDSLObject):
         self.hostName: str = hostName
         self.port: int = port
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, HostPortPair)):
-            return self.hostName == __value.hostName and self.port == __value.port
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, HostPortPair)):
+            return self.hostName == other.hostName and self.port == other.port
         return False
 
     def __hash__(self) -> int:
@@ -2703,9 +2706,9 @@ class HostPortPairList(UserDSLObject):
     def __init__(self, pairs: list[HostPortPair]) -> None:
         self.pairs: list[HostPortPair] = pairs
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, HostPortPairList)):
-            return self.pairs == __value.pairs
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, HostPortPairList)):
+            return self.pairs == other.pairs
         return False
 
     def __hash__(self) -> int:
@@ -2725,9 +2728,9 @@ class HostPortSQLDatabase(SQLDatabase):
         super().__init__(name, locations, databaseName)
         self.hostPortPair: HostPortPair = hostPort
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, HostPortSQLDatabase)):
-            return super().__eq__(__value) and self.hostPortPair == __value.hostPortPair
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, HostPortSQLDatabase)):
+            return super().__eq__(other) and self.hostPortPair == other.hostPortPair
         return False
 
     def __hash__(self) -> int:
@@ -2746,8 +2749,13 @@ class ObjectStorage(DataContainer):
         self.bucketName: str = bucketName
         self.prefix: Optional[str] = prefix
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, ObjectStorage)):
+            return super().__eq__(other) and self.endPointURI == other.endPointURI and self.bucketName == other.bucketName and self.prefix == other.prefix
+        return False
 
 
 class Dataset(ANSI_SQL_NamedObject, Documentable):
@@ -2783,12 +2791,12 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
                 d: Documentation = arg
                 self.documentation = d
 
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, Dataset):
-            return ANSI_SQL_NamedObject.__eq__(self, __value) and Documentable.__eq__(self, __value) and \
-                self.name == __value.name and self.originalSchema == __value.originalSchema and \
-                self.policies == __value.policies and \
-                self.deprecationStatus == __value.deprecationStatus and self.dataClassificationOverride == __value.dataClassificationOverride
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Dataset):
+            return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and \
+                self.name == other.name and self.originalSchema == other.originalSchema and \
+                self.policies == other.policies and \
+                self.deprecationStatus == other.deprecationStatus and self.dataClassificationOverride == other.dataClassificationOverride
         return False
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', store: 'Datastore', tree: ValidationTree) -> None:
@@ -2868,9 +2876,9 @@ class PyOdbcSourceInfo(SQLDatabase):
         self.driver: str = driver
         self.connectionStringTemplate: str = connectionStringTemplate
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is PyOdbcSourceInfo and self.serverHost == __value.serverHost and \
-            self.databaseName == __value.databaseName and self.driver == __value.driver and self.connectionStringTemplate == __value.connectionStringTemplate
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is PyOdbcSourceInfo and self.serverHost == other.serverHost and \
+            self.databaseName == other.databaseName and self.driver == other.driver and self.connectionStringTemplate == other.connectionStringTemplate
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
@@ -2882,7 +2890,7 @@ class PyOdbcSourceInfo(SQLDatabase):
     def __str__(self) -> str:
         return f"PyOdbcSourceInfo({self.serverHost})"
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
 
 
@@ -2934,8 +2942,8 @@ class Credential(UserDSLObject):
         UserDSLObject.__init__(self)
         pass
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, Credential)):
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, Credential)):
             return True
         else:
             return False
@@ -2953,8 +2961,8 @@ class FileSecretCredential(Credential):
         super().__init__()
         self.secretFilePath: str = filePath
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is FileSecretCredential and self.secretFilePath == __value.secretFilePath
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is FileSecretCredential and self.secretFilePath == other.secretFilePath
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
@@ -2973,8 +2981,8 @@ class UserPasswordCredential(Credential):
         self.username: str = username
         self.password: str = password
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is UserPasswordCredential and self.username == __value.username and self.password == __value.password
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is UserPasswordCredential and self.username == other.username and self.password == other.password
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
@@ -2996,9 +3004,9 @@ class CertificateCredential(Credential):
         self.key: str = key  # File name of the public key
         self.authIsInSecure: bool = authIsInSecure  # Is the authentication insecure
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is CertificateCredential and \
-            self.certificate == __value.certificate and self.key == __value.key and self.authIsInSecure == __value.authIsInSecure
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is CertificateCredential and \
+            self.certificate == other.certificate and self.key == other.key and self.authIsInSecure == other.authIsInSecure
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.key})"
@@ -3015,11 +3023,11 @@ class CredentialStore(UserDSLObject):
         self.name: str = name
         self.locs: set[InfrastructureLocation] = locs
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and \
-            isinstance(__value, CredentialStore) and \
-            self.name == __value.name and \
-            self.locs == __value.locs
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and \
+            isinstance(other, CredentialStore) and \
+            self.name == other.name and \
+            self.locs == other.locs
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
@@ -3042,8 +3050,8 @@ class LocalFileCredentialStore(CredentialStore):
     def __init__(self, name: str, locs: set[InfrastructureLocation], folder: str) -> None:
         super().__init__(name, locs)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, LocalFileCredentialStore)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, LocalFileCredentialStore)
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
@@ -3056,8 +3064,8 @@ class ClearTextCredential(UserPasswordCredential):
     def __init__(self, username: str, password: str) -> None:
         super().__init__(username, password)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is ClearTextCredential
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is ClearTextCredential
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
@@ -3110,9 +3118,9 @@ class CaptureMetaData(UserDSLObject):
         if (self.stepTrigger):
             self.stepTrigger.lint(eco, gz, t, tree)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, CaptureMetaData) and self.singleOrMultiDatasetIngestion == __value.singleOrMultiDatasetIngestion and \
-            self.stepTrigger == __value.stepTrigger and self.dataContainer == __value.dataContainer
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, CaptureMetaData) and self.singleOrMultiDatasetIngestion == other.singleOrMultiDatasetIngestion and \
+            self.stepTrigger == other.stepTrigger and self.dataContainer == other.dataContainer
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -3143,8 +3151,8 @@ class DataTransformerOutput(CaptureMetaData):
     def __str__(self):
         return f"DataTransformerOutput({self.workSpaceName})"
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, DataTransformerOutput) and self.workSpaceName == o.workSpaceName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DataTransformerOutput) and self.workSpaceName == other.workSpaceName
 
 
 class IngestionMetadata(CaptureMetaData):
@@ -3166,9 +3174,9 @@ class IngestionMetadata(CaptureMetaData):
             else:
                 super().add(arg)
 
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, IngestionMetadata):
-            return super().__eq__(__value) and self.credential == __value.credential
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, IngestionMetadata):
+            return super().__eq__(other) and self.credential == other.credential
         return False
 
     @abstractmethod
@@ -3196,8 +3204,8 @@ class CDCCaptureIngestion(IngestionMetadata):
     def __str__(self) -> str:
         return "CDCCaptureIngestion()"
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and type(__value) is CDCCaptureIngestion
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and type(other) is CDCCaptureIngestion
 
 
 class SQLPullIngestion(IngestionMetadata):
@@ -3213,10 +3221,10 @@ class SQLPullIngestion(IngestionMetadata):
         self.deltaSQL: dict[str, str] = OrderedDict()
         """A SQL string per dataset which pulls all rows which changed since last time for a table"""
 
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, SQLPullIngestion):
-            return super().__eq__(__value) and self.variableNames == __value.variableNames and \
-                self.snapshotSQL == __value.snapshotSQL and self.deltaSQL == __value.deltaSQL
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SQLPullIngestion):
+            return super().__eq__(other) and self.variableNames == other.variableNames and \
+                self.snapshotSQL == other.snapshotSQL and self.deltaSQL == other.deltaSQL
         return False
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
@@ -3232,11 +3240,54 @@ class StreamingIngestion(IngestionMetadata):
         super().__init__(*args)
 
 
+class KafkaServer(DataContainer):
+    """This represents a connection to a Kafka Server."""
+    def __init__(self, name: str, locs: set[InfrastructureLocation], bootstrapServers: HostPortPairList, caCert: Optional[Credential] = None) -> None:
+        super().__init__(name, locs)
+        self.bootstrapServers: HostPortPairList = bootstrapServers
+        self.caCertificate: Optional[Credential] = caCert
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, KafkaServer) and self.bootstrapServers == other.bootstrapServers and \
+            self.caCertificate == other.caCertificate
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
+        self.bootstrapServers.lint(tree.addSubTree(self.bootstrapServers))
+        if (self.caCertificate):
+            self.caCertificate.lint(eco, tree.addSubTree(self.caCertificate))
+
+    def __str__(self) -> str:
+        return f"KafkaServer({self.bootstrapServers})"
+
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
+        """This takes a Dataset and returns the schema used when encoding it to a Kafka message"""
+        return None
+
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
+        """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
+        return None
+
+
 class KafkaIngestion(StreamingIngestion):
     """This allows a topic and a schema format to be specified for a source publishing messages to a Kafka topic"""
-    def __init__(self, bootStrapServers: HostPortPairList, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, kafkaServer: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(*args)
-        self.bootStrapServers: HostPortPairList = bootStrapServers
+        self.kafkaServer: DataContainer = kafkaServer
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, KafkaIngestion) and self.kafkaServer == other.kafkaServer
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
+        super().lint(eco, gz, t, d, tree)
+        if (self.kafkaServer is None):
+            tree.addRaw(AttributeNotSet("kafkaServer"))
+        else:
+            if not isinstance(self.kafkaServer, KafkaServer):
+                tree.addRaw(ObjectWrongType(self.kafkaServer, KafkaServer, ProblemSeverity.ERROR))
+            else:
+                kTree: ValidationTree = tree.addSubTree(self.kafkaServer)
+                self.kafkaServer.lint(eco, kTree)
 
 
 class Datastore(ANSI_SQL_NamedObject, Documentable):
@@ -3280,12 +3331,12 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         """Returns true if the datastore is deprecated OR dataset is deprecated"""
         return self.deprecationStatus.status == DeprecationStatus.DEPRECATED or dataset.deprecationStatus.status == DeprecationStatus.DEPRECATED
 
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, Datastore):
-            return ANSI_SQL_NamedObject.__eq__(self, __value) and Documentable.__eq__(self, __value) and \
-                self.datasets == __value.datasets and self.cmd == __value.cmd and \
-                self.productionStatus == __value.productionStatus and self.deprecationStatus == __value.deprecationStatus and \
-                self.key == __value.key
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Datastore):
+            return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and \
+                self.datasets == other.datasets and self.cmd == other.cmd and \
+                self.productionStatus == other.productionStatus and self.deprecationStatus == other.deprecationStatus and \
+                self.key == other.key
         return False
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', storeTree: ValidationTree) -> None:
@@ -3337,6 +3388,11 @@ class TeamCacheEntry:
         self.team: Team = t
         self.declaration: TeamDeclaration = td
 
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, TeamCacheEntry)):
+            return self.team == other.team and self.declaration == other.declaration
+        return False
+
 
 class WorkspaceCacheEntry:
     """This is used by Ecosystem to cache workspaces"""
@@ -3344,12 +3400,22 @@ class WorkspaceCacheEntry:
         self.workspace: Workspace = w
         self.team: Team = t
 
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, WorkspaceCacheEntry)):
+            return self.workspace == other.workspace and self.team == other.team
+        return False
+
 
 class DatastoreCacheEntry:
     """This is used by Ecosystem to cache datastores"""
     def __init__(self, d: 'Datastore', t: 'Team') -> None:
         self.datastore: Datastore = d
         self.team: Team = t
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, DatastoreCacheEntry)):
+            return self.datastore == other.datastore and self.team == other.team
+        return False
 
 
 class DependentWorkspaces:
@@ -3398,9 +3464,9 @@ class DefaultDataPlatform(UserDSLObject):
             raise Exception("No default data platform specified")
         return eco.getDataPlatformOrThrow(self.defaultPlatform.name)
 
-    def __eq__(self, __value: object) -> bool:
-        if (isinstance(__value, DefaultDataPlatform)):
-            return self.defaultPlatform == __value.defaultPlatform
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, DefaultDataPlatform)):
+            return self.defaultPlatform == other.defaultPlatform
         return False
 
 
@@ -3771,14 +3837,15 @@ class Ecosystem(GitControlledObject):
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
-    def __init__(self, name: str, repo: Repository, *args: Union[Datastore, 'Workspace', Documentation]) -> None:
+    def __init__(self, name: str, repo: Repository, *args: Union[Datastore, 'Workspace', Documentation, DataContainer]) -> None:
         super().__init__(repo)
         self.name: str = name
         self.workspaces: dict[str, Workspace] = OrderedDict()
         self.dataStores: dict[str, Datastore] = OrderedDict()
+        self.containers: dict[str, DataContainer] = OrderedDict()
         self.add(*args)
 
-    def add(self, *args: Union[Datastore, 'Workspace', Documentation]) -> None:
+    def add(self, *args: Union[Datastore, 'Workspace', Documentation, DataContainer]) -> None:
         """Adds a workspace, datastore or gitrepository to the team"""
         for arg in args:
             if (isinstance(arg, Datastore)):
@@ -3787,6 +3854,11 @@ class Team(GitControlledObject):
             elif (isinstance(arg, Workspace)):
                 w: Workspace = arg
                 self.addWorkspace(w)
+            elif (isinstance(arg, DataContainer)):
+                dc: DataContainer = arg
+                if self.containers.get(dc.name) is not None:
+                    raise ObjectAlreadyExistsException(f"Duplicate DataContainer {dc.name}")
+                self.containers[dc.name]
             else:
                 d: Documentation = arg
                 self.documentation = d
@@ -3815,11 +3887,12 @@ class Team(GitControlledObject):
             oStore.add(cmd)
             self.addStore(w.dataTransformer.outputDatastore)
 
-    def __eq__(self, __value: object) -> bool:
-        if super().__eq__(__value) and isinstance(__value, Team):
-            rc: bool = self.name == __value.name
-            rc = rc and self.workspaces == __value.workspaces
-            rc = rc and self.dataStores == __value.dataStores
+    def __eq__(self, other: object) -> bool:
+        if super().__eq__(other) and isinstance(other, Team):
+            rc: bool = self.name == other.name
+            rc = rc and self.workspaces == other.workspaces
+            rc = rc and self.dataStores == other.dataStores
+            rc = rc and self.containers == other.containers
             return rc
         return False
 
@@ -3827,6 +3900,13 @@ class Team(GitControlledObject):
         rc: Optional[Datastore] = self.dataStores.get(storeName)
         if rc is None:
             raise ObjectDoesntExistException(f"Unknown datastore {storeName}")
+        return rc
+
+    def getDataContainerOrThrow(self, containerName: str) -> DataContainer:
+        """Returns the named data container or throws an exception if it does not exist"""
+        rc: Optional[DataContainer] = self.containers.get(containerName)
+        if rc is None:
+            raise ObjectDoesntExistException(f"Unknown data container {containerName}")
         return rc
 
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
@@ -3841,6 +3921,8 @@ class Team(GitControlledObject):
         if self._check_dict_changes(self.dataStores, proposed.dataStores, tree, "DataStores"):
             return False
         if self._check_dict_changes(self.workspaces, proposed.workspaces, tree, "Workspaces"):
+            return False
+        if self._check_dict_changes(self.containers, proposed.containers, tree, "Containers"):
             return False
         return True
 
@@ -3883,6 +3965,11 @@ class Team(GitControlledObject):
                             dataset: Dataset = store.datasets[sink.datasetName]
                             if (not dataset.checkClassificationsAreOnly(dccPolicy)):
                                 wTree.addRaw(ObjectNotCompatibleWithPolicy(sink, dccPolicy, ProblemSeverity.ERROR))
+
+        # Iterate over DataContainers linting as we go
+        for c in self.containers.values():
+            cTree: ValidationTree = teamTree.addSubTree(c)
+            c.lint(eco, cTree)
         self.superLint(teamTree)
 
     def __str__(self) -> str:
@@ -3960,9 +4047,9 @@ class AuthorizedObjectManager(Generic[G, N], GitControlledObject):
             self.authorizedObjects[name] = t
         return t
 
-    def __eq__(self, __value: object) -> bool:
-        if (super().__eq__(__value) and isinstance(__value, AuthorizedObjectManager)):
-            a: AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], __value)
+    def __eq__(self, other: object) -> bool:
+        if (super().__eq__(other) and isinstance(other, AuthorizedObjectManager)):
+            a: AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], other)
             rc: bool = self.authorizedNames == a.authorizedNames
             rc = rc and self.name == a.name
             rc = rc and self.authorizedObjects == a.authorizedObjects
@@ -4133,18 +4220,18 @@ class GovernanceZone(GitControlledObject):
             raise ObjectDoesntExistException(f"Unknown team {name}")
         return t
 
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, GovernanceZone):
-            rc: bool = super().__eq__(__value)
-            rc = rc and self.name == __value.name
-            rc = rc and self.key == __value.key
-            rc = rc and self.dataplatformPolicies == __value.dataplatformPolicies
-            rc = rc and self.teams == __value.teams
-            rc = rc and self.classificationPolicies == __value.classificationPolicies
-            rc = rc and self.storagePolicies == __value.storagePolicies
-            rc = rc and self.vendorPolicies == __value.vendorPolicies
-            rc = rc and self.hardVendorPolicies == __value.hardVendorPolicies
-            rc = rc and self.locationPolicies == __value.locationPolicies
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, GovernanceZone):
+            rc: bool = super().__eq__(other)
+            rc = rc and self.name == other.name
+            rc = rc and self.key == other.key
+            rc = rc and self.dataplatformPolicies == other.dataplatformPolicies
+            rc = rc and self.teams == other.teams
+            rc = rc and self.classificationPolicies == other.classificationPolicies
+            rc = rc and self.storagePolicies == other.storagePolicies
+            rc = rc and self.vendorPolicies == other.vendorPolicies
+            rc = rc and self.hardVendorPolicies == other.hardVendorPolicies
+            rc = rc and self.locationPolicies == other.locationPolicies
             return rc
         return False
 
@@ -4263,8 +4350,8 @@ class DataPlatformExecutor(UserDSLObject):
         ABC.__init__(self)
         UserDSLObject.__init__(self)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, DataPlatformExecutor)
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, DataPlatformExecutor)
 
     def __str__(self) -> str:
         return "DataPlatformExecutor()"
@@ -4283,8 +4370,8 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
         super().__init__()
         self.iacRepo: Repository = repo
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, DataPlatformCICDExecutor) and self.iacRepo == __value.iacRepo
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DataPlatformCICDExecutor) and self.iacRepo == other.iacRepo
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         super().lint(eco, tree)
@@ -4300,8 +4387,8 @@ class DataPlatform(Documentable, UserDSLObject):
         self.name: str = name
         self.executor: DataPlatformExecutor = executor
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, DataPlatform) and self.name == __value.name and self.executor == __value.executor and Documentable.__eq__(self, __value)
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, DataPlatform) and self.name == other.name and self.executor == other.executor and Documentable.__eq__(self, other)
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -4463,9 +4550,9 @@ class DatasetSink(UserDSLObject):
         self.key = f"{self.storeName}:{self.datasetName}"
         self.deprecationsAllowed: DeprecationsAllowed = deprecationsAllowed
 
-    def __eq__(self, __value: object) -> bool:
-        if (type(__value) is DatasetSink):
-            return self.key == __value.key and self.storeName == __value.storeName and self.datasetName == __value.datasetName
+    def __eq__(self, other: object) -> bool:
+        if (type(other) is DatasetSink):
+            return self.key == other.key and self.storeName == other.storeName and self.datasetName == other.datasetName
         else:
             return False
 
@@ -4541,8 +4628,8 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
 
-    def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+    def __eq__(self, other: object) -> bool:
+        return cyclic_safe_eq(self, other, set())
 
     def __hash__(self) -> int:
         return hash((self.name, tuple(self.sinks.items()), self.platformMD))
@@ -4781,8 +4868,8 @@ class Workspace(ANSI_SQL_NamedObject, Documentable):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+    def __eq__(self, other: object) -> bool:
+        return cyclic_safe_eq(self, other, set())
 
     def isDatastoreUsed(self, store: Datastore) -> bool:
         """Returns true if the specified datastore is used by this workspace"""
@@ -5325,9 +5412,9 @@ class IaCDataPlatformRenderer(DataPlatformGraphHandler):
         super().__init__(graph)
         self.executor: DataPlatformExecutor = executor
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, IaCDataPlatformRenderer) and self.executor == __value.executor and \
-            self.graph == __value.graph
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, IaCDataPlatformRenderer) and self.executor == other.executor and \
+            self.graph == other.graph
 
     def renderIaC(self, fragments: IaCFragmentManager) -> IaCFragmentManager:
         fragments.preRender()
@@ -5460,8 +5547,8 @@ class UnsupportedDataContainer(ValidationProblem):
     def __init__(self, dc: DataContainer):
         super().__init__(f"DataContainer {dc} is not supported", ProblemSeverity.ERROR)
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, UnsupportedDataContainer)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, UnsupportedDataContainer)
 
     def __hash__(self) -> int:
         return hash(self.description)

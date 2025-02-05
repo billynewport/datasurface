@@ -4,6 +4,10 @@ from datasurface.platforms.azure.azure import AzureKeyVault, AzureVaultObjectTyp
 from datasurface.md import InfrastructureLocation, ValidationTree, Ecosystem, GitHubRepository
 
 
+def always_true(name: str) -> bool:
+    return True
+
+
 class TestAzureKeyVault(unittest.TestCase):
     def setUp(self):
         self.locs: set[InfrastructureLocation] = set()
@@ -34,7 +38,7 @@ class TestAzureKeyVault(unittest.TestCase):
 
     def test_lint_valid(self):
         # Patch to simulate a valid vault name by always returning True.
-        with patch('datasurface.platforms.azure.azure.is_valid_azure_key_vault_name', lambda name: True):
+        with patch('datasurface.platforms.azure.azure.is_valid_azure_key_vault_name', always_true):
             akv = AzureKeyVault("storeValid", self.locs, "validvault", AzureVaultObjectType.SECRETS)
             tree = ValidationTree(akv)
             eco: Ecosystem = Ecosystem("eco", GitHubRepository("repo", "Branch"))

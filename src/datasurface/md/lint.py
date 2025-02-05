@@ -8,11 +8,12 @@ from typing import Any, Callable, Generator, Optional
 from abc import ABC, abstractmethod
 from types import FrameType
 import inspect
+from pydantic import BaseModel
 
 
 class ValidatableObject(ABC):
     def __init__(self) -> None:
-        pass
+        ABC.__init__(self)
 
     @abstractmethod
     def getSourceReferenceString(self) -> str:
@@ -25,6 +26,7 @@ class UserDSLObject(ValidatableObject):
     to skip all datasurface classes on the call stack until a non datasurface class is found and that is
     the frame we should use. Objects which we validate in the DSL should inherit from this class"""
     def __init__(self, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:
+        ValidatableObject.__init__(self)
         self._line_number: int = 0  # The _ here causes these variables to be ignore during cyclic reference checks
         self._file_name: str = ""  # We want this because we can define the identical object in two places and still want them equal
         if (filename is not None and linenumber is not None):
@@ -61,9 +63,9 @@ class UserDSLObject(ValidatableObject):
         """This returns a string representing where this object was first constructed"""
         return f"{self.__class__.__name__}@{self._file_name}:{self._line_number}"
 
-    def __eq__(self, __value: object) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Ignore the source reference when comparing objects"""
-        return isinstance(__value, self.__class__)
+        return isinstance(other, self.__class__)
 
 
 class InternalLintableObject(ValidatableObject):
@@ -92,8 +94,8 @@ class ValidationProblem:
     def __str__(self) -> str:
         return f"{self.sev.name}:{self.description}"
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, self.__class__) and self.description == __value.description and self.sev == __value.sev
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, self.__class__) and self.description == other.description and self.sev == other.sev
 
 
 class UnknownObjectReference(ValidationProblem):
@@ -101,8 +103,8 @@ class UnknownObjectReference(ValidationProblem):
     def __init__(self, obj: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Unknown object {obj}", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, UnknownObjectReference)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, UnknownObjectReference)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -113,8 +115,8 @@ class AttributeNotSet(ValidationProblem):
     def __init__(self, key: str) -> None:
         super().__init__(f"Attribute {key} not set", ProblemSeverity.ERROR)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, AttributeNotSet)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AttributeNotSet)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -125,8 +127,8 @@ class ObjectIsDeprecated(ValidationProblem):
     def __init__(self, obj: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Object {obj} is deprecated", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, ObjectIsDeprecated)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ObjectIsDeprecated)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -137,8 +139,8 @@ class DataTransformerMissing(ValidationProblem):
     def __init__(self, obj: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Data transformer for {obj} is missing", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, DataTransformerMissing)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DataTransformerMissing)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -149,8 +151,8 @@ class ObjectWrongType(ValidationProblem):
     def __init__(self, obj: object, expectedType: type, sev: ProblemSeverity) -> None:
         super().__init__(f"Object {obj} is not of type {expectedType}", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, ObjectWrongType)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ObjectWrongType)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -161,8 +163,8 @@ class ObjectMissing(ValidationProblem):
     def __init__(self, container: object, missingObject: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Object {missingObject} is missing from {container}", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, ObjectMissing)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ObjectMissing)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -173,8 +175,8 @@ class UnauthorizedAttributeChange(ValidationProblem):
     def __init__(self, attribute: str, obj1: object, obj2: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Unauthorized {attribute} change: {obj1} is different from {obj2}", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, UnauthorizedAttributeChange)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, UnauthorizedAttributeChange)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -185,8 +187,8 @@ class NameHasBadSynthax(ValidationProblem):
     def __init__(self, name: str) -> None:
         super().__init__(f"Name {name} has bad syntax", ProblemSeverity.ERROR)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, NameHasBadSynthax)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NameHasBadSynthax)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -197,8 +199,8 @@ class NameMustBeSQLIdentifier(NameHasBadSynthax):
     def __init__(self, name: str, sev: ProblemSeverity) -> None:
         super().__init__(f"Name {name} is not a valid SQL identifier")
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, NameMustBeSQLIdentifier)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NameMustBeSQLIdentifier)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -209,8 +211,8 @@ class ObjectNotCompatibleWithPolicy(ValidationProblem):
     def __init__(self, obj: object, policy: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Object {obj} is not compatible with policy {policy}", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, ObjectNotCompatibleWithPolicy)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ObjectNotCompatibleWithPolicy)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -221,8 +223,8 @@ class DuplicateObject(ValidationProblem):
     def __init__(self, obj: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Object {obj} is duplicated", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, DuplicateObject)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DuplicateObject)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -233,8 +235,8 @@ class ConstraintViolation(ValidationProblem):
     def __init__(self, obj: object, sev: ProblemSeverity) -> None:
         super().__init__(f"Constraint violation {obj}", sev)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, ConstraintViolation)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ConstraintViolation)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -245,8 +247,8 @@ class ProductionDatastoreMustHaveClassifications(ValidationProblem):
     def __init__(self, store: object, dataset: object) -> None:
         super().__init__(f"Production Datastore {store} has a dataset {dataset} with missing DataClassifications", ProblemSeverity.ERROR)
 
-    def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, ProductionDatastoreMustHaveClassifications)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ProductionDatastoreMustHaveClassifications)
 
     def __hash__(self) -> int:
         return hash(self.description)

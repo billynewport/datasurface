@@ -29,11 +29,11 @@ class AzureKeyVault(CredentialStore):
         self.vaultName: str = vaultName
         self.type: AzureVaultObjectType = type
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and \
-            isinstance(__value, AzureKeyVault) and \
-            self.vaultName == __value.vaultName and \
-            self.type == __value.type
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and \
+            isinstance(other, AzureKeyVault) and \
+            self.vaultName == other.vaultName and \
+            self.type == other.type
 
     def __str__(self) -> str:
         return f"AzureKeyVault({self.name}:{self.vaultName}:{self.type})"
@@ -58,9 +58,9 @@ class AzureKeyVaultCredential(Credential):
         self.keyVault: AzureKeyVault = vault
         self.objectName: str = objectName
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AzureKeyVaultCredential) and self.keyVault == __value.keyVault and \
-            self.objectName == __value.objectName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AzureKeyVaultCredential) and self.keyVault == other.keyVault and \
+            self.objectName == other.objectName
 
     def __hash__(self) -> int:
         return hash(self.keyVault) + hash(self.objectName)
@@ -90,8 +90,8 @@ class AzureDataplatform(DataPlatform):
         rc.add(CloudVendor.AZURE)
         return rc
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AzureDataplatform)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AzureDataplatform)
 
     def _str__(self) -> str:
         return f"AzureDataPlatform({self.name})"

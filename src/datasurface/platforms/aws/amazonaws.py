@@ -40,8 +40,8 @@ class AmazonAWSDataPlatform(DataPlatform):
     def _str__(self) -> str:
         return f"AmazonAWSDataPlatform({self.name})"
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AmazonAWSDataPlatform)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AmazonAWSDataPlatform)
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         return dc.areLocationsOwnedByTheseVendors(eco, {CloudVendor.AWS})
@@ -216,10 +216,10 @@ class AmazonAWSKinesis(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
 
-    def getNamingAdapter(self) -> DataContainerNamingMapper:
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         return AWSGlueNamingMapper()
 
 
@@ -235,10 +235,10 @@ class AmazonAWSDynamoDB(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
 
-    def getNamingAdapter(self) -> DataContainerNamingMapper:
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         return AWSGlueNamingMapper()
 
 
@@ -254,10 +254,10 @@ class AmazonAWSSQS(DataContainer):
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> SchemaProjector:
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
 
-    def getNamingAdapter(self) -> DataContainerNamingMapper:
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         return AWSGlueNamingMapper()
 
 
@@ -387,13 +387,13 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         self.dataIAMRole: str = dataIAMRole
         self.awsGlueIAMRole: str = awsGlueIAMRole
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AWSDMSIceBergDataPlatform) and \
-            self.vpcId == __value.vpcId and self.iacCredential == __value.iacCredential and \
-            self.regions == __value.regions and self.stagingBucket == __value.stagingBucket and \
-            self.dataBucket == __value.dataBucket and self.catalogDatabaseName == __value.catalogDatabaseName and \
-            self.stagingIAMRole == __value.stagingIAMRole and self.dataIAMRole == __value.dataIAMRole and \
-            self.awsGlueIAMRole == __value.awsGlueIAMRole and self.codeBucket == __value.codeBucket
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AWSDMSIceBergDataPlatform) and \
+            self.vpcId == other.vpcId and self.iacCredential == other.iacCredential and \
+            self.regions == other.regions and self.stagingBucket == other.stagingBucket and \
+            self.dataBucket == other.dataBucket and self.catalogDatabaseName == other.catalogDatabaseName and \
+            self.stagingIAMRole == other.stagingIAMRole and self.dataIAMRole == other.dataIAMRole and \
+            self.awsGlueIAMRole == other.awsGlueIAMRole and self.codeBucket == other.codeBucket
 
     def _str__(self) -> str:
         return f"AWSDMSIceBergDataPlatform({self.name})"
@@ -444,8 +444,8 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
             autoescape=select_autoescape(['html', 'xml'])
         )
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, AWSDMSTerraformIaC)
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AWSDMSTerraformIaC)
 
     def renderIngestionSingle(self, ingestNode: IngestionSingleNode) -> str:
         return ""
