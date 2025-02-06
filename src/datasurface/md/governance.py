@@ -94,14 +94,15 @@ def is_valid_hostname_or_ip(s: str) -> bool:
 
 
 class ANSI_SQL_NamedObject(UserDSLObject):
+    name: str
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
     def __init__(self, name: str) -> None:
-        UserDSLObject.__init__(self)
         self.name: str = name
         """The name of the object"""
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(self.name)
+        UserDSLObject.__init__(self)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
@@ -278,7 +279,6 @@ class MarkdownDocumentation(Documentation):
 class Repository(Documentable, UserDSLObject):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc: Optional[Documentation]):
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         Documentable.__init__(self, doc)
 
@@ -288,7 +288,7 @@ class Repository(Documentable, UserDSLObject):
         raise NotImplementedError()
 
     def __eq__(self, other: object) -> bool:
-        if (ABC.__eq__(self, other) and Documentable.__eq__(self, other) and isinstance(other, Repository)):
+        if (UserDSLObject.__eq__(self, other) and Documentable.__eq__(self, other) and isinstance(other, Repository)):
             return True
         else:
             return False
@@ -306,7 +306,6 @@ class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
 class GitControlledObject(Documentable, UserDSLObject):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo: 'Repository') -> None:
-        ABC.__init__(self)
         Documentable.__init__(self, None)
         UserDSLObject.__init__(self)
         self.owningRepo: Repository = repo
@@ -314,7 +313,7 @@ class GitControlledObject(Documentable, UserDSLObject):
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, GitControlledObject)):
-            return self.owningRepo == other.owningRepo and ABC.__eq__(self, other) and Documentable.__eq__(self, other)
+            return self.owningRepo == other.owningRepo and UserDSLObject.__eq__(self, other) and Documentable.__eq__(self, other)
         else:
             return False
 
@@ -563,10 +562,11 @@ T = TypeVar('T')
 
 
 class Policy(Documentable, Generic[T]):
+    name: str
     """Base class for all policies"""
     def __init__(self, name: str, doc: Optional[Documentation] = None) -> None:
-        Documentable.__init__(self, doc)
         self.name: str = name
+        Documentable.__init__(self, doc)
 
     @abstractmethod
     def isCompatible(self, obj: T) -> bool:
@@ -574,7 +574,7 @@ class Policy(Documentable, Generic[T]):
         raise NotImplementedError()
 
     def __eq__(self, other: object) -> bool:
-        return ABC.__eq__(self, other) and Documentable.__eq__(self, other) and isinstance(other, Policy) and self.name == other.name
+        return Documentable.__eq__(self, other) and isinstance(other, Policy) and self.name == other.name
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -787,7 +787,6 @@ class DataType(UserDSLObject):
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
-        ABC.__init__(self)
         pass
 
     def __eq__(self, other: object) -> bool:
@@ -1798,7 +1797,6 @@ class Schema(Documentable, UserDSLObject):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
         Documentable.__init__(self, None)
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
@@ -2560,7 +2558,6 @@ class DataContainer(Documentable, UserDSLObject):
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
     def __init__(self, name: str, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         Documentable.__init__(self, None)
         self.locations: set[InfrastructureLocation] = set()
@@ -2938,7 +2935,6 @@ class CronTrigger(StepTrigger):
 class Credential(UserDSLObject):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         pass
 
@@ -3079,7 +3075,6 @@ class CaptureMetaData(UserDSLObject):
     """This describes how a platform can pull data for a Datastore"""
 
     def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         self.singleOrMultiDatasetIngestion: Optional[IngestionConsistencyType] = None
         self.stepTrigger: Optional[StepTrigger] = None
@@ -4347,7 +4342,6 @@ class DockerContainer:
 class DataPlatformExecutor(UserDSLObject):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
 
     def __eq__(self, other: object) -> bool:
@@ -4382,7 +4376,6 @@ class DataPlatform(Documentable, UserDSLObject):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor) -> None:
         Documentable.__init__(self, doc)
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         self.name: str = name
         self.executor: DataPlatformExecutor = executor
@@ -4729,7 +4722,6 @@ class CodeExecutionEnvironment(UserDSLObject):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
     def __init__(self, loc: set[InfrastructureLocation]):
         UserDSLObject.__init__(self)
-        ABC.__init__(self)
         self.location: set[InfrastructureLocation] = loc
 
     def __eq__(self, o: object) -> bool:
@@ -5384,7 +5376,6 @@ class FileBasedFragmentManager(IaCFragmentManager):
 class DataPlatformGraphHandler(UserDSLObject):
     """This is a base class for DataPlatform code for handling a specific intention graph"""
     def __init__(self, graph: PlatformPipelineGraph):
-        ABC.__init__(self)
         UserDSLObject.__init__(self)
         self.graph: PlatformPipelineGraph = graph
 
