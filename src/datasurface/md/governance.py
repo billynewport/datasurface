@@ -562,7 +562,7 @@ class GitHubRepository(Repository):
 T = TypeVar('T')
 
 
-class Policy(Generic[T], Documentable):
+class Policy(Documentable, Generic[T]):
     """Base class for all policies"""
     def __init__(self, name: str, doc: Optional[Documentation] = None) -> None:
         Documentable.__init__(self, doc)
@@ -5292,7 +5292,6 @@ class IaCFragmentManager(Documentable):
     graph."""
     def __init__(self, name: str, doc: Documentation):
         Documentable.__init__(self, doc)
-        ABC.__init__(self)
         self.name: str = name
 
     @abstractmethod
