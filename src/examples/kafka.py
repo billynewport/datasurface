@@ -28,9 +28,7 @@ def createEcosystem() -> Ecosystem:
         GovernanceZoneDeclaration(
             "Home",
             GitHubRepository("billynewport", "HomeMain")
-            )
-        )
-    eco.add(
+            ),
         ZeroDataPlatform(
             "KafkaExample",
             PlainTextDocumentation("This is an example of a Kafka data platform"),

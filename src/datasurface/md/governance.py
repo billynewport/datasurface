@@ -3800,8 +3800,8 @@ class Ecosystem(GitControlledObject):
 
 
 class InvalidLocationStringProblem(ValidationProblem):
-    def __init__(self, locStr: str, severity: ProblemSeverity) -> None:
-        super().__init__(f"Invalid location string {locStr}", severity)
+    def __init__(self, problem: str, locStr: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"{problem}: {locStr}", severity)
 
     def __hash__(self) -> int:
         return hash(self.description)
@@ -3853,13 +3853,20 @@ class LocationKey(UserDSLObject):
         # First check syntax is correct
         locList: list[str] = self.locStr.split(":")
         if (len(locList) != 2):
-            tree.addRaw(InvalidLocationStringProblem(self.locStr, ProblemSeverity.ERROR))
+            tree.addRaw(InvalidLocationStringProblem("Format must be vendor:loc/loc/loc", self.locStr, ProblemSeverity.ERROR))
             return
         vendor = locList[0]
-        locationParts = locList[1].split("/")
+        locationParts: list[str] = locList[1].split("/")
         if (len(locationParts) == 0):
-            tree.addRaw(InvalidLocationStringProblem(self.locStr, ProblemSeverity.ERROR))
+            tree.addRaw(InvalidLocationStringProblem("One location must be specified", self.locStr, ProblemSeverity.ERROR))
             return
+        if (len(locationParts[0]) == 0):
+            tree.addRaw(InvalidLocationStringProblem("First location should not start with '/'", self.locStr, ProblemSeverity.ERROR))
+            return
+        for loc in locationParts:
+            if (len(loc) == 0):
+                tree.addRaw(InvalidLocationStringProblem("Empty locations not allowed", self.locStr, ProblemSeverity.ERROR))
+                return
         if (eco.getVendor(vendor) is None):
             tree.addRaw(UnknownVendorProblem(vendor, ProblemSeverity.ERROR))
             return
