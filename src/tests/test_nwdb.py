@@ -12,7 +12,7 @@ from datasurface.md import GitHubRepository
 from datasurface.md import DataPlatformCICDExecutor, GovernanceZone, GovernanceZoneDeclaration, \
     InfraStructureLocationPolicy, InfrastructureLocation, \
     InfrastructureVendor, Repository, TeamDeclaration
-from datasurface.md import ValidationTree
+from datasurface.md import ValidationTree, LocationKey
 from datasurface.md import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, \
     PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
@@ -139,7 +139,9 @@ class TestEcosystemValidation(unittest.TestCase):
         gz.add(td)
         self.assertEqual(gz, gz)
 
-        islp: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), {ifl2}, None)
+        ifl2Key: LocationKey = LocationKey("V/L2")
+
+        islp: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Azure USA Only", PlainTextDocumentation("Test"), {ifl2Key}, None)
         self.assertEqual(islp, islp)
 
         eco: Ecosystem = Ecosystem("E", ghr, iv2, gzd)

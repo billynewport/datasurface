@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import Ecosystem, GitHubRepository, PlainTextDocumentation, InfrastructureVendor, CloudVendor, InfrastructureLocation
+from datasurface.md import Ecosystem, GitHubRepository, PlainTextDocumentation, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
 from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
-from datasurface.md import CronTrigger, IngestionConsistencyType, SimpleDC, SimpleDCTypes
+from datasurface.md import CronTrigger, IngestionConsistencyType, SimpleDC, SimpleDCTypes, LocalFileCredentialStore
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
+from datasurface.platforms.zero.zero import ZeroDataPlatform
 
 
 def createEcosystem() -> Ecosystem:
@@ -15,35 +16,49 @@ def createEcosystem() -> Ecosystem:
         "KafkaEcosystem",
         GitHubRepository("billynewport", "KafkaEcosystem", PlainTextDocumentation("This is the Kafka Ecosystem")),
 
-        # This is deployed in us-east-1 in AWS
+        # This is deployed in a home lab in Florida
         InfrastructureVendor(
-            "AWS",
-            CloudVendor.AWS,
-            PlainTextDocumentation("Amazon AWS"),
+            "HomeLab",
+            CloudVendor.PRIVATE,
+            PlainTextDocumentation("Home Lab Infrastructure"),
             InfrastructureLocation(
                 "USA",
-                InfrastructureLocation("us-east-1"))  # Virginia
+                InfrastructureLocation("Home"))  # Home
             ),
         GovernanceZoneDeclaration(
-            "USA",
-            GitHubRepository("billynewport", "USAmain")
+            "Home",
+            GitHubRepository("billynewport", "HomeMain")
+            )
+        )
+    eco.add(
+        ZeroDataPlatform(
+            "KafkaExample",
+            PlainTextDocumentation("This is an example of a Kafka data platform"),
+            LocalFileCredentialStore(
+                "HomeLab",
+                {LocationKey("HomeLab:/USA/Home")},
+                "/run/secrets"),
+            "credentialKey.txt",
+            "http://localhost:9000",  # S3 compatible endpoint
+            "staging",
+            "data"
             )
         )
 
     # Define the USA gz
-    gz: GovernanceZone = eco.getZoneOrThrow("USA")
+    gz: GovernanceZone = eco.getZoneOrThrow("Home")
     gz.add(
-        # NY based team
-        TeamDeclaration("NYTeam", GitHubRepository("billynewport/test_step1", "NYMain"))  # NY Team
+        # Home based team
+        TeamDeclaration("HomeTeam", GitHubRepository("billynewport/test_step1", "homeMain"))  # Home Team
     )
-    team: Team = gz.getTeamOrThrow("NYTeam")
+    team: Team = gz.getTeamOrThrow("HomeTeam")
 
     # Define the producer for this team
     team.add(
-        PlainTextDocumentation("This is the New York team responsible for vaious USA specific data and workspaces"),
+        PlainTextDocumentation("This is the home team responsible for various USA specific data and workspaces"),
 
         # Defines a Kafka server running in us-east-1 with the hostname kafka1 and port 9092
-        KafkaServer("kafka1", set([eco.getLocationOrThrow("AWS", ["USA", "us-east-1"])]), HostPortPairList([HostPortPair("kafka1", 9092)]))
+        KafkaServer("kafka1", {LocationKey("HomeLab:USA/Home")}, HostPortPairList([HostPortPair("kafka1", 9092)]))
     )
     team.add(
         Datastore(

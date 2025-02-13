@@ -7,8 +7,8 @@ from enum import Enum
 from datasurface.md import Documentation, CredentialStore
 from datasurface.md import DataContainer, DataContainerNamingMapper, Dataset, DatasetGroup, Datastore, Workspace
 from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataPlatform, DataPlatformExecutor, Ecosystem, \
-    HostPortSQLDatabase, IaCDataPlatformRendererShim, InfrastructureLocation, PlatformPipelineGraph, \
-    DataPlatformGraphHandler
+    HostPortSQLDatabase, IaCDataPlatformRendererShim, PlatformPipelineGraph, \
+    DataPlatformGraphHandler, LocationKey
 from datasurface.md import NameHasBadSynthax, ValidationTree, HostPortPair
 from datasurface.md import is_valid_azure_key_vault_name
 
@@ -24,7 +24,7 @@ class AzureVaultObjectType(Enum):
 class AzureKeyVault(CredentialStore):
     """This is a credential store for Azure Key Vault. It is a simple wrapper around the
     AzureKeyVaultCredential class"""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], vaultName: str, type: AzureVaultObjectType) -> None:
+    def __init__(self, name: str, locs: set[LocationKey], vaultName: str, type: AzureVaultObjectType) -> None:
         super().__init__(name, locs)
         self.vaultName: str = vaultName
         self.type: AzureVaultObjectType = type
@@ -142,7 +142,7 @@ class SQLServerNamingMapper(DataContainerNamingMapper):
 
 class AzureSQLDatabase(HostPortSQLDatabase):
     """This is an Azure SQL Database resource. """
-    def __init__(self, name: str, hostPort: HostPortPair, databaseName: str, locs: set[InfrastructureLocation]):
+    def __init__(self, name: str, hostPort: HostPortPair, databaseName: str, locs: set[LocationKey]):
         super().__init__(name, locs, hostPort, databaseName)
 
     def __str__(self) -> str:

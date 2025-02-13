@@ -6,7 +6,7 @@
 from datasurface.md import DataPlatform, Ecosystem, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
-    InfrastructureLocation, CodeExecutionEnvironment, CodeArtifact
+    CodeExecutionEnvironment, CodeArtifact, LocationKey
 
 from typing import Optional
 
@@ -111,9 +111,9 @@ class LegacyDatPlatformChooser(DataPlatformChooser):
         return "LegacyDatPlatformChooser()"
 
 
-def gatherDataContainerLocationsIntoSet(containers: set[DataContainer]) -> set[InfrastructureLocation]:
+def gatherDataContainerLocationsIntoSet(containers: set[DataContainer]) -> set[LocationKey]:
     """This is a helper function to gather all the locations from a set of DataContainers"""
-    locations: set[InfrastructureLocation] = set()
+    locations: set[LocationKey] = set()
     for dc in containers:
         locations.update(dc.locations)
     return locations

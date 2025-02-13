@@ -6,7 +6,7 @@
 import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Team, DataPlatformKey, TeamDeclaration, GovernanceZoneDeclaration
 from datasurface.md import GitHubRepository, UserPasswordCredential, DataContainer, Workspace, DatasetGroup
-from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation
+from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation, LocationKey
 from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, HostPortPair, DatasetSink
 from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngestion, CronTrigger, IngestionConsistencyType, \
     SimpleDC, SimpleDCTypes, DDLTable, DDLColumn, SmallInt, VarChar, NullableStatus, PrimaryKeyStatus
@@ -19,7 +19,7 @@ characteristics and make sure that Ecosystems using this can be validated correc
 """
 
 
-def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[InfrastructureLocation]):
+def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[LocationKey]):
     """Create a sample Producer with a couple of tables"""
     t.add(
         Datastore(
@@ -62,7 +62,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[Inf
     )
 
 
-def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocation]):
+def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
@@ -117,7 +117,7 @@ def createEcosystem() -> Ecosystem:
 
     # Fill out the NorthWindTeam managed by the USA governance zone
     legacy_Team: Team = ecosys.getTeamOrThrow("USA", "LegacyApplicationTeam")
-    locations: set[InfrastructureLocation] = {ecosys.getLocationOrThrow("LegacyA", ["USA", "ny1"])}
+    locations: set[LocationKey] = {LocationKey("LegacyA:USA/ny1")}
     defineTables(ecosys, gzUSA, legacy_Team, locations)
     defineWorkspaces(ecosys, legacy_Team, locations)
 

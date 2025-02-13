@@ -5,9 +5,9 @@
 
 from datasurface.platforms.legacy import LegacyDatPlatformChooser, LegacyDataTransformer
 from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, UserPasswordCredential
-from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, \
+from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
-        InfrastructureLocation, IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
+        IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
         Workspace, HostPortPair
 
 from datasurface.md import SimpleDC, SimpleDCTypes
@@ -19,7 +19,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
         Datastore(
             "NW_Data",
             CDCCaptureIngestion(
-                HostPortSQLDatabase("NW_DB", {eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])}, HostPortPair("hostName", 1344), "DBName"),
+                HostPortSQLDatabase("NW_DB", {LocationKey("MyCorp:USA/NY_1")}, HostPortPair("hostName", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 UserPasswordCredential("user", "pwd")
@@ -206,7 +206,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     )
 
 
-def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[InfrastructureLocation]):
+def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces

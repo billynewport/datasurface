@@ -16,7 +16,7 @@ from datasurface.md import CaseSensitiveEnum, CloudVendor, Credential, DataConta
     DataContainerNamingMapper, DataPlatformExecutor, DataTransformerNode, DatasetGroup, \
     Datastore, DatastoreCacheEntry, ExportNode, FileBasedFragmentManager, IaCDataPlatformRenderer, IaCDataPlatformRendererShim, \
     IngestionMetadata, IngestionMultiNode, IngestionSingleNode, PipelineNode, PlatformPipelineGraph, SQLDatabase, SchemaProjector, \
-    DataPlatform, Dataset, Ecosystem, InfrastructureLocation, \
+    DataPlatform, Dataset, Ecosystem, LocationKey, InfrastructureLocation, \
     ObjectStorage, TriggerNode, UnsupportedDataContainer, Workspace, defaultPipelineNodeFileName, DataPlatformGraphHandler
 
 from datasurface.md import NameHasBadSynthax, ValidationTree
@@ -61,7 +61,7 @@ class AWSAuroraDatabase(SQLDatabase):
     """This is a link to an existing Aurora database. It identifies the cluster using its
     endpointName and the database using its databaseName. The location is the location/region of the cluster. We can using Terraform
     retrieve the hostname and port for this database."""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], endpointName: str, databaseName: str):
+    def __init__(self, name: str, locs: set[LocationKey], endpointName: str, databaseName: str):
         super().__init__(name, locs, databaseName)
         self.endpointName: str = endpointName
 
@@ -117,7 +117,7 @@ def is_valid_s3_bucket_name(name: str) -> bool:
 
 class AWSSecretManager(CredentialStore):
     """This represents the AWS Secret manager for a region. It's used to reference credentials stored in that region."""
-    def __init__(self, name: str, locs: set[InfrastructureLocation]):
+    def __init__(self, name: str, locs: set[LocationKey]):
         super().__init__(name, locs)
         self.secrets: dict[str, Credential] = {}
 
@@ -177,7 +177,7 @@ class AWSGlueNamingMapper(DataContainerNamingMapper):
 
 
 class AmazonAWSS3Bucket(ObjectStorage):
-    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
+    def __init__(self, name: str, locs: set[LocationKey], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
         super().__init__(name, locs, endPointURI, bucketName, prefix)
 
     def __eq__(self, o: object) -> bool:
@@ -205,7 +205,7 @@ class AmazonAWSS3Bucket(ObjectStorage):
 
 
 class AmazonAWSKinesis(DataContainer):
-    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str]):
+    def __init__(self, name: str, locs: set[LocationKey], endPointURI: Optional[str]):
         super().__init__(name, locs)
         self.endPointURI: Optional[str] = endPointURI
 
@@ -224,7 +224,7 @@ class AmazonAWSKinesis(DataContainer):
 
 
 class AmazonAWSDynamoDB(DataContainer):
-    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str]):
+    def __init__(self, name: str, locs: set[LocationKey], endPointURI: Optional[str]):
         super().__init__(name, locs)
         self.endPointURI: Optional[str] = endPointURI
 
@@ -243,7 +243,7 @@ class AmazonAWSDynamoDB(DataContainer):
 
 
 class AmazonAWSSQS(DataContainer):
-    def __init__(self, name: str, locs: set[InfrastructureLocation], queueURL: Optional[str]):
+    def __init__(self, name: str, locs: set[LocationKey], queueURL: Optional[str]):
         super().__init__(name, locs)
         self.queueURL: Optional[str] = queueURL
 
@@ -367,7 +367,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
             executor: DataPlatformExecutor,
             vpcId: str,
             iacCredential: AWSSecret,
-            regions: set[InfrastructureLocation],
+            regions: set[LocationKey],
             stagingBucket: AmazonAWSS3Bucket,
             dataBucket: AmazonAWSS3Bucket,
             codeBucket: AmazonAWSS3Bucket,
@@ -378,7 +378,7 @@ class AWSDMSIceBergDataPlatform(AmazonAWSDataPlatform):
         super().__init__(name, doc, executor)
         self.vpcId: str = vpcId
         self.iacCredential: Credential = iacCredential
-        self.regions: set[InfrastructureLocation] = regions
+        self.regions: set[LocationKey] = regions
         self.stagingBucket: AmazonAWSS3Bucket = stagingBucket
         self.dataBucket: AmazonAWSS3Bucket = dataBucket
         self.catalogDatabaseName: str = catalogDatabaseName
@@ -489,7 +489,10 @@ class AWSDMSTerraformIaC(IaCDataPlatformRenderer):
             data: dict[str, Any] = {}
             data["platformName"] = self.graph.platform.name
             data["sourceName"] = ingestNode.storeName
-            data["aws_region"] = loc.name
+            linfra: Optional[InfrastructureLocation] = loc.getAsInfraLocation(self.graph.eco)
+            if linfra is None:
+                raise Exception(f"Location {loc} is not a valid location for this ecosystem.")
+            data["aws_region"] = linfra.name
             data["sourceClusterName"] = aurora.endpointName
             data["glueDatabaseName"] = awsp.catalogDatabaseName
             secret: AWSSecret = cast(AWSSecret, awsp.iacCredential)

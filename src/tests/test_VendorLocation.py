@@ -7,7 +7,9 @@
 from typing import Optional
 import unittest
 
-from datasurface.md import InfrastructureLocation, InfrastructureVendor
+from datasurface.md import InfrastructureLocation, InfrastructureVendor, LocationKey, Ecosystem, ValidationTree
+from datasurface.md import UnknownVendorProblem, UnknownLocationProblem, InvalidLocationStringProblem
+import tests.nwdb.eco
 
 
 class Test_VendorLocation(unittest.TestCase):
@@ -47,3 +49,51 @@ class Test_VendorLocation(unittest.TestCase):
             self.assertTrue(eu.containsLocation(eu))
             self.assertFalse(usa.containsLocation(eu))
             self.assertFalse(eu.containsLocation(usa))
+
+    def test_LocationKey(self):
+        eco: Ecosystem = tests.nwdb.eco.createEcosystem()
+
+        key: LocationKey = LocationKey("MyCorp:USA/NJ_1")
+        tree: ValidationTree = ValidationTree(key)
+
+        key.lint(eco, tree)
+        self.assertFalse(tree.hasErrors())
+        self.assertEqual(key.getAsInfraLocation(eco), eco.getLocationOrThrow("MyCorp", ["USA", "NJ_1"]))
+        self.assertNotEqual(key.getAsInfraLocation(eco), eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"]))
+
+        key = LocationKey("MyCorp:USA/NY_1")
+        tree = ValidationTree(key)
+        key.lint(eco, tree)
+        self.assertFalse(tree.hasErrors())
+        self.assertEqual(key.getAsInfraLocation(eco), eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"]))
+        self.assertNotEqual(key.getAsInfraLocation(eco), eco.getLocationOrThrow("MyCorp", ["USA", "NJ_1"]))
+
+        key = LocationKey("MyCorp:USA")
+        tree = ValidationTree(key)
+        key.lint(eco, tree)
+        self.assertFalse(tree.hasErrors())
+        self.assertEqual(key.getAsInfraLocation(eco), eco.getLocationOrThrow("MyCorp", ["USA"]))
+        self.assertNotEqual(key.getAsInfraLocation(eco), eco.getLocationOrThrow("MyCorp", ["USA", "NJ_1"]))
+
+        # Check unknown vendor fails
+        key = LocationKey("Unknown:USA")
+        tree = ValidationTree(key)
+        key.lint(eco, tree)
+        self.assertTrue(tree.hasErrors())
+        self.assertEqual(key.getAsInfraLocation(eco), None)
+        self.assertTrue(tree.containsProblemType(UnknownVendorProblem))
+
+        # Check unknown location fails
+        key = LocationKey("MyCorp:Unknown")
+        tree = ValidationTree(key)
+        key.lint(eco, tree)
+        self.assertTrue(tree.hasErrors())
+        self.assertEqual(key.getAsInfraLocation(eco), None)
+        self.assertTrue(tree.containsProblemType(UnknownLocationProblem))
+
+        # Check bad syntax fails, leave out a colon
+        key = LocationKey("USA/NY_1")
+        tree = ValidationTree(key)
+        key.lint(eco, tree)
+        self.assertTrue(tree.hasErrors())
+        self.assertTrue(tree.containsProblemType(InvalidLocationStringProblem))

@@ -6,7 +6,7 @@
 from datasurface.platforms.aws import AmazonAWSDataPlatform
 from datasurface.platforms.azure import AzureDataplatform, AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
-from datasurface.md import GitHubRepository
+from datasurface.md import GitHubRepository, LocationKey
 from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, GovernanceZone, \
     GovernanceZoneDeclaration, InfraStructureLocationPolicy, \
     InfrastructureLocation, InfrastructureVendor, TeamDeclaration, DataPlatformKey
@@ -78,9 +78,10 @@ def createEcosystem() -> Ecosystem:
 
     # Enumerate all EU locations for AWS
     allEULocations: set[InfrastructureLocation] = e.getLocationOrThrow("AWS", ["EU"]).getEveryChildLocation()
+    allEUKeys: set[LocationKey] = {LocationKey("AWS:EU/" + loc.name) for loc in allEULocations}
 
     gzEU.add(
-        InfraStructureLocationPolicy("EU Only", PlainTextDocumentation("Test"), allEULocations),
+        InfraStructureLocationPolicy("EU Only", PlainTextDocumentation("Test"), allEUKeys),
         TeamDeclaration("ParisTeam", GitHubRepository("billynewport/test_step1", "ParisMain"))
     )
 

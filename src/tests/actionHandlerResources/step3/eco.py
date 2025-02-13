@@ -5,7 +5,7 @@
 
 from datasurface.platforms.aws import AmazonAWSDataPlatform
 from datasurface.platforms.azure import AzureDataplatform, AzureKeyVault, AzureVaultObjectType
-from datasurface.md import PlainTextDocumentation
+from datasurface.md import PlainTextDocumentation, LocationKey
 from datasurface.md import GitHubRepository
 from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, \
     DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
@@ -77,9 +77,13 @@ def createEcosystem() -> Ecosystem:
 
     # Enumerate all EU locations for AWS
     allEULocations: set[InfrastructureLocation] = e.getLocationOrThrow("AWS", ["EU"]).getEveryChildLocation()
+    allEUKeys: set[LocationKey] = {LocationKey("AWS:EU/" + loc.name) for loc in allEULocations}
+
+    allUSALocations: set[InfrastructureLocation] = e.getLocationOrThrow("AWS", ["USA"]).getEveryChildLocation()
+    allUSAKeys: set[LocationKey] = {LocationKey("AWS:USA/" + loc.name) for loc in allUSALocations}
 
     gzEU.add(
-        InfraStructureLocationPolicy("EU Only", PlainTextDocumentation("Test"), allEULocations),
+        InfraStructureLocationPolicy("EU Only", PlainTextDocumentation("Test"), allEUKeys),
         TeamDeclaration("ParisTeam", GitHubRepository("billynewport/test_step1", "ParisMain"))
     )
 
@@ -92,7 +96,7 @@ def createEcosystem() -> Ecosystem:
         # AWS Locations only
         InfraStructureVendorPolicy("AWS Only", PlainTextDocumentation("Test"), {e.getVendorOrThrow("AWS")}),  # AWS Locations only
         # AWS USA locations
-        InfraStructureLocationPolicy("AWS US Only", PlainTextDocumentation("Test"), e.getLocationOrThrow("AWS", ["USA"]).getEveryChildLocation()),
+        InfraStructureLocationPolicy("AWS US Only", PlainTextDocumentation("Test"), allUSAKeys),
         # AWS Dataplatform only
         DataPlatformPolicy("AWS Platform only", PlainTextDocumentation("Test"), {DataPlatformKey("AWS Platform")}),  # AWS DataPlatform only
         # NY Team definition

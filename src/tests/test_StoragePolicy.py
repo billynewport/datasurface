@@ -7,9 +7,9 @@
 import unittest
 from datasurface.md import PlainTextDocumentation
 
-from datasurface.md import Ecosystem, GovernanceZone, InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, \
+from datasurface.md import Ecosystem, GovernanceZone, InfraStructureLocationPolicy, InfraStructureVendorPolicy, \
     InfrastructureVendor
-from datasurface.md import ValidationTree
+from datasurface.md import ValidationTree, LocationKey
 from datasurface.md import DataClassificationPolicy, SimpleDC, SimpleDCTypes
 from tests.nwdb.eco import createEcosystem
 
@@ -31,8 +31,10 @@ class TestPolicy(unittest.TestCase):
     def test_InfrastructureLocationPolicy(self):
         eco: Ecosystem = createEcosystem()
 
-        myCorpNY1Location: InfrastructureLocation = eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])
-        outsourceNJ1Location: InfrastructureLocation = eco.getLocationOrThrow("Outsource", ["USA", "NJ_1"])
+        myCorpNY1Location: LocationKey = LocationKey("MyCorp:USA/NY_1")
+        self.assertIsNotNone(myCorpNY1Location.getAsInfraLocation(eco))
+        outsourceNJ1Location: LocationKey = LocationKey("Outsource:USA/NJ_1")
+        self.assertIsNotNone(outsourceNJ1Location.getAsInfraLocation(eco))
 
         p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Outsource USA Only", PlainTextDocumentation("Test"), {myCorpNY1Location})
         self.assertEqual(p.name, "Outsource USA Only")
@@ -65,8 +67,10 @@ class TestPlatformPolicy(unittest.TestCase):
     def test_InfraLocationPolicy(self):
         eco: Ecosystem = createEcosystem()
 
-        ny1Location: InfrastructureLocation = eco.getLocationOrThrow("MyCorp", ["USA", "NY_1"])
-        nj1Location: InfrastructureLocation = eco.getLocationOrThrow("MyCorp", ["USA", "NJ_1"])
+        ny1Location: LocationKey = LocationKey("MyCorp:USA/NY_1")
+        self.assertIsNotNone(ny1Location.getAsInfraLocation(eco))
+        nj1Location: LocationKey = LocationKey("MyCorp:USA/NJ_1")
+        self.assertIsNotNone(nj1Location.getAsInfraLocation(eco))
 
         p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("MyCorp USA NY_1 Only", PlainTextDocumentation("Test"), {ny1Location})
 

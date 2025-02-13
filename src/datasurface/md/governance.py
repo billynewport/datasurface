@@ -562,7 +562,6 @@ T = TypeVar('T')
 
 
 class Policy(Documentable, Generic[T]):
-    name: str
     """Base class for all policies"""
     def __init__(self, name: str, doc: Optional[Documentation] = None) -> None:
         self.name: str = name
@@ -2401,28 +2400,6 @@ class InfraHardVendorPolicy(AllowDisallowPolicy[CloudVendor]):
         return super().__hash__()
 
 
-class InfraStructureLocationPolicy(AllowDisallowPolicy[InfrastructureLocation]):
-    """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
-    def __init__(self, name: str, doc: Documentation, allowed: Optional[set[InfrastructureLocation]] = None,
-                 notAllowed: Optional[set[InfrastructureLocation]] = None):
-        super().__init__(name, doc, allowed, notAllowed)
-
-    def __str__(self):
-        return f"InfrastructureLocationPolicy({self.name})"
-
-    def __eq__(self, v: object) -> bool:
-        rc: bool = super().__eq__(v)
-        rc = rc and isinstance(v, InfraStructureLocationPolicy)
-        other: InfraStructureLocationPolicy = cast(InfraStructureLocationPolicy, v)
-        rc = rc and self.allowed == other.allowed
-        rc = rc and self.notAllowed == other.notAllowed
-        rc = rc and self.name == other.name
-        return rc
-
-    def __hash__(self) -> int:
-        return super().__hash__()
-
-
 class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
     def __init__(self, name: str, doc: Optional[Documentation], allowed: Optional[set['DataPlatformKey']] = None,
                  notAllowed: Optional[set['DataPlatformKey']] = None):
@@ -2557,10 +2534,10 @@ class DataContainer(Documentable, UserDSLObject):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
-    def __init__(self, name: str, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
+    def __init__(self, name: str, *args: Union[set['LocationKey'], Documentation]) -> None:
         UserDSLObject.__init__(self)
         Documentable.__init__(self, None)
-        self.locations: set[InfrastructureLocation] = set()
+        self.locations: set[LocationKey] = set()
         self.name: str = name
         self.serverSideEncryptionKeys: Optional[EncryptionSystem] = None
         """This is the vendor ecnryption system providing the container. For example, if a cloud vendor
@@ -2571,7 +2548,7 @@ class DataContainer(Documentable, UserDSLObject):
         self.isReadOnly: bool = False
         self.add(*args)
 
-    def add(self, *args: Union[set[InfrastructureLocation], Documentation]) -> None:
+    def add(self, *args: Union[set['LocationKey'], Documentation]) -> None:
         for arg in args:
             if (isinstance(arg, set)):
                 for loc in arg:
@@ -2605,25 +2582,26 @@ class DataContainer(Documentable, UserDSLObject):
             self.documentation.lint(dTree)
 
         for loc in self.locations:
-            loc.lint(tree.addSubTree(loc))
+            loc.lint(eco, tree.addSubTree(loc))
 
     def __hash__(self) -> int:
         return hash(self.name)
 
     def areLocationsOwnedByTheseVendors(self, eco: 'Ecosystem', vendors: set[CloudVendor]) -> bool:
         """Returns true if the container only uses locations managed by the provided set of cloud vendors"""
-        for loc in self.locations:
-            if (loc.key is None):
+        for lkey in self.locations:
+            loc: Optional[InfrastructureLocation] = lkey.getAsInfraLocation(eco)
+            if (loc is None or loc.key is None):
                 return False
             v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
             if v.hardCloudVendor not in vendors:
                 return False
         return True
 
-    def areAllLocationsInLocations(self, locations: set[InfrastructureLocation]) -> bool:
+    def areAllLocationsInLocations(self, locations: set['LocationKey']) -> bool:
         """Returns true if all locations are in the provided set of locations"""
-        for loc in self.locations:
-            if loc not in locations:
+        for lkey in self.locations:
+            if lkey not in locations:
                 return False
         return True
 
@@ -2640,7 +2618,7 @@ class DataContainer(Documentable, UserDSLObject):
 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
-    def __init__(self, name: str, locations: set[InfrastructureLocation], databaseName: str) -> None:
+    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str) -> None:
         super().__init__(name, locations)
         self.databaseName: str = databaseName
 
@@ -2661,7 +2639,7 @@ class SQLDatabase(DataContainer):
 
 class URLSQLDatabase(SQLDatabase):
     """This is a SQL database with a URL"""
-    def __init__(self, name: str, locations: set[InfrastructureLocation], url: str, databaseName: str) -> None:
+    def __init__(self, name: str, locations: set['LocationKey'], url: str, databaseName: str) -> None:
         super().__init__(name, locations, databaseName)
         self.url: str = url
 
@@ -2721,7 +2699,7 @@ class HostPortPairList(UserDSLObject):
 
 class HostPortSQLDatabase(SQLDatabase):
     """This is a SQL database with a host and port"""
-    def __init__(self, name: str, locations: set[InfrastructureLocation], hostPort: HostPortPair, databaseName: str) -> None:
+    def __init__(self, name: str, locations: set['LocationKey'], hostPort: HostPortPair, databaseName: str) -> None:
         super().__init__(name, locations, databaseName)
         self.hostPortPair: HostPortPair = hostPort
 
@@ -2740,7 +2718,7 @@ class HostPortSQLDatabase(SQLDatabase):
 
 class ObjectStorage(DataContainer):
     """Generic Object storage service. Flat file storage"""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
+    def __init__(self, name: str, locs: set['LocationKey'], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):
         super().__init__(name, locs)
         self.endPointURI: Optional[str] = endPointURI
         self.bucketName: str = bucketName
@@ -2867,7 +2845,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
 
 class PyOdbcSourceInfo(SQLDatabase):
     """This describes how to connect to a database using pyodbc"""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
+    def __init__(self, name: str, locs: set['LocationKey'], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
         super().__init__(name, locs, databaseName)
         self.serverHost: str = serverHost
         self.driver: str = driver
@@ -3014,10 +2992,10 @@ class CertificateCredential(Credential):
 
 class CredentialStore(UserDSLObject):
     """This is a credential store which stores credential data in a set of infra locations"""
-    def __init__(self, name: str, locs: set[InfrastructureLocation]) -> None:
+    def __init__(self, name: str, locs: set['LocationKey']) -> None:
         UserDSLObject.__init__(self)
         self.name: str = name
-        self.locs: set[InfrastructureLocation] = locs
+        self.locs: set[LocationKey] = locs
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and \
@@ -3032,7 +3010,7 @@ class CredentialStore(UserDSLObject):
         if (self.name == ""):
             tree.addProblem("Name is empty")
         for loc in self.locs:
-            loc.lint(tree.addSubTree(loc))
+            loc.lint(eco, tree.addSubTree(loc))
 
     @abstractmethod
     def getCredential(self, credName: str) -> Credential:
@@ -3043,14 +3021,22 @@ class CredentialStore(UserDSLObject):
 class LocalFileCredentialStore(CredentialStore):
     """This is a local file credential store. It represents a folder on the local file system where certificates are stored in files. This could be used with
     docker secrets or similar"""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], folder: str) -> None:
+    def __init__(self, name: str, locs: set['LocationKey'], folder: str) -> None:
         super().__init__(name, locs)
+        self.credentials: dict[str, Credential] = dict()
+        self.folder: str = folder
 
     def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and isinstance(other, LocalFileCredentialStore)
+        return super().__eq__(other) and isinstance(other, LocalFileCredentialStore) and self.folder == other.folder
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
+
+    def getCredential(self, credName: str) -> Credential:
+        if credName not in self.credentials:
+            c: Credential = FileSecretCredential(os.path.join(self.folder, credName))
+            self.credentials[credName] = c
+        return self.credentials[credName]
 
 
 class ClearTextCredential(UserPasswordCredential):
@@ -3237,7 +3223,7 @@ class StreamingIngestion(IngestionMetadata):
 
 class KafkaServer(DataContainer):
     """This represents a connection to a Kafka Server."""
-    def __init__(self, name: str, locs: set[InfrastructureLocation], bootstrapServers: HostPortPairList, caCert: Optional[Credential] = None) -> None:
+    def __init__(self, name: str, locs: set['LocationKey'], bootstrapServers: HostPortPairList, caCert: Optional[Credential] = None) -> None:
         super().__init__(name, locs)
         self.bootstrapServers: HostPortPairList = bootstrapServers
         self.caCertificate: Optional[Credential] = caCert
@@ -3829,6 +3815,81 @@ class Ecosystem(GitControlledObject):
         return eTree
 
 
+class InvalidLocationStringProblem(ValidationProblem):
+    def __init__(self, locStr: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"Invalid location string {locStr}", severity)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
+class UnknownLocationProblem(ValidationProblem):
+    def __init__(self, locStr: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"Unknown location {locStr}", severity)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
+class UnknownVendorProblem(ValidationProblem):
+    def __init__(self, vendor: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"Unknown vendor {vendor}", severity)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
+class LocationKey(UserDSLObject):
+    """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
+    def __init__(self, locStr: str) -> None:
+        super().__init__()
+        self.locStr: str = locStr
+        self.loc: Optional[InfrastructureLocation] = None
+
+    def getAsInfraLocation(self, eco: Ecosystem) -> Optional[InfrastructureLocation]:
+        # The string is in the format vendor:location1/location2/location3
+        if self.loc is not None:
+            return self.loc
+        locList: list[str] = self.locStr.split(":")
+        if (len(locList) != 2):
+            raise Exception(f"Invalid location string {self.locStr}")
+        vendor = locList[0]
+        locationParts = locList[1].split("/")
+
+        # Skip the first locationParts element here
+        loc: Optional[InfrastructureLocation] = eco.getLocation(vendor, locationParts)
+        return loc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, LocationKey)):
+            return self.locStr == other.locStr
+        return False
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        # First check syntax is correct
+        locList: list[str] = self.locStr.split(":")
+        if (len(locList) != 2):
+            tree.addRaw(InvalidLocationStringProblem(self.locStr, ProblemSeverity.ERROR))
+            return
+        vendor = locList[0]
+        locationParts = locList[1].split("/")
+        if (len(locationParts) == 0):
+            tree.addRaw(InvalidLocationStringProblem(self.locStr, ProblemSeverity.ERROR))
+            return
+        if (eco.getVendor(vendor) is None):
+            tree.addRaw(UnknownVendorProblem(vendor, ProblemSeverity.ERROR))
+            return
+        self.loc: Optional[InfrastructureLocation] = self.getAsInfraLocation(eco)
+        if (self.loc is None):
+            tree.addRaw(UnknownLocationProblem(self.locStr, ProblemSeverity.ERROR))
+
+    def __str__(self) -> str:
+        return f"LocationKey({self.locStr})"
+
+    def __hash__(self) -> int:
+        return hash(self.locStr)
+
+
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
@@ -4127,7 +4188,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name: str, ownerRepo: Repository, *args: Union[InfraStructureLocationPolicy, InfraStructureVendorPolicy,
+    def __init__(self, name: str, ownerRepo: Repository, *args: Union['InfraStructureLocationPolicy', InfraStructureVendorPolicy,
                                                                       StoragePolicy, DataClassificationPolicy, TeamDeclaration,
                                                                       Documentation, DataPlatformPolicy, InfraHardVendorPolicy]) -> None:
         super().__init__(ownerRepo)
@@ -4154,11 +4215,15 @@ class GovernanceZone(GitControlledObject):
 
         self.add()
 
-    def checkLocationIsAllowed(self, eco: 'Ecosystem', loc: InfrastructureLocation, tree: ValidationTree):
+    def checkLocationIsAllowed(self, eco: 'Ecosystem', location: LocationKey, tree: ValidationTree):
         """This checks that the provided location is allowed based on the vendor and location policies
         of the GZ, this allows a GZ to constrain where its data can come from or be used"""
+        loc: Optional[InfrastructureLocation] = location.getAsInfraLocation(eco)
+        if (loc is None):
+            tree.addRaw(UnknownLocationProblem(str(location), ProblemSeverity.ERROR))
+            return
         for locPolicy in self.locationPolicies.values():
-            if not locPolicy.isCompatible(loc):
+            if not locPolicy.isCompatible(location):
                 tree.addRaw(ObjectNotCompatibleWithPolicy(loc, locPolicy, ProblemSeverity.ERROR))
         if (loc.key):
             v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
@@ -4173,7 +4238,7 @@ class GovernanceZone(GitControlledObject):
         else:
             tree.addRaw(AttributeNotSet("loc.key"))
 
-    def add(self, *args: Union[InfraStructureVendorPolicy, InfraStructureLocationPolicy, StoragePolicy, DataClassificationPolicy,
+    def add(self, *args: Union[InfraStructureVendorPolicy, 'InfraStructureLocationPolicy', StoragePolicy, DataClassificationPolicy,
                                TeamDeclaration, DataPlatformPolicy, Documentation, InfraHardVendorPolicy]) -> None:
         for arg in args:
             if (isinstance(arg, DataClassificationPolicy)):
@@ -4374,11 +4439,35 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
 
 class DataPlatform(Documentable, UserDSLObject):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
-    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor) -> None:
-        Documentable.__init__(self, doc)
+    def __init__(self, name: str, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
+        Documentable.__init__(self, self.findObjectOfSpecificType(Documentation, *args))
         UserDSLObject.__init__(self)
         self.name: str = name
-        self.executor: DataPlatformExecutor = executor
+        de: Optional[DataPlatformExecutor] = self.findObjectOfSpecificType(DataPlatformExecutor, *args)
+        if de is None:
+            raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
+        self.executor: DataPlatformExecutor = de
+        self.credentialStores: dict[str, CredentialStore] = OrderedDict[str, CredentialStore]()
+        self.add(*args)
+
+    def add(self, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
+        for arg in args:
+            if isinstance(arg, CredentialStore):
+                cs: CredentialStore = arg
+                self.credentialStores[cs.name] = cs
+            elif isinstance(arg, DataPlatformExecutor):
+                if self.executor is not None and self.executor != arg:
+                    raise ObjectAlreadyExistsException("Executor already set")
+                self.executor = arg
+            else:
+                self.documentation = arg
+
+    def findObjectOfSpecificType(self, t: Type[T], *args: Any) -> Optional[T]:
+        """Finds an object of a specific type in the provided arguments."""
+        for arg in args:
+            if isinstance(arg, t):
+                return arg
+        return None
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataPlatform) and self.name == other.name and self.executor == other.executor and Documentable.__eq__(self, other)
@@ -4401,9 +4490,14 @@ class DataPlatform(Documentable, UserDSLObject):
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         if (self.documentation):
             self.documentation.lint(tree)
-        self.executor.lint(eco, tree.addSubTree(self.executor))
+        if self.executor is None:
+            tree.addRaw(AttributeNotSet("executor"))
+        else:
+            self.executor.lint(eco, tree.addSubTree(self.executor))
         if (not eco.checkDataPlatformExists(self)):
             tree.addRaw(ValidationProblem(f"DataPlatform {self} not found in ecosystem {eco}", ProblemSeverity.ERROR))
+        for cs in self.credentialStores.values():
+            cs.lint(eco, tree.addSubTree(cs))
 
     @abstractmethod
     def createGraphHandler(self, graph: 'PlatformPipelineGraph') -> 'DataPlatformGraphHandler':
@@ -4720,9 +4814,9 @@ class PythonCodeArtifact(CodeArtifact):
 
 class CodeExecutionEnvironment(UserDSLObject):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
-    def __init__(self, loc: set[InfrastructureLocation]):
+    def __init__(self, loc: set[LocationKey]):
         UserDSLObject.__init__(self)
-        self.location: set[InfrastructureLocation] = loc
+        self.location: set[LocationKey] = loc
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, CodeExecutionEnvironment) and self.location == o.location
@@ -4730,7 +4824,7 @@ class CodeExecutionEnvironment(UserDSLObject):
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         for loc in self.location:
-            loc.lint(tree)
+            loc.lint(eco, tree)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.location})"
@@ -4743,7 +4837,7 @@ class CodeExecutionEnvironment(UserDSLObject):
 
 class KubernetesEnvironment(CodeExecutionEnvironment):
     """This is a Kubernetes environment"""
-    def __init__(self, hostName: str, cred: Credential, loc: set[InfrastructureLocation]) -> None:
+    def __init__(self, hostName: str, cred: Credential, loc: set[LocationKey]) -> None:
         super().__init__(loc)
         self.hostName: str = hostName
         """This is the hostname of the Kubernetes cluster"""
@@ -5542,3 +5636,25 @@ class UnsupportedDataContainer(ValidationProblem):
 
     def __hash__(self) -> int:
         return hash(self.description)
+
+
+class InfraStructureLocationPolicy(AllowDisallowPolicy[LocationKey]):
+    """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
+    def __init__(self, name: str, doc: Documentation, allowed: Optional[set[LocationKey]] = None,
+                 notAllowed: Optional[set[LocationKey]] = None):
+        super().__init__(name, doc, allowed, notAllowed)
+
+    def __str__(self):
+        return f"InfrastructureLocationPolicy({self.name})"
+
+    def __eq__(self, v: object) -> bool:
+        rc: bool = super().__eq__(v)
+        rc = rc and isinstance(v, InfraStructureLocationPolicy)
+        other: InfraStructureLocationPolicy = cast(InfraStructureLocationPolicy, v)
+        rc = rc and self.allowed == other.allowed
+        rc = rc and self.notAllowed == other.notAllowed
+        rc = rc and self.name == other.name
+        return rc
+
+    def __hash__(self) -> int:
+        return super().__hash__()

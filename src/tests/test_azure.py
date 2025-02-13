@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from datasurface.platforms.azure.azure import AzureKeyVault, AzureVaultObjectType
-from datasurface.md import InfrastructureLocation, ValidationTree, Ecosystem, GitHubRepository
+from datasurface.md import LocationKey, ValidationTree, Ecosystem, GitHubRepository
 
 
 def always_true(name: str) -> bool:
@@ -10,7 +10,7 @@ def always_true(name: str) -> bool:
 
 class TestAzureKeyVault(unittest.TestCase):
     def setUp(self):
-        self.locs: set[InfrastructureLocation] = set()
+        self.locs: set[LocationKey] = set()
 
     def test_equality(self):
         # Create two objects with same properties.

@@ -7,7 +7,7 @@
 from typing import Sequence, cast
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
-from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone
+from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocationKey
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
@@ -389,7 +389,7 @@ class TestWorkspace(unittest.TestCase):
             Datastore(
                 "Store1",
                 CDCCaptureIngestion(
-                    AzureSQLDatabase("Test", HostPortPair("mysqlserver.database.windows.net", 1344), "dbName", {e.getLocationOrThrow("Azure", ["FL"])}),
+                    AzureSQLDatabase("Test", HostPortPair("mysqlserver.database.windows.net", 1344), "dbName", {LocationKey("Azure:FL")}),
                     IngestionConsistencyType.MULTI_DATASET,
                     AzureKeyVault("keyvault", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("aa")
                 ),

@@ -4,7 +4,7 @@
 """
 
 from datasurface.platforms.azure import AzureKeyVault, AzureVaultObjectType
-from datasurface.md import PlainTextDocumentation
+from datasurface.md import PlainTextDocumentation, LocationKey
 from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
     PyOdbcSourceInfo, Team
 from datasurface.md import SimpleDC, SimpleDCTypes
@@ -22,7 +22,7 @@ def defineUSA_GZ(gzEU: GovernanceZone, e: Ecosystem):
             CDCCaptureIngestion(
                 PyOdbcSourceInfo(
                     "US_NWDB",
-                    {e.getLocationOrThrow("AWS", ["USA", "us-east-1"])},  # Where is the database
+                    {LocationKey("AWS:USA/us-east-1")},  # Where is the database
                     serverHost="tcp:nwdb.database.windows.net,1433",
                     databaseName="nwdb",
                     driver="{ODBC Driver 17 for SQL Server}",
