@@ -5,7 +5,7 @@
 
 from datasurface.platforms.aws import AmazonAWSDataPlatform
 from datasurface.platforms.azure import AzureDataplatform, AzureKeyVault, AzureVaultObjectType
-from datasurface.md import PlainTextDocumentation, LocationKey
+from datasurface.md import PlainTextDocumentation, LocationKey, VendorKey
 from datasurface.md import GitHubRepository
 from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, \
     DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
@@ -94,7 +94,7 @@ def createEcosystem() -> Ecosystem:
     gzUSA: GovernanceZone = e.getZoneOrThrow("USA")
     gzUSA.add(
         # AWS Locations only
-        InfraStructureVendorPolicy("AWS Only", PlainTextDocumentation("Test"), {e.getVendorOrThrow("AWS")}),  # AWS Locations only
+        InfraStructureVendorPolicy("AWS Only", PlainTextDocumentation("Test"), {VendorKey("AWS")}),  # AWS Locations only
         # AWS USA locations
         InfraStructureLocationPolicy("AWS US Only", PlainTextDocumentation("Test"), allUSAKeys),
         # AWS Dataplatform only

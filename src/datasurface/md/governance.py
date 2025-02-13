@@ -2368,22 +2368,6 @@ class InfrastructureVendor(Documentable, UserDSLObject):
         return f"InfrastructureVendor({self.name}, {self.hardCloudVendor})"
 
 
-class InfraStructureVendorPolicy(AllowDisallowPolicy[InfrastructureVendor]):
-    """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
-    def __init__(self, name: str, doc: Documentation, allowed: Optional[set[InfrastructureVendor]] = None,
-                 notAllowed: Optional[set[InfrastructureVendor]] = None):
-        super().__init__(name, doc, allowed, notAllowed)
-
-    def __str__(self):
-        return f"InfraStructureVendorPolicy({self.name})"
-
-    def __eq__(self, v: object) -> bool:
-        return super().__eq__(v) and isinstance(v, InfraStructureVendorPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
-
-    def __hash__(self) -> int:
-        return super().__hash__()
-
-
 class InfraHardVendorPolicy(AllowDisallowPolicy[CloudVendor]):
     """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
     def __init__(self, name: str, doc: Documentation, allowed: Optional[set[CloudVendor]] = None,
@@ -3890,6 +3874,35 @@ class LocationKey(UserDSLObject):
         return hash(self.locStr)
 
 
+class VendorKey(UserDSLObject):
+    """This is used to reference a vendor during DSL construction"""
+    def __init__(self, vendor: str) -> None:
+        super().__init__()
+        self.vendorString: str = vendor
+        self.vendor: Optional[InfrastructureVendor] = None
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, VendorKey)):
+            return self.vendorString == other.vendorString
+        return False
+
+    def getAsInfraVendor(self, eco: Ecosystem) -> Optional[InfrastructureVendor]:
+        if self.vendor is not None:
+            return self.vendor
+        vendor: Optional[InfrastructureVendor] = eco.getVendor(self.vendorString)
+        return vendor
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        if (self.getAsInfraVendor(eco) is None):
+            tree.addRaw(UnknownVendorProblem(self.vendorString, ProblemSeverity.ERROR))
+
+    def __str__(self) -> str:
+        return f"VendorKey({self.vendorString})"
+
+    def __hash__(self) -> int:
+        return hash(self.vendorString)
+
+
 class Team(GitControlledObject):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
@@ -4188,7 +4201,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
 class GovernanceZone(GitControlledObject):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
-    def __init__(self, name: str, ownerRepo: Repository, *args: Union['InfraStructureLocationPolicy', InfraStructureVendorPolicy,
+    def __init__(self, name: str, ownerRepo: Repository, *args: Union['InfraStructureLocationPolicy', 'InfraStructureVendorPolicy',
                                                                       StoragePolicy, DataClassificationPolicy, TeamDeclaration,
                                                                       Documentation, DataPlatformPolicy, InfraHardVendorPolicy]) -> None:
         super().__init__(ownerRepo)
@@ -4228,7 +4241,7 @@ class GovernanceZone(GitControlledObject):
         if (loc.key):
             v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
             for vendorPolicy in self.vendorPolicies.values():
-                if not vendorPolicy.isCompatible(v):
+                if not vendorPolicy.isCompatible(VendorKey(v.name)):
                     tree.addRaw(ObjectNotCompatibleWithPolicy(v, vendorPolicy, ProblemSeverity.ERROR))
             for hardVendorPolicy in self.hardVendorPolicies.values():
                 if (v.hardCloudVendor is None):
@@ -4238,7 +4251,7 @@ class GovernanceZone(GitControlledObject):
         else:
             tree.addRaw(AttributeNotSet("loc.key"))
 
-    def add(self, *args: Union[InfraStructureVendorPolicy, 'InfraStructureLocationPolicy', StoragePolicy, DataClassificationPolicy,
+    def add(self, *args: Union['InfraStructureVendorPolicy', 'InfraStructureLocationPolicy', StoragePolicy, DataClassificationPolicy,
                                TeamDeclaration, DataPlatformPolicy, Documentation, InfraHardVendorPolicy]) -> None:
         for arg in args:
             if (isinstance(arg, DataClassificationPolicy)):
@@ -5655,6 +5668,24 @@ class InfraStructureLocationPolicy(AllowDisallowPolicy[LocationKey]):
         rc = rc and self.notAllowed == other.notAllowed
         rc = rc and self.name == other.name
         return rc
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
+class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
+    """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
+    def __init__(self, name: str, doc: Documentation, allowed: Optional[set[VendorKey]] = None,
+                 notAllowed: Optional[set[VendorKey]] = None):
+        super().__init__(name, doc, allowed, notAllowed)
+
+    def __str__(self):
+        return f"InfraStructureVendorPolicy({self.name})"
+
+    def __eq__(self, v: object) -> bool:
+        if not super().__eq__(v) or not isinstance(v, InfraStructureVendorPolicy):
+            return False
+        return self.allowed == v.allowed and self.notAllowed == v.notAllowed
 
     def __hash__(self) -> int:
         return super().__hash__()
