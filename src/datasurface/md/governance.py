@@ -26,6 +26,7 @@ from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransf
 
 import hashlib
 from typing import Tuple, Dict, Mapping, Iterable
+from urllib.parse import urlparse, ParseResult
 
 
 """This file contains the bulk of the objects used in the DSL model used by DataSurface"""
@@ -564,6 +565,7 @@ class GitHubRepository(GitRepository):
 
 
 class GitLabRepository(GitRepository):
+    """This provides the metadata for a Gitlab based repository. The service url is provided and the repository name and branch"""
     def __init__(self, repoUrl: str, repo: str, branchName: str, doc: Optional[Documentation] = None) -> None:
         super().__init__(doc)
         self.repoUrl: str = repoUrl
@@ -577,15 +579,25 @@ class GitLabRepository(GitRepository):
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, GitLabRepository)):
-            return super().__eq__(other) and self.repoUrl == other.repoUrl and self.repositoryName == other.repositoryName and self.branchName == other.branchName
+            return super().__eq__(other) and self.repoUrl == other.repoUrl and self.repositoryName == other.repositoryName and \
+                self.branchName == other.branchName
         else:
             return False
-        
+
     def __str__(self) -> str:
         return f"GitLabRepository({self.repoUrl}/{self.repositoryName}/{self.branchName})"
-    
+
+    def is_valid_url(self, url: str) -> bool:
+        try:
+            result: ParseResult = urlparse(url)
+            return all([result.scheme, result.netloc])
+        except ValueError:
+            return False
+
     def lint(self, tree: ValidationTree):
         """This checks if repository is valid syntaxically"""
+        if (not self.is_valid_url(self.repoUrl)):
+            tree.addProblem(f"Repository url <{self.repoUrl}> is not valid")
         if (not self.is_valid_github_repo_name(self.repositoryName)):
             tree.addProblem(f"Repository name <{self.repositoryName}> is not valid")
         if (not self.is_valid_github_branch(self.branchName)):
