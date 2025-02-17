@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import Ecosystem, GitHubRepository, PlainTextDocumentation, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
+from datasurface.md import Ecosystem, GitLabRepository, PlainTextDocumentation, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
 from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
 from datasurface.md import CronTrigger, IngestionConsistencyType, SimpleDC, SimpleDCTypes, LocalFileCredentialStore
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
@@ -12,9 +12,10 @@ from datasurface.platforms.zero.zero import ZeroDataPlatform
 
 def createEcosystem() -> Ecosystem:
     # Define toplevel stuff first, Ecosystem, vendor and a single gzone
+    gitLabServer: str = "http://localhost:80"
     eco: Ecosystem = Ecosystem(
         "KafkaEcosystem",
-        GitHubRepository("billynewport", "KafkaEcosystem", PlainTextDocumentation("This is the Kafka Ecosystem")),
+        GitLabRepository(gitLabServer, "demo/kafka_example", "main", PlainTextDocumentation("This is the Kafka Ecosystem")),
 
         # This is deployed in a home lab in Florida
         InfrastructureVendor(
@@ -27,19 +28,19 @@ def createEcosystem() -> Ecosystem:
             ),
         GovernanceZoneDeclaration(
             "Home",
-            GitHubRepository("billynewport", "HomeMain")
+            GitLabRepository(gitLabServer, "demo/kafka_example", "HomeMain")
             ),
         ZeroDataPlatform(
             "KafkaExample",
             PlainTextDocumentation("This is an example of a Kafka data platform"),
             LocalFileCredentialStore(
                 "HomeLab",
-                {LocationKey("HomeLab:/USA/Home")},
+                {LocationKey("HomeLab:USA/Home")},
                 "/run/secrets"),
-            "credentialKey.txt",
+            "credentialKey.txt",  # This is a credential to use to connect to kafka
             "http://localhost:9000",  # S3 compatible endpoint
-            "staging",
-            "data"
+            "staging",  # Bucket name for staging files
+            "data"  # Bucket name for data files
             )
         )
 
@@ -47,7 +48,7 @@ def createEcosystem() -> Ecosystem:
     gz: GovernanceZone = eco.getZoneOrThrow("Home")
     gz.add(
         # Home based team
-        TeamDeclaration("HomeTeam", GitHubRepository("billynewport/test_step1", "homeMain"))  # Home Team
+        TeamDeclaration("HomeTeam", GitLabRepository(gitLabServer, "billynewport/test_step1", "homeMain"))  # Home Team
     )
     team: Team = gz.getTeamOrThrow("HomeTeam")
 

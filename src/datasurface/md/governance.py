@@ -484,27 +484,9 @@ class FakeRepository(Repository):
             return False
 
 
-class GitHubRepository(Repository):
-    """This represents a GitHub Repository specifically, this branch should have an eco.py files in the root
-    folder. The eco.py file should contain an ecosystem object which is used to construct the ecosystem"""
-    def __init__(self, repo: str, branchName: str, doc: Optional[Documentation] = None) -> None:
+class GitRepository(Repository):
+    def __init__(self, doc: Optional[Documentation] = None) -> None:
         super().__init__(doc)
-        self.repositoryName: str = repo
-        """The name of the git repository from which changes to Team objects are authorized"""
-        self.branchName: str = branchName
-        """The name of the branch containing an eco.py to construct an ecosystem"""
-
-    def __eq__(self, other: object) -> bool:
-        if (isinstance(other, GitHubRepository)):
-            return super().__eq__(other) and self.repositoryName == other.repositoryName and self.branchName == other.branchName
-        else:
-            return False
-
-    def __hash__(self) -> int:
-        return hash(self.repositoryName) + hash(self.branchName)
-
-    def __str__(self) -> str:
-        return f"GitRepository({self.repositoryName}/{self.branchName})"
 
     def is_valid_github_repo_name(self, name: str) -> bool:
         if not 1 <= len(name) <= 100:
@@ -550,6 +532,58 @@ class GitHubRepository(Repository):
         pattern = r'^[a-zA-Z0-9_.-]+$'
         return re.match(pattern, branch) is not None
 
+
+class GitHubRepository(GitRepository):
+    """This represents a GitHub Repository specifically, this branch should have an eco.py files in the root
+    folder. The eco.py file should contain an ecosystem object which is used to construct the ecosystem"""
+    def __init__(self, repo: str, branchName: str, doc: Optional[Documentation] = None) -> None:
+        super().__init__(doc)
+        self.repositoryName: str = repo
+        """The name of the git repository from which changes to Team objects are authorized"""
+        self.branchName: str = branchName
+        """The name of the branch containing an eco.py to construct an ecosystem"""
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, GitHubRepository)):
+            return super().__eq__(other) and self.repositoryName == other.repositoryName and self.branchName == other.branchName
+        else:
+            return False
+
+    def __hash__(self) -> int:
+        return hash(self.repositoryName) + hash(self.branchName)
+
+    def __str__(self) -> str:
+        return f"GitRepository({self.repositoryName}/{self.branchName})"
+
+    def lint(self, tree: ValidationTree):
+        """This checks if repository is valid syntaxically"""
+        if (not self.is_valid_github_repo_name(self.repositoryName)):
+            tree.addProblem(f"Repository name <{self.repositoryName}> is not valid")
+        if (not self.is_valid_github_branch(self.branchName)):
+            tree.addProblem(f"Branch name <{self.branchName}> is not valid")
+
+
+class GitLabRepository(GitRepository):
+    def __init__(self, repoUrl: str, repo: str, branchName: str, doc: Optional[Documentation] = None) -> None:
+        super().__init__(doc)
+        self.repoUrl: str = repoUrl
+        self.repositoryName: str = repo
+        """The name of the git repository from which changes to Team objects are authorized"""
+        self.branchName: str = branchName
+        """The name of the branch containing an eco.py to construct an ecosystem"""
+
+    def __hash__(self) -> int:
+        return hash(self.repoUrl) + hash(self.repositoryName) + hash(self.branchName)
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, GitLabRepository)):
+            return super().__eq__(other) and self.repoUrl == other.repoUrl and self.repositoryName == other.repositoryName and self.branchName == other.branchName
+        else:
+            return False
+        
+    def __str__(self) -> str:
+        return f"GitLabRepository({self.repoUrl}/{self.repositoryName}/{self.branchName})"
+    
     def lint(self, tree: ValidationTree):
         """This checks if repository is valid syntaxically"""
         if (not self.is_valid_github_repo_name(self.repositoryName)):
