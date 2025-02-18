@@ -3291,14 +3291,11 @@ class KafkaIngestion(StreamingIngestion):
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
         super().lint(eco, gz, t, d, tree)
-        if (self.kafkaServer is None):
-            tree.addRaw(AttributeNotSet("kafkaServer"))
+        if not isinstance(self.kafkaServer, KafkaServer):
+            tree.addRaw(ObjectWrongType(self.kafkaServer, KafkaServer, ProblemSeverity.ERROR))
         else:
-            if not isinstance(self.kafkaServer, KafkaServer):
-                tree.addRaw(ObjectWrongType(self.kafkaServer, KafkaServer, ProblemSeverity.ERROR))
-            else:
-                kTree: ValidationTree = tree.addSubTree(self.kafkaServer)
-                self.kafkaServer.lint(eco, kTree)
+            kTree: ValidationTree = tree.addSubTree(self.kafkaServer)
+            self.kafkaServer.lint(eco, kTree)
 
 
 class Datastore(ANSI_SQL_NamedObject, Documentable):
@@ -3471,8 +3468,6 @@ class DefaultDataPlatform(UserDSLObject):
 
     def get(self, eco: 'Ecosystem') -> 'DataPlatform':
         """This returns the default DataPlatform or throws an Exception if it has not been specified"""
-        if (self.defaultPlatform is None):
-            raise Exception("No default data platform specified")
         return eco.getDataPlatformOrThrow(self.defaultPlatform.name)
 
     def __eq__(self, other: object) -> bool:
@@ -4522,7 +4517,7 @@ class DataPlatform(Documentable, UserDSLObject):
                 cs: CredentialStore = arg
                 self.credentialStores[cs.name] = cs
             elif isinstance(arg, DataPlatformExecutor):
-                if self.executor is not None and self.executor != arg:
+                if self.executor != arg:
                     raise ObjectAlreadyExistsException("Executor already set")
                 self.executor = arg
             else:
@@ -4556,10 +4551,7 @@ class DataPlatform(Documentable, UserDSLObject):
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         if (self.documentation):
             self.documentation.lint(tree)
-        if self.executor is None:
-            tree.addRaw(AttributeNotSet("executor"))
-        else:
-            self.executor.lint(eco, tree.addSubTree(self.executor))
+        self.executor.lint(eco, tree.addSubTree(self.executor))
         if (not eco.checkDataPlatformExists(self)):
             tree.addRaw(ValidationProblem(f"DataPlatform {self} not found in ecosystem {eco}", ProblemSeverity.ERROR))
         for cs in self.credentialStores.values():

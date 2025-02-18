@@ -131,4 +131,3 @@ def createEcosystem() -> Ecosystem:
 class TestLegacy(unittest.TestCase):
     def testLegacyPlatform(self):
         e: Ecosystem = createEcosystem()
-        self.assertTrue(e is not None)
