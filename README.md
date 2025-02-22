@@ -28,9 +28,9 @@
 
 # Data surface, a data ecosystem broker
 
-DataSurface manages the movement of data to satisfy the requirements of data consumers from data producers. It does this by allowing data consumers to specify their requirements of how they want to consume data. Data Surface then chooses a data pipeline provider which can satisfy those requirements. DataSurface does this on a consumer by consumer basis and allows different providers to be choosen for a set of requirements over time as technology improves.
+Imagine a world where enterprises can share and manage data effortlessly, without drowning in complex pipelines or outdated tech. DataSurface is a revolutionary data ecosystem broker that connects producers, consumers, and transformers with the best platforms automatically—slashing costs, boosting efficiency, and ensuring compliance. By turning data movement into a declarative, gitops-driven process, we free your teams to focus on creating value, not plumbing. With DataSurface, your data ecosystem evolves seamlessly, governed smartly, and scales effortlessly—ready for today and tomorrow.
 
-The goals of this project to make it much easier and lower cost for actors within an enterprise or between enterprises to share data. The project introduces a new concept, the ecosystem broker which arbitrates between a CI/CD based model which emcompasses the intentions of the data actors in an enterprise and the catalog of available data platform products to meet the data actors needs. The set of data pipelines the data platforms construct is hidden from the actors. The broker takes the intentions of the actors and constructs the data pipelines needed to meet the intentions of the actors. The broker also makes sure the data pipelines do not violate the governance policies of the enterprise.
+DataSurface is to pipelines what S3 was to storage.
 
 ## Redefining IaC as "Intention As Code"
 
