@@ -9,7 +9,8 @@ from datasurface.md import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, D
     VarChar, NVarChar, DDLColumn
 import sqlalchemy
 from datasurface.md import Dataset, DDLTable, DataType, Datastore
-from datasurface.md import NullableStatus, PrimaryKeyStatus
+from datasurface.md import NullableStatus, PrimaryKeyStatus, Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
+from datasurface.md import Credential, UserPasswordCredential, EcosystemPipelineGraph
 
 
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> sqlalchemy.Column[Any]:
@@ -57,8 +58,7 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> sqlalchemy.Column[Any]:
     else:
         raise Exception(f"Unknown data type {dataType.name}")
 
-    c: sqlalchemy.Column[Any] = sqlalchemy.Column(dataType.name, t, primary_key=(dataType.primaryKey == PrimaryKeyStatus.PK),
-                                                  nullable=(dataType.nullable == NullableStatus.NULLABLE))
+    c: sqlalchemy.Column[Any] = sqlalchemy.Column(dataType.name, t, nullable=(dataType.nullable == NullableStatus.NULLABLE))
     return c
 
 
@@ -69,7 +69,13 @@ def datasetToSQLAlchemyTable(dataset: Dataset) -> sqlalchemy.Table:
         columns: List[sqlalchemy.Column[Any]] = []
         for col in table.columns.values():
             columns.append(ddlColumnToSQLAlchemyType(col))
-        return sqlalchemy.Table(dataset.name, sqlalchemy.MetaData(), *columns)
+        if (table.primaryKeyColumns is not None):
+            pk: sqlalchemy.PrimaryKeyConstraint = sqlalchemy.PrimaryKeyConstraint(*table.primaryKeyColumns.colNames)
+            sqTable: sqlalchemy.Table = sqlalchemy.Table(dataset.name, sqlalchemy.MetaData(), *columns, pk)
+            return sqTable
+        else:
+            sqTable: sqlalchemy.Table = sqlalchemy.Table(dataset.name, sqlalchemy.MetaData(), *columns)
+            return sqTable
     else:
         raise Exception("Unknown schema type")
 
@@ -173,3 +179,52 @@ def convertDDLTableToPythonClass(name: str, table: DDLTable) -> str:
     for col in table.columns.values():
         classStr += f"    {col.name}: \n"
     return classStr
+
+
+"""
+We need 2 major features here. The first is the vanilla ability to create/maintain tables and views against the model schema. The schema
+needs to be modified also for extra columns required. MD5 hash columns for primary keys and all columns, milestoning columns if needed and
+so on. Names of attributes/datasets/datastores may need to be modified to be compatible with the naming rules of the underlying
+database, length limits, character restrictions, reserved words."""
+
+
+class SQLAlchemyDataContainerReconciler:
+    """This class is used to reconcile a Workspace against the database that it has been assigned to. The Workspace has an
+    associated DataContainer which should be a container type which SQLAlchemy supports. The container must
+    be a physical container, not a logical one. Reconciling means creating and maintaining schemas in the DataContainer
+    to match the model schemas.
+    A Datacontainer will have multiple Workspaces assigned to it. Each Workspace has one or more Datasetgroups and each Datasetgroup is assigned to a
+    single DataPlatform selected by the data platform chooser. We need to create raw tables in which to contain data supplied by DataPlatforms. We need views
+    defined referencing these tables which are used by users of the Workspace. So, we need to gather all Workspaces assigned to a DataContainer.
+    We need to get the list of DataPlatform instances to support those workspaces. We need the list of raw tables (one per dataset) used by each DataPlatform.
+    We create those tables using a naming convention combining dataplatform instance and datastore/dataset names. We need to create a single view for each Datasetgroup
+    """
+
+    def createEngine(self, container: DataContainer, creds: Credential) -> sqlalchemy.Engine:
+        if isinstance(creds, UserPasswordCredential):
+            if isinstance(container, PostgresDatabase):
+                return sqlalchemy.create_engine(
+                    'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
+                        username=creds.username,
+                        password=creds.password,
+                        hostName=container.connection.hostName,
+                        port=container.connection.port,
+                        databaseName=container.databaseName
+                        )
+                )
+            else:
+                raise Exception(f"Unsupported container type {type(container)}")
+        else:
+            raise Exception(f"Unsupported credential type {type(creds)}")
+
+    def __init__(self, graph: EcosystemPipelineGraph, creds: Credential) -> None:
+        """This really needs an intention graph to work out what we are doing"""
+        self.workspace: Workspace = workspace
+        self.engine: sqlalchemy.Engine = self.createEngine(workspace.container, creds)
+        self.graph: EcosystemPipelineGraph = graph
+
+    def reconcileAllKnownDataContainers(self) -> None:
+        """This will iterate over all sqlalchemy supported data containers and reconcile the
+        table and view schemas for them."""
+        
+        

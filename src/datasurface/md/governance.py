@@ -2746,6 +2746,25 @@ class HostPortSQLDatabase(SQLDatabase):
         self.hostPortPair.lint(tree.addSubTree(self.hostPortPair))
 
 
+class PostgresDatabase(SQLDatabase):
+    """This is a Postgres database"""
+    def __init__(self, name: str, connection: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
+        super().__init__(name, locations, databaseName)
+        self.connection: HostPortPair = connection
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, PostgresDatabase)):
+            return super().__eq__(other) and self.connection == other.connection
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        super().lint(eco, tree)
+        self.connection.lint(tree.addSubTree(self.connection))
+
+
 class ObjectStorage(DataContainer):
     """Generic Object storage service. Flat file storage"""
     def __init__(self, name: str, locs: set['LocationKey'], endPointURI: Optional[str], bucketName: str, prefix: Optional[str]):

@@ -13,6 +13,23 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    # Add PostgreSQL service container
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        # Health check to ensure PostgreSQL is ready
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +46,8 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Install PostgreSQL client for tests
+        python -m pip install psycopg2-binary sqlalchemy
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
@@ -38,3 +57,7 @@ jobs:
     - name: Test with pytest
       run: |
         pytest
+
+      env:
+        # Pass database URL as environment variable for tests
+        TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db

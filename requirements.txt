@@ -14,3 +14,4 @@ grpc-stubs==1.53.0.5
 pyspark==3.5.3
 fastapi==0.115.6
 urllib3==2.3.0
+pyyaml==6.0.2
