@@ -1,0 +1,15 @@
+---
+description: This rule specifies the projecs use of pylance to make sure everything is as typesafe as possible
+globs: **/*.py
+alwaysApply: false
+---
+
+# Your rule content
+
+- Please make sure all python code uses full pylance type annotations, I want maximal compile time type checking
+- Please use the typing module when appropriate
+- Blank lines shouldn't contain spaces
+- Lines of code shouldn't have trailing spaces
+- I use flake to lint the code also so all code should be generated to have zero flake errors
+- My maximum line length is set to 170 characters so please split lines so they are under 170 characters
+

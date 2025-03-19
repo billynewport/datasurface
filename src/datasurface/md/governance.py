@@ -2522,17 +2522,17 @@ class DataContainerNamingMapper:
             return s
 
     @abstractmethod
-    def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+    def mapRawDatasetName(self, dp: 'DataPlatform', w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This maps the data set name to a physical table which may be then shared by views for each Workspace using
         that dataset for a data platform. This name should not be exposed for use by consumers. They should use the view
         instead."""
-        return self.formatIdentifier(f"{store.name}_{ds.name}")
+        return self.formatIdentifier(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
 
     @abstractmethod
-    def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+    def mapRawDatasetView(self, dp: 'DataPlatform', w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This names the workspace view name for a dataset used in a DSG. This is the actual name used by
         consumers, the view, not the underlying table holding the data"""
-        return self.formatIdentifier(f"{w.name}_{dsg.name}_{store.name}_{ds.name}")
+        return self.formatIdentifier(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
 
     @abstractmethod
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
@@ -2548,13 +2548,13 @@ class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, DefaultDataContainerNamingMapper)
 
-    def mapRawDatasetName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+    def mapRawDatasetName(self, dp: 'DataPlatform', w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """The table which data is materialized in. This is the raw table name containing data"""
-        return super().mapRawDatasetName(w, dsg, store, ds)
+        return super().mapRawDatasetName(dp, w, dsg, store, ds)
 
-    def mapRawDatasetView(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
+    def mapRawDatasetView(self, dp: 'DataPlatform', w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This is the view name which consumers should use to access the data."""
-        return super().mapRawDatasetView(w, dsg, store, ds)
+        return super().mapRawDatasetView(dp, w, dsg, store, ds)
 
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
         return super().mapAttributeName(w, dsg, store, ds, attributeName)

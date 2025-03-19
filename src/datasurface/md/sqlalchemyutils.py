@@ -4,14 +4,14 @@
 """
 
 import decimal
-from typing import Any, List, Optional, Sequence, TypeVar
+from typing import Any, List, Optional, Sequence, TypeVar, Dict
 from datasurface.md import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
     VarChar, NVarChar, DDLColumn
 import sqlalchemy
 from datasurface.md import Dataset, DDLTable, DataType, Datastore
 from datasurface.md import NullableStatus, PrimaryKeyStatus, Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
-from datasurface.md import Credential, UserPasswordCredential, EcosystemPipelineGraph
-
+from datasurface.md import Credential, UserPasswordCredential, EcosystemPipelineGraph, DataPlatform, PlatformPipelineGraph
+from abc import ABC, abstractmethod
 
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> sqlalchemy.Column[Any]:
     """Converts a DataType to a SQLAlchemy type"""
@@ -188,6 +188,35 @@ so on. Names of attributes/datasets/datastores may need to be modified to be com
 database, length limits, character restrictions, reserved words."""
 
 
+class DatasetMapping:
+    """This class is used to map a dataset to a DataContainer"""
+    def __init__(self, dataset: Dataset) -> None:
+        self.dataset: Dataset = dataset
+        self.tableNames: List[str] = []
+        self.viewNames: List[str] = []
+        self.attributes: Dict[str, str] = {}
+
+
+class DataPlatformDatasetSinkArtifactIterator(ABC):
+    """This class is used to iterate over the artifacts for a DataPlatform/DatasetSink pair. The expected pattern is a single
+    table to hold the data. Each consumer will get a specific named view pointing at the table. The view name will
+    include the ${workspaceName}_{$dsgName}_${storeName}_${datasetName}_${postfix}. This will be a long name
+    so mangling may be required. The name also needs to be unique across the DataContainer (i.e. the database or filesystem)
+    Certain characters may not be allowed, there may be length restrictions. It's very DataContainer specific"""
+
+    def __init__(self, dp: DataPlatform, dc: DataContainer, w: Workspace, dsg: DatasetGroup) -> None:
+        self.dp: DataPlatform = dp
+        self.dc: DataContainer = dc
+        self.w: Workspace = w
+        self.dsg: DatasetGroup = dsg
+
+    @abstractmethod
+    def getArtifacts(self, store: Datastore, datasets: List[Dataset]) -> tuple[List[str], List[str]]:
+        """This really needs to return a list of tables and view names. It also needs to return a list of attribute names
+        and type strings for each dataset."""
+        pass
+
+
 class SQLAlchemyDataContainerReconciler:
     """This class is used to reconcile a Workspace against the database that it has been assigned to. The Workspace has an
     associated DataContainer which should be a container type which SQLAlchemy supports. The container must
@@ -219,10 +248,35 @@ class SQLAlchemyDataContainerReconciler:
 
     def __init__(self, graph: EcosystemPipelineGraph, creds: Credential) -> None:
         """This really needs an intention graph to work out what we are doing"""
-        self.workspace: Workspace = workspace
         self.engine: sqlalchemy.Engine = self.createEngine(workspace.container, creds)
         self.graph: EcosystemPipelineGraph = graph
 
+    def reconcileDatasetSink(
+            self,
+            conn: sqlalchemy.Connection,
+            dp: DataPlatform,
+            dc: DataContainer,
+            workspace: Workspace, dsg: DatasetGroup, store: Datastore, sink: DatasetSink) -> None:
+        """This will create or alter to make current all SQL objects used by a DataPlatform
+        for this DatasetSink"""
+
+        
+    def reconcileBeforeExport(
+            self,
+            artifacts: DataPlatformDatasetSinkArtifactIterator,
+            store: Datastore, datasets: List[Dataset]) -> None:
+        """DataPlatforms can use this to make sure all tables/views for this dsg are up to date before applying
+         deltas to the tables. """
+        
+        with self.engine.connect() as conn:
+            # For each DatasetSink in the DSG, reconcile it
+            for sink in dsg.sinks.values():
+                # Each DataPlatform will have a set of Tables/Views for a DatasetSink
+                # These are named using the naming convention of the DataPlatform
+                self.reconcileDatasetSink(conn, dp, dc, workspace, dsg, store, datasets, sink)
+
+
+        
     def reconcileAllKnownDataContainers(self) -> None:
         """This will iterate over all sqlalchemy supported data containers and reconcile the
         table and view schemas for them."""
