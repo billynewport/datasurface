@@ -13,6 +13,7 @@ from datasurface.md import NullableStatus, PrimaryKeyStatus, Workspace, DatasetG
 from datasurface.md import Credential, UserPasswordCredential, EcosystemPipelineGraph, DataPlatform, PlatformPipelineGraph
 from abc import ABC, abstractmethod
 
+
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> sqlalchemy.Column[Any]:
     """Converts a DataType to a SQLAlchemy type"""
     # TODO: Timestamp support of timezones

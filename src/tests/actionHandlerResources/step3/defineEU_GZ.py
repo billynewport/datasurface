@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.azure import AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation, LocationKey
 from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
-    PyOdbcSourceInfo, Team
+    SQLDatabase, Team, UserPasswordCredential
 from datasurface.md import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
 
@@ -20,17 +19,13 @@ def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):
             "EU_Customers",
             PlainTextDocumentation("EU Customer data"),
             CDCCaptureIngestion(
-                PyOdbcSourceInfo(
+                SQLDatabase(
                     "EU_NWDB",
                     {LocationKey("AWS:EU/eu-central-1")},  # Where is the database
-                    serverHost="tcp:nwdb.database.windows.net,1433",
-                    databaseName="nwdb",
-                    driver="{ODBC Driver 17 for SQL Server}",
-                    connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
-                ),
+                    databaseName="nwdb"),
                 CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
-                IngestionConsistencyType.MULTI_DATASET,
-                AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("NWDB_Creds")),
+                UserPasswordCredential("user", "password"),
+                IngestionConsistencyType.MULTI_DATASET),
             Dataset(
                 "customers",
                 SimpleDC(SimpleDCTypes.PC3),

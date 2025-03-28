@@ -7,16 +7,16 @@
 import copy
 from typing import Optional
 import unittest
-from datasurface.platforms.azure import AzureBatchDataPlatform, AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
 
-from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DefaultDataPlatform, Ecosystem, \
+from datasurface.md import CloudVendor, DefaultDataPlatform, Ecosystem, \
     GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
 from datasurface.md import UnknownChangeSource, ValidationTree, DataPlatformKey
 import tests.nwdb.eco
 import tests.nwdb.nwdb
+from datasurface.platforms.legacy import LegacyDataPlatform
 
 
 class TestGitEquals(unittest.TestCase):
@@ -103,11 +103,9 @@ class TestEcoNameChange(unittest.TestCase):
         eOriginal: Ecosystem = Ecosystem(
             "AcmeEco",
             GitHubRepository("billynewport/test-surface", "eco_edits"),
-            AzureBatchDataPlatform(
+            LegacyDataPlatform(
                 "AzureBatch",
-                PlainTextDocumentation("Azure Batch"),
-                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("mySecret")))
+                PlainTextDocumentation("Azure Batch")))
         eOriginal.add(
             InfrastructureVendor(
                 "Azure",
@@ -138,11 +136,9 @@ class TestEcoNameChange(unittest.TestCase):
         eProposed: Ecosystem = Ecosystem(
             "AcmeEco",
             GitHubRepository("billynewport/test-surface", "eco_edits"),
-            AzureBatchDataPlatform(
+            LegacyDataPlatform(
                 "AzureBatch",
-                PlainTextDocumentation("Azure Batch"),
-                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("mySecret")))
+                PlainTextDocumentation("Azure Batch")))
         eProposed.add(
             InfrastructureVendor(
                 "Azure",

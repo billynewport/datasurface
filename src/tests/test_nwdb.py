@@ -6,16 +6,16 @@
 
 import copy
 import unittest
-from datasurface.platforms.aws.amazonaws import AmazonAWSDataPlatform
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import GitHubRepository
-from datasurface.md import DataPlatformCICDExecutor, GovernanceZone, GovernanceZoneDeclaration, \
+from datasurface.md import GovernanceZone, GovernanceZoneDeclaration, \
     InfraStructureLocationPolicy, InfrastructureLocation, \
     InfrastructureVendor, Repository, TeamDeclaration
 from datasurface.md import ValidationTree, LocationKey
 from datasurface.md import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, \
     PrimaryKeyStatus, String, Vector
 import tests.nwdb.eco
+from datasurface.platforms.legacy import LegacyDataPlatform
 from datasurface.md import Ecosystem
 
 
@@ -100,11 +100,10 @@ class TestEcosystemValidation(unittest.TestCase):
 
     def test_equality(self):
         self.assertEqual(
-            AmazonAWSDataPlatform(
+            LegacyDataPlatform(
                 "name",
-                PlainTextDocumentation("Test"),
-                DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
-            AmazonAWSDataPlatform("name", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))))
+                PlainTextDocumentation("Test")),
+            LegacyDataPlatform("name", PlainTextDocumentation("Test")))
 
         ghr: GitHubRepository = GitHubRepository("https://github.com/billynewport/eco.git", "main")
         self.assertEqual(ghr, ghr)

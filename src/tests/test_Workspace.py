@@ -11,19 +11,19 @@ from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Str
 from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.platforms.aws import AmazonAWSDataPlatform
-from datasurface.platforms.azure import AzureSQLDatabase, AzureDataplatform, AzureKeyVault, AzureVaultObjectType
 from datasurface.md import PlainTextDocumentation
 from datasurface.md import FakeRepository, GitHubRepository
-from datasurface.md import CDCCaptureIngestion, CloudVendor, DataPlatformCICDExecutor, DataTransformerOutput, \
+from datasurface.md import CDCCaptureIngestion, CloudVendor, DataTransformerOutput, \
     DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DataPlatformKey, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
-from datasurface.md import ValidationTree, HostPortPair
+from datasurface.md import ValidationTree
 from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md import SQLDatabase, CronTrigger
 
 from datasurface.md import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
-
+from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.md import UserPasswordCredential
 
 class TestWorkspace(unittest.TestCase):
 
@@ -33,8 +33,8 @@ class TestWorkspace(unittest.TestCase):
             GitHubRepository("a", "b"),
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
-            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
-            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
+            LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
+            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
             )
 
         self.assertEqual(eco, eco)
@@ -63,8 +63,8 @@ class TestWorkspace(unittest.TestCase):
             GovernanceZoneDeclaration(
                 chinaZoneName,
                 GitHubRepository("aa", "cc")),
-            AmazonAWSDataPlatform("FastPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch"))),
-            AmazonAWSDataPlatform("SlowPlatform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("repo", "branch")))
+            LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
+            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
             )
 
         gzUSA: GovernanceZone = eco.getZoneOrThrow(usZoneName)
@@ -366,11 +366,9 @@ class TestWorkspace(unittest.TestCase):
         # Make ecosystem and declare a single zone US
         e: Ecosystem = Ecosystem(
                 "BigCorp", FakeRepository("a"),
-                AzureDataplatform(
+                LegacyDataPlatform(
                     "Azure",
-                    PlainTextDocumentation("Test"),
-                    DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")),
-                    AzureKeyVault("keyvault", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("aa")),
+                    PlainTextDocumentation("Test")),
                 DefaultDataPlatform(DataPlatformKey("Azure")),
                 InfrastructureVendor(
                     "Azure",
@@ -389,10 +387,14 @@ class TestWorkspace(unittest.TestCase):
             Datastore(
                 "Store1",
                 CDCCaptureIngestion(
-                    AzureSQLDatabase("Test", HostPortPair("mysqlserver.database.windows.net", 1344), "dbName", {LocationKey("Azure:FL")}),
-                    IngestionConsistencyType.MULTI_DATASET,
-                    AzureKeyVault("keyvault", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("aa")
-                ),
+                    SQLDatabase(
+                        "US_NWDB",
+                        {LocationKey("Azure:FL")},  # Where is the database
+                        databaseName="nwdb"
+                    ),
+                    UserPasswordCredential("user", "password"),
+                    CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
+                    IngestionConsistencyType.MULTI_DATASET),
                 Dataset(
                     "Dataset1",
                     SimpleDC(SimpleDCTypes.PUB),
@@ -425,6 +427,7 @@ class TestWorkspace(unittest.TestCase):
 
         # Prepare ecosystem and check no errors or issues
         tree: ValidationTree = e.lintAndHydrateCaches()
+        tree.printTree()
         self.assertFalse(tree.hasErrors())
         self.assertFalse(tree.hasWarnings())
         return e
@@ -483,14 +486,12 @@ class TestWorkspace(unittest.TestCase):
         self.assertTrue(eTree.hasWarnings())
 
     def test_WorkspaceEquality(self):
-        fastP: DataPlatform = AmazonAWSDataPlatform(
+        fastP: DataPlatform = LegacyDataPlatform(
             "FastPlatform",
-            PlainTextDocumentation("Test"),
-            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")))
-        slowP: DataPlatform = AmazonAWSDataPlatform(
+            PlainTextDocumentation("Test"))
+        slowP: DataPlatform = LegacyDataPlatform(
             "SlowPlatform",
-            PlainTextDocumentation("Test"),
-            DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch")))
+            PlainTextDocumentation("Test"))
 
         self.assertEqual(fastP, fastP)
         self.assertNotEqual(fastP, slowP)

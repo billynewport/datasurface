@@ -3,11 +3,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.aws import AmazonAWSDataPlatform
-from datasurface.platforms.azure import AzureDataplatform, AzureKeyVault, AzureVaultObjectType
+from datasurface.platforms.legacy import LegacyDataPlatform
 from datasurface.md import PlainTextDocumentation, LocationKey
 from datasurface.md import GitHubRepository, VendorKey
-from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DataPlatformPolicy, \
+from datasurface.md import CloudVendor, DataPlatformPolicy, \
     DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 
@@ -17,14 +16,11 @@ from datasurface.md import CloudVendor, DataPlatformCICDExecutor, DataPlatformPo
 def createEcosystem() -> Ecosystem:
     e: Ecosystem = Ecosystem(
         "Test", GitHubRepository("billynewport/test_step1", "main"),
-        AzureDataplatform(
+        LegacyDataPlatform(
             "Azure Platform",
-            PlainTextDocumentation("Test"),
-            DataPlatformCICDExecutor(
-                GitHubRepository("owner/repo", "branch")),
-            AzureKeyVault("AzureVault1", set(), "vault", AzureVaultObjectType.SECRETS).getCredential("maincred")),
+            PlainTextDocumentation("Test")),
         DefaultDataPlatform(DataPlatformKey("Azure Platform")),
-        AmazonAWSDataPlatform("AWS Platform", PlainTextDocumentation("Test"), DataPlatformCICDExecutor(GitHubRepository("owner/repo", "branch"))),
+        LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),
