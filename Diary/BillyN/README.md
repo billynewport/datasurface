@@ -6,5 +6,7 @@ This section is a diary of the project intended to capture my thinking over time
 
 * [October 2024](2024_10.md)
 * [November 2024](2024_11.md)
-
-
+* [December 2024](2024_12.md)
+* [January 2025](2025_01.md)
+* [February 2025](2025_02.md)
+* [March 2025](2025_03.md)

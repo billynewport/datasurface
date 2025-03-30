@@ -9,9 +9,8 @@ types-python-dateutil==2.8.19.20240106
 typing_extensions==4.12.2
 PyGithub==2.2.0
 avro==1.11.3
-grpcio-tools==1.62.1
-grpc-stubs==1.53.0.5
 pyspark==3.5.3
 fastapi==0.115.6
 urllib3==2.3.0
 pyyaml==6.0.2
+fastapi==0.115.12

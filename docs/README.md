@@ -103,5 +103,3 @@ Once an object that allowed deprecations is present then if the Workspace/Storag
 ## VSCode extension
 
 There will be a vscode extension which makes checking the model in the workspace is compatible with the current live model in the model repository. It will allow the latest branch to be recloned and then allow the current model in the workspace to be checked against this remote model. Any warnings and errors will be flagged against the DSL definitions in the workspace. Developers will use this to precheck the changes locally before pushing them to the main branch. The implementation of this extension is described in [VsCodeExtension.md](VsCodeExtension.md).
-
-
