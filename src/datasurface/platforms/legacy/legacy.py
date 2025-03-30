@@ -17,6 +17,11 @@ class LegacyDataPlatformExecutor(DataPlatformExecutor):
     def __init__(self) -> None:
         super().__init__()
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+        }
+
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         pass
 
@@ -75,6 +80,10 @@ class LegacyDataPlatform(DataPlatform):
     by existing systems. However, DataSurface will still track the data flows and manage governance for the data."""
     def __init__(self, name: str, doc: Documentation) -> None:
         super().__init__(name, doc, LegacyDataPlatformExecutor())
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        return rc
 
     def __str__(self) -> str:
         return f"LegacyDataPlatform({self.name})"

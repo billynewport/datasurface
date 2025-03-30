@@ -2281,7 +2281,7 @@ class StoragePolicyAllowAnyContainer(StoragePolicy):
             self.name == other.name and self.mandatory == other.mandatory
 
 
-class InfrastructureLocation(Documentable, UserDSLObject):
+class InfrastructureLocation(Documentable, UserDSLObject, JSONable):
     """This is a location within a vendors physical location hierarchy. This object
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
@@ -2297,6 +2297,12 @@ class InfrastructureLocation(Documentable, UserDSLObject):
         """These are the 'child' locations under this location. A state location would have city children for example"""
         """This specifies the parent location of this location. State is parent on city and so on"""
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "locations": {k: k.to_json() for k in self.locations.values()},
+        }
 
     def __str__(self) -> str:
         return f"InfrastructureLocation({self.name})"
@@ -2406,7 +2412,7 @@ class CloudVendor(Enum):
     PRIVATE = 10  # Onsite or private cloud
 
 
-class InfrastructureVendor(Documentable, UserDSLObject):
+class InfrastructureVendor(Documentable, UserDSLObject, JSONable):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an
     enterprise or an external cloud provider"""
     def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
@@ -2416,8 +2422,14 @@ class InfrastructureVendor(Documentable, UserDSLObject):
         self.key: Optional[InfrastructureVendorKey] = None
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
         self.hardCloudVendor: Optional[CloudVendor] = None
-
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "locations": {k: k.to_json() for k in self.locations.values()},
+            "hardCloudVendor": self.hardCloudVendor.name if self.hardCloudVendor else None,
+        }
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -3078,11 +3090,16 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
-class Credential(UserDSLObject):
+class Credential(UserDSLObject, JSONable):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
         pass
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+        }
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, Credential)):
@@ -3103,6 +3120,12 @@ class FileSecretCredential(Credential):
         super().__init__()
         self.secretFilePath: str = filePath
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "secretFilePath": self.secretFilePath,
+        }
+
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and type(other) is FileSecretCredential and self.secretFilePath == other.secretFilePath
 
@@ -3122,6 +3145,13 @@ class UserPasswordCredential(Credential):
         super().__init__()
         self.username: str = username
         self.password: str = password
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "username": self.username,
+            "password": self.password,
+        }
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and type(other) is UserPasswordCredential and self.username == other.username and self.password == other.password
@@ -3146,6 +3176,14 @@ class CertificateCredential(Credential):
         self.key: str = key  # File name of the public key
         self.authIsInSecure: bool = authIsInSecure  # Is the authentication insecure
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "certificate": self.certificate,
+            "key": self.key,
+            "authIsInSecure": self.authIsInSecure,
+        }
+
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and type(other) is CertificateCredential and \
             self.certificate == other.certificate and self.key == other.key and self.authIsInSecure == other.authIsInSecure
@@ -3158,12 +3196,19 @@ class CertificateCredential(Credential):
             tree.addProblem("Key is empty")
 
 
-class CredentialStore(UserDSLObject):
+class CredentialStore(UserDSLObject, JSONable):
     """This is a credential store which stores credential data in a set of infra locations"""
     def __init__(self, name: str, locs: set['LocationKey']) -> None:
         UserDSLObject.__init__(self)
         self.name: str = name
         self.locs: set[LocationKey] = locs
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "name": self.name,
+            "locs": {k: k.to_json() for k in self.locs},
+        }
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and \
@@ -3193,6 +3238,12 @@ class LocalFileCredentialStore(CredentialStore):
         super().__init__(name, locs)
         self.credentials: dict[str, Credential] = dict()
         self.folder: str = folder
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"folder": self.folder})
+        rc.update({"credentials": {k: v.to_json() for k, v in self.credentials.items()}})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, LocalFileCredentialStore) and self.folder == other.folder
@@ -3635,7 +3686,7 @@ class DefaultDataPlatform(UserDSLObject):
 
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
-class Ecosystem(GitControlledObject):
+class Ecosystem(GitControlledObject, JSONable):
 
     def createGZone(self, name: str, repo: Repository) -> 'GovernanceZone':
         gz: GovernanceZone = GovernanceZone(name, repo)
@@ -3657,6 +3708,14 @@ class Ecosystem(GitControlledObject):
         self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
         self.resetCaches()
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "zones": {k: k.name for k in self.zones.defineAllObjects()},
+            "vendors": {k: k.to_json() for k in self.vendors.values()},
+            "dataPlatforms": {k: k.to_json() for k in self.dataPlatforms.values()},
+        }
 
     def resetCaches(self) -> None:
         """Empties the caches"""
@@ -4127,7 +4186,7 @@ class Team(GitControlledObject, JSONable):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"name": self.name, "workspaces": {k: v.to_json() for k, v in self.workspaces.items()}})
+        rc.update({"name": self.name})
         rc.update({"dataStores": {k: v.name for k, v in self.dataStores.items()}})
         rc.update({"workspaces": {k: v.name for k, v in self.workspaces.items()}})
         rc.update({"containers": {k: v.to_json() for k, v in self.containers.items()}})
@@ -4318,10 +4377,14 @@ class AuthorizedObjectManager(GitControlledObject, Generic[G, N]):
             raise ObjectAlreadyExistsException(f"Duplicate authorization {t.name}")
         self.authorizedNames[t.name] = t
 
-    def defineAllObjects(self) -> None:
+    def defineAllObjects(self) -> list[G]:
         """This 'defines' all declared objects"""
+        keys: list[G] = list()
         for n in self.authorizedNames.values():
-            self.getObject(n.name)
+            v: Optional[G] = self.getObject(n.name)
+            if (v is not None):
+                keys.append(v)
+        return keys
 
     def getObject(self, name: str) -> Optional[G]:
         """This returns a managed object for the specified name. Users can then fill out the attributes
@@ -4417,7 +4480,7 @@ class GovernanceZoneDeclaration(NamedObjectAuthorization):
         return super().__eq__(__value) and isinstance(__value, GovernanceZoneDeclaration) and self.key == __value.key
 
 
-class GovernanceZone(GitControlledObject):
+class GovernanceZone(GitControlledObject, JSONable):
     """This declares the existence of a specific GovernanceZone and defines the teams it manages, the storage policies
     and which repos can be used to pull changes for various metadata"""
     def __init__(self, name: str, ownerRepo: Repository, *args: Union['InfraStructureLocationPolicy', 'InfraStructureVendorPolicy',
@@ -4440,6 +4503,19 @@ class GovernanceZone(GitControlledObject):
         self.dataplatformPolicies: dict[str, DataPlatformPolicy] = dict[str, DataPlatformPolicy]()
 
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        teamKeys: list[Team] = self.teams.defineAllObjects()
+        return {
+            "name": self.name,
+            "teams": {k: k.name for k in teamKeys},
+            "storagePolicies": {k: v.to_json() for k, v in self.storagePolicies.items()},
+            "classificationPolicies": {k: v.to_json() for k, v in self.classificationPolicies.items()},
+            "vendorPolicies": {k: v.to_json() for k, v in self.vendorPolicies.items()},
+            "hardVendorPolicies": {k: v.to_json() for k, v in self.hardVendorPolicies.items()},
+            "locationPolicies": {k: v.to_json() for k, v in self.locationPolicies.items()},
+            "dataplatformPolicies": {k: v.to_json() for k, v in self.dataplatformPolicies.items()},
+        }
 
     def setEcosystem(self, eco: Ecosystem) -> None:
         """Sets the ecosystem for this zone and sets the zone for all teams"""
@@ -4636,7 +4712,7 @@ class DockerContainer:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatformExecutor(UserDSLObject):
+class DataPlatformExecutor(UserDSLObject, JSONable):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
@@ -4668,8 +4744,14 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
         super().lint(eco, tree)
         self.iacRepo.lint(tree.addSubTree(self.iacRepo))
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "iacRepo": self.iacRepo.to_json(),
+        }
 
-class DataPlatform(Documentable, UserDSLObject):
+
+class DataPlatform(Documentable, UserDSLObject, JSONable):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
         Documentable.__init__(self, self.findObjectOfSpecificType(Documentation, *args))
@@ -4681,6 +4763,16 @@ class DataPlatform(Documentable, UserDSLObject):
         self.executor: DataPlatformExecutor = de
         self.credentialStores: dict[str, CredentialStore] = OrderedDict[str, CredentialStore]()
         self.add(*args)
+
+    @abstractmethod
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {
+            "_type": self.__class__.__name__,
+            "name": self.name,
+            "executor": self.executor.to_json(),
+            "credentialStores": {k: v.to_json() for k, v in self.credentialStores.items()},
+        }
+        return rc
 
     def add(self, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
         for arg in args:
