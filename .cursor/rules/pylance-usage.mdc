@@ -12,4 +12,7 @@ alwaysApply: false
 - Lines of code shouldn't have trailing spaces
 - I use flake to lint the code also so all code should be generated to have zero flake errors
 - My maximum line length is set to 170 characters so please split lines so they are under 170 characters
+- All the documentation is stored in the docs folder as markdown files.
+- There is a developer diary showing their thinking and decisions in Diary/BillyN, there are monthly markdown files updated constantly.
+
 
