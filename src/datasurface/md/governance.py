@@ -94,6 +94,17 @@ def is_valid_hostname_or_ip(s: str) -> bool:
     return False
 
 
+class JSONable(ABC):
+    """This is a base class for all objects which can be converted to a JSON object"""
+    def __init__(self) -> None:
+        ABC.__init__(self)
+
+    @abstractmethod
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {"_type": self.__class__.__name__}
+        return rc
+
+
 class ANSI_SQL_NamedObject(UserDSLObject):
     name: str
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
@@ -234,6 +245,13 @@ class Documentation(UserDSLObject):
     def lint(self, tree: ValidationTree):
         pass
 
+    @abstractmethod
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {"description": self.description}
+        if (self.tags is not None):
+            rc["tags"] = {key: value for key, value in self.tags.items()}
+        return rc
+
 
 class Documentable(UserDSLObject):
     """This is the base class for all objects which can have documentation."""
@@ -262,6 +280,9 @@ class PlainTextDocumentation(Documentation):
     def lint(self, tree: ValidationTree):
         pass
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "description": self.description, "tags": self.tags}
+
 
 class MarkdownDocumentation(Documentation):
     def __init__(self, description: str, markdown: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
@@ -276,8 +297,11 @@ class MarkdownDocumentation(Documentation):
     def lint(self, tree: ValidationTree):
         pass
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "description": self.description, "markdown": self.markdown, "tags": self.tags}
 
-class Repository(Documentable, UserDSLObject):
+
+class Repository(Documentable, UserDSLObject, JSONable):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc: Optional[Documentation]):
         UserDSLObject.__init__(self)
@@ -296,6 +320,9 @@ class Repository(Documentable, UserDSLObject):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__}
 
 
 class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
@@ -484,6 +511,9 @@ class FakeRepository(Repository):
         else:
             return False
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
+
 
 class GitRepository(Repository):
     def __init__(self, doc: Optional[Documentation] = None) -> None:
@@ -563,6 +593,9 @@ class GitHubRepository(GitRepository):
         if (not self.is_valid_github_branch(self.branchName)):
             tree.addProblem(f"Branch name <{self.branchName}> is not valid")
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "repositoryName": self.repositoryName, "branchName": self.branchName}
+
 
 class GitLabRepository(GitRepository):
     """This provides the metadata for a Gitlab based repository. The service url is provided and the repository name and branch"""
@@ -603,15 +636,19 @@ class GitLabRepository(GitRepository):
         if (not self.is_valid_github_branch(self.branchName)):
             tree.addProblem(f"Branch name <{self.branchName}> is not valid")
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "repoUrl": self.repoUrl, "repositoryName": self.repositoryName, "branchName": self.branchName}
+
 
 T = TypeVar('T')
 
 
-class Policy(Documentable, Generic[T]):
+class Policy(Documentable, JSONable, Generic[T]):
     """Base class for all policies"""
     def __init__(self, name: str, doc: Optional[Documentation] = None) -> None:
         self.name: str = name
         Documentable.__init__(self, doc)
+        JSONable.__init__(self)
 
     @abstractmethod
     def isCompatible(self, obj: T) -> bool:
@@ -627,8 +664,30 @@ class Policy(Documentable, Generic[T]):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
 
-P = TypeVar('P')
+
+P = TypeVar('P', bound=JSONable)
+
+
+L = TypeVar('L')
+
+
+class Literal(JSONable, Generic[L]):
+    def __init__(self, value: L) -> None:
+        self.value: L = value
+
+    def to_json(self) -> dict[str, Any]:
+        return {"value": self.value}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Literal):
+            return False
+        return self.value == other.value  # type: ignore
+
+    def __hash__(self) -> int:
+        return hash(self.value)
 
 
 class AllowDisallowPolicy(Policy[P]):
@@ -658,17 +717,29 @@ class AllowDisallowPolicy(Policy[P]):
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {"_type": self.__class__.__name__, "name": self.name}
+        # Now add the set of allowed and set of not allowed by using the to_json method of the objects in the sets
+        if self.allowed:
+            rc["allowed"] = [obj.to_json() for obj in self.allowed]
+        if self.notAllowed:
+            rc["notAllowed"] = [obj.to_json() for obj in self.notAllowed]
+        return rc
 
-class DataClassification(ABC):
+
+class DataClassification(JSONable):
     """Base class for defining data classifications"""
     def __init__(self):
-        pass
+        JSONable.__init__(self)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataClassification)
 
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}"
+        return f"{self.__class__.__name__}()"
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__}
 
 
 class SimpleDCTypes(Enum):
@@ -1788,13 +1859,16 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         return f"DDLColumn({self.name})"
 
 
-class AttributeList(UserDSLObject):
+class AttributeList(UserDSLObject, JSONable):
     """A list of column names."""
     def __init__(self, colNames: list[str]) -> None:
         UserDSLObject.__init__(self)
         self.colNames: List[str] = []
         for col in colNames:
             self.colNames.append(col)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "colNames": self.colNames}
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, AttributeList) and self.colNames == other.colNames
@@ -1838,7 +1912,7 @@ class NotBackwardsCompatible(ValidationProblem):
         return hash(str(self))
 
 
-class Schema(Documentable, UserDSLObject):
+class Schema(Documentable, UserDSLObject, JSONable):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
         Documentable.__init__(self, None)
@@ -1846,6 +1920,12 @@ class Schema(Documentable, UserDSLObject):
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"primaryKeyColumns": self.primaryKeyColumns.to_json() if self.primaryKeyColumns else None})
+        rc.update({"ingestionPartitionColumns": self.ingestionPartitionColumns.to_json() if self.ingestionPartitionColumns else None})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, Schema)):
@@ -2414,11 +2494,18 @@ class InfrastructureVendor(Documentable, UserDSLObject):
         return f"InfrastructureVendor({self.name}, {self.hardCloudVendor})"
 
 
-class InfraHardVendorPolicy(AllowDisallowPolicy[CloudVendor]):
+def convertCloudVendorItems(items: Optional[set[CloudVendor]]) -> Optional[set[Literal[CloudVendor]]]:
+    if items is None:
+        return None
+    else:
+        return {Literal(item) for item in items}
+
+
+class InfraHardVendorPolicy(AllowDisallowPolicy[Literal[CloudVendor]]):
     """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
     def __init__(self, name: str, doc: Documentation, allowed: Optional[set[CloudVendor]] = None,
                  notAllowed: Optional[set[CloudVendor]] = None):
-        super().__init__(name, doc, allowed, notAllowed)
+        super().__init__(name, doc, convertCloudVendorItems(allowed), convertCloudVendorItems(notAllowed))
 
     def __str__(self):
         return f"InfraStructureVendorPolicy({self.name})"
@@ -2446,7 +2533,7 @@ class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
         return super().__hash__()
 
 
-class EncryptionSystem:
+class EncryptionSystem(JSONable):
     """This describes"""
     def __init__(self) -> None:
         self.name: Optional[str] = None
@@ -2456,6 +2543,13 @@ class EncryptionSystem:
 
     def __eq__(self, __value: object) -> bool:
         return cyclic_safe_eq(self, __value, set())
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {}
+        rc.update({"name": self.name})
+        rc.update({"keyContainer": self.keyContainer.to_json() if self.keyContainer else None})
+        rc.update({"hasThirdPartySuperUser": self.hasThirdPartySuperUser})
+        return rc
 
 
 class SchemaProjector(ABC):
@@ -2577,6 +2671,16 @@ class DataContainer(Documentable, UserDSLObject):
         to encrypt data before sending to a cloud vendor for example"""
         self.isReadOnly: bool = False
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {}
+        rc.update({"_type": self.__class__.__name__, "name": self.name, "locations": [loc.to_json() for loc in self.locations]})
+        rc.update({"serverSideEncryptionKeys": self.serverSideEncryptionKeys.to_json() if self.serverSideEncryptionKeys else None})
+        rc.update({"clientSideEncryptionKeys": self.clientSideEncryptionKeys.to_json() if self.clientSideEncryptionKeys else None})
+        rc.update({"isReadOnly": self.isReadOnly})
+        if (self.documentation):
+            rc.update({"documentation": self.documentation.to_json()})
+        return rc
 
     def add(self, *args: Union[set['LocationKey'], Documentation]) -> None:
         for arg in args:
@@ -2782,7 +2886,7 @@ class ObjectStorage(DataContainer):
         return False
 
 
-class Dataset(ANSI_SQL_NamedObject, Documentable):
+class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This is a single collection of homogeneous records with a primary key"""
     def __init__(self, name: str, *args: Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
@@ -2883,6 +2987,13 @@ class Dataset(ANSI_SQL_NamedObject, Documentable):
     def __str__(self) -> str:
         return f"Dataset({self.name})"
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"name": self.name})
+        rc.update({"originalSchema": self.originalSchema.to_json() if self.originalSchema else None})
+        rc.update({"policies": {k: v.to_json() for k, v in self.policies.items()}})
+        return rc
+
     def hasClassifications(self) -> bool:
         """This returns true if the dataset has classifications for everything"""
         if (self.dataClassificationOverride):
@@ -2930,11 +3041,14 @@ class IngestionConsistencyType(Enum):
     MULTI_DATASET = 1
 
 
-class StepTrigger(ABC):
+class StepTrigger(JSONable):
     """A step such as ingestion is driven in pulses triggered by these."""
     def __init__(self, name: str):
         super().__init__()
         self.name: str = name
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, StepTrigger) and self.name == o.name
@@ -2949,6 +3063,11 @@ class CronTrigger(StepTrigger):
     def __init__(self, name: str, cron: str):
         super().__init__(name)
         self.cron: str = cron
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"cron": self.cron})
+        return rc
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, CronTrigger) and self.cron == o.cron
@@ -3106,7 +3225,7 @@ class ClearTextCredential(UserPasswordCredential):
         return f"ClearTextCredential({self.username})"
 
 
-class CaptureMetaData(UserDSLObject):
+class CaptureMetaData(UserDSLObject, JSONable):
     """This describes how a platform can pull data for a Datastore"""
 
     def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
@@ -3115,6 +3234,14 @@ class CaptureMetaData(UserDSLObject):
         self.stepTrigger: Optional[StepTrigger] = None
         self.dataContainer: Optional[DataContainer] = None
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {}
+        rc.update({"_type": self.__class__.__name__})
+        rc.update({"singleOrMultiDatasetIngestion": self.singleOrMultiDatasetIngestion.value if self.singleOrMultiDatasetIngestion else None})
+        rc.update({"stepTrigger": self.stepTrigger.to_json() if self.stepTrigger else None})
+        rc.update({"dataContainer": self.dataContainer.to_json() if self.dataContainer else None})
+        return rc
 
     def add(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]) -> None:
         for arg in args:
@@ -3317,7 +3444,7 @@ class KafkaIngestion(StreamingIngestion):
             self.kafkaServer.lint(eco, kTree)
 
 
-class Datastore(ANSI_SQL_NamedObject, Documentable):
+class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name: str, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo]) -> None:
@@ -3330,6 +3457,14 @@ class Datastore(ANSI_SQL_NamedObject, Documentable):
         self.deprecationStatus: DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"name": self.name, "datasets": {k: v.to_json() for k, v in self.datasets.items()}})
+        if (self.key is not None):
+            rc.update({"team": self.key.tdName, "governance_zone": self.key.gzName})
+        rc.update({"cmd": self.cmd.to_json() if self.cmd else None})
+        return rc
 
     def setTeam(self, tdKey: TeamDeclarationKey):
         self.key = DatastoreKey(tdKey, self.name)
@@ -3445,11 +3580,14 @@ class DatastoreCacheEntry:
         return False
 
 
-class DependentWorkspaces:
+class DependentWorkspaces(JSONable):
     """This tracks a Workspaces dependent on a datastore"""
     def __init__(self, workSpace: 'Workspace'):
         self.workspace: Workspace = workSpace
         self.dependencies: set[DependentWorkspaces] = set()
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "workspaceName": self.workspace.name, "dependencies": [dep.to_json() for dep in self.dependencies]}
 
     def addDependency(self, dep: 'DependentWorkspaces') -> None:
         self.dependencies.add(dep)
@@ -3883,12 +4021,15 @@ class UnknownVendorProblem(ValidationProblem):
         return hash(self.description)
 
 
-class LocationKey(UserDSLObject):
+class LocationKey(UserDSLObject, JSONable):
     """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
     def __init__(self, locStr: str) -> None:
         super().__init__()
         self.locStr: str = locStr
         self.loc: Optional[InfrastructureLocation] = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "locStr": self.locStr}
 
     def getAsInfraLocation(self, eco: Ecosystem) -> Optional[InfrastructureLocation]:
         # The string is in the format vendor:location1/location2/location3
@@ -3941,12 +4082,15 @@ class LocationKey(UserDSLObject):
         return hash(self.locStr)
 
 
-class VendorKey(UserDSLObject):
+class VendorKey(UserDSLObject, JSONable):
     """This is used to reference a vendor during DSL construction"""
     def __init__(self, vendor: str) -> None:
         super().__init__()
         self.vendorString: str = vendor
         self.vendor: Optional[InfrastructureVendor] = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "vendorString": self.vendorString}
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, VendorKey)):
@@ -3970,7 +4114,7 @@ class VendorKey(UserDSLObject):
         return hash(self.vendorString)
 
 
-class Team(GitControlledObject):
+class Team(GitControlledObject, JSONable):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
     def __init__(self, name: str, repo: Repository, *args: Union[Datastore, 'Workspace', Documentation, DataContainer]) -> None:
@@ -3980,6 +4124,14 @@ class Team(GitControlledObject):
         self.dataStores: dict[str, Datastore] = OrderedDict()
         self.containers: dict[str, DataContainer] = OrderedDict()
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"name": self.name, "workspaces": {k: v.to_json() for k, v in self.workspaces.items()}})
+        rc.update({"dataStores": {k: v.name for k, v in self.dataStores.items()}})
+        rc.update({"workspaces": {k: v.name for k, v in self.workspaces.items()}})
+        rc.update({"containers": {k: v.to_json() for k, v in self.containers.items()}})
+        return rc
 
     def add(self, *args: Union[Datastore, 'Workspace', Documentation, DataContainer]) -> None:
         """Adds a workspace, datastore or gitrepository to the team"""
@@ -4313,7 +4465,7 @@ class GovernanceZone(GitControlledObject):
             for hardVendorPolicy in self.hardVendorPolicies.values():
                 if (v.hardCloudVendor is None):
                     tree.addRaw(AttributeNotSet(f"{loc} No hard cloud vendor"))
-                elif not hardVendorPolicy.isCompatible(v.hardCloudVendor):
+                elif not hardVendorPolicy.isCompatible(Literal(v.hardCloudVendor)):
                     tree.addRaw(ObjectNotCompatibleWithPolicy(v, hardVendorPolicy, ProblemSeverity.ERROR))
         else:
             tree.addRaw(AttributeNotSet("loc.key"))
@@ -4581,12 +4733,15 @@ class DataPlatform(Documentable, UserDSLObject):
         pass
 
 
-class DataPlatformKey:
+class DataPlatformKey(JSONable):
     """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
     resolved later at lint time."""
     def __init__(self, name: str) -> None:
         self.name: str = name
         self.platform: Optional[DataPlatform] = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         if (not self.name):
@@ -4643,6 +4798,10 @@ class ConsumerRetentionRequirements:
     def __hash__(self) -> int:
         return hash((self.policy, self.latency, self.minRetentionTime, self.regulator))
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "policy": self.policy.name, "latency": self.latency.name,
+                "minRetentionTime": self.minRetentionTime, "regulator": self.regulator}
+
 
 class DataPlatformChooser(ABC):
     """Subclasses of this choose a DataPlatform to render the pipeline for moving data from a producer to a Workspace possibly
@@ -4656,6 +4815,10 @@ class DataPlatformChooser(ABC):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
+
+    @abstractmethod
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__}
 
 
 class WorkspacePlatformConfig(DataPlatformChooser):
@@ -4678,6 +4841,9 @@ class WorkspacePlatformConfig(DataPlatformChooser):
     def __hash__(self) -> int:
         return hash(self.retention)
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "retention": self.retention.to_json()}
+
 
 class WorkspaceFixedDataPlatform(DataPlatformChooser):
     """This specifies a fixed DataPlatform for a Workspace"""
@@ -4696,6 +4862,9 @@ class WorkspaceFixedDataPlatform(DataPlatformChooser):
     def __hash__(self) -> int:
         return hash(self.dataPlatform)
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "dataPlatform": self.dataPlatform.name}
+
 
 class DeprecationsAllowed(Enum):
     """This specifies if deprecations are allowed for a specific dataset in a workspace dsg"""
@@ -4713,6 +4882,14 @@ class DatasetSink(UserDSLObject):
         self.datasetName: str = datasetName
         self.key = f"{self.storeName}:{self.datasetName}"
         self.deprecationsAllowed: DeprecationsAllowed = deprecationsAllowed
+
+    def to_json(self) -> dict[str, Any]:
+        json_dict: dict[str, Any] = {
+            "storeName": self.storeName,
+            "datasetName": self.datasetName,
+            "deprecationsAllowed": self.deprecationsAllowed.name
+        }
+        return json_dict
 
     def __eq__(self, other: object) -> bool:
         if (type(other) is DatasetSink):
@@ -4791,6 +4968,14 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                     raise AttributeAlreadySetException("Platform")
             else:
                 raise UnknownArgumentException(f"Unknown argument {type(arg)}")
+
+    def to_json(self) -> dict[str, Any]:
+        json_dict: dict[str, Any] = {
+            "name": self.name,
+            "sinks": {sink.key: sink.to_json() for sink in self.sinks.values()},
+            "platformMD": self.platformMD.to_json() if self.platformMD else None
+        }
+        return json_dict
 
     def __eq__(self, other: object) -> bool:
         return cyclic_safe_eq(self, other, set())
@@ -4979,7 +5164,7 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable):
             self.trigger == o.trigger and self.code == o.code and self.codeEnv == o.codeEnv
 
 
-class Workspace(ANSI_SQL_NamedObject, Documentable):
+class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using
     the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
@@ -4999,6 +5184,18 @@ class Workspace(ANSI_SQL_NamedObject, Documentable):
         self.key: Optional[WorkspaceKey] = None
         """This workspace is the input to a data transformer if set"""
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        json_dict: dict[str, Any] = {
+            "name": self.name,
+            "dsgs": {name: dsg.to_json() for name, dsg in self.dsgs.items()},
+            "productionStatus": self.productionStatus.name,
+            "deprecationStatus": {
+                "status": self.deprecationStatus.status.name,
+                "documentation": self.deprecationStatus.documentation.to_json() if self.deprecationStatus.documentation else None
+            }
+        }
+        return json_dict
 
     def setTeam(self, key: TeamDeclarationKey):
         self.key = WorkspaceKey(key, self.name)

@@ -6,10 +6,20 @@ import sys
 import os
 import copy
 from types import ModuleType
-from typing import Optional, Dict, Any, List, AsyncGenerator, Callable
+from typing import Optional, Dict, Any, List, AsyncGenerator, Callable, Protocol
 import logging
 from enum import Enum
-from datasurface.md import Ecosystem
+from datasurface.md import Ecosystem, JSONable
+
+
+class JsonSerializable(Protocol):
+    """Protocol for JSON serializable objects"""
+    def to_dict(self) -> Dict[str, Any]: ...
+
+
+def serialize_object(obj: JSONable) -> dict[str, Any]:
+    """Helper function to serialize objects that might implement to_dict"""
+    return obj.to_json()
 
 
 class EcosystemCommand(str, Enum):
@@ -86,46 +96,42 @@ class ModelServer:
     async def execute_query(self, query: Dict[str, Any]) -> Dict[str, Any]:
         """Execute query against model"""
         try:
-            # Get the command value and convert it to the enum
             command_str: str = query['command']
             command: EcosystemCommand = EcosystemCommand(command_str)
             params: Dict[str, Any] = query['params']
 
-            print(f"Executing query with command: {command}, type: {type(command)}, value: {command.value}")  # Debug print
-            print(f"Command as string: {command_str}")  # Debug print
-
             # Using match statement for command handling
-            match command.value:  # Match on the enum value
-                case "list_workspaces":
-                    return {"workspaces": [entry.workspace.name for entry in self.ecosystem.workSpaceCache.values()]}
+            match command_str:
+                case EcosystemCommand.LIST_WORKSPACES.value:
+                    return {"workspaces": [serialize_object(entry.workspace) for entry in self.ecosystem.workSpaceCache.values()]}
 
-                case "get_dataset":
+                case EcosystemCommand.GET_DATASET.value:
                     dataset = self.ecosystem.cache_getDataset(params.get("store_name", ""), params["dataset_name"])
                     if not dataset:
                         raise ValueError(f"Dataset {params['dataset_name']} not found")
-                    return {"dataset": str(dataset)}
+                    return {"dataset": serialize_object(dataset)}
 
-                case "get_workspace":
+                case EcosystemCommand.GET_WORKSPACE.value:
                     workspace = self.ecosystem.cache_getWorkspaceOrThrow(params["workspace_name"])
-                    return {"workspace": str(workspace)}
+                    return {"workspace": serialize_object(workspace.workspace)}
 
-                case "list_teams":
+                case EcosystemCommand.LIST_TEAMS.value:
                     return {"teams": list(self.ecosystem.teamCache.keys())}
 
-                case "get_team":
+                case EcosystemCommand.GET_TEAM.value:
                     team = self.ecosystem.getTeamOrThrow(params["governance_zone"], params["team_name"])
-                    return {"team": str(team)}
+                    return {"team": serialize_object(team)}
 
-                case "get_datastore":
-                    store = self.ecosystem.cache_getDatastoreOrThrow(params["store_name"])
-                    return {"datastore": str(store)}
+                case EcosystemCommand.GET_DATASTORE.value:
+                    store_entry = self.ecosystem.cache_getDatastoreOrThrow(params["store_name"])
+                    return {"datastore": serialize_object(store_entry.datastore)}
 
-                case "list_datastores":
+                case EcosystemCommand.LIST_DATASTORES.value:
                     return {"datastores": list(self.ecosystem.datastoreCache.keys())}
 
-                case "get_dependencies":
+                case EcosystemCommand.GET_DEPENDENCIES.value:
                     deps = self.ecosystem.calculateDependenciesForDatastore(params["store_name"])
-                    return {"dependencies": [str(dep) for dep in deps]}
+                    return {"dependencies": [serialize_object(dep) for dep in deps]}
 
                 case _:
                     raise ValueError(f"Unknown command: {command}")

@@ -8,7 +8,7 @@ from datasurface.md import DataPlatform, Ecosystem, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
     CodeExecutionEnvironment, CodeArtifact, LocationKey
 
-from typing import Optional
+from typing import Optional, Any
 
 
 class LegacyDataPlatformExecutor(DataPlatformExecutor):
@@ -109,6 +109,11 @@ class LegacyDatPlatformChooser(DataPlatformChooser):
 
     def __str__(self) -> str:
         return "LegacyDatPlatformChooser()"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"dataPlatformName": self.dataPlatformName, "containers": [dc.to_json() for dc in self.containers]})
+        return rc
 
 
 def gatherDataContainerLocationsIntoSet(containers: set[DataContainer]) -> set[LocationKey]:

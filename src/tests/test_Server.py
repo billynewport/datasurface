@@ -127,15 +127,36 @@ class TestModelServer:
         )
         response = self.test_client.post("/api/query", json=query.model_dump())
         assert response.status_code == 200
-        data = cast(Dict[str, List[str]], response.json())
-        store_name = data["datastores"][0]  # Use the first store
+        data = cast(Dict[str, list[str]], response.json())
+        store_name: str = data["datastores"][0]  # Use the first store
+
+        # Fetch that store
+        query = QueryRequest(
+            command=EcosystemCommand.GET_DATASTORE,
+            params={
+                "store_name": store_name
+            }
+        )
+        response = self.test_client.post("/api/query", json=query.model_dump())
+        assert response.status_code == 200
+        data = cast(Dict[str, Any], response.json())
+        store = data["datastore"]
+        assert store["name"] == store_name
+        assert "team" in store
+        assert "governance_zone" in store
+        assert "datasets" in store
+        datasets: dict[str, Any] = store["datasets"]
+        assert isinstance(datasets, dict)
+        assert len(datasets) > 0
+        firstDataset: dict[str, Any] = list(datasets.values())[0]
+        dataset_name: str = firstDataset["name"]
 
         # Now try to get a dataset from that store
         query = QueryRequest(
             command=EcosystemCommand.GET_DATASET,
             params={
                 "store_name": store_name,
-                "dataset_name": "customers"  # Replace with a known dataset name from your test data
+                "dataset_name": dataset_name  # Replace with a known dataset name from your test data
             }
         )
         response = self.test_client.post("/api/query", json=query.model_dump())
