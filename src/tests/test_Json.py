@@ -7,7 +7,7 @@
 
 import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Datastore, Team
-from datasurface.md import DataType, ArrayType, Boolean, MapType, StructType, SmallInt, IEEE64, Timestamp, Date
+from datasurface.md import DataType, ArrayType, Boolean, MapType, StructType, SmallInt, IEEE64, Timestamp, Date, Decimal, VarChar, NVarChar
 
 from tests.nwdb.eco import createEcosystem
 from typing import Any
@@ -154,6 +154,27 @@ class TestDataStoreJSON(unittest.TestCase):
         childType: dict[str, Any] = json["elementType"]
         self.assertEqual(childType["type"], "Boolean")
 
+        # Check Decimal
+        t = Decimal(10, 2)
+        json: dict[str, Any] = t.to_json()
+        self.assertEqual(json["type"], "Decimal")
+        self.assertEqual(json["maxSize"], 10)
+        self.assertEqual(json["precision"], 2)
+
+        # Check VarChar with no collation string
+        t = VarChar(10)
+        json: dict[str, Any] = t.to_json()
+        self.assertEqual(json["type"], "VarChar")
+        self.assertEqual(json["maxSize"], 10)
+        self.assertTrue("collationString" not in json)
+
+        # Check NVarChar with collation string
+        t = NVarChar(10, "collation")
+        json: dict[str, Any] = t.to_json()
+        self.assertEqual(json["type"], "NVarChar")
+        self.assertEqual(json["maxSize"], 10)
+        self.assertEqual(json["collationString"], "collation")
+
         # Check SmallInt, TinyInt, Integer, BigInt, all are similar
         t = SmallInt()
         json: dict[str, Any] = t.to_json()
@@ -165,7 +186,7 @@ class TestDataStoreJSON(unittest.TestCase):
         t = ArrayType(None, SmallInt())
         json: dict[str, Any] = t.to_json()
         self.assertEqual(json["type"], "ArrayType")
-        self.assertEqual(json["maxSize"], "-1")
+        self.assertEqual(json["maxSize"], -1)
         childType: dict[str, Any] = json["elementType"]
         self.assertEqual(childType["type"], "SmallInt")
 

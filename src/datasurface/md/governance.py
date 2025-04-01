@@ -924,7 +924,7 @@ class DataType(UserDSLObject, JSONable):
 
     def to_json(self) -> dict[str, Any]:
         """Converts this object to a JSON string"""
-        d: dict[str, Any] = dict(self.__dict__)
+        d: dict[str, Any] = dict()
         d["type"] = self.__class__.__name__
         return d
 
@@ -939,7 +939,7 @@ class BoundedDataType(DataType):
         if self.maxSize is not None:
             rc.update({"maxSize": self.maxSize})
         else:
-            rc.update({"maxSize": "-1"})
+            rc.update({"maxSize": -1})
         return rc
 
     def lint(self, vTree: ValidationTree) -> None:
@@ -1097,7 +1097,8 @@ class TextDataType(BoundedDataType):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"collationString": self.collationString})
+        if self.collationString is not None:
+            rc.update({"collationString": self.collationString})
         return rc
 
     def __str__(self) -> str:
@@ -1563,6 +1564,11 @@ class Decimal(BoundedDataType):
     def __init__(self, maxSize: int, precision: int) -> None:
         super().__init__(maxSize)
         self.precision: int = precision
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"precision": self.precision})
+        return rc
 
     def lint(self, vTree: ValidationTree) -> None:
         super().lint(vTree)
