@@ -18,6 +18,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     t.add(
         Datastore(
             "NW_Data",
+            PlainTextDocumentation("NW_Data is a datastore that contains the Northwind database"),
             CDCCaptureIngestion(
                 HostPortSQLDatabase("NW_DB", {LocationKey("MyCorp:USA/NY_1")}, HostPortPair("hostName", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),

@@ -894,11 +894,11 @@ def handleUnsupportedObjectsToJson(obj: object) -> str:
     if isinstance(obj, Enum):
         return obj.name
     elif isinstance(obj, DataType):
-        return obj.to_json()
+        return str(obj.to_json())
     raise Exception(f"Unsupported object {obj} in to_json")
 
 
-class DataType(UserDSLObject):
+class DataType(UserDSLObject, JSONable):
     """Base class for all data types. These DataTypes are not nullable. Nullable status is a property of
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
@@ -922,18 +922,25 @@ class DataType(UserDSLObject):
         be here and not in the constructor"""
         pass
 
-    def to_json(self) -> str:
+    def to_json(self) -> dict[str, Any]:
         """Converts this object to a JSON string"""
         d: dict[str, Any] = dict(self.__dict__)
         d["type"] = self.__class__.__name__
-
-        return json.dumps(d, default=handleUnsupportedObjectsToJson)
+        return d
 
 
 class BoundedDataType(DataType):
     def __init__(self, maxSize: Optional[int]) -> None:
         super().__init__()
         self.maxSize: Optional[int] = maxSize
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        if self.maxSize is not None:
+            rc.update({"maxSize": self.maxSize})
+        else:
+            rc.update({"maxSize": "-1"})
+        return rc
 
     def lint(self, vTree: ValidationTree) -> None:
         super().lint(vTree)
@@ -976,6 +983,11 @@ class ArrayType(BoundedDataType):
         super().__init__(maxSize)
         self.dataType: DataType = type
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"elementType": self.dataType.to_json()})
+        return rc
+
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, ArrayType) and self.dataType == other.dataType
 
@@ -997,6 +1009,12 @@ class MapType(DataType):
         super().__init__()
         self.keyType: DataType = key_type
         self.valueType: DataType = value_type
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"keyType": self.keyType.to_json()})
+        rc.update({"valueType": self.valueType.to_json()})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, MapType) and \
@@ -1029,6 +1047,11 @@ class StructType(DataType):
     def __init__(self, fields: OrderedDict[str, DataType]) -> None:
         super().__init__()
         self.fields: OrderedDict[str, DataType] = fields
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"fields": [{"name": name, "type": type.to_json()} for name, type in self.fields.items()]})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, StructType) and self.fields == other.fields
@@ -1071,6 +1094,11 @@ class TextDataType(BoundedDataType):
         self.collationString: Optional[str] = collationString
         """The collation and/or character encoding for this string. Unicode strings
         can have a collation but it is not required. Non unicode strings must have a collation"""
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"collationString": self.collationString})
+        return rc
 
     def __str__(self) -> str:
         if (self.maxSize is None and self.collationString is None):
@@ -1121,6 +1149,11 @@ class FixedIntegerDataType(NumericDataType):
         """Number of bits including sign bit if present"""
         self.isSigned: SignedOrNot = isSigned
         """Is this a signed integer"""
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"sizeInBits": self.sizeInBits, "isSigned": self.isSigned.name})
+        return rc
 
     def lint(self, vTree: ValidationTree) -> None:
         super().lint(vTree)
@@ -1227,6 +1260,12 @@ class CustomFloat(NumericDataType):
         self.nonFiniteBehavior: NonFiniteBehavior = nonFiniteBehavior
         self.nanEncoding: FloatNanEncoding = nanEncoding
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"maxExponent": self.maxExponent, "minExponent": self.minExponent, "precision": self.precision, "sizeInBits": self.sizeInBits,
+                   "nonFiniteBehavior": self.nonFiniteBehavior.name, "nanEncoding": self.nanEncoding.name})
+        return rc
+
     def lint(self, vTree: ValidationTree) -> None:
         super().lint(vTree)
         if (self.sizeInBits <= 0):
@@ -1270,7 +1309,18 @@ class CustomFloat(NumericDataType):
             f"{self.precision}, {self.sizeInBits}, {self.nonFiniteBehavior}, {self.nanEncoding})")
 
 
-class IEEE16(CustomFloat):
+class SimpleCustomFloat(CustomFloat):
+    """This is a CustomFloat but uses a simplified str method which is just the class name rather than the fully
+    specified CustomFloat. It prevents all standard types needing to implement their own str method."""
+    def __init__(self, maxExponent: int, minExponent: int, precision: int, sizeInBits: int,
+                 nonFiniteBehavior: NonFiniteBehavior = NonFiniteBehavior.IEEE754, nanEncoding: FloatNanEncoding = FloatNanEncoding.IEEE) -> None:
+        super().__init__(maxExponent, minExponent, precision, sizeInBits, nonFiniteBehavior, nanEncoding)
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+
+class IEEE16(SimpleCustomFloat):
     """Half precision IEEE754"""
     def __init__(self) -> None:
         super().__init__(sizeInBits=16, precision=11, maxExponent=15, minExponent=-14)
@@ -1297,7 +1347,7 @@ class Float(IEEE32):
         return super().__eq__(other) and isinstance(other, Float)
 
 
-class IEEE64(CustomFloat):
+class IEEE64(SimpleCustomFloat):
     """IEEE754 64 bit floating point number"""
     def __init__(self) -> None:
         super().__init__(sizeInBits=64, precision=53, maxExponent=1023, minExponent=-1022)
@@ -1313,17 +1363,6 @@ class Double(IEEE64):
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, Double)
-
-
-class SimpleCustomFloat(CustomFloat):
-    """This is a CustomFloat but uses a simplified str method which is just the class name rather than the fully
-    specified CustomFloat. It prevents all standard types needing to implement their own str method."""
-    def __init__(self, maxExponent: int, minExponent: int, precision: int, sizeInBits: int,
-                 nonFiniteBehavior: NonFiniteBehavior = NonFiniteBehavior.IEEE754, nanEncoding: FloatNanEncoding = FloatNanEncoding.IEEE) -> None:
-        super().__init__(maxExponent, minExponent, precision, sizeInBits, nonFiniteBehavior, nanEncoding)
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}()"
 
 
 class IEEE128(SimpleCustomFloat):
@@ -1430,6 +1469,13 @@ class MicroScaling_CustomFloat(NumericDataType):
         self.batchSize: int = batchSize
         self.scaleType: Type[CustomFloat] = scaleType
         self.elementType: Type[CustomFloat] = elementType
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"batchSize": self.batchSize})
+        rc.update({"scaleType": self.scaleType.__class__.__name__})
+        rc.update({"elementType": self.elementType.__class__.__name__})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, MicroScaling_CustomFloat) and self.batchSize == other.batchSize and \
@@ -1552,6 +1598,9 @@ class TimeZone:
     def __init__(self, timeZone: str) -> None:
         self.timeZone: str = timeZone
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "timeZone": self.timeZone}
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, TimeZone) and self.timeZone == other.timeZone
 
@@ -1576,6 +1625,11 @@ class Timestamp(TemporalDataType):
     def __init__(self, tz: TimeZone = TimeZone("UTC")) -> None:
         super().__init__()
         self.timeZone: TimeZone = tz
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"timeZone": self.timeZone.to_json()})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, Timestamp) and self.timeZone == other.timeZone
@@ -1802,7 +1856,7 @@ DEFAULT_primaryKey: PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
 DEFAULT_nullable: NullableStatus = NullableStatus.NULLABLE
 
 
-class DDLColumn(ANSI_SQL_NamedObject, Documentable):
+class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This is an individual attribute within a DDLTable schema"""
     def __init__(self, name: str, dataType: DataType, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         super().__init__(name)
@@ -1812,6 +1866,17 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         self.classification: Optional[list[DataClassification]] = None
         self.nullable: NullableStatus = DEFAULT_nullable
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "name": self.name,
+            "type": self.type.to_json(),
+            "nullable": self.nullable.value,
+            "primaryKey": self.primaryKey.value,
+            "classification": [c.to_json() for c in self.classification] if self.classification else None,
+            "doc": self.documentation.to_json() if self.documentation else None,
+        }
 
     def add(self, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         for arg in args:
@@ -1979,6 +2044,11 @@ class DDLTable(Schema):
         super().__init__()
         self.columns: dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
         self.add(*args)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"columns": {k: v.to_json() for k, v in self.columns.items()}})
+        return rc
 
     def hasDataClassifications(self) -> bool:
         for col in self.columns.values():
@@ -3515,6 +3585,8 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
         if (self.key is not None):
             rc.update({"team": self.key.tdName, "governance_zone": self.key.gzName})
         rc.update({"cmd": self.cmd.to_json() if self.cmd else None})
+        if (self.documentation):
+            rc.update({"doc": self.documentation.to_json()})
         return rc
 
     def setTeam(self, tdKey: TeamDeclarationKey):
