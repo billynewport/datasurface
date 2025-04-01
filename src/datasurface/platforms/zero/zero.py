@@ -5,11 +5,15 @@
 
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
     ValidationProblem, ProblemSeverity, PlatformPipelineGraph, DataPlatformGraphHandler, Credential, CredentialStore, PostgresDatabase, KafkaServer
+from typing import Any
 
 
 class ZeroPlatformExecutor(DataPlatformExecutor):
     def __init__(self):
         super().__init__()
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__}
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         pass
@@ -39,6 +43,17 @@ class ZeroDataPlatform(DataPlatform):
         self.credStoreName: str = credentialStore.name
         self.kafkaServer: KafkaServer = kafkaServer
         self.mergeStore: PostgresDatabase = mergeStore
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update(
+            {
+                "credStoreName": self.credStoreName,
+                "kafkaServer": self.kafkaServer.to_json(),
+                "mergeStore": self.mergeStore.to_json()
+            }
+        )
+        return rc
 
     def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:
         return {CloudVendor.PRIVATE}

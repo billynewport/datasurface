@@ -6,7 +6,7 @@
 # These tests are used to test the JSON serialization and deserialization of the DSL objects.
 
 import unittest
-from datasurface.md import Ecosystem, GovernanceZone, Datastore, Team
+from datasurface.md import Ecosystem, GovernanceZone, Datastore, Team, Workspace
 from datasurface.md import DataType, ArrayType, Boolean, MapType, StructType, SmallInt, IEEE64, Timestamp, Date, Decimal, VarChar, NVarChar
 
 from tests.nwdb.eco import createEcosystem
@@ -144,6 +144,63 @@ class TestDataStoreJSON(unittest.TestCase):
         self.assertEqual(fax_type["maxSize"], 24)
         self.assertEqual(fax["nullable"], True)
         self.assertEqual(fax["primaryKey"], False)
+
+    def test_WorkspaceJSON(self):
+        eco: Ecosystem = createEcosystem()
+        gzUSA: GovernanceZone = eco.getZoneOrThrow("USA")
+        nwTeam: Team = gzUSA.getTeamOrThrow("NorthWindTeam")
+        workspace: Workspace = nwTeam.workspaces["ProductLiveAdhocReporting"]
+        workspaceJSON: dict[str, Any] = workspace.to_json()
+
+        # Grab the Workspace ProductLiveAdhocReporting
+        self.assertTrue("name" in workspaceJSON)
+        self.assertEqual(workspaceJSON["name"], "ProductLiveAdhocReporting")
+
+        # Check the DatasetGroup LiveProducts is present
+        self.assertTrue("datasetGroups" in workspaceJSON)
+        datasetGroups: dict[str, Any] = workspaceJSON["datasetGroups"]
+        self.assertTrue("LiveProducts" in datasetGroups)
+        liveProducts: dict[str, Any] = datasetGroups["LiveProducts"]
+        self.assertTrue("name" in liveProducts)
+        self.assertEqual(liveProducts["name"], "LiveProducts")
+
+        # Check the DatasetSink NW_Data is present
+        self.assertTrue("sinks" in liveProducts)
+        sinks: dict[str, Any] = liveProducts["sinks"]
+
+        # Check there is a sink for NW_Data#products, NW_Data#customers and NW_Data#suppliers
+        products: dict[str, Any] = sinks["NW_Data:products"]
+        self.assertTrue("storeName" in products)
+        self.assertEqual(products["storeName"], "NW_Data")
+        self.assertTrue("datasetName" in products)
+        self.assertEqual(products["datasetName"], "products")
+        self.assertTrue("deprecationsAllowed" in products)
+        self.assertEqual(products["deprecationsAllowed"], "NEVER")
+
+        # Check there is a sink for NW_Data#customers
+        customers: dict[str, Any] = sinks["NW_Data:customers"]
+        self.assertTrue("storeName" in customers)
+        self.assertEqual(customers["storeName"], "NW_Data")
+        self.assertTrue("datasetName" in customers)
+        self.assertEqual(customers["datasetName"], "customers")
+        self.assertTrue("deprecationsAllowed" in customers)
+        self.assertEqual(customers["deprecationsAllowed"], "NEVER")
+
+        # Check there is a sink for NW_Data#suppliers
+        suppliers: dict[str, Any] = sinks["NW_Data:suppliers"]
+        self.assertTrue("storeName" in suppliers)
+        self.assertEqual(suppliers["storeName"], "NW_Data")
+        self.assertTrue("datasetName" in suppliers)
+        self.assertEqual(suppliers["datasetName"], "suppliers")
+        self.assertTrue("deprecationsAllowed" in suppliers)
+        self.assertEqual(suppliers["deprecationsAllowed"], "NEVER")
+
+        # Check there is a fixed chooser for LegacyA
+        self.assertTrue("platformMD" in liveProducts)
+        chooser: dict[str, Any] = liveProducts["platformMD"]
+        self.assertTrue("dataPlatformName" in chooser)
+        self.assertEqual(chooser["dataPlatformName"], "LegacyA")
+        self.assertEqual(chooser["_type"], "LegacyDatPlatformChooser")
 
     def test_EveryDataTypeHasJSON(self):
         # Check bounded ArrayType

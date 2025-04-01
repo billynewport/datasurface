@@ -5189,9 +5189,12 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         return f"DatasetGroup({self.name})"
 
 
-class TransformerTrigger:
+class TransformerTrigger(JSONable):
     def __init__(self, name: str):
         self.name: str = name
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
@@ -5209,8 +5212,12 @@ class TimedTransformerTrigger(TransformerTrigger):
         return isinstance(o, TimedTransformerTrigger) and self.trigger == o.trigger and super().__eq__(o)
 
 
-class CodeArtifact(ABC):
+class CodeArtifact(JSONable):
     """This defines a piece of code which can be used to transform data in a workspace"""
+
+    @abstractmethod
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__}
 
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
@@ -5230,6 +5237,17 @@ class PythonCodeArtifact(CodeArtifact):
         self.envVars: dict[str, str] = envVars
         self.requiredVersion: str = requiredVersion
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update(
+            {
+                "requirements": self.requirements,
+                "envVars": self.envVars,
+                "requiredVersion": self.requiredVersion
+            }
+        )
+        return rc
+
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         # TODO more
         pass
@@ -5244,11 +5262,15 @@ class PythonCodeArtifact(CodeArtifact):
             return False
 
 
-class CodeExecutionEnvironment(UserDSLObject):
+class CodeExecutionEnvironment(UserDSLObject, JSONable):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
     def __init__(self, loc: set[LocationKey]):
         UserDSLObject.__init__(self)
         self.location: set[LocationKey] = loc
+
+    @abstractmethod
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "locations": [loc.to_json() for loc in self.location]}
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, CodeExecutionEnvironment) and self.location == o.location
@@ -5276,6 +5298,16 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
         self.credential: Credential = cred
         """This is the credential used to access the Kubernetes cluster"""
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update(
+            {
+                "hostName": self.hostName,
+                "credential": self.credential.to_json()
+            }
+        )
+        return rc
+
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         super().lint(eco, tree)
         if not is_valid_hostname_or_ip(self.hostName):
@@ -5287,7 +5319,7 @@ class KubernetesEnvironment(CodeExecutionEnvironment):
         return isinstance(ca, PythonCodeArtifact)
 
 
-class DataTransformer(ANSI_SQL_NamedObject, Documentable):
+class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This allows new data to be produced from existing data. The inputs to the transformer are the
     datasets in the workspace and the output is a Datastore associated with the transformer. The transformer
     will be triggered using the specified trigger policy"""
@@ -5302,6 +5334,18 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable):
         self.code: CodeArtifact = code
         self.codeEnv: CodeExecutionEnvironment = codeEnv
         self.documentation = doc
+
+    def to_json(self) -> dict[str, Any]:
+        json_dict: dict[str, Any] = {
+            "name": self.name,
+            "outputDatastore": self.outputDatastore.to_json(),
+            "trigger": self.trigger.to_json(),
+            "code": self.code.to_json(),
+            "codeEnv": self.codeEnv.to_json(),
+        }
+        if self.documentation:
+            json_dict["documentation"] = self.documentation.to_json()
+        return json_dict
 
     def lint(self, eco: Ecosystem, ws: 'Workspace', tree: ValidationTree):
         ANSI_SQL_NamedObject.nameLint(self, tree)
@@ -5358,13 +5402,16 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
     def to_json(self) -> dict[str, Any]:
         json_dict: dict[str, Any] = {
             "name": self.name,
-            "dsgs": {name: dsg.to_json() for name, dsg in self.dsgs.items()},
+            "datasetGroups": {name: dsg.to_json() for name, dsg in self.dsgs.items()},
             "productionStatus": self.productionStatus.name,
+
             "deprecationStatus": {
                 "status": self.deprecationStatus.status.name,
                 "documentation": self.deprecationStatus.documentation.to_json() if self.deprecationStatus.documentation else None
             }
         }
+        if self.dataTransformer:
+            json_dict["dataTransformer"] = self.dataTransformer.to_json()
         return json_dict
 
     def setTeam(self, key: TeamDeclarationKey):

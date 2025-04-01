@@ -142,6 +142,21 @@ class LegacyDataTransformer(CodeExecutionEnvironment):
         self.doc: Documentation = doc
         """The documentation for the DataTransformer"""
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update(
+            {
+                "name": self.name,
+            }
+        )
+        if self.doc:
+            rc.update(
+                {
+                    "doc": self.doc.to_json()
+                }
+            )
+        return rc
+
     def isCodeArtifactSupported(self, eco: Ecosystem, ca: CodeArtifact) -> bool:
         """This is a no-op DataTransformer, it's always supported"""
         return True
