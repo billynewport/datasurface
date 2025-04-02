@@ -14,24 +14,20 @@ We're building a REST API to the datasurface models. This is being packaged as a
 
 The way this would be used is as a sidekick container in a Kubernetes job for example. The sidekick or init container runs with a copy of the model checked out of the repository. Then it runs on a localhost and the job can query the model easily. If the job is written in python then it can be consumed directly.
 
-## Phase 2: Private Compute Batch/Streaming Support using Kafka Connect/Confluent (IN PROGRESS)
+## Phase 2: Private Compute Batch/Streaming Support using Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
 
-This is a simple DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is mostly used to flesh out DataSurface. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler.
+This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources.
 
 You can read about it [here](docs/zero/README.md).
 
-## Phase 2: Amazon AWS support
+## Phase 3: Amazon AWS support
 
-This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md). The intention is to render a terraform IaC definition of the total pipeline in to a github branch which Terraform is watching. As the branch changes, Terraform will apply the changes to the infrastructure.
+This will be a port of the ZeroDataPlatform to AWS leveraging AWS Glue for job scheduling and Redshift for storage. It will leverage AWS DMS for CDC.
 
-Thus, we have a github action looking for changes on the main branch and then generating the IaC for its, committing that to a different branch in Github which terraform is watching. This will allow the infrastructure to be updated in a controlled manner.
+## Phase 3:  Batch Microsoft Azure Data Platform
 
-## Phase 2:  Batch Microsoft Azure Data Platform (paused)
+This will be a port of the ZeroDataPlatform to Azure leveraging Azure Data Factory for job scheduling and Azure SQL for storage. It will leverage Azure Event Hubs for CDC.
 
-This will allow an ecosystem to be rendered on top of Microsoft Azure. It will allow data stored in Azure data containers to be fed to Azure hosted data containers for consumers to use. It will automatically provision tables, entitlements and feed the data consumers need. It will be batch based. Expect latencies measured in the single digit minutes. This will support for Azure SQL Server instances, Azure managed SQL server instances and Lakehouse. It will support CDC as the primary ingestion mechanism.
-
-This DataPlatform will generate a bicep definition of the total pipeline for an Ecosystem which can then be used to maintain the data pipelines for the ecosystem on Azure. Periodically, the operation team can generate another bicep definition of the Ecosystem and then push this against the current infrastructure. Once the current infrastructure has been updated to match the new bicep definition then another revision can be pushed.
-
-## Phase 3: Federated Data platform support
+## Phase 4: Federated Data platform support
 
 This allows an ecosystem to be distributed across data producers and consumers using different platforms and have it work seamlessly. The Ecosystem manages the data pipelines across multiple data platforms as well as enforces governance restrictions on what data can be stored where.
