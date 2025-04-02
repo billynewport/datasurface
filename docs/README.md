@@ -61,7 +61,10 @@ A team is associated with a specific repository to manage changes.
 
 Data is represented as Datastores which are collections of Datasets. A dataset can be thought of as a single collection of homogeneous data with a common schema describing all records in that dataset. A datastore is a collection of these datasets which are ingested together into the ecosystem. A single physical database might have several data stores defined on it. Each datastore having datasets corresponding to tables within the database. Each data store is pointed at the same database but may use different credentials for reading the data and use different schedules or approaches for ingesting the data into the ecosystem.
 
-##### Consuming data, Workspaces and dataplatforms
+##### Consuming data, Workspaces, reader security and dataplatforms
+
+* Workspace reader security [Security.md](Security.md)
+* DataPlatforms [DataPlatform.md](DataPlatform.md)
 
 ## Defining an ecosystem
 

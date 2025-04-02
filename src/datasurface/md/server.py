@@ -1,3 +1,8 @@
+"""
+// Copyright (c) William Newport
+// SPDX-License-Identifier: BUSL-1.1
+"""
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
