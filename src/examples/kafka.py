@@ -7,7 +7,8 @@ from datasurface.md import Ecosystem, GitLabRepository, PlainTextDocumentation, 
 from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
 from datasurface.md import CronTrigger, IngestionConsistencyType, SimpleDC, SimpleDCTypes, LocalFileCredentialStore
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
-from datasurface.platforms.simpledp.simple import ZeroDataPlatform
+from datasurface.platforms.simpledp.simple import SimpleDataPlatform
+from datasurface.md import PostgresDatabase
 
 
 def createEcosystem() -> Ecosystem:
@@ -30,17 +31,18 @@ def createEcosystem() -> Ecosystem:
             "Home",
             GitLabRepository(gitLabServer, "demo/kafka_example", "HomeMain")
             ),
-        ZeroDataPlatform(
+        SimpleDataPlatform(
             "KafkaExample",
             PlainTextDocumentation("This is an example of a Kafka data platform"),
             LocalFileCredentialStore(
                 "HomeLab",
                 {LocationKey("HomeLab:USA/Home")},
                 "/run/secrets"),
-            "credentialKey.txt",  # This is a credential to use to connect to kafka
-            "http://localhost:9000",  # S3 compatible endpoint
-            "staging",  # Bucket name for staging files
-            "data"  # Bucket name for data files
+            PostgresDatabase(
+                "postgres",
+                HostPortPair("localhost", 5432),
+                {LocationKey("HomeLab:USA/Home")},
+                "postgres"),
             )
         )
 

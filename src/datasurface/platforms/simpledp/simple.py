@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
-    ValidationProblem, ProblemSeverity, PlatformPipelineGraph, DataPlatformGraphHandler, Credential, CredentialStore, PostgresDatabase, KafkaServer
+    PlatformPipelineGraph, DataPlatformGraphHandler, CredentialStore, PostgresDatabase
 from typing import Any
 
 
@@ -31,17 +31,16 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
 
 
 class SimpleDataPlatform(DataPlatform):
-    """This defines the simple data platform. It can consume data from sources and write them to a postgres based merge store. It has the use of a kafka connect server as well as the postgres"""
+    """This defines the simple data platform. It can consume data from sources and write them to a postgres based merge store.
+      It has the use of a postgres database for staging and merge tables as well as Workspace views"""
     def __init__(
             self,
             name: str,
             doc: Documentation,
             credentialStore: CredentialStore,
-            kafkaServer: KafkaServer,
             mergeStore: PostgresDatabase):
         super().__init__(name, doc, SimplePlatformExecutor(), credentialStore)
         self.credStoreName: str = credentialStore.name
-        self.kafkaServer: KafkaServer = kafkaServer
         self.mergeStore: PostgresDatabase = mergeStore
 
     def to_json(self) -> dict[str, Any]:
@@ -49,7 +48,6 @@ class SimpleDataPlatform(DataPlatform):
         rc.update(
             {
                 "credStoreName": self.credStoreName,
-                "kafkaServer": self.kafkaServer.to_json(),
                 "mergeStore": self.mergeStore.to_json()
             }
         )
@@ -59,7 +57,7 @@ class SimpleDataPlatform(DataPlatform):
         return {CloudVendor.PRIVATE}
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
-        pass
+        return False
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         super().lint(eco, tree)
