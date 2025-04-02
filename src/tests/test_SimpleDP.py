@@ -5,7 +5,7 @@
 
 import unittest
 from datasurface.md import Ecosystem, GitHubRepository, PlainTextDocumentation
-from datasurface.platforms.zero import ZeroDataPlatform
+from datasurface.platforms.simpledp import SimpleDataPlatform
 
 
 class TestZero(unittest.TestCase):
@@ -16,8 +16,8 @@ class TestZero(unittest.TestCase):
         eco: Ecosystem = Ecosystem(
             "TestZero",
             GitHubRepository("billynewport/test_zero", "main"),
-            ZeroDataPlatform(
-                "Zero",
+            SimpleDataPlatform(
+                "Simple",
                 PlainTextDocumentation("Test Docs"),
                 "stagingBucketName",
                 "dataBucketName",

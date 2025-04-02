@@ -14,5 +14,7 @@ alwaysApply: false
 - My maximum line length is set to 170 characters so please split lines so they are under 170 characters
 - All the documentation is stored in the docs folder as markdown files.
 - There is a developer diary showing their thinking and decisions in Diary/BillyN, there are monthly markdown files updated constantly.
+- I always use classes for my pytest test cases and I use unittest for my testing framework. I name the test classes with a prefix of Test
+
 
 

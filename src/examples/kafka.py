@@ -7,7 +7,7 @@ from datasurface.md import Ecosystem, GitLabRepository, PlainTextDocumentation, 
 from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
 from datasurface.md import CronTrigger, IngestionConsistencyType, SimpleDC, SimpleDCTypes, LocalFileCredentialStore
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
-from datasurface.platforms.zero.zero import ZeroDataPlatform
+from datasurface.platforms.simpledp.simple import ZeroDataPlatform
 
 
 def createEcosystem() -> Ecosystem:

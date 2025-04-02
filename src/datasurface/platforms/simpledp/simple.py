@@ -8,7 +8,7 @@ from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ec
 from typing import Any
 
 
-class ZeroPlatformExecutor(DataPlatformExecutor):
+class SimplePlatformExecutor(DataPlatformExecutor):
     def __init__(self):
         super().__init__()
 
@@ -19,7 +19,7 @@ class ZeroPlatformExecutor(DataPlatformExecutor):
         pass
 
 
-class ZeroDataPlatformHandler(DataPlatformGraphHandler):
+class SimpleDataPlatformHandler(DataPlatformGraphHandler):
     def __init__(self, graph: PlatformPipelineGraph) -> None:
         super().__init__(graph)
 
@@ -30,8 +30,8 @@ class ZeroDataPlatformHandler(DataPlatformGraphHandler):
         pass
 
 
-class ZeroDataPlatform(DataPlatform):
-    """This defines the zero data platform. It can consume data from sources and write them to a postgres based merge store. It has the use of a kafka connect server as well as the postgres"""
+class SimpleDataPlatform(DataPlatform):
+    """This defines the simple data platform. It can consume data from sources and write them to a postgres based merge store. It has the use of a kafka connect server as well as the postgres"""
     def __init__(
             self,
             name: str,
@@ -39,7 +39,7 @@ class ZeroDataPlatform(DataPlatform):
             credentialStore: CredentialStore,
             kafkaServer: KafkaServer,
             mergeStore: PostgresDatabase):
-        super().__init__(name, doc, ZeroPlatformExecutor(), credentialStore)
+        super().__init__(name, doc, SimplePlatformExecutor(), credentialStore)
         self.credStoreName: str = credentialStore.name
         self.kafkaServer: KafkaServer = kafkaServer
         self.mergeStore: PostgresDatabase = mergeStore
@@ -65,4 +65,4 @@ class ZeroDataPlatform(DataPlatform):
         super().lint(eco, tree)
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
-        return ZeroDataPlatformHandler(graph)
+        return SimpleDataPlatformHandler(graph)
