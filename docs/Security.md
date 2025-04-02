@@ -6,6 +6,12 @@ Different DataSurface customers will have different security requirements. Datas
 
 Security systems will work with a DataPlatform to provide the necessary permissions to DataPlatform managed objects in a DataContainer. Thus, the security system will track for a given Workspace, which users are allowed to read that data in the Workspace. The security system can ask a DataPlatform for the list of consumer objects in a specific DataContainer for a Workspace. The security system can then create the ACLs needed to implement what the customer has asked for.
 
+A GovernanceZone will specify the SecurityModule that should be used on all Workspaces owned by Teams managed by that zone. If a firm used multiple SecurityModules then a seperate zone should be used for each. This means Workspaces are managed by exactly one SecurityModule.
+
+The SecurityModule DSLs will be managed by the GovernanceZone git repo. SecurityTeam can create the DSL artifact and then submit a pull request to the GovernanceZone to get it merged.
+
+Teams can control how a Workspace is controlled by the SecurityModules for the Zone. There may be policies indicating that a Workspace containing any non public data must be controlled by the SecurityModule.
+
 ## An example to work through
 
 A customer has an LDAP directory with a list of groups containing kerberos ids. There is a database table which contains a list of applications and which LDAP groups can be used for different roles for that application, including access to data.
@@ -15,6 +21,7 @@ The customer will provide a security mapping as a DSL in git. This security mapp
 The security system will then run multiple times a day to make sure the permissions in the database match those reflected by the DSL in the live Datasurface model and the views in the database.
 
 TODO, once ZeroDataPlatform is working then we'll do security next.
+
 
 ## Security auditing
 

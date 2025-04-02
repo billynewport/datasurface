@@ -20,6 +20,14 @@ This is a powerful DataPlatform that uses a Postgres instance to store staging d
 
 You can read about it [here](docs/zero/README.md).
 
+## Phase 4: SecurityModule implementation
+
+Security is about who can read data in a Workspace. There is no single solution to this problem that will work for all use cases. We will provide an extensible framework for SecurityModules to be written and used. We will provide a default implementation. DataPlatforms and SecurityModules are independent components. A SecurityModule can work with compatible DataPlatforms. Compatible here means that the SecurityModule and the DataPlatform need to share compatible DataContainers for hosting Workspaces. For example, a DataPlatform which uses Snowflake databases for Workspaces will be compatible with any SecurityModule which supports Snowflake. The initial security module will support PostGres in line with the initial DataPlatform also supporting Postgres. By explicitly choosing a SQL based DataContainer, this work should be easier to extend to similar SQL databases.
+
+## Conclusion of Phase 4 and 5 is a working system
+
+Once we have a working DataPlatform and SecurityModule, users will be able to use DataSurface to build end to end systems.
+
 ## Future DataPlatforms
 
 Once the ZeroDataPlatform is working then we can start to look at other DataPlatforms. The candidates are:
