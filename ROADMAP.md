@@ -14,20 +14,28 @@ We're building a REST API to the datasurface models. This is being packaged as a
 
 The way this would be used is as a sidekick container in a Kubernetes job for example. The sidekick or init container runs with a copy of the model checked out of the repository. Then it runs on a localhost and the job can query the model easily. If the job is written in python then it can be consumed directly.
 
-## Phase 2: Private Compute Batch/Streaming Support using Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
+## Phase 3: ZeroDataPlatform Batch/Streaming Support using Postgres,Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
 
 This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources.
 
 You can read about it [here](docs/zero/README.md).
 
-## Phase 3: Amazon AWS support
+## Future DataPlatforms
 
-This will be a port of the ZeroDataPlatform to AWS leveraging AWS Glue for job scheduling and Redshift for storage. It will leverage AWS DMS for CDC.
+Once the ZeroDataPlatform is working then we can start to look at other DataPlatforms. The candidates are:
 
-## Phase 3:  Batch Microsoft Azure Data Platform
+* Databricks
 
-This will be a port of the ZeroDataPlatform to Azure leveraging Azure Data Factory for job scheduling and Azure SQL for storage. It will leverage Azure Event Hubs for CDC.
+  This will use their Schema catalog and Delta lake for storage. It will try to keep using SQL rather than switching to Spark.
 
-## Phase 4: Federated Data platform support
+* AWS Glue/Athena
 
-This allows an ecosystem to be distributed across data producers and consumers using different platforms and have it work seamlessly. The Ecosystem manages the data pipelines across multiple data platforms as well as enforces governance restrictions on what data can be stored where.
+  This will use their Schema registry and S3 for storage. It will use their Glue job scheduler. We will try to use iceberg tables and Athena for the SQL engine
+
+* Snowflake
+
+  This will use their Schema registry and their Object storage for storage. It will use their job scheduler.
+
+* Azure SQL
+
+  This will use their Schema registry and their Blob storage for storage. It will use their Data Factory for job scheduling.
