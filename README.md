@@ -15,14 +15,11 @@
         |-- src                 # Source code
 |-- src
     |-- datasurface             # Contains the DataSurface Catalog Python code
-        |-- api                 # Contains the DataSurface Catalog API GRPC Python code for serving models
-            |-- Docker          # Contains the docker files to build the Docker Container for the GRPC server
         |-- codegen             # Contains code to generate python model code representing SQL table schemas
         |-- handler             # Contains the code to validate model changes and verify that pull requests are valid
         |-- md                  # Contains the model metadata code itself. This is the model of the data ecosystem
         |-- platforms           # Contains the DataSurface DataPlatform Python code
-            |-- aws             # Contains the AWS Batch DataPlatform Python codeI have a 
-            |-- azure           # Contains the Azure Batch DataPlatform Python code
+            |-- zero            # Contains the Zero DataPlatform Python code
     |-- tests                   # Contains the tests for the DataSurface Catalog Python code
 ```
 

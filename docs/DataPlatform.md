@@ -56,7 +56,7 @@ A data platform is a mechanism to handle the follow chores:
 
 ## Example DataPlatform implementations
 
-DataSurface is provided with a AWS Batch DataPlatform. You can read about it [here](aws/design.md).
+DataSurface is provided with a ZeroDataPlatform. You can read about it [here](zero/README.md).
 
 ## Packaging DataPlatforms as Docker containers
 

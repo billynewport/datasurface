@@ -16,15 +16,17 @@ The way this would be used is as a sidekick container in a Kubernetes job for ex
 
 ## Phase 2: Private Compute Batch/Streaming Support using Kafka Connect/Confluent (IN PROGRESS)
 
-This will be a batch/streaming data platform that can run on private compute using Kafka Connect/Minio as its backbone or the cloud using Confluent/S3. The code for this is in another private repository for now until it's ready.
+This is a simple DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is mostly used to flesh out DataSurface. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler.
 
-## Phase 2: Amazon AWS support (Paused)
+You can read about it [here](docs/zero/README.md).
+
+## Phase 2: Amazon AWS support
 
 This will be a batch data platform that can run on AWS. It will support AWS Glue, AWS Aurora, Athena, Lakehouse, and AWS Redshift. This is in progress and will be the first DataPlatform delivered. You can read about it [here](docs/aws/design.md). The intention is to render a terraform IaC definition of the total pipeline in to a github branch which Terraform is watching. As the branch changes, Terraform will apply the changes to the infrastructure.
 
 Thus, we have a github action looking for changes on the main branch and then generating the IaC for its, committing that to a different branch in Github which terraform is watching. This will allow the infrastructure to be updated in a controlled manner.
 
-## Phase 2:  Batch Microsoft Azure Data Platform
+## Phase 2:  Batch Microsoft Azure Data Platform (paused)
 
 This will allow an ecosystem to be rendered on top of Microsoft Azure. It will allow data stored in Azure data containers to be fed to Azure hosted data containers for consumers to use. It will automatically provision tables, entitlements and feed the data consumers need. It will be batch based. Expect latencies measured in the single digit minutes. This will support for Azure SQL Server instances, Azure managed SQL server instances and Lakehouse. It will support CDC as the primary ingestion mechanism.
 
@@ -33,15 +35,3 @@ This DataPlatform will generate a bicep definition of the total pipeline for an 
 ## Phase 3: Federated Data platform support
 
 This allows an ecosystem to be distributed across data producers and consumers using different platforms and have it work seamlessly. The Ecosystem manages the data pipelines across multiple data platforms as well as enforces governance restrictions on what data can be stored where.
-
-## Phase: Streaming Microsoft Azure Data Platform
-
-This will allow an ecosystem to be rendered top of Microsoft Azure. Streaming and batch consumers will be supported at this time. Consumers can have data delivered with low latency when required and in batch mode when not. Apache Beam will likely feature in this for implementing a streaming pipeline including transformations.
-
-## Phase: Azure SnowFlake support as a data container
-
-This will support Snowflake using either external tables using lakehouse or native tables. Based on experience, external tables will be supported first.
-
-## Phase: Milestoned data support
-
-This will produce fully milestoned versions of data from data producers. This will maintain a linked list of records for every key in every dataset. The linked list will provide the latest record if one exists as well as every version of the record for that key that existed before.
