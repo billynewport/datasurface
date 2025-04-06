@@ -6,6 +6,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Header, Request
 from dataclasses import dataclass
+from pydantic import BaseModel
 import importlib
 import sys
 import os
@@ -15,6 +16,43 @@ from typing import Optional, Dict, Any, List, AsyncGenerator, Callable, Protocol
 import logging
 from enum import Enum
 from datasurface.md import Ecosystem, JSONable
+
+
+# Pydantic models for API documentation
+class QueryRequestModel(BaseModel):
+    """API schema for query requests"""
+    command: str
+    params: Dict[str, Any]
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "command": "list_workspaces",
+                    "params": {}
+                },
+                {
+                    "command": "get_dataset",
+                    "params": {
+                        "store_name": "my_store",
+                        "dataset_name": "my_dataset"
+                    }
+                }
+            ]
+        }
+    }
+
+
+class QueryResponseModel(BaseModel):
+    """API schema for query responses"""
+    workspaces: Optional[List[Dict[str, Any]]] = None
+    dataset: Optional[Dict[str, Any]] = None
+    workspace: Optional[Dict[str, Any]] = None
+    teams: Optional[List[str]] = None
+    team: Optional[Dict[str, Any]] = None
+    datastore: Optional[Dict[str, Any]] = None
+    datastores: Optional[List[str]] = None
+    dependencies: Optional[List[Dict[str, Any]]] = None
 
 
 class JsonSerializable(Protocol):
@@ -193,12 +231,25 @@ async def health_check() -> Dict[str, str]:
     }
 
 
-@app.post("/api/query")
+@app.post("/api/query", response_model=QueryResponseModel)
 async def handle_query(
     request: Request,
     session_id: Optional[str] = Header(None),
     model_version: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
+    """
+    Execute a query against the model server.
+
+    The query can be one of:
+    - list_workspaces: List all workspaces
+    - get_dataset: Get details of a specific dataset
+    - get_workspace: Get details of a specific workspace
+    - list_teams: List all teams
+    - get_team: Get details of a specific team
+    - get_datastore: Get details of a specific datastore
+    - list_datastores: List all datastores
+    - get_dependencies: Get dependencies for a datastore
+    """
     if not model_server:
         raise HTTPException(status_code=503, detail="Server not ready")
 
@@ -207,7 +258,7 @@ async def handle_query(
             status_code=400,
             detail=f"Version mismatch. Server version: {model_server.version}"
         )
-    
+
     try:
         body = await request.json()
         query = QueryRequest.from_dict(body)
