@@ -675,6 +675,7 @@ L = TypeVar('L')
 
 class Literal(JSONable, Generic[L]):
     def __init__(self, value: L) -> None:
+        JSONable.__init__(self)
         self.value: L = value
 
     def to_json(self) -> dict[str, Any]:
@@ -902,6 +903,7 @@ class DataType(UserDSLObject, JSONable):
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         pass
 
     def __eq__(self, other: object) -> bool:
@@ -1866,6 +1868,7 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
     def __init__(self, name: str, dataType: DataType, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
         super().__init__(name)
         Documentable.__init__(self, None)
+        JSONable.__init__(self)
         self.type: DataType = dataType
         self.primaryKey: PrimaryKeyStatus = DEFAULT_primaryKey
         self.classification: Optional[list[DataClassification]] = None
@@ -1933,6 +1936,7 @@ class AttributeList(UserDSLObject, JSONable):
     """A list of column names."""
     def __init__(self, colNames: list[str]) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.colNames: List[str] = []
         for col in colNames:
             self.colNames.append(col)
@@ -1987,6 +1991,7 @@ class Schema(Documentable, UserDSLObject, JSONable):
     def __init__(self) -> None:
         Documentable.__init__(self, None)
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
@@ -2364,6 +2369,7 @@ class InfrastructureLocation(Documentable, UserDSLObject, JSONable):
     def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
         Documentable.__init__(self, None)
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
 
         self.name: str = name
         self.key: Optional[InfraLocationKey] = None
@@ -2493,6 +2499,7 @@ class InfrastructureVendor(Documentable, UserDSLObject, JSONable):
     def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
         Documentable.__init__(self, None)
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.name: str = name
         self.key: Optional[InfrastructureVendorKey] = None
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
@@ -2623,6 +2630,7 @@ class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
 class EncryptionSystem(JSONable):
     """This describes"""
     def __init__(self) -> None:
+        JSONable.__init__(self)
         self.name: Optional[str] = None
         self.keyContainer: Optional['DataContainer'] = None
         """Are keys stored on site or at a third party?"""
@@ -2978,6 +2986,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
     def __init__(self, name: str, *args: Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
+        JSONable.__init__(self)
         self.originalSchema: Optional[Schema] = None
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
         self.policies: dict[str, StoragePolicy] = OrderedDict()
@@ -3169,6 +3178,7 @@ class Credential(UserDSLObject, JSONable):
     """These allow a client to connect to a service/server"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         pass
 
     def to_json(self) -> dict[str, Any]:
@@ -3275,6 +3285,7 @@ class CredentialStore(UserDSLObject, JSONable):
     """This is a credential store which stores credential data in a set of infra locations"""
     def __init__(self, name: str, locs: set['LocationKey']) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.name: str = name
         self.locs: set[LocationKey] = locs
 
@@ -3356,6 +3367,7 @@ class CaptureMetaData(UserDSLObject, JSONable):
 
     def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.singleOrMultiDatasetIngestion: Optional[IngestionConsistencyType] = None
         self.stepTrigger: Optional[StepTrigger] = None
         self.dataContainer: Optional[DataContainer] = None
@@ -3582,6 +3594,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
     def __init__(self, name: str, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
+        JSONable.__init__(self)
         self.datasets: dict[str, Dataset] = OrderedDict()
         self.key: Optional[DatastoreKey] = None
         self.cmd: Optional[CaptureMetaData] = None
@@ -3717,6 +3730,7 @@ class DatastoreCacheEntry:
 class DependentWorkspaces(JSONable):
     """This tracks a Workspaces dependent on a datastore"""
     def __init__(self, workSpace: 'Workspace'):
+        JSONable.__init__(self)
         self.workspace: Workspace = workSpace
         self.dependencies: set[DependentWorkspaces] = set()
 
@@ -3778,7 +3792,8 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def __init__(self, name: str, repo: Repository,
                  *args: Union['DataPlatform', Documentation, DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
-        super().__init__(repo)
+        GitControlledObject.__init__(self, repo)
+        JSONable.__init__(self)
         self.name: str = name
         self.key: EcosystemKey = EcosystemKey(self.name)
 
@@ -4166,7 +4181,8 @@ class UnknownVendorProblem(ValidationProblem):
 class LocationKey(UserDSLObject, JSONable):
     """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
     def __init__(self, locStr: str) -> None:
-        super().__init__()
+        UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.locStr: str = locStr
         self.loc: Optional[InfrastructureLocation] = None
 
@@ -4227,7 +4243,8 @@ class LocationKey(UserDSLObject, JSONable):
 class VendorKey(UserDSLObject, JSONable):
     """This is used to reference a vendor during DSL construction"""
     def __init__(self, vendor: str) -> None:
-        super().__init__()
+        UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.vendorString: str = vendor
         self.vendor: Optional[InfrastructureVendor] = None
 
@@ -4260,7 +4277,8 @@ class Team(GitControlledObject, JSONable):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
     def __init__(self, name: str, repo: Repository, *args: Union[Datastore, 'Workspace', Documentation, DataContainer]) -> None:
-        super().__init__(repo)
+        GitControlledObject.__init__(self, repo)
+        JSONable.__init__(self)
         self.name: str = name
         self.workspaces: dict[str, Workspace] = OrderedDict()
         self.dataStores: dict[str, Datastore] = OrderedDict()
@@ -4569,7 +4587,8 @@ class GovernanceZone(GitControlledObject, JSONable):
     def __init__(self, name: str, ownerRepo: Repository, *args: Union['InfraStructureLocationPolicy', 'InfraStructureVendorPolicy',
                                                                       StoragePolicy, DataClassificationPolicy, TeamDeclaration,
                                                                       Documentation, DataPlatformPolicy, InfraHardVendorPolicy]) -> None:
-        super().__init__(ownerRepo)
+        GitControlledObject.__init__(self, ownerRepo)
+        JSONable.__init__(self)
         self.name: str = name
         self.key: Optional[GovernanceZoneKey] = None
         self.teams: AuthorizedObjectManager[Team, TeamDeclaration] = AuthorizedObjectManager[Team, TeamDeclaration](
@@ -4799,6 +4818,7 @@ class DataPlatformExecutor(UserDSLObject, JSONable):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataPlatformExecutor)
@@ -4839,6 +4859,7 @@ class DataPlatform(Documentable, UserDSLObject, JSONable):
     def __init__(self, name: str, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
         Documentable.__init__(self, self.findObjectOfSpecificType(Documentation, *args))
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.name: str = name
         de: Optional[DataPlatformExecutor] = self.findObjectOfSpecificType(DataPlatformExecutor, *args)
         if de is None:
@@ -4912,6 +4933,7 @@ class DataPlatformKey(JSONable):
     """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
     resolved later at lint time."""
     def __init__(self, name: str) -> None:
+        JSONable.__init__(self)
         self.name: str = name
         self.platform: Optional[DataPlatform] = None
 
@@ -5196,6 +5218,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
 
 class TransformerTrigger(JSONable):
     def __init__(self, name: str):
+        JSONable.__init__(self)
         self.name: str = name
 
     def to_json(self) -> dict[str, Any]:
@@ -5220,6 +5243,9 @@ class TimedTransformerTrigger(TransformerTrigger):
 class CodeArtifact(JSONable):
     """This defines a piece of code which can be used to transform data in a workspace"""
 
+    def __init__(self):
+        JSONable.__init__(self)
+
     @abstractmethod
     def to_json(self) -> dict[str, Any]:
         return {"_type": self.__class__.__name__}
@@ -5238,6 +5264,7 @@ class CodeArtifact(JSONable):
 class PythonCodeArtifact(CodeArtifact):
     """This describes a python job and its dependencies"""
     def __init__(self, requirements: list[str], envVars: dict[str, str], requiredVersion: str) -> None:
+        super().__init__()
         self.requirements: list[str] = requirements
         self.envVars: dict[str, str] = envVars
         self.requiredVersion: str = requiredVersion
@@ -5271,6 +5298,7 @@ class CodeExecutionEnvironment(UserDSLObject, JSONable):
     """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
     def __init__(self, loc: set[LocationKey]):
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.location: set[LocationKey] = loc
 
     @abstractmethod
@@ -5332,6 +5360,7 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
                  codeEnv: CodeExecutionEnvironment, doc: Optional[Documentation] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
+        JSONable.__init__(self)
         # This Datastore is defined here and has a CaptureMetaData automatically added. Do not specify a CMD in the Datastore
         # This is done in the Team.addWorkspace method
         self.outputDatastore: Datastore = store
@@ -5392,6 +5421,7 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
                                                DeprecationInfo, DataTransformer]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
+        JSONable.__init__(self)
         self.dsgs: dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.dataContainer: Optional[DataContainer] = None
         self.productionStatus: ProductionStatus = ProductionStatus.NOT_PRODUCTION
