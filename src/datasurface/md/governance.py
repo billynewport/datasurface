@@ -3570,6 +3570,12 @@ class KafkaIngestion(StreamingIngestion):
             self.kafkaServer.lint(eco, kTree)
 
 
+class DatasetPerTopicKafkaIngestion(KafkaIngestion):
+    """This is a KafkaIngestion which uses a separate topic for each dataset"""
+    def __init__(self, kafkaServer: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(kafkaServer, *args)
+
+
 class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
@@ -6126,8 +6132,6 @@ class UnsupportedDataContainer(ValidationProblem):
 
     def __hash__(self) -> int:
         return hash(self.description)
-
-
 class InfraStructureLocationPolicy(AllowDisallowPolicy[LocationKey]):
     """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
     def __init__(self, name: str, doc: Documentation, allowed: Optional[set[LocationKey]] = None,
@@ -6166,3 +6170,5 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
 
     def __hash__(self) -> int:
         return super().__hash__()
+
+

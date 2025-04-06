@@ -4,8 +4,8 @@
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Header
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Header, Request
+from dataclasses import dataclass
 import importlib
 import sys
 import os
@@ -38,9 +38,32 @@ class EcosystemCommand(str, Enum):
     GET_DEPENDENCIES = "get_dependencies"
 
 
-class QueryRequest(BaseModel):
+@dataclass
+class QueryRequest:
     command: EcosystemCommand
     params: Dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'QueryRequest':
+        if not data:
+            raise ValueError("Input must be a non-empty dictionary")
+
+        if 'command' not in data or 'params' not in data:
+            raise ValueError("Missing required fields: command, params")
+
+        try:
+            command = EcosystemCommand(data['command'])
+        except ValueError:
+            raise ValueError(f"Invalid command: {data['command']}")
+
+        params: Dict[str, Any] = data['params']
+        return cls(command=command, params=params)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "command": self.command,
+            "params": self.params
+        }
 
 
 class ModelServer:
@@ -172,7 +195,7 @@ async def health_check() -> Dict[str, str]:
 
 @app.post("/api/query")
 async def handle_query(
-    query: QueryRequest,
+    request: Request,
     session_id: Optional[str] = Header(None),
     model_version: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
@@ -184,5 +207,11 @@ async def handle_query(
             status_code=400,
             detail=f"Version mismatch. Server version: {model_server.version}"
         )
+    
+    try:
+        body = await request.json()
+        query = QueryRequest.from_dict(body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    return await model_server.execute_query(query.model_dump())
+    return await model_server.execute_query(query.to_dict())

@@ -95,7 +95,7 @@ class TestModelServer:
             command=EcosystemCommand.LIST_WORKSPACES,
             params={}
         )
-        response = self.test_client.post("/api/query", json=query.model_dump())
+        response = self.test_client.post("/api/query", json=query.to_dict())
         assert response.status_code == 200
         data = cast(Dict[str, List[str]], response.json())
         workspaces = data["workspaces"]
@@ -109,7 +109,7 @@ class TestModelServer:
             command=EcosystemCommand.LIST_DATASTORES,
             params={}
         )
-        response = self.test_client.post("/api/query", json=query.model_dump())
+        response = self.test_client.post("/api/query", json=query.to_dict())
         assert response.status_code == 200
         data = cast(Dict[str, List[str]], response.json())
         datastores = data["datastores"]
@@ -125,7 +125,7 @@ class TestModelServer:
             command=EcosystemCommand.LIST_DATASTORES,
             params={}
         )
-        response = self.test_client.post("/api/query", json=query.model_dump())
+        response = self.test_client.post("/api/query", json=query.to_dict())
         assert response.status_code == 200
         data = cast(Dict[str, list[str]], response.json())
         store_name: str = data["datastores"][0]  # Use the first store
@@ -137,7 +137,7 @@ class TestModelServer:
                 "store_name": store_name
             }
         )
-        response = self.test_client.post("/api/query", json=query.model_dump())
+        response = self.test_client.post("/api/query", json=query.to_dict())
         assert response.status_code == 200
         data = cast(Dict[str, Any], response.json())
         store = data["datastore"]
@@ -156,10 +156,10 @@ class TestModelServer:
             command=EcosystemCommand.GET_DATASET,
             params={
                 "store_name": store_name,
-                "dataset_name": dataset_name  # Replace with a known dataset name from your test data
+                "dataset_name": dataset_name
             }
         )
-        response = self.test_client.post("/api/query", json=query.model_dump())
+        response = self.test_client.post("/api/query", json=query.to_dict())
         # Note: This might need adjustment based on your test data
         assert response.status_code in [200, 404]  # 404 if dataset doesn't exist
         data = cast(Dict[str, List[str]], response.json())
@@ -172,7 +172,7 @@ class TestModelServer:
             command=EcosystemCommand.LIST_WORKSPACES,
             params={}
         )
-        response = self.test_client.post("/api/query", json=query.model_dump())
+        response = self.test_client.post("/api/query", json=query.to_dict())
         assert response.status_code == 200
         data = cast(Dict[str, List[str]], response.json())
         workspaces = data["workspaces"]
@@ -186,7 +186,7 @@ class TestModelServer:
 #                "workspace_name": workspaces[0]
 #            }
 #        )
-#        response = self.test_client.post("/api/query", json=query.model_dump())
+#        response = self.test_client.post("/api/query", json=query.to_dict())
 #        assert response.status_code == 200
 #        data = cast(Dict[str, Any], response.json())
 #        assert "workspace" in data
@@ -197,7 +197,9 @@ class TestModelServer:
             "command": "INVALID_COMMAND",
             "params": {}
         })
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 400  # Bad request for invalid command
+        data = cast(Dict[str, str], response.json())
+        assert "Invalid command" in data["detail"]
 
     def test_version_mismatch(self) -> None:
         """Test version mismatch handling."""
@@ -207,7 +209,7 @@ class TestModelServer:
         )
         response = self.test_client.post(
             "/api/query",
-            json=query.model_dump(),
+            json=query.to_dict(),
             headers={"model-version": "invalid_version"}
         )
         assert response.status_code == 400
