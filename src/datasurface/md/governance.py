@@ -2346,7 +2346,6 @@ class StoragePolicy(Policy['DataContainer']):
         stored in a specific container.'''
         return False
 
-
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
     def __init__(self, name: str, isMandatory: PolicyMandatedRule, doc: Optional[Documentation] = None,
@@ -5412,16 +5411,59 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
             self.trigger == o.trigger and self.code == o.code and self.codeEnv == o.codeEnv
 
 
+class WorkloadTier(Enum):
+    """This is a relative priority of a Workspace against other Workspaces. This priority propogates backwards to producers whose data a Workspace
+    uses. Thus, producers don't set the priority of their data, it's determined by the priority of whose is using it."""
+    CRITICAL = 0
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
+    UNKNOWN = 4
+
+
+class WorkspacePriority(UserDSLObject, ABC):
+
+    """This is a relative priority of a Workspace against other Workspaces. This priority propogates backwards to producers whose data a Workspace
+    uses. Thus, producers don't set the priority of their data, it's determined by the priority of whose is using it."""
+    def __init__(self):
+        super().__init__()
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+    @abstractmethod
+    def isMoreImportantThan(self, other: 'WorkspacePriority') -> bool:
+        """This checks if this priority is more important than the other priority"""
+        return False
+
+
+class PrioritizedWorkloadTier(WorkspacePriority):
+    """This uses a simple enum to determine priority"""
+    def __init__(self, priority: WorkloadTier):
+        super().__init__()
+        self.priority: WorkloadTier = priority
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.priority})"
+
+    def isMoreImportantThan(self, other: 'WorkspacePriority') -> bool:
+        if isinstance(other, PrioritizedWorkloadTier):
+            return self.priority.value < other.priority.value
+        else:
+            return super().isMoreImportantThan(other)
+
+
 class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
     """A collection of datasets used by a consumer for a specific use case. This consists of one or more groups of datasets with each set using
     the correct pipeline spec.
     Specific datasets can be present in multiple groups. They will be named differently in each group. The name needs to be ANSI SQL because
     it could be used as part of a SQL View/Table name in a Workspace database. Workspaces must have ecosystem unique names"""
     def __init__(self, name: str, *args: Union[DatasetGroup, DataContainer, Documentation, DataClassificationPolicy, ProductionStatus,
-                                               DeprecationInfo, DataTransformer]) -> None:
+                                               DeprecationInfo, DataTransformer, WorkspacePriority]) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         JSONable.__init__(self)
+        self.priority: WorkspacePriority = PrioritizedWorkloadTier(WorkloadTier.UNKNOWN)
         self.dsgs: dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.dataContainer: Optional[DataContainer] = None
         self.productionStatus: ProductionStatus = ProductionStatus.NOT_PRODUCTION
@@ -5452,9 +5494,12 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
     def setTeam(self, key: TeamDeclarationKey):
         self.key = WorkspaceKey(key, self.name)
 
-    def add(self, *args: Union[DatasetGroup, DataContainer, Documentation, DataClassificationPolicy, ProductionStatus, DeprecationInfo, DataTransformer]):
+    def add(self, *args: Union[DatasetGroup, DataContainer, Documentation, DataClassificationPolicy, ProductionStatus,
+                               DeprecationInfo, DataTransformer, WorkspacePriority]):
         for arg in args:
-            if (isinstance(arg, DatasetGroup)):
+            if (isinstance(arg, WorkspacePriority)):
+                self.priority = arg
+            elif (isinstance(arg, DatasetGroup)):
                 if (self.dsgs.get(arg.name) is not None):
                     raise ObjectAlreadyExistsException(f"Duplicate DatasetGroup {arg.name}")
                 self.dsgs[arg.name] = arg
@@ -5536,6 +5581,7 @@ class PipelineNode(InternalLintableObject):
         self.leftHandNodes: dict[str, PipelineNode] = dict()
         # This set of nodes depend on this node
         self.rightHandNodes: dict[str, PipelineNode] = dict()
+        self.priority: Optional[WorkspacePriority] = None
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}/{self.name}"
@@ -5547,6 +5593,14 @@ class PipelineNode(InternalLintableObject):
         """This records a node that depends on this node"""
         self.rightHandNodes[str(rhNode)] = rhNode
         rhNode.leftHandNodes[str(self)] = self
+
+    def setPriority(self, proposedPriority: WorkspacePriority):
+        """This sets the priority of this node. If the proposed priority is more important than the current priority then it is set."""
+        if (self.priority is not None):
+            if (not self.priority.isMoreImportantThan(proposedPriority)):
+                self.priority = proposedPriority
+        else:
+            self.priority = proposedPriority
 
 
 class ExportNode(PipelineNode):
@@ -5662,7 +5716,9 @@ class PlatformPipelineGraph(InternalLintableObject):
     all ingestion steps. Every ingestion should have a right hand side node which are exports to Workspaces.
     Exports will have a trigger for each dataset used by a DataTransformer. The trigger will be a join on all the exports to
     a single Workspace and will always trigger a DataTransformer node. The Datatransformer node will have an ingestion
-    node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore"""
+    node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore.
+
+    The priority of each node should be the highest priority of the Workspaces which depend on it."""
 
     def __init__(self, eco: Ecosystem, platform: DataPlatform):
         InternalLintableObject.__init__(self)
@@ -5671,10 +5727,6 @@ class PlatformPipelineGraph(InternalLintableObject):
         self.workspaces: dict[str, Workspace] = dict()
         # All DSGs per Platform
         self.roots: set[DSGRootNode] = set()
-        # All Datasets to be exported per asset per platform
-        # Views need to be aliased on top providing the Workspace/DSG named object for consumers to query
-        self.dataContainerExports: dict[DataContainer, set[DatasetSink]] = dict()
-
         # This tracks which DatasetGroups are consumers of a DataContainer. This is necessary because
         # The DataPlatform may need to create view objects for each DatasetSink in the DataContainer
         # pointed at the underlying raw table
@@ -5693,7 +5745,6 @@ class PlatformPipelineGraph(InternalLintableObject):
     def generateGraph(self):
         """This generates the pipeline graph for the platform. This is a directed graph with nodes representing
         ingestion, export, trigger, and data transformation operations"""
-        self.dataContainerExports = dict()
         self.dataContainerConsumers = dict()
         self.storesToIngest = set()
 
@@ -5701,33 +5752,29 @@ class PlatformPipelineGraph(InternalLintableObject):
         for dsg in self.roots:
             if dsg.workspace.dataContainer:
                 dataContainer: DataContainer = dsg.workspace.dataContainer
-                if self.dataContainerExports.get(dataContainer) is None:
-                    self.dataContainerExports[dataContainer] = set()
-                sinks: set[DatasetSink] = self.dataContainerExports[dataContainer]
-                for sink in dsg.dsg.sinks.values():
-                    sinks.add(sink)
                 if self.dataContainerConsumers.get(dataContainer) is None:
                     self.dataContainerConsumers[dataContainer] = set()
                 self.dataContainerConsumers[dataContainer].add((dsg.workspace, dsg.dsg))
 
         # Now collect stores to ingest per platform
-        for sinkset in self.dataContainerExports.values():
-            for sink in sinkset:
-                self.storesToIngest.add(sink.storeName)
+        for consumers in self.dataContainerConsumers.values():
+            for _, dsg in consumers:
+                for sink in dsg.sinks.values():
+                    self.storesToIngest.add(sink.storeName)
 
         # Make ingestion steps for every store used by platform
         for store in self.storesToIngest:
             self.createIngestionStep(store)
 
         # Now build pipeline graph backwards from workspaces used by platform and stores used by platform
-        for dataContainer in self.dataContainerExports.keys():
-            exports = self.dataContainerExports[dataContainer]
-            for export in exports:
-                exportStep: PipelineNode = ExportNode(self.platform, dataContainer, export.storeName, export.datasetName)
-                # If export doesn't already exist then create and add to ingestion job
-                if (self.nodes.get(str(exportStep)) is None):
-                    self.nodes[str(exportStep)] = exportStep
-                    self.addExportToPriorIngestion(exportStep)
+        for dataContainer, consumers in self.dataContainerConsumers.items():
+            for _, dsg in consumers:
+                for sink in dsg.sinks.values():
+                    exportStep: PipelineNode = ExportNode(self.platform, dataContainer, sink.storeName, sink.datasetName)
+                    # If export doesn't already exist then create and add to ingestion job
+                    if (self.nodes.get(str(exportStep)) is None):
+                        self.nodes[str(exportStep)] = exportStep
+                        self.addExportToPriorIngestion(exportStep)
 
     def findExistingOrCreateStep(self, step: PipelineNode) -> PipelineNode:
         """This finds an existing step or adds it to the set of steps in the graph"""
@@ -5860,6 +5907,66 @@ class PlatformPipelineGraph(InternalLintableObject):
         # Lint the graph to check all nodes are valid with this platform
         # This checks for unsupported databases, vendors, transformers and so on
         gHandler.lintGraph(self.eco, tree.addSubTree(gHandler))
+
+    def propagateWorkspacePriorities(self):
+        """Propagates workspace priorities through the pipeline graph.
+        Each node's priority will be set to the highest priority of any workspace that depends on it,
+        either directly or indirectly through the dependency chain.
+
+        Implementation uses topological sort to process nodes in dependency order, ensuring
+        each node is processed only once and after all nodes that depend on it."""
+
+        # First set priorities for nodes directly connected to workspaces
+        for dsg in self.roots:
+            workspace = dsg.workspace
+            # Find all export nodes for this workspace's datasets
+            for sink in dsg.dsg.sinks.values():
+                if workspace.dataContainer:
+                    export_node = ExportNode(self.platform, workspace.dataContainer, sink.storeName, sink.datasetName)
+                    if str(export_node) in self.nodes:
+                        node = self.nodes[str(export_node)]
+                        node.setPriority(workspace.priority)
+
+                        # Also set priority for any trigger and transformer nodes for this workspace
+                        trigger_node = TriggerNode(workspace, self.platform)
+                        if str(trigger_node) in self.nodes:
+                            self.nodes[str(trigger_node)].setPriority(workspace.priority)
+
+                        transformer_node = DataTransformerNode(workspace, self.platform)
+                        if str(transformer_node) in self.nodes:
+                            self.nodes[str(transformer_node)].setPriority(workspace.priority)
+
+        # Get nodes in topological order (from right to left)
+        visited: set[str] = set()
+        sorted_nodes: list[PipelineNode] = []
+
+        def visit(node: PipelineNode):
+            if str(node) in visited:
+                return
+            visited.add(str(node))
+            # Visit all nodes that depend on this node first
+            for dep in node.rightHandNodes.values():
+                visit(dep)
+            sorted_nodes.append(node)
+
+        # Start from all nodes with no left dependencies (ingestion nodes)
+        left_side = self.getLeftSideOfGraph()
+        for node in left_side:
+            visit(node)
+
+        # Process nodes in reverse topological order (from right to left)
+        # This ensures we process each node after all nodes that depend on it
+        for node in reversed(sorted_nodes):
+            # Get highest priority from nodes that depend on this one
+            highest_priority = None
+            for dep_node in node.rightHandNodes.values():
+                if dep_node.priority is not None:
+                    if highest_priority is None or not highest_priority.isMoreImportantThan(dep_node.priority):
+                        highest_priority = dep_node.priority
+
+            # Set this node's priority if we found a higher one
+            if highest_priority is not None:
+                node.setPriority(highest_priority)
 
 
 class EcosystemPipelineGraph(InternalLintableObject):
@@ -6162,6 +6269,8 @@ class UnsupportedDataContainer(ValidationProblem):
 
     def __hash__(self) -> int:
         return hash(self.description)
+
+
 class InfraStructureLocationPolicy(AllowDisallowPolicy[LocationKey]):
     """Allows a GZ to police which locations can be used with datastores or workspaces within itself"""
     def __init__(self, name: str, doc: Documentation, allowed: Optional[set[LocationKey]] = None,
@@ -6200,5 +6309,4 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
 
     def __hash__(self) -> int:
         return super().__hash__()
-
 

@@ -42,6 +42,23 @@ graph TD
     TR --> TRO[Output Datastores]
 ```
 
+## Workspace Priority
+
+A Workspace has a priority. This is relative to other Workspaces. The priority indicates how important a Workspace is to the organization compared with other Workspaces. The priority of the pipelines gathering or collecting data used for a Workspace is set by the Workspace priority. If data is used by multiple Workspaces then the priority is set to the highest priority Workspace.
+
+Thus, priority is not set by the teams who own data, it's set by who is using the data.
+
+It's important to note that priority is relative. There is typically a lot of pressure from teams to increase the priority of their Workspaces. However, it's all relative, if everyone is important then no one is important.
+
+DataSurface supports the following priority values defined in the enum `WorkspacePriority`:
+
+* CRITICAL
+* HIGH
+* MEDIUM
+* LOW
+
+Within each priority tier, Workspaces will be further prioritized by deliverable time pressure. A CRITICAL Workspace with a 6pm deliverable will be prioritized higher than a CRITICAL Workspace with a 8pm deliverable.
+
 ## DataContainer
 
 Data containers host the data for the consumer. The ecosystem will deliver the data from the producers to this container where the consumer will be able to query it. There are a variety of data container types and they will consistently change. Examples of data container types are:
