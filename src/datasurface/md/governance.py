@@ -5594,9 +5594,11 @@ class PipelineNode(InternalLintableObject):
         self.rightHandNodes[str(rhNode)] = rhNode
         rhNode.leftHandNodes[str(self)] = self
 
-    def setPriority(self, proposedPriority: WorkspacePriority):
+    def setPriority(self, proposedPriority: Optional[WorkspacePriority]):
         """This sets the priority of this node. If the proposed priority is more important than the current priority then it is set."""
-        if (self.priority is not None):
+        if proposedPriority is None:
+            self.priority = None
+        elif (self.priority is not None):
             if (not self.priority.isMoreImportantThan(proposedPriority)):
                 self.priority = proposedPriority
         else:
@@ -5661,7 +5663,7 @@ class IngestionSingleNode(IngestionNode):
 class TriggerNode(PipelineNode):
     """This is a node which represents the trigger for a DataTransformer. The trigger is a join on all the exports to a single Workspace."""
     def __init__(self, w: Workspace, platform: DataPlatform):
-        super().__init__(f"Trigger{w.name}", platform)
+        super().__init__(f"Trigger/{platform.name}/{w.name}", platform)
         self.workspace: Workspace = w
 
     def __hash__(self) -> int:
@@ -5675,7 +5677,7 @@ class DataTransformerNode(PipelineNode):
     """This is a node which represents the execution of a DataTransformer in the pipeline graph. The Datatransformer
     should 'execute' and its outputs can be found in the output Datastore for the datatransformer."""
     def __init__(self, ws: Workspace, platform: DataPlatform):
-        super().__init__(f"DataTransfomer/{ws.name}", platform)
+        super().__init__(f"DataTransformer/{platform.name}/{ws.name}", platform)
         self.workspace: Workspace = ws
 
     def __hash__(self) -> int:
@@ -5717,6 +5719,9 @@ class PlatformPipelineGraph(InternalLintableObject):
     Exports will have a trigger for each dataset used by a DataTransformer. The trigger will be a join on all the exports to
     a single Workspace and will always trigger a DataTransformer node. The Datatransformer node will have an ingestion
     node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore.
+
+    The graph is expected to be very large. BillyN has worked with graphs ingesting data from 12k datastores, millions of datasets, running thousands
+    of transformers and having 2-3000 Workspaces. This resulted in the ingestion of data of about 30Tb per day of parquet compressed staging data.
 
     The priority of each node should be the highest priority of the Workspaces which depend on it."""
 
@@ -5775,6 +5780,23 @@ class PlatformPipelineGraph(InternalLintableObject):
                     if (self.nodes.get(str(exportStep)) is None):
                         self.nodes[str(exportStep)] = exportStep
                         self.addExportToPriorIngestion(exportStep)
+
+    def findAllExportNodesForWorkspace(self, workspace: Workspace) -> set[ExportNode]:
+        """This finds all the export nodes for a workspace"""
+        dc: Optional[DataContainer] = workspace.dataContainer
+        # No data container means no exports
+        if dc is None:
+            return set()
+        # Find all the DatasetGroups that use this data container
+        dsgSet: set[tuple[Workspace, DatasetGroup]] = self.dataContainerConsumers[dc]
+        exportNodes: set[ExportNode] = set()
+        for w, dsg in dsgSet:
+            if w == workspace:
+                for sink in dsg.sinks.values():
+                    # Find the export node for this sink
+                    exportNode: ExportNode = ExportNode(self.platform, dc, sink.storeName, sink.datasetName)
+                    exportNodes.add(cast(ExportNode, self.nodes[str(exportNode)]))
+        return exportNodes
 
     def findExistingOrCreateStep(self, step: PipelineNode) -> PipelineNode:
         """This finds an existing step or adds it to the set of steps in the graph"""
@@ -5913,60 +5935,43 @@ class PlatformPipelineGraph(InternalLintableObject):
         Each node's priority will be set to the highest priority of any workspace that depends on it,
         either directly or indirectly through the dependency chain.
 
-        Implementation uses topological sort to process nodes in dependency order, ensuring
-        each node is processed only once and after all nodes that depend on it."""
+        The priority of a node is the highest priority of the right hand side nodes. Ingestion node priorities
+        are set to the highest priority of the Workspaces that have export nodes that depend on it. Transformer
+        node priorities dont depend on their associate Workspace but instead depend on the priority of the Workspaces
+        that depend on data produced by the transformer.
 
-        # First set priorities for nodes directly connected to workspaces
-        for dsg in self.roots:
-            workspace = dsg.workspace
-            # Find all export nodes for this workspace's datasets
-            for sink in dsg.dsg.sinks.values():
-                if workspace.dataContainer:
-                    export_node = ExportNode(self.platform, workspace.dataContainer, sink.storeName, sink.datasetName)
-                    if str(export_node) in self.nodes:
-                        node = self.nodes[str(export_node)]
-                        node.setPriority(workspace.priority)
+        Implementation optimized for large scale (millions of nodes):
+        1. Reset all node priorities
+        2. Sort workspaces by priority (highest first)
+        3. Set initial priorities on export nodes from highest priority workspaces first
+        4. Set the priority of all export nodes and the propagate it to all left hand node if it is higher
+        """
+        # 1. Reset all node priorities
+        for node in self.nodes.values():
+            node.setPriority(None)
 
-                        # Also set priority for any trigger and transformer nodes for this workspace
-                        trigger_node = TriggerNode(workspace, self.platform)
-                        if str(trigger_node) in self.nodes:
-                            self.nodes[str(trigger_node)].setPriority(workspace.priority)
+        # 2. Sort workspaces by priority (highest first)
+        sorted_workspaces = sorted(
+            self.workspaces.values(),
+            key=lambda w: cast(PrioritizedWorkloadTier, w.priority).priority.value
+        )
 
-                        transformer_node = DataTransformerNode(workspace, self.platform)
-                        if str(transformer_node) in self.nodes:
-                            self.nodes[str(transformer_node)].setPriority(workspace.priority)
+        def setLeftNodesPriority(node: PipelineNode, priority: WorkspacePriority):
+            """This sets the priority of a node and then recursively sets the priority of all left hand nodes"""
+            node.setPriority(priority)
+            for left_node in node.leftHandNodes.values():
+                # if left node priority is none or lower than the current priority then set it
+                if left_node.priority is None or not left_node.priority.isMoreImportantThan(priority):
+                    setLeftNodesPriority(left_node, priority)
 
-        # Get nodes in topological order (from right to left)
-        visited: set[str] = set()
-        sorted_nodes: list[PipelineNode] = []
-
-        def visit(node: PipelineNode):
-            if str(node) in visited:
-                return
-            visited.add(str(node))
-            # Visit all nodes that depend on this node first
-            for dep in node.rightHandNodes.values():
-                visit(dep)
-            sorted_nodes.append(node)
-
-        # Start from all nodes with no left dependencies (ingestion nodes)
-        left_side = self.getLeftSideOfGraph()
-        for node in left_side:
-            visit(node)
-
-        # Process nodes in reverse topological order (from right to left)
-        # This ensures we process each node after all nodes that depend on it
-        for node in reversed(sorted_nodes):
-            # Get highest priority from nodes that depend on this one
-            highest_priority = None
-            for dep_node in node.rightHandNodes.values():
-                if dep_node.priority is not None:
-                    if highest_priority is None or not highest_priority.isMoreImportantThan(dep_node.priority):
-                        highest_priority = dep_node.priority
-
-            # Set this node's priority if we found a higher one
-            if highest_priority is not None:
-                node.setPriority(highest_priority)
+        # 3. Set initial priorities on export nodes, starting with highest priority workspaces
+        for workspace in sorted_workspaces:
+            export_nodes = self.findAllExportNodesForWorkspace(workspace)
+            for export_node in export_nodes:
+                # Set the priority of the export node
+                self.nodes[str(export_node)].setPriority(workspace.priority)
+                # Set the priority of all left hand nodes
+                setLeftNodesPriority(self.nodes[str(export_node)], workspace.priority)
 
 
 class EcosystemPipelineGraph(InternalLintableObject):
@@ -6309,4 +6314,5 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
 
     def __hash__(self) -> int:
         return super().__hash__()
+
 
