@@ -2346,6 +2346,7 @@ class StoragePolicy(Policy['DataContainer']):
         stored in a specific container.'''
         return False
 
+
 class StoragePolicyAllowAnyContainer(StoragePolicy):
     '''This is a storage policy that allows any container to be used.'''
     def __init__(self, name: str, isMandatory: PolicyMandatedRule, doc: Optional[Documentation] = None,
@@ -5939,6 +5940,15 @@ class PlatformPipelineGraph(InternalLintableObject):
         are set to the highest priority of the Workspaces that have export nodes that depend on it. Transformer
         node priorities dont depend on their associate Workspace but instead depend on the priority of the Workspaces
         that depend on data produced by the transformer.
+
+        Some sample metrics on this graph. It can have 8000 datastores with a combined 12 million datasets. There
+        could be 2500 Workspaces. There could be 5000 Transformers. Most Workspaces connect directly to a prime
+        datastore. Some workspaces will use datasets from Transformer output Datastores. The longest chain of
+        Transformers could be 2 or 3 in a row. So, while the left and right sides of the graph can be large, the
+        width of the graph between left and right is under 20 nodes.
+
+        The number of DataContainers is expected to be in the low hundreds with possible 50k datasets exported
+        to each DataContainer.
 
         Implementation optimized for large scale (millions of nodes):
         1. Reset all node priorities
