@@ -3537,14 +3537,16 @@ class StreamingIngestion(IngestionMetadata):
 
 class KafkaServer(DataContainer):
     """This represents a connection to a Kafka Server."""
-    def __init__(self, name: str, locs: set['LocationKey'], bootstrapServers: HostPortPairList, caCert: Optional[Credential] = None) -> None:
+    def __init__(self, name: str, locs: set['LocationKey'], bootstrapServers: HostPortPairList,
+                 groupID: Optional[str] = None, caCert: Optional[Credential] = None) -> None:
         super().__init__(name, locs)
         self.bootstrapServers: HostPortPairList = bootstrapServers
+        self.groupID: Optional[str] = groupID
         self.caCertificate: Optional[Credential] = caCert
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, KafkaServer) and self.bootstrapServers == other.bootstrapServers and \
-            self.caCertificate == other.caCertificate
+            self.caCertificate == other.caCertificate and self.groupID == other.groupID
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
@@ -3566,25 +3568,22 @@ class KafkaServer(DataContainer):
 
 class KafkaIngestion(StreamingIngestion):
     """This allows a topic and a schema format to be specified for a source publishing messages to a Kafka topic"""
-    def __init__(self, kafkaServer: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, kafkaServer: KafkaServer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(*args)
-        self.kafkaServer: DataContainer = kafkaServer
+        self.kafkaServer: KafkaServer = kafkaServer
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, KafkaIngestion) and self.kafkaServer == other.kafkaServer
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
         super().lint(eco, gz, t, d, tree)
-        if not isinstance(self.kafkaServer, KafkaServer):
-            tree.addRaw(ObjectWrongType(self.kafkaServer, KafkaServer, ProblemSeverity.ERROR))
-        else:
-            kTree: ValidationTree = tree.addSubTree(self.kafkaServer)
-            self.kafkaServer.lint(eco, kTree)
+        kTree: ValidationTree = tree.addSubTree(self.kafkaServer)
+        self.kafkaServer.lint(eco, kTree)
 
 
 class DatasetPerTopicKafkaIngestion(KafkaIngestion):
     """This is a KafkaIngestion which uses a separate topic for each dataset"""
-    def __init__(self, kafkaServer: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    def __init__(self, kafkaServer: KafkaServer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(kafkaServer, *args)
 
 
@@ -6012,6 +6011,7 @@ class EcosystemPipelineGraph(InternalLintableObject):
         for platform in self.roots.keys():
             pinfo = self.roots[platform]
             pinfo.generateGraph()
+            pinfo.propagateWorkspacePriorities()
 
     def lint(self, tree: ValidationTree) -> None:
         for p in self.roots.values():
@@ -6324,5 +6324,3 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
 
     def __hash__(self) -> int:
         return super().__hash__()
-
-

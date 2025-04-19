@@ -22,4 +22,4 @@ So, we will start ZeroDataPlatform with Postgres and Airflow as the job schedule
 
 ## Columnar future
 
-Once we have a working system then we can look at refactoring it in to a portable layer which is common across SQL based engines and then implement a (hopefully) thin layer for each SQL data container: Postgres, Athena, Azure SQL, Snowflake.
+Once we have a working system then we can look at refactoring it in to a portable layer which is common across SQL based engines and then implement a (hopefully) thin layer for each SQL data container: Postgres, Athena, Azure SQL, Snowflake

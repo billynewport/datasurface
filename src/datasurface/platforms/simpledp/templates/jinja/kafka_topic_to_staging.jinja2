@@ -1,0 +1,60 @@
+# This defines kafka connectors that will stream changes from kafka topics to staging tables.
+# It expects a list called 'ingest_nodes' in the context, where each node has attributes
+# like 'connector_name', 'kafka_topic', 'target_table_name', 'input_data_format', 'primary_key_fields'.
+# Global variables like Kafka and Postgres connection details are also expected.
+
+{% for node in ingest_nodes %}
+resource "kafka_connector" "ktos_conn_{{ node.connector_name }}" {
+  # Use a unique name derived from the graph node/dataset
+  name = "ktos-conn-{{ node.connector_name | replace('_', '-') }}" # Ensure valid connector name characters
+  config = {
+    # --- Kafka Connection ---
+    "kafka.auth.mode"          = "KAFKA_API_KEY" # Assuming API Key auth based on template
+    "kafka.api.key"            = "{{ kafka_api_key }}"
+    "kafka.api.secret"         = "{{ kafka_api_secret }}"
+
+    # --- Connector Details ---
+    "connector.class"          = "io.confluent.connect.jdbc.JdbcSinkConnector" # Explicitly specify sink connector class
+    "tasks.max"                = "{{ node.tasks_max | default(1) }}"             # Allow overriding tasks.max per node, default to 1
+
+    # --- Postgres Connection (Target) ---
+    # Assuming the sink connector uses 'connection.url' or host/port/user/password
+    # Adjust based on the specific JDBC sink connector's requirements
+    "connection.url"           = "jdbc:postgresql://{{ database_host }}:{{ database_port }}/{{ database_name }}"
+    "connection.user"          = "{{ database_user }}"
+    "connection.password"      = "{{ database_password }}"
+
+    # --- Topic to Table Mapping ---
+    "topics"                   = "{{ node.kafka_topic }}" # Single topic per connector instance
+    "table.name.format"        = "{{ node.target_table_name }}" # Target staging table
+
+    # --- Data Format ---
+    "input.data.format"        = "{{ node.input_data_format }}" # e.g., AVRO, JSON_SR, PROTOBUF
+    # Add schema registry config if using AVRO/JSON_SR/PROTOBUF
+    # "value.converter.schema.registry.url": "...",
+    # "key.converter.schema.registry.url": "...",
+
+    # --- Sink Behavior ---
+    "insert.mode"              = "upsert"
+    "pk.mode"                  = "record_key" # Assumes primary key is in the Kafka record's key
+    "pk.fields"                = "{{ node.primary_key_fields | join(',') }}" # Comma-separated list of PK fields from the node
+    "auto.create"              = "true" # Auto-create staging table if it doesn't exist
+    "auto.evolve"              = "true" # Auto-add columns if schema evolves
+
+    # --- Optional: Include defaults from SimpleDataPlatform ---
+    {% if default_connector_config is defined %}
+    {% for key, value in default_connector_config.items() %}
+    "{{ key }}" = "{{ value }}"
+    {% endfor %}
+    {% endif %}
+
+    # --- Optional: Add any node-specific overrides ---
+    {% if node.connector_config_overrides is defined %}
+    {% for key, value in node.connector_config_overrides.items() %}
+    "{{ key }}" = "{{ value }}"
+    {% endfor %}
+    {% endif %}
+  }
+}
+
+{% endfor %}

@@ -11,7 +11,7 @@ Data surface uses a unique data catalog implementation. Data catalogs are used t
 - [What is a Governance Zone?](#what-is-a-governance-zone)
 - [What is a Team?](#what-is-a-team)
 - [Datastores, datasets and capture metadata](#datastores-datasets-and-capture-metadata)
-- [Consuming data, Workspaces and dataplatforms](#consuming-data-workspaces-and-dataplatforms)
+- [Consuming data, Workspaces and dataplatforms](#consuming-data-workspaces-reader-security-and-dataplatforms)
 - [Defining an ecosystem](#defining-an-ecosystem)
 - [Defining a Governance Zone](#defining-a-governance-zone)
 - [How changes are merged in to the main repository](#how-changes-are-merged-in-to-the-main-repository)
@@ -63,8 +63,8 @@ Data is represented as Datastores which are collections of Datasets. A dataset c
 
 ##### Consuming data, Workspaces, reader security and dataplatforms
 
-* Workspace reader security [Security.md](Security.md)
-* DataPlatforms [DataPlatform.md](DataPlatform.md)
+- Workspace reader security [Security.md](Security.md)
+- DataPlatforms [DataPlatform.md](DataPlatform.md)
 
 ## Defining an ecosystem
 
