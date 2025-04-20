@@ -6,8 +6,11 @@
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
     PlatformPipelineGraph, DataPlatformGraphHandler, CredentialStore, PostgresDatabase
 from typing import Any, Optional
-from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion
-
+from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
+    DatastoreCacheEntry, FileSecretCredential, IngestionConsistencyType, DatasetConsistencyNotSupported
+from datasurface.md.lint import ObjectWrongType, ObjectMissing
+from datasurface.md.exceptions import ObjectDoesntExistException
+from jinja2 import Environment, PackageLoader, select_autoescape, Template
 
 class SimplePlatformExecutor(DataPlatformExecutor):
     def __init__(self):
@@ -28,10 +31,133 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
     data in the MERGE tables through Workspace specific views."""
     def __init__(self, graph: PlatformPipelineGraph) -> None:
         super().__init__(graph)
+        self.env: Environment = Environment(
+            loader=PackageLoader('datasurface.platforms.simpledp.templates', 'jinja'),
+            autoescape=select_autoescape(['html', 'xml'])
+        )
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         """This returns any DataContainers used by the platform."""
         return set()
+
+    def createTemplate(self, name: str) -> Template:
+        template: Template = self.env.get_template(name, None)
+        return template
+
+    def getPostgresUserPasswordFromCredential(self, credential: Credential) -> tuple[str, str]:
+        if not isinstance(credential, FileSecretCredential):
+            # Consider how to handle other credential types or raise a more specific error
+            raise ValueError("Credential is not a FileSecretCredential")
+        try:
+            with open(credential.secretFilePath, 'r') as file:
+                lines = file.readlines()
+                if len(lines) >= 2:
+                    return lines[0].strip(), lines[1].strip()
+                else:
+                    # Handle file format error (e.g., less than 2 lines)
+                    raise ValueError(f"Credential file {credential.secretFilePath} has incorrect format.")
+        except FileNotFoundError:
+            raise ValueError(f"Credential file {credential.secretFilePath} not found.")
+        except Exception as e:
+            # Catch other potential file reading errors
+            raise ValueError(f"Error reading credential file {credential.secretFilePath}: {e}")
+
+    def createTerraformForAllIngestedNodes(self, eco: Ecosystem) -> None:
+        """This creates a terraform file for all the ingested nodes in the graph using jinja templates which are found
+        in the templates directory. It creates a sink connector to copy from the topics to a postgres
+        staging file and a cluster link resource if required to recreate the topics on this cluster."""
+        template: Template = self.createTemplate('kafka_topic_to_staging.jinja2')
+
+        # Ensure the platform is the correct type early on
+        if not isinstance(self.graph.platform, SimpleDataPlatform):
+            print("Error: Platform associated with the graph is not a SimpleDataPlatform.")
+            return
+
+        platform: SimpleDataPlatform = self.graph.platform
+
+        ingest_nodes: list[dict[str, Any]] = []  # List to hold node data for the template
+
+        # Iterate through the names of datastores to be ingested by this platform
+        for storeName in self.graph.storesToIngest:
+            try:
+                datastoreEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
+                datastore: Datastore = datastoreEntry.datastore
+
+                if datastore.cmd and isinstance(datastore.cmd, KafkaIngestion):
+                    ingestionNode: KafkaIngestion = datastore.cmd
+
+                    topic_names: list[str] = list(ingestionNode.topicForDataset.values())
+                    if not topic_names:
+                        print(f"Warning: No topics defined in topicForDataset for datastore '{storeName}'. Skipping.")
+                        continue
+
+                    # Prepare data for a single node for the template list
+                    # NOTE: Template expects node.kafka_topic (singular) but we have multiple potentially.
+                    #       Using the first topic for now. Revisit if connector needs multiple topics.
+                    # NOTE: Template expects node.target_table_name, node.input_data_format, node.primary_key_fields
+                    #       These are not directly available here, using placeholders.
+                    node_data: dict[str, Any] = {
+                        "connector_name": f"jdbc_sink_{datastore.name}",
+                        "kafka_topic": topic_names[0],  # TEMPLATE uses singular topic
+                        "target_table_name": f"staging_{datastore.name}_{topic_names[0]}",  # TEMPLATE needs this
+                        "tasks_max": 1,  # Default or get from ingestionNode/datastore if available
+                        "input_data_format": "AVRO",  # Placeholder - get from ingestionNode/datastore schema if available
+                        "primary_key_fields": ["id"]  # Placeholder - get from ingestionNode/datastore schema if available
+                        # Add node.connector_config_overrides if needed/available
+                    }
+                    ingest_nodes.append(node_data)
+
+                else:
+                    print(f"Warning: Datastore '{storeName}' does not have KafkaIngestion metadata or cmd is None. Skipping.")
+                    continue
+
+            except ObjectDoesntExistException as e:
+                print(f"Error: Datastore '{storeName}' mentioned in graph not found in ecosystem cache: {e}")
+                continue
+            except ValueError as e:
+                print(f"Error processing credentials for datastore '{storeName}': {e}")
+                continue  # Skip node if credential processing fails
+
+        # Prepare the global context for the template
+        try:
+            pg_user, pg_password = self.getPostgresUserPasswordFromCredential(platform.postgresCredential)
+            # Prepare Kafka API keys if needed (using connectCredentials)
+            # kafka_api_key, kafka_api_secret = self.getKafkaKeysFromCredential(platform.connectCredentials)
+            # TODO: Implement getKafkaKeysFromCredential similar to getPostgresUserPasswordFromCredential
+            kafka_api_key = "placeholder_kafka_api_key"  # Placeholder
+            kafka_api_secret = "placeholder_kafka_api_secret"  # Placeholder
+
+            context: dict[str, Any] = {
+                "ingest_nodes": ingest_nodes,
+                "database_host": platform.mergeStore.connection.hostName,
+                "database_port": platform.mergeStore.connection.port,
+                "database_name": platform.mergeStore.databaseName,
+                "database_user": pg_user,
+                "database_password": pg_password,
+                "kafka_api_key": kafka_api_key,  # Placeholder
+                "kafka_api_secret": kafka_api_secret,  # Placeholder
+                # Add default_connector_config if defined in SimpleDataPlatform
+            }
+
+            # Render the template once with the full context
+            code: str = template.render(context)
+
+            # TODO: Decide what to do with the generated 'code' string (write to file, etc.)
+            print(f"Generated Terraform code:\n{code}")
+
+        except ValueError as e:
+            print(f"Error processing platform credentials: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during template rendering: {e}")
+
+    def lintKafkaIngestion(self, store: Datastore, tree: ValidationTree):
+        """Kafka ingestions can only be single dataset. Each dataset is published on a different topic."""
+        if not isinstance(store.cmd, KafkaIngestion):
+            tree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+        elif store.cmd.singleOrMultiDatasetIngestion is None:
+            tree.addRaw(ObjectMissing(store, IngestionConsistencyType, ProblemSeverity.ERROR))
+        elif store.cmd.singleOrMultiDatasetIngestion != IngestionConsistencyType.SINGLE_DATASET:
+            tree.addRaw(DatasetConsistencyNotSupported(store, store.cmd.singleOrMultiDatasetIngestion, self.graph.platform, ProblemSeverity.ERROR))
 
     def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
@@ -43,17 +169,22 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
 
         The MERGE job are responsible for node type reconciliation such as creating tables/views for staging, merge tables
         and Workspace views. It's also responsible to keep them up to date. This happens before the merge job is run. This seems
-        like something that will be done by a DataSurface service as it's pretty standard."""
+        like something that will be done by a DataSurface service as it's pretty standard.
+
+        As validation/linting errors are found then they are added as ValidationProblems to the tree."""
 
         if not isinstance(self.graph.platform, SimpleDataPlatform):
-            raise ValueError("SimpleDataPlatformHandler can only be used with SimpleDataPlatform")
+            tree.addRaw(ObjectWrongType(self.graph.platform, SimpleDataPlatform, ProblemSeverity.ERROR))
 
         # Lets make sure only kafa ingestions are used.
         for storeName in self.graph.storesToIngest:
             store: Datastore = eco.cache_getDatastoreOrThrow(storeName).datastore
-            if not isinstance(store, KafkaIngestion):
-                raise ValueError(f"Datastore {storeName} ingestion type is not supported by this platform")
-        pass
+            if store.cmd is None:
+                tree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
+            elif not isinstance(store.cmd, KafkaIngestion):
+                tree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+            else:
+                self.lintKafkaIngestion(store, tree)
 
 
 class KafkaConnectCluster(DataContainer, JSONable):
@@ -91,14 +222,14 @@ class SimpleDataPlatform(DataPlatform):
             kafkaConnectCluster: KafkaConnectCluster,
             connectCredentials: Credential,
             mergeStore: PostgresDatabase,
-            postgresCredentials: Credential
+            postgresCredential: Credential
             ):
         super().__init__(name, doc, SimplePlatformExecutor(), credentialStore)
         self.credStoreName: str = credentialStore.name
         self.kafkaConnectCluster: KafkaConnectCluster = kafkaConnectCluster
         self.connectCredentials: Credential = connectCredentials
         self.mergeStore: PostgresDatabase = mergeStore
-        self.postgresCredentials: Credential = postgresCredentials
+        self.postgresCredential: Credential = postgresCredential
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -107,7 +238,7 @@ class SimpleDataPlatform(DataPlatform):
                 "credStoreName": self.credStoreName,
                 "mergeStore": self.mergeStore.to_json(),
                 "connectCredentials": self.connectCredentials.to_json(),
-                "postgresCredentials": self.postgresCredentials.to_json(),
+                "postgresCredential": self.postgresCredential.to_json(),
                 "kafkaConnectCluster": self.kafkaConnectCluster.to_json()
             }
         )
@@ -124,9 +255,10 @@ class SimpleDataPlatform(DataPlatform):
         as the graph must be generated for that to happen. The lintGraph method on the SimpleDataPlatformHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
+        if not isinstance(self.postgresCredential, FileSecretCredential):
+            tree.addRaw(ObjectWrongType(self.postgresCredential, FileSecretCredential, ProblemSeverity.ERROR))
         self.kafkaConnectCluster.lint(eco, tree)
         self.mergeStore.lint(eco, tree)
-        self.postgresCredentials.lint(eco, tree)
         self.connectCredentials.lint(eco, tree)
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:

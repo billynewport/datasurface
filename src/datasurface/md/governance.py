@@ -3530,9 +3530,20 @@ class SQLPullIngestion(IngestionMetadata):
 
 
 class StreamingIngestion(IngestionMetadata):
-    """This is an abstract class for streaming data sources"""
-    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
-        super().__init__(*args)
+    """This is an abstract class for streaming data sources. It allows a dataset to topic name mapping to be specified.
+    If its not specified then the dataset name is used as the topic name"""
+    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+        # Pass all args except any which are dict[str, str]
+        super().__init__(*[arg for arg in args if not isinstance(arg, dict)])
+        self.topicForDataset: dict[str, str] = {}
+        for arg in args:
+            if isinstance(arg, dict):
+                self.topicForDataset.update(arg)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, StreamingIngestion):
+            return super().__eq__(other) and self.topicForDataset == other.topicForDataset
+        return False
 
 
 class KafkaServer(DataContainer):
@@ -4928,6 +4939,20 @@ class DataPlatform(Documentable, UserDSLObject, JSONable):
         pass
 
 
+class UnsupportedIngestionType(ValidationProblem):
+    """This indicates an ingestion type is not supported by a data platform"""
+    def __init__(self, store: Datastore, dp: DataPlatform, sev: ProblemSeverity) -> None:
+        super().__init__(f"Ingestion type {store.cmd} is not supported by {dp}", sev)
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, UnsupportedIngestionType)
+
+
+class DatasetConsistencyNotSupported(ValidationProblem):
+    """This indicates a dataset consistency type is not supported by a data platform"""
+    def __init__(self, store: Datastore, type: IngestionConsistencyType, dp: DataPlatform, sev: ProblemSeverity) -> None:
+        super().__init__(f"Store: {store.name} Dataset consistency type {type} is not supported by {dp}", sev)
+
 class DataPlatformKey(JSONable):
     """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
     resolved later at lint time."""
@@ -6135,13 +6160,56 @@ class DataPlatformGraphHandler(UserDSLObject):
         pass
 
 
-class IaCDataPlatformRenderer(DataPlatformGraphHandler):
+class PlatformPipelineGraphLinter(ABC):
+    """This is a base class for linting a pipeline graph"""
+    def __init__(self, graph: PlatformPipelineGraph):
+        self.graph: PlatformPipelineGraph = graph
+
+    @abstractmethod
+    def lintIngestionSingleNode(self, eco: Ecosystem, node: IngestionSingleNode, tree: ValidationTree) -> None:
+        pass
+
+    @abstractmethod
+    def lintIngestionMultiNode(self, eco: Ecosystem, node: IngestionMultiNode, tree: ValidationTree) -> None:
+        pass
+
+    @abstractmethod
+    def lintExportNode(self, eco: Ecosystem, node: ExportNode, tree: ValidationTree) -> None:
+        pass
+
+    @abstractmethod
+    def lintTriggerNode(self, eco: Ecosystem, node: TriggerNode, tree: ValidationTree) -> None:
+        pass
+
+    @abstractmethod
+    def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
+        pass
+
+    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
+        """Check that the platform can handle every node in the pipeline graph. Nodes may fail because there is no supported
+        connector for an ingestion or export node or because there are missing parameters or because a certain type of
+        trigger or data transformer is not supported. It may also fail because an infrastructure vendor or datacontainer is not supported"""
+        for node in self.graph.nodes.values():
+            if (isinstance(node, IngestionSingleNode)):
+                self.lintIngestionSingleNode(eco, node, tree.addSubTree(node))
+            elif (isinstance(node, IngestionMultiNode)):
+                self.lintIngestionMultiNode(eco, node, tree.addSubTree(node))
+            elif (isinstance(node, ExportNode)):
+                self.lintExportNode(eco, node, tree.addSubTree(node))
+            elif (isinstance(node, TriggerNode)):
+                self.lintTriggerNode(eco, node, tree.addSubTree(node))
+            elif (isinstance(node, DataTransformerNode)):
+                self.lintDataTransformerNode(eco, node, tree.addSubTree(node))
+
+
+class IaCDataPlatformRenderer(DataPlatformGraphHandler, PlatformPipelineGraphLinter):
     """This is intended to be a base class for IaC style DataPlatforms which render the intention graph
     to an IaC format. The various nodes in the graph are rendered as seperate files in a temporary folder
     which remains after the graph is rendered. The folder can then be committed to a CI/CD repository where
     it can be used by a platform like Terraform to effect the changes in the graph."""
     def __init__(self, executor: DataPlatformExecutor, graph: PlatformPipelineGraph):
-        super().__init__(graph)
+        DataPlatformGraphHandler.__init__(self, graph)
+        PlatformPipelineGraphLinter.__init__(self, graph)
         self.executor: DataPlatformExecutor = executor
 
     def __eq__(self, other: object) -> bool:
@@ -6186,42 +6254,6 @@ class IaCDataPlatformRenderer(DataPlatformGraphHandler):
     @abstractmethod
     def renderDataTransformer(self, dtNode: DataTransformerNode) -> str:
         pass
-
-    @abstractmethod
-    def lintIngestionSingleNode(self, eco: Ecosystem, node: IngestionSingleNode, tree: ValidationTree) -> None:
-        pass
-
-    @abstractmethod
-    def lintIngestionMultiNode(self, eco: Ecosystem, node: IngestionMultiNode, tree: ValidationTree) -> None:
-        pass
-
-    @abstractmethod
-    def lintExportNode(self, eco: Ecosystem, node: ExportNode, tree: ValidationTree) -> None:
-        pass
-
-    @abstractmethod
-    def lintTriggerNode(self, eco: Ecosystem, node: TriggerNode, tree: ValidationTree) -> None:
-        pass
-
-    @abstractmethod
-    def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
-        pass
-
-    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
-        """Check that the platform can handle every node in the pipeline graph. Nodes may fail because there is no supported
-        connector for an ingestion or export node or because there are missing parameters or because a certain type of
-        trigger or data transformer is not supported. It may also fail because an infrastructure vendor or datacontainer is not supported"""
-        for node in self.graph.nodes.values():
-            if (isinstance(node, IngestionSingleNode)):
-                self.lintIngestionSingleNode(eco, node, tree.addSubTree(node))
-            elif (isinstance(node, IngestionMultiNode)):
-                self.lintIngestionMultiNode(eco, node, tree.addSubTree(node))
-            elif (isinstance(node, ExportNode)):
-                self.lintExportNode(eco, node, tree.addSubTree(node))
-            elif (isinstance(node, TriggerNode)):
-                self.lintTriggerNode(eco, node, tree.addSubTree(node))
-            elif (isinstance(node, DataTransformerNode)):
-                self.lintDataTransformerNode(eco, node, tree.addSubTree(node))
 
     def getDataContainerForDatastore(self, storeName: str) -> Optional[DataContainer]:
         """Get the data container for a given datastore"""
