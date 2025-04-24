@@ -1,0 +1,40 @@
+"""
+// Copyright (c) William Newport
+// SPDX-License-Identifier: BUSL-1.1
+"""
+
+from datasurface.md import BrokerRenderEngine
+from datasurface.md import Ecosystem, EcosystemPipelineGraph, CredentialStore, LocationKey, Credential
+from datasurface.md.lint import ValidationTree
+
+
+class DockerSwarmCredentialStore(CredentialStore):
+    """This represents a set of docker swarm secrets to DataSurface. The credentials will
+    all be stored in temporary RAM files in the secret folder when a container starts."""
+    def __init__(self, name: str, locs: set[LocationKey], folder: str):
+        self.secretsFolder = folder
+
+    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
+        pass
+
+    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
+        """This will read the file holding the secret and return the first and second lines
+        as a tuple to the caller."""
+
+        return ("x", "y")
+
+
+class SwarmRenderEngine(BrokerRenderEngine):
+    """This is a render engine which takes a full intention graph of a DataSurface Ecosystem and then
+    invokes each DataPlatform to render the subset assigned to it. The DataPlatform renders its
+    graph on a particular technology stack with a specific configuration. A render engine works within
+    a specific runtime context. This runtime engine works within a Docker Swarm cluster and uses
+    docker swarm for secret management as well as for containers."""
+
+    def __init__(self, name: str, ecosystem: Ecosystem, credStore: CredentialStore, brokerFolder: str = "/mnt/broker"):
+        super().__init__(name, ecosystem, credStore)
+        self.graph: EcosystemPipelineGraph = EcosystemPipelineGraph(ecosystem)
+        self.brokerFolder = brokerFolder
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        self.graph.lint(self.credStore, tree.addSubTree(self.graph))

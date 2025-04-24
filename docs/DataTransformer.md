@@ -23,7 +23,14 @@ A Data transformer is associated with a Workspace and a Workspace can have an op
 
 ## Code artifacts
 
-The developer codes the data transformer to query data in the Workspace and generate derivative data from that input data. This code can be written using any language/execution environment supported by the Data platforms. The developer specifies both the code artifact in terms of a versioned artifact in a repository and the execution environment which can take the artifact and execute it against the Workspace. An example artifact could be a pyspark job which executes in a kubernetes execution environment.
+The developer codes the data transformer to query data in the Workspace and generate derivative data from that input data. This code can be written using any language/execution environment supported by the Data platforms. The developer specifies both the code artifact in terms of a versioned artifact in a repository and the execution environment which can take the artifact and execute it against the Workspace. An example artifact could be a pyspark job which needs a Spark execution env to run.
+
+## Code Execution Environments
+
+The CEE is a requirements document. It may specify that we need a Spark V3.5 level at least or a 4.0 Spark cluster. The runtime is managed elsewhere and this DataTransformer can only be executed if the environment supports the CEE.
+
+The top level execution environment is defined/provisioned by a RenderEngine. DataPlatforms use those resources to provision
+their data pipelines. A RenderEngine is a generic environment and can support many DataPlatforms so long as it contains the resources needed by the DataPlatform. See [MergeHandler](MergeHandler.md) for more details.
 
 ## Triggers
 
@@ -35,7 +42,7 @@ The data transformer specifies a single Datastore with any many datasets as need
 
 ## How Data transformers and data platforms interact
 
-When a consumer defines a Workspace, they also specify their non functional requirements. These requirements lead to the Ecosystem choosing a Dataplatform to host the data pipeline for that Workspace. A workspace may use multiple pipelines and therefore multiple data platforms. An example would be a Workspace that has a DatasetGroup which requires a table with near time latency whilst another DatasetGroup has the same dataset with a forensic pipeline requirement (full milestoning). A consumer may calculate real time pricing with the near time dataset and end of day pricing with the forensic dataset.
+When a consumer defines a Workspace, they also specify their non functional requirements. These requirements lead to the Ecosystem choosing a Dataplatform to host the data pipeline for that Workspace. A workspace may use multiple pipelines (one per Datasetgroup) and therefore multiple data platforms. An example would be a Workspace that has a DatasetGroup which requires a table with near time latency whilst another DatasetGroup has the same dataset with a forensic pipeline requirement (full milestoning). A consumer may calculate real time pricing with the near time dataset and end of day pricing with the forensic dataset.
 
 The output datastore for a Datatransformer can thus be running twice (or more) on different data platforms possible for the same consumer. An Apache Beam pipeline implementation could run data in pulses through the transformer to a streaming DSG in a Workspace while another batch data platform also pulls data through the transformer for the batch based datasets in the Workspace.
 

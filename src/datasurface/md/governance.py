@@ -3263,7 +3263,7 @@ class CredentialStore(UserDSLObject, JSONable):
             loc.lint(eco, tree.addSubTree(loc))
 
     @abstractmethod
-    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
         """This is used to check if a Credential is supported by this store."""
         pass
 
@@ -3339,8 +3339,8 @@ class LocalFileCredentialStore(CredentialStore):
         else:
             raise RuntimeError(f"Only FileSecretCredentials are supported: {cred}")
 
-    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
-        return super().lintCredential(cred, tree)
+    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
+        return super().checkCredentialIsAvailable(cred, tree)
 
 
 class ClearTextCredential(Credential):
@@ -3799,11 +3799,10 @@ class DefaultDataPlatform(UserDSLObject):
 
 
 class BrokerRenderEngine(UserDSLObject, JSONable):
-    def __init__(self, name: str, ecosystem: 'Ecosystem', credStore: CredentialStore):
+    def __init__(self, name: str, credStore: CredentialStore):
         UserDSLObject.__init__(self)
         JSONable.__init__(self)
         self.name: str = name
-        self.eco: Ecosystem = ecosystem
         self.credStore: CredentialStore = credStore
 
     def to_json(self) -> dict[str, Any]:
@@ -3813,15 +3812,15 @@ class BrokerRenderEngine(UserDSLObject, JSONable):
         pass
 
     @abstractmethod
-    def lint(self, tree: ValidationTree):
-        self.credStore.lint(self.eco, tree.addSubTree(self.credStore))
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self.eco)
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        self.credStore.lint(eco, tree.addSubTree(self.credStore))
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
         graph.lint(self.credStore, tree.addSubTree(graph))
 
     @abstractmethod
-    def mergeHandler(self):
+    def mergeHandler(self, eco: 'Ecosystem'):
         """This is the merge handler implementation."""
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self.eco)
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
 
 
 # Add regulators here with their named retention policies for reference in Workspaces
@@ -5353,7 +5352,8 @@ class PythonCodeArtifact(CodeArtifact):
 
 
 class CodeExecutionEnvironment(UserDSLObject, JSONable):
-    """This is an environment which can execute code, AWS Lambda, Azure Functions, Kubernetes, etc"""
+    """This is an environment which can execute code, Spark/Flink/MR Jobs etc. The RenderEngine
+    needs to support this CEE if a DataTransformer needs it to execute a CodeArtifact."""
     def __init__(self, loc: set[LocationKey]):
         UserDSLObject.__init__(self)
         JSONable.__init__(self)
@@ -5380,33 +5380,12 @@ class CodeExecutionEnvironment(UserDSLObject, JSONable):
         return False
 
 
-class KubernetesEnvironment(CodeExecutionEnvironment):
-    """This is a Kubernetes environment"""
-    def __init__(self, hostName: str, cred: Credential, loc: set[LocationKey]) -> None:
+class SparkExecutionEnvironment(CodeExecutionEnvironment):
+    """This is a Spark environment"""
+    def __init__(self, loc: set[LocationKey]) -> None:
         super().__init__(loc)
-        self.hostName: str = hostName
-        """This is the hostname of the Kubernetes cluster"""
-        self.credential: Credential = cred
-        """This is the credential used to access the Kubernetes cluster"""
 
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update(
-            {
-                "hostName": self.hostName,
-                "credential": self.credential.to_json()
-            }
-        )
-        return rc
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
-        super().lint(eco, tree)
-        if not is_valid_hostname_or_ip(self.hostName):
-            tree.addRaw(NameHasBadSynthax(f"Invalid host name <{self.hostName}>"))
-        cTree: ValidationTree = tree.addSubTree(self.credential)
-        self.credential.lint(eco, cTree)
-
-    def isCodeArtifactSupported(self, eco: Ecosystem, ca: CodeArtifact) -> bool:
+    def isCodeArtifactSupported(self, eco: 'Ecosystem', ca: CodeArtifact) -> bool:
         return isinstance(ca, PythonCodeArtifact)
 
 
