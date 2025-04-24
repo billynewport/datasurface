@@ -3272,6 +3272,11 @@ class CredentialStore(UserDSLObject, JSONable):
         """This returns the username and password for the credential"""
         pass
 
+    @abstractmethod
+    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
+        """This fetches the credential and returns a tuple with the public and private key
+        paths and an environment variable name which contains the private key password"""
+
 
 class LocalFileCredentialStore(CredentialStore):
     """This is a local file credential store. It represents a folder on the local file system where certificates are stored in files. This could be used with
@@ -3294,8 +3299,45 @@ class LocalFileCredentialStore(CredentialStore):
         super().lint(eco, tree)
 
     def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-        # TODO: This should read the username and password from the file specified in cred
-        return ("blankety", "blank")
+        """This will read the file holding the secret and return the first and second lines
+        as a tuple to the caller."""
+        if cred.credentialType != CredentialType.USER_PASSWORD:
+            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
+        if isinstance(cred, FileSecretCredential):
+            file_path = f"{self.folder}/{cred.secretFilePath}"
+            try:
+                with open(file_path, 'r') as file:
+                    lines = file.readlines()
+                    if len(lines) < 2:
+                        raise ValueError("Credential file does not contain enough lines.")
+                    username = lines[0].strip()
+                    password = lines[1].strip()
+                    return username, password
+            except FileNotFoundError:
+                raise FileNotFoundError(f"Credential file {file_path} not found.")
+            except Exception as e:
+                raise RuntimeError(f"An error occurred while reading the credential file: {e}")
+        elif isinstance(cred, ClearTextCredential):
+            return cred.username, cred.password
+        else:
+            raise RuntimeError(f"Unsupported credential type: {type(cred)}")
+
+    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
+        """This assumes there are 3 secrets on the local filesystem. The public key
+        the private key and the private key password. A naming convention is assumed for the 3 files
+        using the credential name as the prefix with _pub, _prv, _pwd as the postfixes. The password
+        file is not mapped into the container. Instead an environment variable with the credential
+        name is provided instead."""
+        if cred.credentialType != CredentialType.CLIENT_CERT_WITH_KEY:
+            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
+        if isinstance(cred, FileSecretCredential):
+            file_path_root: str = f"{self.folder}/{cred.secretFilePath}_"
+            pub_path: str = f"{file_path_root}pub"
+            prv_path: str = f"{file_path_root}prv"
+            env_var: str = f"CERT_{cred.secretFilePath}_PWD"
+            return pub_path, prv_path, env_var
+        else:
+            raise RuntimeError(f"Only FileSecretCredentials are supported: {cred}")
 
     def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
         return super().lintCredential(cred, tree)

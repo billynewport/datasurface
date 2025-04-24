@@ -25,26 +25,10 @@ class DockerSwarmCredentialStore(LocalFileCredentialStore):
             tree.addProblem(f"Unsupported credential type: {type(cred)}", ProblemSeverity.ERROR)
 
     def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-        """This will read the file holding the secret and return the first and second lines
-        as a tuple to the caller."""
-        if isinstance(cred, FileSecretCredential):
-            try:
-                file_path = f"{self.folder}/{cred.secretFilePath}"
-                with open(file_path, 'r') as file:
-                    lines = file.readlines()
-                    if len(lines) < 2:
-                        raise ValueError("Credential file does not contain enough lines.")
-                    username = lines[0].strip()
-                    password = lines[1].strip()
-                    return username, password
-            except FileNotFoundError:
-                raise FileNotFoundError(f"Credential file {file_path} not found.")
-            except Exception as e:
-                raise RuntimeError(f"An error occurred while reading the credential file: {e}")
-        elif isinstance(cred, ClearTextCredential):
-            return cred.username, cred.password
-        else:
-            raise RuntimeError(f"Unsupported credential type: {type(cred)}")
+        return super().getAsUserPassword(cred)
+
+    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
+        return super().getAsPublicPrivateCertificate(cred)
 
 
 class SwarmRenderEngine(BrokerRenderEngine):
