@@ -23,7 +23,8 @@ from datasurface.md import SQLDatabase, CronTrigger
 from datasurface.md import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md import UserPasswordCredential
+from datasurface.md import ClearTextCredential
+
 
 class TestWorkspace(unittest.TestCase):
 
@@ -392,7 +393,7 @@ class TestWorkspace(unittest.TestCase):
                         {LocationKey("Azure:FL")},  # Where is the database
                         databaseName="nwdb"
                     ),
-                    UserPasswordCredential("user", "password"),
+                    ClearTextCredential("user", "password"),
                     CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
                     IngestionConsistencyType.MULTI_DATASET),
                 Dataset(
@@ -429,7 +430,7 @@ class TestWorkspace(unittest.TestCase):
         tree: ValidationTree = e.lintAndHydrateCaches()
         tree.printTree()
         self.assertFalse(tree.hasErrors())
-        self.assertFalse(tree.hasWarnings())
+        self.assertTrue(tree.hasWarnings())
         return e
 
     def test_StoreDependants(self):
@@ -455,7 +456,8 @@ class TestWorkspace(unittest.TestCase):
 
         eTree: ValidationTree = e.lintAndHydrateCaches()
         self.assertTrue(eTree.hasErrors())
-        self.assertFalse(eTree.hasWarnings())
+        self.assertTrue(eTree.hasWarnings())
+        self.assertEqual(eTree.numWarnings, 0)
 
         # Mark Sink as allowing deprecated datasets and check again, should be good
         sink_dataset2: DatasetSink = ws.dsgs["FastStuff"].sinks["Store1:Dataset2"]
@@ -463,7 +465,7 @@ class TestWorkspace(unittest.TestCase):
 
         eTree = e.lintAndHydrateCaches()
         self.assertFalse(eTree.hasErrors())
-        self.assertTrue(eTree.hasWarnings())  # Workspace using deprecated dataset
+        self.assertEqual(eTree.numWarnings, 0)
 
         # Move back to clean model
         dataset2.deprecationStatus.status = DeprecationStatus.NOT_DEPRECATED
@@ -472,7 +474,7 @@ class TestWorkspace(unittest.TestCase):
         eTree = e.lintAndHydrateCaches()
         # Verify its clean
         self.assertFalse(eTree.hasErrors())
-        self.assertFalse(eTree.hasWarnings())
+        self.assertEqual(eTree.numWarnings, 0)
 
         # Make sure we checked the production status
         self.assertEqual(store.productionStatus, ProductionStatus.NOT_PRODUCTION)
@@ -483,7 +485,7 @@ class TestWorkspace(unittest.TestCase):
         ws.productionStatus = ProductionStatus.PRODUCTION
         eTree = e.lintAndHydrateCaches()
         self.assertFalse(eTree.hasErrors())
-        self.assertTrue(eTree.hasWarnings())
+        self.assertTrue(eTree.hasWarnings())  # Workspace using deprecated dataset
 
     def test_WorkspaceEquality(self):
         fastP: DataPlatform = LegacyDataPlatform(

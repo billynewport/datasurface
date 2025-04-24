@@ -10,7 +10,7 @@ from datasurface.md import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, D
 import sqlalchemy
 from datasurface.md import Dataset, DDLTable, DataType, Datastore
 from datasurface.md import NullableStatus, PrimaryKeyStatus, Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
-from datasurface.md import Credential, UserPasswordCredential, EcosystemPipelineGraph, DataPlatform, PlatformPipelineGraph
+from datasurface.md import Credential, EcosystemPipelineGraph, DataPlatform, CredentialType
 from abc import ABC, abstractmethod
 
 
@@ -227,11 +227,12 @@ class SQLAlchemyDataContainerReconciler:
     single DataPlatform selected by the data platform chooser. We need to create raw tables in which to contain data supplied by DataPlatforms. We need views
     defined referencing these tables which are used by users of the Workspace. So, we need to gather all Workspaces assigned to a DataContainer.
     We need to get the list of DataPlatform instances to support those workspaces. We need the list of raw tables (one per dataset) used by each DataPlatform.
-    We create those tables using a naming convention combining dataplatform instance and datastore/dataset names. We need to create a single view for each Datasetgroup
+    We create those tables using a naming convention combining dataplatform instance and datastore/dataset names. We need to create a
+    single view for each Datasetgroup
     """
 
     def createEngine(self, container: DataContainer, creds: Credential) -> sqlalchemy.Engine:
-        if isinstance(creds, UserPasswordCredential):
+        if creds.credentialType != CredentialType.USER_PASSWORD:
             if isinstance(container, PostgresDatabase):
                 return sqlalchemy.create_engine(
                     'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
@@ -261,14 +262,13 @@ class SQLAlchemyDataContainerReconciler:
         """This will create or alter to make current all SQL objects used by a DataPlatform
         for this DatasetSink"""
 
-        
     def reconcileBeforeExport(
             self,
             artifacts: DataPlatformDatasetSinkArtifactIterator,
             store: Datastore, datasets: List[Dataset]) -> None:
         """DataPlatforms can use this to make sure all tables/views for this dsg are up to date before applying
          deltas to the tables. """
-        
+
         with self.engine.connect() as conn:
             # For each DatasetSink in the DSG, reconcile it
             for sink in dsg.sinks.values():
@@ -276,10 +276,6 @@ class SQLAlchemyDataContainerReconciler:
                 # These are named using the naming convention of the DataPlatform
                 self.reconcileDatasetSink(conn, dp, dc, workspace, dsg, store, datasets, sink)
 
-
-        
     def reconcileAllKnownDataContainers(self) -> None:
         """This will iterate over all sqlalchemy supported data containers and reconcile the
         table and view schemas for them."""
-        
-        

@@ -4,7 +4,7 @@
 """
 
 from datasurface.platforms.legacy import LegacyDatPlatformChooser, LegacyDataTransformer
-from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, UserPasswordCredential
+from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, ClearTextCredential
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
@@ -23,7 +23,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
                 HostPortSQLDatabase("NW_DB", {LocationKey("MyCorp:USA/NY_1")}, HostPortPair("hostName", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                UserPasswordCredential("user", "pwd")
+                ClearTextCredential("user", "pwd")
                 ),
 
             Dataset(

@@ -3174,21 +3174,30 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
+class CredentialType(Enum):
+    """This describes the type of credential"""
+    API_KEY_PAIR = 0  # AWS S3 type credential, an access id and a secret key
+    USER_PASSWORD = 1  # Username and password
+    CLIENT_CERT_WITH_KEY = 2  # Public and private key pair for mTLS or similar
+    CA_CERT_BUNDLE = 3  # Bundle of KEYs for verifying server keys
+
+
 class Credential(UserDSLObject, JSONable):
     """These allow a client to connect to a service/server"""
-    def __init__(self) -> None:
+    def __init__(self, credentialType: CredentialType) -> None:
         UserDSLObject.__init__(self)
         JSONable.__init__(self)
-        pass
+        self.credentialType: CredentialType = credentialType
 
     def to_json(self) -> dict[str, Any]:
         return {
             "_type": self.__class__.__name__,
+            "credentialType": self.credentialType.name,
         }
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, Credential)):
-            return True
+            return self.credentialType == other.credentialType
         else:
             return False
 
@@ -3201,15 +3210,14 @@ class FileSecretCredential(Credential):
     """This allows a secret to be read from the local filesystem. Usually the secret is
     placed in the file using an external service such as Docker secrets etc. The secret should be in the
     form of 2 lines, first line is user name, second line is password"""
-    def __init__(self, filePath: str) -> None:
-        super().__init__()
+    def __init__(self, type: CredentialType, filePath: str) -> None:
+        super().__init__(type)
         self.secretFilePath: str = filePath
 
     def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "secretFilePath": self.secretFilePath,
-        }
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"secretFilePath": self.secretFilePath})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and type(other) is FileSecretCredential and self.secretFilePath == other.secretFilePath
@@ -3222,63 +3230,6 @@ class FileSecretCredential(Credential):
 
     def __str__(self) -> str:
         return f"FileSecretCredential({self.secretFilePath})"
-
-
-class UserPasswordCredential(Credential):
-    """This is a simple user name and password credential"""
-    def __init__(self, username: str, password: str) -> None:
-        super().__init__()
-        self.username: str = username
-        self.password: str = password
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "username": self.username,
-            "password": self.password,
-        }
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is UserPasswordCredential and self.username == other.username and self.password == other.password
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        if (self.username == ""):
-            tree.addProblem("Username is empty")
-        if (self.password == ""):
-            tree.addProblem("Password is empty")
-
-    def __str__(self) -> str:
-        return f"UserPasswordCredential({self.username})"
-
-
-class CertificateCredential(Credential):
-    """This is a certificate based credential. The key for authentication is provided along with an optional
-    certificate for the CA."""
-    def __init__(self, certificate: Optional[str], key: str, authIsInSecure: bool) -> None:
-        super().__init__()
-        self.certificate: Optional[str] = certificate  # File name of the certification agent certificate
-        self.key: str = key  # File name of the public key
-        self.authIsInSecure: bool = authIsInSecure  # Is the authentication insecure
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "certificate": self.certificate,
-            "key": self.key,
-            "authIsInSecure": self.authIsInSecure,
-        }
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is CertificateCredential and \
-            self.certificate == other.certificate and self.key == other.key and self.authIsInSecure == other.authIsInSecure
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.key})"
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        if (self.key == ""):
-            tree.addProblem("Key is empty")
 
 
 class CredentialStore(UserDSLObject, JSONable):
@@ -3317,8 +3268,8 @@ class CredentialStore(UserDSLObject, JSONable):
         pass
 
     @abstractmethod
-    def getCredential(self, credName: str) -> Credential:
-        """This returns the credential with the specified name"""
+    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
+        """This returns the username and password for the credential"""
         pass
 
 
@@ -3342,22 +3293,31 @@ class LocalFileCredentialStore(CredentialStore):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
 
-    def getCredential(self, credName: str) -> Credential:
-        if credName not in self.credentials:
-            c: Credential = FileSecretCredential(os.path.join(self.folder, credName))
-            self.credentials[credName] = c
-        return self.credentials[credName]
+    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
+        # TODO: This should read the username and password from the file specified in cred
+        return ("blankety", "blank")
+
+    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+        return super().lintCredential(cred, tree)
 
 
-class ClearTextCredential(UserPasswordCredential):
+class ClearTextCredential(Credential):
     """This is implemented for testing but should never be used in production. All
     credentials should be stored and retrieved using secrets Credential objects also
     provided."""
     def __init__(self, username: str, password: str) -> None:
-        super().__init__(username, password)
+        super().__init__(CredentialType.USER_PASSWORD)
+        self.username: str = username
+        self.password: str = password
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"username": self.username})
+        rc.update({"password": self.password})
+        return rc
 
     def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is ClearTextCredential
+        return super().__eq__(other) and type(other) is ClearTextCredential and self.username == other.username and self.password == other.password
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
@@ -3815,6 +3775,11 @@ class BrokerRenderEngine(UserDSLObject, JSONable):
         self.credStore.lint(self.eco, tree.addSubTree(self.credStore))
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self.eco)
         graph.lint(self.credStore, tree.addSubTree(graph))
+
+    @abstractmethod
+    def mergeHandler(self):
+        """This is the merge handler implementation."""
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self.eco)
 
 
 # Add regulators here with their named retention policies for reference in Workspaces
