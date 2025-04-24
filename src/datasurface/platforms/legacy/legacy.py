@@ -6,7 +6,7 @@
 from datasurface.md import DataPlatform, Ecosystem, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
-    CodeExecutionEnvironment, CodeArtifact, LocationKey
+    CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore
 
 from typing import Optional, Any
 
@@ -70,7 +70,11 @@ class LegacyDataPlatformHandler(DataPlatformGraphHandler):
             self.calculateInternalContainers()
         return self.internalContainers
 
-    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
+    def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree):
+        """This is preexisting infra, it all exists already so it's by definition compatible with this platform"""
+        pass
+
+    def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree):
         """This is preexisting infra, it all exists already so it's by definition compatible with this platform"""
         pass
 

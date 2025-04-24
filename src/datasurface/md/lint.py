@@ -45,6 +45,11 @@ class UserDSLObject(ValidatableObject):
         self._file_name = filename
         self._line_number = line
 
+    def setSourceFromObject(self, obj: 'UserDSLObject'):
+        """This is used to set the source from another UserDSLObject"""
+        self._file_name = obj._file_name
+        self._line_number = obj._line_number
+
     def findFirstNonDataSurfaceCaller(self) -> Optional[FrameType]:
         """This walks back the caller stack until it finds a non datasurface caller. This is
         assumed to be the python module defining the DSL."""

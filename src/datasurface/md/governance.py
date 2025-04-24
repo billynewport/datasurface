@@ -3312,6 +3312,11 @@ class CredentialStore(UserDSLObject, JSONable):
             loc.lint(eco, tree.addSubTree(loc))
 
     @abstractmethod
+    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+        """This is used to check if a Credential is supported by this store."""
+        pass
+
+    @abstractmethod
     def getCredential(self, credName: str) -> Credential:
         """This returns the credential with the specified name"""
         pass
@@ -3791,6 +3796,27 @@ class DefaultDataPlatform(UserDSLObject):
         return False
 
 
+class BrokerRenderEngine(UserDSLObject, JSONable):
+    def __init__(self, name: str, ecosystem: 'Ecosystem', credStore: CredentialStore):
+        UserDSLObject.__init__(self)
+        JSONable.__init__(self)
+        self.name: str = name
+        self.eco: Ecosystem = ecosystem
+        self.credStore: CredentialStore = credStore
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
+
+    def render(self):
+        pass
+
+    @abstractmethod
+    def lint(self, tree: ValidationTree):
+        self.credStore.lint(self.eco, tree.addSubTree(self.credStore))
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self.eco)
+        graph.lint(self.credStore, tree.addSubTree(graph))
+
+
 # Add regulators here with their named retention policies for reference in Workspaces
 # Feels like regulators are across GovernanceZones
 class Ecosystem(GitControlledObject, JSONable):
@@ -3801,7 +3827,9 @@ class Ecosystem(GitControlledObject, JSONable):
         return gz
 
     def __init__(self, name: str, repo: Repository,
-                 *args: Union['DataPlatform', Documentation, DefaultDataPlatform, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+                 *args: Union[BrokerRenderEngine,
+                              'DataPlatform', Documentation, DefaultDataPlatform,
+                              InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         GitControlledObject.__init__(self, repo)
         JSONable.__init__(self)
         self.name: str = name
@@ -3814,6 +3842,7 @@ class Ecosystem(GitControlledObject, JSONable):
         self.vendors: dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.dataPlatforms: dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
         self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
+        self.renderEngine: Optional[BrokerRenderEngine] = None
         self.resetCaches()
         self.add(*args)
 
@@ -3823,6 +3852,7 @@ class Ecosystem(GitControlledObject, JSONable):
             "zones": {k: k.name for k in self.zones.defineAllObjects()},
             "vendors": {k: k.to_json() for k in self.vendors.values()},
             "dataPlatforms": {k: k.to_json() for k in self.dataPlatforms.values()},
+            "renderEngine": self.renderEngine.to_json() if self.renderEngine else None
         }
 
     def resetCaches(self) -> None:
@@ -3834,12 +3864,15 @@ class Ecosystem(GitControlledObject, JSONable):
         self.teamCache: dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def add(self, *args: Union['DataPlatform', DefaultDataPlatform, Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+    def add(self, *args: Union[BrokerRenderEngine, 'DataPlatform', DefaultDataPlatform,
+                               Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
                 if self.vendors.get(arg.name) is not None:
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {arg.name}")
                 self.vendors[arg.name] = arg
+            elif isinstance(arg, BrokerRenderEngine):
+                self.brokerRenderEngine = arg
             elif isinstance(arg, Documentation):
                 self.documentation = arg
             elif isinstance(arg, DataPlatform):
@@ -4001,9 +4034,9 @@ class Ecosystem(GitControlledObject, JSONable):
 
         if not ecoTree.hasErrors():
             try:
-                graph: EcosystemPipelineGraph = EcosystemPipelineGraph(self)
-
-                graph.lint(ecoTree.addSubTree(graph))
+                if self.renderEngine is not None:
+                    # Lint the renderEngine which lints the intentions graphs
+                    self.renderEngine.lint(ecoTree.addSubTree(self.renderEngine))
             except Exception as e:
                 ecoTree.addProblem(f"Error generating pipeline graph {e}", ProblemSeverity.ERROR)
 
@@ -4866,7 +4899,7 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
 
 class DataPlatform(Documentable, UserDSLObject, JSONable):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
-    def __init__(self, name: str, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
+    def __init__(self, name: str, *args: Union[DataPlatformExecutor, Documentation]) -> None:
         Documentable.__init__(self, self.findObjectOfSpecificType(Documentation, *args))
         UserDSLObject.__init__(self)
         JSONable.__init__(self)
@@ -4875,7 +4908,6 @@ class DataPlatform(Documentable, UserDSLObject, JSONable):
         if de is None:
             raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
         self.executor: DataPlatformExecutor = de
-        self.credentialStores: dict[str, CredentialStore] = OrderedDict[str, CredentialStore]()
         self.add(*args)
 
     @abstractmethod
@@ -4883,17 +4915,13 @@ class DataPlatform(Documentable, UserDSLObject, JSONable):
         rc: dict[str, Any] = {
             "_type": self.__class__.__name__,
             "name": self.name,
-            "executor": self.executor.to_json(),
-            "credentialStores": {k: v.to_json() for k, v in self.credentialStores.items()},
+            "executor": self.executor.to_json()
         }
         return rc
 
-    def add(self, *args: Union[CredentialStore, DataPlatformExecutor, Documentation]) -> None:
+    def add(self, *args: Union[DataPlatformExecutor, Documentation]) -> None:
         for arg in args:
-            if isinstance(arg, CredentialStore):
-                cs: CredentialStore = arg
-                self.credentialStores[cs.name] = cs
-            elif isinstance(arg, DataPlatformExecutor):
+            if isinstance(arg, DataPlatformExecutor):
                 if self.executor != arg:
                     raise ObjectAlreadyExistsException("Executor already set")
                 self.executor = arg
@@ -4931,8 +4959,6 @@ class DataPlatform(Documentable, UserDSLObject, JSONable):
         self.executor.lint(eco, tree.addSubTree(self.executor))
         if (not eco.checkDataPlatformExists(self)):
             tree.addRaw(ValidationProblem(f"DataPlatform {self} not found in ecosystem {eco}", ProblemSeverity.ERROR))
-        for cs in self.credentialStores.values():
-            cs.lint(eco, tree.addSubTree(cs))
 
     @abstractmethod
     def createGraphHandler(self, graph: 'PlatformPipelineGraph') -> 'DataPlatformGraphHandler':
@@ -4952,6 +4978,7 @@ class DatasetConsistencyNotSupported(ValidationProblem):
     """This indicates a dataset consistency type is not supported by a data platform"""
     def __init__(self, store: Datastore, type: IngestionConsistencyType, dp: DataPlatform, sev: ProblemSeverity) -> None:
         super().__init__(f"Store: {store.name} Dataset consistency type {type} is not supported by {dp}", sev)
+
 
 class DataPlatformKey(JSONable):
     """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
@@ -5945,7 +5972,7 @@ class PlatformPipelineGraph(InternalLintableObject):
 
         return '\n'.join(graph_strs)
 
-    def lint(self, tree: ValidationTree) -> None:
+    def lint(self, credStore: CredentialStore, tree: ValidationTree) -> None:
         """This checks the pipeline graph for errors and warnings"""
 
         # Get the IaC renderer for the platform
@@ -5953,7 +5980,7 @@ class PlatformPipelineGraph(InternalLintableObject):
 
         # Lint the graph to check all nodes are valid with this platform
         # This checks for unsupported databases, vendors, transformers and so on
-        gHandler.lintGraph(self.eco, tree.addSubTree(gHandler))
+        gHandler.lintGraph(self.eco, credStore, tree.addSubTree(gHandler))
 
     def propagateWorkspacePriorities(self):
         """Propagates workspace priorities through the pipeline graph.
@@ -6038,9 +6065,9 @@ class EcosystemPipelineGraph(InternalLintableObject):
             pinfo.generateGraph()
             pinfo.propagateWorkspacePriorities()
 
-    def lint(self, tree: ValidationTree) -> None:
+    def lint(self, credStore: CredentialStore, tree: ValidationTree) -> None:
         for p in self.roots.values():
-            p.lint(tree.addSubTree(p))
+            p.lint(credStore, tree.addSubTree(p))
 
     def __str__(self) -> str:
         return f"EcosystemPipelineGraph({self.eco.name})"
@@ -6154,9 +6181,16 @@ class DataPlatformGraphHandler(UserDSLObject):
         pass
 
     @abstractmethod
-    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
+    def lintGraph(self, eco: Ecosystem, credStore: CredentialStore, tree: ValidationTree):
         """This checks the pipeline graph for errors and warnings. It should also check that the platform
-        can handle every node in the pipeline graph. Nodes may fail because there is no supported"""
+        can handle every node in the pipeline graph. Nodes may fail because there is no supported. The
+        CredentialStore is provided so Credentials can check they are supported."""
+        pass
+
+    @abstractmethod
+    def renderGraph(self, credStore: CredentialStore, issueTree: ValidationTree) -> None:
+        """This is called by the RenderEngine to instruct a DataPlatform to render the
+        intention graph that it manages."""
         pass
 
 
@@ -6185,7 +6219,7 @@ class PlatformPipelineGraphLinter(ABC):
     def lintDataTransformerNode(self, eco: Ecosystem, node: DataTransformerNode, tree: ValidationTree) -> None:
         pass
 
-    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
+    def lintGraph(self, eco: Ecosystem, credStore: CredentialStore, tree: ValidationTree):
         """Check that the platform can handle every node in the pipeline graph. Nodes may fail because there is no supported
         connector for an ingestion or export node or because there are missing parameters or because a certain type of
         trigger or data transformer is not supported. It may also fail because an infrastructure vendor or datacontainer is not supported"""

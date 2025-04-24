@@ -1,0 +1,27 @@
+"""
+// Copyright (c) William Newport
+// SPDX-License-Identifier: BUSL-1.1
+"""
+
+from datasurface.renderengine import BrokerRenderEngine
+from datasurface.md import Ecosystem, EcosystemPipelineGraph
+from datasurface.md.lint import ValidationTree
+
+
+class SwarmRenderEngine(BrokerRenderEngine):
+    """This is a render engine which takes a full intention graph of a DataSurface Ecosystem and then
+    invokes each DataPlatform to render the subset assigned to it. The DataPlatform renders its
+    graph on a particular technology stack with a specific configuration. A render engine works within
+    a specific runtime context. This runtime engine works within a Docker Swarm cluster and uses
+    docker swarm for secret management as well as for containers."""
+
+    def __init__(self, name: str, ecosystem: Ecosystem, secretsFolder: str = "/run/secrets", brokerFolder: str = "/mnt/broker"):
+        super().__init__(name, ecosystem)
+        self.graph: EcosystemPipelineGraph = EcosystemPipelineGraph(ecosystem)
+        self.secretsFolder = secretsFolder
+        self.brokerFolder = brokerFolder
+
+    def lint(self, tree: ValidationTree):
+        """Checks if everything used in the Ecosystem is supported by the SwarmRenderEngine. For example, credentialstores
+        and similar"""
+±

@@ -27,6 +27,10 @@ Consumers want their data available using a DataContainer which is suited to the
 
 Again, GovernanceZones may constrain the DataContainers that can be used to persist data under their governance.
 
+## LogicalDataContainer
+
+The DataContainer used for a Workspace is sometimes provided by the DataPlatform. The consumer does not specify an exact DataContainer instead they specify a LogicalDataContainer which at runtime is provided by the DataPlatform.
+
 ## DataContainers have a location and hosting vendor
 
 DataContainers are located in one or more infrastructure locations. These locations are owned by a specific infrastructure vendor. The vendor is responsible for the physical infrastructure that the DataContainer is running on. The vendor is also responsible for the API that the DataContainer exposes to clients.

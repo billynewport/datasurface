@@ -41,7 +41,7 @@ Dataplatforms should be able to render large environments. Maybe 10k datastores,
 
 These environments also run thousands to millions of jobs a day to execute the pipeline. These jobs also have to be updated when a new metadata push arrives. It's recommended that platforms can shard themselves to make the catch up renders faster. Data can also be arriving slowly or rapidly.
 
-However, no matter how many dataplatforms use data from a particular store, they need to coordinate and pick a single platform to run data ingestion jobs. The ingestion load on any particular data store should always be 1 ingestion. Thus, platforms may have primary/exclusive ingestion status for a subset of datastores that they are managing. Other data platform will then connect to the ingestion storage of the primary platform when they need the data.
+Ideally, the ingestion load on a producer DataContainer should be limited to 1 if possible. Some ingestions may use pub/sub and thus already decouple the number of consumers from the load on the producer data container. It's possible that an intermediate DataPlatform would ingest the producer data and then other DataPlatforms would ingest from it's intermediate data container instead of directly from the producer data container.
 
 Platform instances should be stored in the Ecosystem and provisioned when data platforms move to a new pipeline render.
 
@@ -56,7 +56,7 @@ A data platform is a mechanism to handle the follow chores:
 
 ## Example DataPlatform implementations
 
-DataSurface is provided with a ZeroDataPlatform. You can read about it [here](zero/README.md).
+DataSurface is provided with a SimpleDataPlatform. You can read about it [here](simpledp/README.md).
 
 ## Packaging DataPlatforms as Docker containers
 
@@ -78,3 +78,9 @@ Now, even a simple cron job can be used to run DataSurface to:
 ## DataPlatforms need to use the model
 
 If all aspects of a DataPlatform are written in Python then it's likely easiest just to check out the primary model from github and then load it. If the DataPlatform is written in languages other than Python then it will need a way to read model artifacts such as Datastores, ingestion metadata, schemas and so on. DataSurface provides a REST API to the model for this purpose. It can be easily started as a docker container and then used to query the model. The REST API is read only. It's documented [here](REST_API.md).
+
+## The BrokerRenderEngine
+
+This is responsible for handling new model revisions. It is the top level component which is responsible for handling a model change and distributing that event to DataPlatforms. It will calculate the intention graphs and then invoke each DataPlatform to handle it's intention graph subset. It provides an computational and credential environment within which DataPlatforms can operate. This is documented in the [SwarmRenderer.md](SwarmRenderer.md) file.
+
+DataPlatforms themselves can be written in a portable manner and wrapped with the Credential infrastructure for them to execute.

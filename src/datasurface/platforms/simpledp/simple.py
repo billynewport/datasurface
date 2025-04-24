@@ -4,13 +4,15 @@
 """
 
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
-    PlatformPipelineGraph, DataPlatformGraphHandler, CredentialStore, PostgresDatabase
+    PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
-    DatastoreCacheEntry, FileSecretCredential, IngestionConsistencyType, DatasetConsistencyNotSupported
+    DatastoreCacheEntry, FileSecretCredential, IngestionConsistencyType, DatasetConsistencyNotSupported, Schema, PrimaryKeyList
 from datasurface.md.lint import ObjectWrongType, ObjectMissing
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
+from datasurface.md import CredentialStore
+
 
 class SimplePlatformExecutor(DataPlatformExecutor):
     def __init__(self):
@@ -62,10 +64,13 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
             # Catch other potential file reading errors
             raise ValueError(f"Error reading credential file {credential.secretFilePath}: {e}")
 
-    def createTerraformForAllIngestedNodes(self, eco: Ecosystem) -> None:
+    def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This creates a terraform file for all the ingested nodes in the graph using jinja templates which are found
         in the templates directory. It creates a sink connector to copy from the topics to a postgres
-        staging file and a cluster link resource if required to recreate the topics on this cluster."""
+        staging file and a cluster link resource if required to recreate the topics on this cluster.
+        Any errors during generation will just be added as ValidationProblems to the tree using the appropriate
+        subtree so the user can see which object caused the errors. The caller method will check if the tree
+        has errors and stop the generation process."""
         template: Template = self.createTemplate('kafka_topic_to_staging.jinja2')
 
         # Ensure the platform is the correct type early on
@@ -86,26 +91,36 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
                 if datastore.cmd and isinstance(datastore.cmd, KafkaIngestion):
                     ingestionNode: KafkaIngestion = datastore.cmd
 
-                    topic_names: list[str] = list(ingestionNode.topicForDataset.values())
-                    if not topic_names:
-                        print(f"Warning: No topics defined in topicForDataset for datastore '{storeName}'. Skipping.")
-                        continue
+                    topicNames: dict[str, str] = ingestionNode.topicForDataset
 
-                    # Prepare data for a single node for the template list
-                    # NOTE: Template expects node.kafka_topic (singular) but we have multiple potentially.
-                    #       Using the first topic for now. Revisit if connector needs multiple topics.
-                    # NOTE: Template expects node.target_table_name, node.input_data_format, node.primary_key_fields
-                    #       These are not directly available here, using placeholders.
-                    node_data: dict[str, Any] = {
-                        "connector_name": f"jdbc_sink_{datastore.name}",
-                        "kafka_topic": topic_names[0],  # TEMPLATE uses singular topic
-                        "target_table_name": f"staging_{datastore.name}_{topic_names[0]}",  # TEMPLATE needs this
-                        "tasks_max": 1,  # Default or get from ingestionNode/datastore if available
-                        "input_data_format": "AVRO",  # Placeholder - get from ingestionNode/datastore schema if available
-                        "primary_key_fields": ["id"]  # Placeholder - get from ingestionNode/datastore schema if available
-                        # Add node.connector_config_overrides if needed/available
-                    }
-                    ingest_nodes.append(node_data)
+                    # We need to generate a resource for each datastore/dataset pair.
+                    # This is because the connector can only support a single topic.
+                    # So we need to create a new connector for each dataset.
+                    # We will use the same connector for all datasets on the same datastore.
+                    # We will use the same connector for all datasets on the same datastore.
+
+                    for dataset in datastore.datasets.values():
+                        # Prepare data for a single node for the template list
+                        # Use dataset name as the topic name unless a mapping is provided.
+                        topicName: str = dataset.name
+                        if topicNames[dataset.name]:
+                            topicName = topicNames[dataset.name]
+                        if dataset.originalSchema is None:
+                            tree.addSubTree(dataset).addRaw(ObjectMissing(dataset, Schema, ProblemSeverity.ERROR))
+                        else:
+                            if dataset.originalSchema.primaryKeyColumns is None:
+                                tree.addSubTree(dataset.originalSchema).addRaw(ObjectMissing(dataset.originalSchema, PrimaryKeyList, ProblemSeverity.ERROR))
+                            else:
+                                node_data: dict[str, Any] = {
+                                    "connector_name": f"jdbc_sink_{datastore.name}_{dataset.name}",
+                                    "kafka_topic": topicName,  # TEMPLATE uses singular topic
+                                    "target_table_name": f"staging_{datastore.name}_{topicName}",  # TEMPLATE needs this
+                                    "tasks_max": 1,  # Default or get from ingestionNode/datastore if available
+                                    "input_data_format": "AVRO",  # Placeholder - get from ingestionNode/datastore schema if available
+                                    "primary_key_fields": dataset.originalSchema.primaryKeyColumns.colNames
+                                    # Add node.connector_config_overrides if needed/available
+                                }
+                                ingest_nodes.append(node_data)
 
                 else:
                     print(f"Warning: Datastore '{storeName}' does not have KafkaIngestion metadata or cmd is None. Skipping.")
@@ -150,16 +165,18 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
         except Exception as e:
             print(f"An unexpected error occurred during template rendering: {e}")
 
-    def lintKafkaIngestion(self, store: Datastore, tree: ValidationTree):
+    def lintKafkaIngestion(self, store: Datastore, storeTree: ValidationTree):
         """Kafka ingestions can only be single dataset. Each dataset is published on a different topic."""
         if not isinstance(store.cmd, KafkaIngestion):
-            tree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
-        elif store.cmd.singleOrMultiDatasetIngestion is None:
-            tree.addRaw(ObjectMissing(store, IngestionConsistencyType, ProblemSeverity.ERROR))
-        elif store.cmd.singleOrMultiDatasetIngestion != IngestionConsistencyType.SINGLE_DATASET:
-            tree.addRaw(DatasetConsistencyNotSupported(store, store.cmd.singleOrMultiDatasetIngestion, self.graph.platform, ProblemSeverity.ERROR))
+            storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+        else:
+            cmdTree: ValidationTree = storeTree.addSubTree(store.cmd)
+            if store.cmd.singleOrMultiDatasetIngestion is None:
+                cmdTree.addRaw(ObjectMissing(store, IngestionConsistencyType, ProblemSeverity.ERROR))
+            elif store.cmd.singleOrMultiDatasetIngestion != IngestionConsistencyType.SINGLE_DATASET:
+                cmdTree.addRaw(DatasetConsistencyNotSupported(store, store.cmd.singleOrMultiDatasetIngestion, self.graph.platform, ProblemSeverity.ERROR))
 
-    def lintGraph(self, eco: Ecosystem, tree: ValidationTree):
+    def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree):
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
         no issues then the graph is executed. Executed here means
         1. Terraform file which creates kafka connect connectors to ingest topics to postgres tables.
@@ -179,12 +196,18 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
         # Lets make sure only kafa ingestions are used.
         for storeName in self.graph.storesToIngest:
             store: Datastore = eco.cache_getDatastoreOrThrow(storeName).datastore
+            storeTree: ValidationTree = tree.addSubTree(store)
             if store.cmd is None:
-                tree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
+                storeTree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
             elif not isinstance(store.cmd, KafkaIngestion):
-                tree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+                storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
             else:
-                self.lintKafkaIngestion(store, tree)
+                self.lintKafkaIngestion(store, storeTree)
+
+    def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree):
+        """This is called by the RenderEngine to instruct a DataPlatform to render the
+        intention graph that it manages."""
+        pass
 
 
 class KafkaConnectCluster(DataContainer, JSONable):
@@ -218,14 +241,12 @@ class SimpleDataPlatform(DataPlatform):
             self,
             name: str,
             doc: Documentation,
-            credentialStore: CredentialStore,
             kafkaConnectCluster: KafkaConnectCluster,
             connectCredentials: Credential,
             mergeStore: PostgresDatabase,
             postgresCredential: Credential
             ):
-        super().__init__(name, doc, SimplePlatformExecutor(), credentialStore)
-        self.credStoreName: str = credentialStore.name
+        super().__init__(name, doc, SimplePlatformExecutor())
         self.kafkaConnectCluster: KafkaConnectCluster = kafkaConnectCluster
         self.connectCredentials: Credential = connectCredentials
         self.mergeStore: PostgresDatabase = mergeStore
@@ -235,7 +256,6 @@ class SimpleDataPlatform(DataPlatform):
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
-                "credStoreName": self.credStoreName,
                 "mergeStore": self.mergeStore.to_json(),
                 "connectCredentials": self.connectCredentials.to_json(),
                 "postgresCredential": self.postgresCredential.to_json(),

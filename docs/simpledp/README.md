@@ -1,6 +1,6 @@
-# Zero Data Platform
+# Simple Data Platform
 
-This is a builtin simple but powerful DataPlatform that can be used with DataSurface. It uses a Postgres instance to store its data. The data consists of staging data and merge tables.
+This is a builtin simple but powerful DataPlatform that can be used with DataSurface. It uses a Postgres instance to store its data. The data consists of staging data and merge tables. Consumers directly query the merge tables through Workspace specific views. Workspaces should use the LogicalDataContainer as their DataContainer.
 
 ## Staging Data
 
