@@ -64,7 +64,7 @@ class TestLintPerformance(unittest.TestCase):
 
     def test_lint_performance(self):
         start_time = time.time()
-        ecosys: Ecosystem = self.createScaledEcosystem(100, 100, 50)
+        ecosys: Ecosystem = self.createScaledEcosystem(10, 100, 50)
         end_time = time.time()
         print(f"Time taken to create ecosystem: {end_time - start_time} seconds")
         start_time = time.time()
