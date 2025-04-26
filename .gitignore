@@ -23,3 +23,4 @@ java/dmsingester/bin/**
 **/.venv/*
 **/gitlab_vols/*
 **/.vscode/*
+test_lint_performance.prof

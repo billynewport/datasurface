@@ -32,8 +32,7 @@ class UserDSLObject(ValidatableObject):
             self._file_name = filename
             self._line_number = linenumber
         else:
-            f: Optional[FrameType] = inspect.currentframe()
-            f = self.findFirstNonDataSurfaceCaller()
+            f: Optional[FrameType] = self.findFirstNonDataSurfaceCaller()
             if f is not None:
                 self._line_number: int = f.f_lineno
                 self._file_name: str = f.f_code.co_filename

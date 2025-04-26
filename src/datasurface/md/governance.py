@@ -3820,7 +3820,8 @@ class BrokerRenderEngine(UserDSLObject, JSONable):
     @abstractmethod
     def mergeHandler(self, eco: 'Ecosystem'):
         """This is the merge handler implementation."""
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+#        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+        pass
 
 
 # Add regulators here with their named retention policies for reference in Workspaces
@@ -4042,7 +4043,7 @@ class Ecosystem(GitControlledObject, JSONable):
             try:
                 if self.renderEngine is not None:
                     # Lint the renderEngine which lints the intentions graphs
-                    self.renderEngine.lint(ecoTree.addSubTree(self.renderEngine))
+                    self.renderEngine.lint(self, ecoTree.addSubTree(self.renderEngine))
             except Exception as e:
                 ecoTree.addProblem(f"Error generating pipeline graph {e}", ProblemSeverity.ERROR)
 
