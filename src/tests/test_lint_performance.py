@@ -13,6 +13,17 @@ import time
 
 
 class TestLintPerformance(unittest.TestCase):
+
+    def test_SourceCaptureForDSLObjects(self):
+        store: Datastore = Datastore("Store1")
+        # Split the source reference string into filename and line number
+        source_ref = store.getSourceReferenceString()
+        filename, lineno = source_ref.split('@')[1].split(':')
+        # Only keep the filename, not the folder
+        filename = filename.split('/')[-1]
+        self.assertEqual(filename, "test_lint_performance.py")
+        self.assertEqual(lineno, "18")
+
     def createScaledEcosystem(self, numStores: int, numDatasetsPerStore: int, numColumnsPerDataset: int) -> Ecosystem:
         ecosys: Ecosystem = Ecosystem(
             "Test",
@@ -64,7 +75,7 @@ class TestLintPerformance(unittest.TestCase):
 
     def test_lint_performance(self):
         start_time = time.time()
-        ecosys: Ecosystem = self.createScaledEcosystem(10, 100, 50)
+        ecosys: Ecosystem = self.createScaledEcosystem(50, 100, 50)
         end_time = time.time()
         print(f"Time taken to create ecosystem: {end_time - start_time} seconds")
         start_time = time.time()

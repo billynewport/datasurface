@@ -108,12 +108,12 @@ class ANSI_SQL_NamedObject(UserDSLObject):
     name: str
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:
         self.name: str = name
         """The name of the object"""
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(self.name)
-        UserDSLObject.__init__(self)
+        UserDSLObject.__init__(self, filename, linenumber)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
@@ -252,10 +252,10 @@ class Documentation(UserDSLObject):
         return rc
 
 
-class Documentable(UserDSLObject):
+class Documentable(InternalLintableObject):
     """This is the base class for all objects which can have documentation."""
     def __init__(self, documentation: Optional[Documentation]) -> None:
-        UserDSLObject.__init__(self)
+        InternalLintableObject.__init__(self)
         self.documentation: Optional[Documentation] = documentation
 
     def __eq__(self, other: object):
@@ -898,11 +898,11 @@ def handleUnsupportedObjectsToJson(obj: object) -> str:
     raise Exception(f"Unsupported object {obj} in to_json")
 
 
-class DataType(UserDSLObject, JSONable):
+class DataType(InternalLintableObject, JSONable):
     """Base class for all data types. These DataTypes are not nullable. Nullable status is a property of
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
-        UserDSLObject.__init__(self)
+        InternalLintableObject.__init__(self)
         JSONable.__init__(self)
         pass
 
@@ -1866,7 +1866,7 @@ DEFAULT_nullable: NullableStatus = NullableStatus.NULLABLE
 class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This is an individual attribute within a DDLTable schema"""
     def __init__(self, name: str, dataType: DataType, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
-        super().__init__(name)
+        ANSI_SQL_NamedObject.__init__(self, name, "DDLColumn", 1)
         Documentable.__init__(self, None)
         JSONable.__init__(self)
         self.type: DataType = dataType
