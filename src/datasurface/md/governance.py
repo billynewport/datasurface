@@ -4047,6 +4047,8 @@ class Ecosystem(GitControlledObject, JSONable):
             except Exception as e:
                 ecoTree.addProblem(f"Error generating pipeline graph {e}", ProblemSeverity.ERROR)
 
+        # Prune the tree to remove objects that have no problems
+        ecoTree.prune()
         return ecoTree
 
     def calculateDependenciesForDatastore(self, storeName: str, wsVisitedSet: set[str] = set()) -> Sequence[DependentWorkspaces]:

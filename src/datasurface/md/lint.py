@@ -289,6 +289,12 @@ class ValidationTree:
         self.children.append(child)
         return child
 
+    def prune(self) -> None:
+        """This prunes the tree of objects that have no problems"""
+        self.children = [child for child in self.children if child.hasErrors() or child.hasWarnings()]
+        for child in self.children:
+            child.prune()
+
     def getProblems(self) -> list[ValidationProblem]:
         """This returns the list of problems"""
         return self.problems
