@@ -16,10 +16,14 @@ For a milestoned MERGE, the MERGE table will contain two extra columns per recor
 
 ## Why use Postgres?
 
-I'm using postgres because for the vast majority of use cases, it's good enough for the job. It's also a SQL based platform. SQL based is important because SQL is standard. We can imagine replacing postgres with a columnar storage database such as Snowflake or Athena or Azure SQL or similar without much work. These columnar storage databases are getting better everyday and all are focused on efficiently executing SQL. Thus, it makes sense to bet on using SQL rather than Spark as the SQL execution is getting better everyday, portable, and lets face it, after 40 years of SQL, it's not going anyway anytime soon.
+I'm using postgres because for the vast majority of use cases, it's good enough for the job. It's also a SQL based platform. SQL based is important because SQL is standard. We can imagine replacing postgres with a columnar storage database such as Snowflake or Athena or Azure SQL or similar without much work. These columnar storage databases are getting better everyday and all are focused on efficiently executing SQL. Thus, it makes sense to bet on using SQL rather than Spark as the SQL execution is getting better everyday, portable, and lets face it, after 40 years of SQL, it's not going anyway anytime soon. A user could use a postgres database hosted on AWS for example. AWS features servers which can scale up to 192 vCores with 768GB of RAM. I'm not saying postgres can run on 192 vCores, I'm sure there are critical section bottlenecks but a m7i.8xlarge box with 32 vCores and 128GB of RAM would be a very large postgres instance and be capable of a surprising amount of work. Remember, the fastest distributed database is a single node database large enough to execute the workload. Distribution has a cost and a single node system will outperform a distributed system up to a certain point.There are also managed AWS RDS instances which could be used.
 
-So, we will start ZeroDataPlatform with Postgres and Airflow as the job scheduler. This is a simple system and with Postgres servers with terabytes of storage, lots of memory and lots of cores, it can scale well. It also supports indexes which makes performance tuning relatively easy compared with native columnar storage databases.
+So, we will start SimpleDataPlatform with Postgres and Airflow as the job scheduler. This is a simple system and with Postgres servers with terabytes of storage, lots of memory and lots of cores, it can scale well. It also supports indexes which makes performance tuning relatively easy compared with native columnar storage databases.
 
 ## Columnar future
 
 Once we have a working system then we can look at refactoring it in to a portable layer which is common across SQL based engines and then implement a (hopefully) thin layer for each SQL data container: Postgres, Athena, Azure SQL, Snowflake
+
+## Container Orchestration
+
+The SimpleDataPlatform will be designed alongside the Docker Swarm RenderEngine. Once this is working then we can look at other container orchestration engines. An obvious next step is Kubernetes.

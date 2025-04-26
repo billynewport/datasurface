@@ -19,7 +19,10 @@
         |-- handler             # Contains the code to validate model changes and verify that pull requests are valid
         |-- md                  # Contains the model metadata code itself. This is the model of the data ecosystem
         |-- platforms           # Contains the DataSurface DataPlatform Python code
-            |-- zero            # Contains the Zero DataPlatform Python code
+            |-- legacy          # Contains the legacy DataPlatform Python code
+            |-- simpledp        # Contains the SimpleDataPlatform Python code
+        |renderengine
+            |-- swarm           # A Docker swarm based render engine
     |-- tests                   # Contains the tests for the DataSurface Catalog Python code
 ```
 

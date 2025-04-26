@@ -16,9 +16,9 @@ The way this would be used is as a sidekick container in a Kubernetes job for ex
 
 ## Phase 3: ZeroDataPlatform Batch/Streaming Support using Postgres,Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
 
-This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources.
+This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources. It is designed around Docker Swarm for the container orchestration.
 
-You can read about it [here](docs/zero/README.md).
+You can read about it [here](docs/simpledp/README.md).
 
 ## Phase 4: SecurityModule implementation
 
@@ -30,7 +30,7 @@ Once we have a working DataPlatform and SecurityModule, users will be able to us
 
 ## Future DataPlatforms
 
-Once the ZeroDataPlatform is working then we can start to look at other DataPlatforms. The candidates are:
+Once the SimpleDataPlatform is working then we can start to look at other DataPlatforms. The candidates are:
 
 * Databricks
 
@@ -47,3 +47,5 @@ Once the ZeroDataPlatform is working then we can start to look at other DataPlat
 * Azure SQL
 
   This will use their Schema registry and their Blob storage for storage. It will use their Data Factory for job scheduling.
+
+* Kubernetes as well as Docker Swarm
