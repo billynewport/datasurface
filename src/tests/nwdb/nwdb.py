@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.legacy import LegacyDatPlatformChooser, LegacyDataTransformer
+from datasurface.platforms.legacy import LegacyDatPlatformChooser
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import HostPortSQLDatabase, ClearTextCredential
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
