@@ -5,12 +5,13 @@
 
 
 import unittest
-from datasurface.md import PlainTextDocumentation
+from datasurface.md.documentation import PlainTextDocumentation
 
 from datasurface.md import Ecosystem, GovernanceZone, InfraStructureLocationPolicy, InfraStructureVendorPolicy, \
     InfrastructureVendor
 from datasurface.md import ValidationTree, LocationKey, VendorKey
-from datasurface.md import DataClassificationPolicy, SimpleDC, SimpleDCTypes
+from datasurface.md.policy import DataClassificationPolicy, SimpleDC, SimpleDCTypes
+
 from tests.nwdb.eco import createEcosystem
 
 

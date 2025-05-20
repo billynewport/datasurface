@@ -5,8 +5,8 @@
 
 
 import unittest
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository
 from datasurface.md import ValidationTree, UserDSLObject
 
 from tests.nwdb.eco import createEcosystem

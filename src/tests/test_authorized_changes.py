@@ -7,8 +7,8 @@
 import copy
 from typing import Optional
 import unittest
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository
 
 from datasurface.md import CloudVendor, DefaultDataPlatform, Ecosystem, \
     GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository

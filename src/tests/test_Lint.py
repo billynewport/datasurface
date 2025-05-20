@@ -5,7 +5,8 @@
 
 
 import unittest
-from datasurface.md import GitHubRepository, UserDSLObject
+from datasurface.md import UserDSLObject
+from datasurface.md.repo import GitHubRepository
 
 from datasurface.md import ProblemSeverity, ValidationProblem, ValidationTree
 

@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import PlainTextDocumentation, LocationKey
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md import LocationKey
 from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
     SQLDatabase, Team, ClearTextCredential
-from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
 
 

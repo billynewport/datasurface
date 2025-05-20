@@ -7,7 +7,7 @@
 
 import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Datastore, Team, Workspace
-from datasurface.md import DataType, ArrayType, Boolean, MapType, StructType, SmallInt, IEEE64, Timestamp, Date, Decimal, VarChar, NVarChar
+from datasurface.md.types import DataType, ArrayType, Boolean, MapType, StructType, SmallInt, IEEE64, Timestamp, Date, Decimal, VarChar, NVarChar
 
 from tests.nwdb.eco import createEcosystem
 from typing import Any

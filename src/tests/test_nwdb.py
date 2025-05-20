@@ -6,17 +6,17 @@
 
 import copy
 import unittest
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration, \
     InfraStructureLocationPolicy, InfrastructureLocation, \
     InfrastructureVendor, Repository, TeamDeclaration
 from datasurface.md import ValidationTree, LocationKey
-from datasurface.md import IEEE128, IEEE16, IEEE32, IEEE64, DDLColumn, DataType, Date, Decimal, NullableStatus, \
-    PrimaryKeyStatus, String, Vector
+from datasurface.md.types import IEEE128, IEEE16, IEEE32, IEEE64, DataType, Date, Decimal, \
+    String, Vector
 import tests.nwdb.eco
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md import Ecosystem
+from datasurface.md import Ecosystem, DDLColumn, NullableStatus, PrimaryKeyStatus
 
 
 class TestEcosystemValidation(unittest.TestCase):

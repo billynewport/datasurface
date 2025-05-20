@@ -4,7 +4,6 @@
 """
 
 from typing import Optional, cast
-from datasurface.md import Schema, PrimaryKeyList, PartitionKeyList
 
 from avro.schema import Schema as AvSchema
 from avro.schema import parse
@@ -12,7 +11,8 @@ from avro.schema import parse
 from avro.schema import RecordSchema, Field, PrimitiveSchema
 
 from datasurface.md.lint import ValidationTree
-from datasurface.md import DataClassification, DataClassificationPolicy
+from datasurface.md.policy import DataClassification, DataClassificationPolicy
+from datasurface.md.schema import PrimaryKeyList, PartitionKeyList, Schema
 
 
 class AvroSchema(Schema):

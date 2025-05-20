@@ -5,11 +5,15 @@
 
 import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Team, DataPlatformKey, TeamDeclaration, GovernanceZoneDeclaration
-from datasurface.md import GitHubRepository, ClearTextCredential, DataContainer, Workspace, DatasetGroup
+from datasurface.md.repo import GitHubRepository
+from datasurface.md import ClearTextCredential, DataContainer, Workspace, DatasetGroup
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation, LocationKey
-from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, HostPortPair, DatasetSink
-from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngestion, CronTrigger, IngestionConsistencyType, \
-    SimpleDC, SimpleDCTypes, DDLTable, DDLColumn, SmallInt, VarChar, NullableStatus, PrimaryKeyStatus
+from datasurface.md import HostPortSQLDatabase, HostPortPair, DatasetSink
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngestion, CronTrigger, IngestionConsistencyType
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
+from datasurface.md.types import SmallInt, VarChar
 from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDatPlatformChooser
 
 

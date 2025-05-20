@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import PlainTextDocumentation, LocationKey, VendorKey
-from datasurface.md import GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md import LocationKey, VendorKey
+from datasurface.md.repo import GitHubRepository
 from datasurface.md import CloudVendor, DataPlatformPolicy, \
     DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration

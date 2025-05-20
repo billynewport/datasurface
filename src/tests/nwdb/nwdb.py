@@ -4,14 +4,16 @@
 """
 
 from datasurface.platforms.legacy import LegacyDatPlatformChooser, LegacyDataTransformer
-from datasurface.md import PlainTextDocumentation, HostPortSQLDatabase, ClearTextCredential
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md import HostPortSQLDatabase, ClearTextCredential
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
         Workspace, HostPortPair
 
-from datasurface.md import SimpleDC, SimpleDCTypes
-from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, Integer, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar, Variant
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
+from datasurface.md.schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus
+from datasurface.md.types import IEEE32, Date, Integer, SmallInt, VarChar, Variant
 
 
 def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
@@ -258,12 +260,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
                         DDLColumn("country", VarChar(15))
                     ))),
             TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "*/10 * * * *")),
-            PythonCodeArtifact([], {}, "3.11"),
-            LegacyDataTransformer(
-                "Legacy Transformer for mask",
-                PlainTextDocumentation("This is a legacy transformer"),
-                set()
-                )
+            PythonCodeArtifact([], {}, "3.11")
             )
         )
     t.add(w)

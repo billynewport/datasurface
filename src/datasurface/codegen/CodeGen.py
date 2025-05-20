@@ -9,7 +9,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from datasurface.md import Datastore
 from datasurface.md import Dataset
 from datasurface.md import DDLTable
-from datasurface.md import DDLColumn, DEFAULT_nullable, DEFAULT_primaryKey
+from datasurface.md.schema import DDLColumn, DEFAULT_nullable, DEFAULT_primaryKey
 
 
 def getDatasets(store: Datastore) -> list[Any]:

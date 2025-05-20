@@ -5,8 +5,8 @@
 
 
 import unittest
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import AllowDisallowPolicy, Literal
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.policy import AllowDisallowPolicy, Literal
 
 
 class Test_Policy(unittest.TestCase):

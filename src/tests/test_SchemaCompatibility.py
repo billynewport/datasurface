@@ -7,10 +7,11 @@
 import unittest
 import copy
 
-from datasurface.md import DDLColumn, String, NullableStatus, PrimaryKeyStatus, IEEE32, IEEE64, IEEE16, IEEE128, BigInt, SmallInt, Decimal
+from datasurface.md import DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md import DDLTable
 from datasurface.md import ValidationTree, UserDSLObject
-from datasurface.md import Binary, Boolean, Char, Date, Interval, NVarChar, Timestamp, VarChar, Variant, Vector
+from datasurface.md import Boolean, Char, Date, Interval, NVarChar, Timestamp, VarChar, Variant
+from datasurface.md.types import String, IEEE32, IEEE64, IEEE16, IEEE128, BigInt, SmallInt, Decimal, Vector, Binary
 
 
 class TestSchemaCompatibility(unittest.TestCase):

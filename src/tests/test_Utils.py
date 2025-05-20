@@ -5,7 +5,7 @@
 
 
 import unittest
-from datasurface.md import GitHubRepository
+from datasurface.md.repo import GitHubRepository
 from datasurface.md import ValidationTree
 
 from datasurface.md import is_valid_hostname_or_ip, is_valid_sql_identifier, validate_cron_string

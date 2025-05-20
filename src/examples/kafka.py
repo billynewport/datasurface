@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import Ecosystem, GitLabRepository, PlainTextDocumentation, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
+from datasurface.md import Ecosystem, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
+from datasurface.md.repo import GitLabRepository
 from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
-from datasurface.md import CronTrigger, IngestionConsistencyType, SimpleDC, SimpleDCTypes, LocalFileCredentialStore
+from datasurface.md import CronTrigger, IngestionConsistencyType, LocalFileCredentialStore
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
 from datasurface.platforms.simpledp.simple import SimpleDataPlatform
 from datasurface.md import PostgresDatabase
+from datasurface.md.documentation import PlainTextDocumentation
 
 
 def createEcosystem() -> Ecosystem:

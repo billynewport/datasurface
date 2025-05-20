@@ -4,10 +4,12 @@
 """
 import unittest
 
-from datasurface.md import Ecosystem, GitHubRepository, PlainTextDocumentation, DefaultDataPlatform, DataPlatformKey, GovernanceZoneDeclaration, \
+from datasurface.md import Ecosystem, DefaultDataPlatform, DataPlatformKey, GovernanceZoneDeclaration, \
                            InfrastructureVendor, CloudVendor, InfrastructureLocation, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset, \
-                           DDLColumn, DDLTable, String, PrimaryKeyStatus
-
+                           DDLColumn, DDLTable, PrimaryKeyStatus
+from datasurface.md.repo import GitHubRepository
+from datasurface.md.types import String
+from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.platforms.legacy import LegacyDataPlatform
 import time
 
@@ -22,7 +24,7 @@ class TestLintPerformance(unittest.TestCase):
         # Only keep the filename, not the folder
         filename = filename.split('/')[-1]
         self.assertEqual(filename, "test_lint_performance.py")
-        self.assertEqual(lineno, "18")
+        self.assertEqual(lineno, "20")
 
     def createScaledEcosystem(self, numStores: int, numDatasetsPerStore: int, numColumnsPerDataset: int) -> Ecosystem:
         ecosys: Ecosystem = Ecosystem(

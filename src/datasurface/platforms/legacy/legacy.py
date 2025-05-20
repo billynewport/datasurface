@@ -106,6 +106,11 @@ class LegacyDataPlatform(DataPlatform):
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
         return LegacyDataPlatformHandler(graph)
 
+    def generateBootstrapArtifacts(self) -> dict[str, str]:
+        """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
+        platform and then create a file named after the key and write the value to the file."""
+        return {}
+
 
 class LegacyDatPlatformChooser(DataPlatformChooser):
     """This chooses the legacy DataPlatform and allows the specifics of the particular

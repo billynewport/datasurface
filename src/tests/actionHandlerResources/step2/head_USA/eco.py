@@ -4,8 +4,10 @@
 """
 
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md import PlainTextDocumentation, LocationKey
-from datasurface.md import GitHubRepository, VendorKey
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md import LocationKey
+from datasurface.md.repo import GitHubRepository
+from datasurface.md import VendorKey
 from datasurface.md import CloudVendor, DataPlatformPolicy, \
     DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration

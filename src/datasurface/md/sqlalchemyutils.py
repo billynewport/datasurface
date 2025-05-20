@@ -5,12 +5,14 @@
 
 import decimal
 from typing import Any, List, Optional, Sequence, TypeVar, Dict
-from datasurface.md import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
-    VarChar, NVarChar, DDLColumn
+from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
+    VarChar, NVarChar
 import sqlalchemy
-from datasurface.md import Dataset, DDLTable, DataType, Datastore
-from datasurface.md import NullableStatus, PrimaryKeyStatus, Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
+from datasurface.md import Dataset, Datastore
+from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
 from datasurface.md import Credential, EcosystemPipelineGraph, DataPlatform, CredentialType
+from datasurface.md.schema import DDLColumn, NullableStatus, PrimaryKeyStatus, DDLTable
+from datasurface.md.types import DataType
 from abc import ABC, abstractmethod
 
 

@@ -7,8 +7,8 @@
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem, LocationKey
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy, \
         DataPlatformKey
 from datasurface.md import ValidationTree

@@ -7,7 +7,8 @@ from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ec
     PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
-    DatastoreCacheEntry, FileSecretCredential, IngestionConsistencyType, DatasetConsistencyNotSupported, Schema, PrimaryKeyList
+    DatastoreCacheEntry, FileSecretCredential, IngestionConsistencyType, DatasetConsistencyNotSupported, Schema, PrimaryKeyList, \
+    DataTransformerNode, DataTransformer, PlatformServicesProvider
 from datasurface.md.lint import ObjectWrongType, ObjectMissing
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
@@ -31,8 +32,9 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
     takes the data from kafka topics and writes them to a postgres staging table. A seperate job scheduled by airflow
     then runs periodically and merges the staging data in to a MERGE table as a batch. Any workspaces can also query the
     data in the MERGE tables through Workspace specific views."""
-    def __init__(self, graph: PlatformPipelineGraph) -> None:
+    def __init__(self, dp: 'SimpleDataPlatform', graph: PlatformPipelineGraph) -> None:
         super().__init__(graph)
+        self.dp: SimpleDataPlatform = dp
         self.env: Environment = Environment(
             loader=PackageLoader('datasurface.platforms.simpledp.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
@@ -40,9 +42,9 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         """This returns any DataContainers used by the platform."""
-        return set()
+        return {self.dp.kafkaConnectCluster, self.dp.mergeStore}
 
-    def createTemplate(self, name: str) -> Template:
+    def createJinjaTemplate(self, name: str) -> Template:
         template: Template = self.env.get_template(name, None)
         return template
 
@@ -71,7 +73,7 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
         Any errors during generation will just be added as ValidationProblems to the tree using the appropriate
         subtree so the user can see which object caused the errors. The caller method will check if the tree
         has errors and stop the generation process."""
-        template: Template = self.createTemplate('kafka_topic_to_staging.jinja2')
+        template: Template = self.createJinjaTemplate('kafka_topic_to_staging.jinja2')
 
         # Ensure the platform is the correct type early on
         if not isinstance(self.graph.platform, SimpleDataPlatform):
@@ -204,6 +206,16 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
             else:
                 self.lintKafkaIngestion(store, storeTree)
 
+        # Check CodeArtifacts on DataTransformer nodes are compatible with the PSP on the Ecosystem
+        if eco.platformServicesProvider is not None:
+            for node in self.graph.nodes.values():
+                if isinstance(node, DataTransformerNode):
+                    if node.workspace.dataTransformer is not None:
+                        dt: DataTransformer = node.workspace.dataTransformer
+                        dt.code.lint(eco, tree)
+                        # Check the PSP service wil support this artifact
+                        psp: PlatformServicesProvider = eco.platformServicesProvider
+
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree):
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages."""
@@ -282,4 +294,9 @@ class SimpleDataPlatform(DataPlatform):
         self.connectCredentials.lint(eco, tree)
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
-        return SimpleDataPlatformHandler(graph)
+        return SimpleDataPlatformHandler(self, graph)
+
+    def generateBootstrapArtifacts(self) -> dict[str, str]:
+        """This generates a kubernetes yaml file for the data platform usingt a jinja2 template. This doesn't need an intention graph, it's just for bootstrapping.
+        Our bootstrap file would be a postgres instance, a kafka connect cluster and an airflow instance."""
+        return {}

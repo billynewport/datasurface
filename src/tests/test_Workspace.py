@@ -7,17 +7,18 @@
 from typing import Sequence, cast
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
-from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, String, Date, GovernanceZone, LocationKey
-from datasurface.md import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, GovernanceZoneDeclaration
+from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Date, GovernanceZone, LocationKey
+from datasurface.md.types import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, String
+from datasurface.md import GovernanceZoneDeclaration
 from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
 from datetime import timedelta
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import FakeRepository, GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository, FakeRepository
 from datasurface.md import CDCCaptureIngestion, CloudVendor, DataTransformerOutput, \
     DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DataPlatformKey, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md import ValidationTree
-from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import SQLDatabase, CronTrigger
 
 from datasurface.md import NullableStatus, PrimaryKeyStatus

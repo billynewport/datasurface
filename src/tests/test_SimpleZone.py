@@ -9,8 +9,8 @@ import unittest
 
 from datasurface.md import InfrastructureVendor, InfrastructureLocation, TeamDeclaration, Ecosystem
 from datasurface.md import GovernanceZone, GovernanceZoneDeclaration
-from datasurface.md import PlainTextDocumentation
-from datasurface.md import GitHubRepository
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository
 from datasurface.md import CloudVendor
 from datasurface.md import ValidationTree
 from tests.nwdb.eco import createEcosystem

@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import BrokerRenderEngine, LocalFileCredentialStore, FileSecretCredential
+from datasurface.md import PlatformServicesProvider, LocalFileCredentialStore, FileSecretCredential
 from datasurface.md import ClearTextCredential, Datastore, IngestionMetadata, CredentialType
-from datasurface.md import Workspace, DataTransformer, CodeExecutionEnvironment
-from datasurface.md import Ecosystem, CredentialStore, LocationKey, Credential, Workspace
+from datasurface.md import Workspace, DataTransformer
+from datasurface.md import Ecosystem, CredentialStore, LocationKey, Credential
 from datasurface.md.lint import ValidationTree, ProblemSeverity
 import os
+
+# The design of this is documented here: docs/SwarmRenderer.md
 
 
 class DockerSwarmCredentialStore(LocalFileCredentialStore):
@@ -59,8 +61,8 @@ class DockerSwarmCredentialStore(LocalFileCredentialStore):
         return super().getAsPublicPrivateCertificate(cred)
 
 
-class SwarmRenderEngine(BrokerRenderEngine):
-    """This is a render engine which takes a full intention graph of a DataSurface Ecosystem and then
+class DockerSwarmServicesProvider(PlatformServicesProvider):
+    """This is a provider which takes a full intention graph of a DataSurface Ecosystem and then
     invokes each DataPlatform to render the subset assigned to it. The DataPlatform renders its
     graph on a particular technology stack with a specific configuration. A render engine works within
     a specific runtime context. This runtime engine works within a Docker Swarm cluster and uses
@@ -87,12 +89,3 @@ class SwarmRenderEngine(BrokerRenderEngine):
             if store.cmd is not None and isinstance(store.cmd, IngestionMetadata):
                 if store.cmd.credential is not None:
                     self.credStore.checkCredentialIsAvailable(store.cmd.credential, tree.addSubTree(store.cmd.credential))
-        # Check All DataTransformers have a credential
-        for wsCacheEntry in eco.workSpaceCache.values():
-            w: Workspace = wsCacheEntry.workspace
-            if w.dataTransformer is not None:
-                dt: DataTransformer = w.dataTransformer
-                if dt.codeEnv is not None:
-                    dt.codeEnv.location.lint(eco, tree.addSubTree(dt.codeEnv.location))
-                if dt.credential is not None:
-                    self.credStore.checkCredentialIsAvailable(dt.credential, tree.addSubTree(dt.credential))

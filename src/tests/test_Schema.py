@@ -8,12 +8,14 @@ from copy import deepcopy
 from typing import Optional, cast
 import unittest
 
-from datasurface.md import AvroSchema, DDLColumn, Schema, String, NullableStatus, PrimaryKeyStatus
-from datasurface.md import DDLTable, PrimaryKeyList
+from datasurface.md import AvroSchema
+from datasurface.md.types import String
 from datasurface.md import NameMustBeANSISQLIdentifierException
 from datasurface.md import Dataset, Datastore, Ecosystem, ProductionStatus
 from datasurface.md import ProductionDatastoreMustHaveClassifications, ValidationTree
-from datasurface.md import SimpleDC, SimpleDCTypes
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus, PrimaryKeyList, Schema
+
 from tests.nwdb.eco import createEcosystem
 
 

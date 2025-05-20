@@ -8,6 +8,8 @@ from typing import Any, Callable, Generator, Optional
 from abc import ABC, abstractmethod
 from types import FrameType
 import inspect
+from datasurface.md.utils import is_valid_sql_identifier
+from datasurface.md.exceptions import NameMustBeANSISQLIdentifierException
 
 
 class ValidatableObject(ABC):
@@ -362,3 +364,36 @@ class ValidationTree:
     def containsProblemType(self, type: Any) -> bool:
         """This returns true if this object or any of its children have a problem of the given type"""
         return next((True for _ in self.findMatchingProblems(lambda p: isinstance(p, type))), False)
+
+
+class ANSI_SQL_NamedObject(UserDSLObject):
+    name: str
+    """This is the base class for objects in the model which must have an SQL identifier compatible name. These
+    objects may have names which are using in creating database artifacts such as Tables, views, columns"""
+    def __init__(self, name: str, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:
+        self.name: str = name
+        """The name of the object"""
+        if not is_valid_sql_identifier(self.name):
+            raise NameMustBeANSISQLIdentifierException(self.name)
+        UserDSLObject.__init__(self, filename, linenumber)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
+
+    def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
+        if (not isinstance(other, ANSI_SQL_NamedObject)):
+            vTree.addProblem(f"Object {other} is not an ANSI_SQL_NamedObject")
+            return False
+
+        """Returns true if this column is backwards compatible with the other column"""
+        # TODO Add support to changing the column data type to a compatible type
+        if (self.name != other.name):
+            vTree.addProblem(f"Column name changed from {self.name} to {other.name}")
+        return True
+
+    def nameLint(self, tree: ValidationTree) -> None:
+        if not is_valid_sql_identifier(self.name):
+            tree.addRaw(NameHasBadSynthax(f"Name {self.name} is not a valid ANSI SQL identifier"))
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
