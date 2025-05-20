@@ -6,12 +6,13 @@
 from datasurface.md import Ecosystem, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
 from datasurface.md.repo import GitLabRepository
 from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
-from datasurface.md import CronTrigger, IngestionConsistencyType, LocalFileCredentialStore
+from datasurface.md import CronTrigger, IngestionConsistencyType
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
 from datasurface.platforms.simpledp.simple import SimpleDataPlatform
 from datasurface.md import PostgresDatabase
 from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.credential import LocalFileCredentialStore
 
 
 def createEcosystem() -> Ecosystem:

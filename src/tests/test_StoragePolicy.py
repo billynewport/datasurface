@@ -35,9 +35,9 @@ class TestPolicy(unittest.TestCase):
         eco: Ecosystem = createEcosystem()
 
         myCorpNY1Location: LocationKey = LocationKey("MyCorp:USA/NY_1")
-        self.assertIsNotNone(myCorpNY1Location.getAsInfraLocation(eco))
+        self.assertIsNotNone(eco.getAsInfraLocation(myCorpNY1Location))
         outsourceNJ1Location: LocationKey = LocationKey("Outsource:USA/NJ_1")
-        self.assertIsNotNone(outsourceNJ1Location.getAsInfraLocation(eco))
+        self.assertIsNotNone(eco.getAsInfraLocation(outsourceNJ1Location))
 
         p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("Outsource USA Only", PlainTextDocumentation("Test"), {myCorpNY1Location})
         self.assertEqual(p.name, "Outsource USA Only")
@@ -73,9 +73,9 @@ class TestPlatformPolicy(unittest.TestCase):
         eco: Ecosystem = createEcosystem()
 
         ny1Location: LocationKey = LocationKey("MyCorp:USA/NY_1")
-        self.assertIsNotNone(ny1Location.getAsInfraLocation(eco))
+        self.assertIsNotNone(eco.getAsInfraLocation(ny1Location))
         nj1Location: LocationKey = LocationKey("MyCorp:USA/NJ_1")
-        self.assertIsNotNone(nj1Location.getAsInfraLocation(eco))
+        self.assertIsNotNone(eco.getAsInfraLocation(nj1Location))
 
         p: InfraStructureLocationPolicy = InfraStructureLocationPolicy("MyCorp USA NY_1 Only", PlainTextDocumentation("Test"), {ny1Location})
 

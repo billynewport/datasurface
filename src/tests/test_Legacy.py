@@ -6,7 +6,8 @@
 import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Team, DataPlatformKey, TeamDeclaration, GovernanceZoneDeclaration
 from datasurface.md.repo import GitHubRepository
-from datasurface.md import ClearTextCredential, DataContainer, Workspace, DatasetGroup
+from datasurface.md import DataContainer, Workspace, DatasetGroup
+from datasurface.md.credential import ClearTextCredential
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation, LocationKey
 from datasurface.md import HostPortSQLDatabase, HostPortPair, DatasetSink
 from datasurface.md.documentation import PlainTextDocumentation

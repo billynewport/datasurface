@@ -10,7 +10,7 @@ from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEE
 import sqlalchemy
 from datasurface.md import Dataset, Datastore
 from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
-from datasurface.md import Credential, EcosystemPipelineGraph, DataPlatform, CredentialType
+from datasurface.md import EcosystemPipelineGraph, DataPlatform
 from datasurface.md.schema import DDLColumn, NullableStatus, PrimaryKeyStatus, DDLTable
 from datasurface.md.types import DataType
 from abc import ABC, abstractmethod
@@ -233,26 +233,23 @@ class SQLAlchemyDataContainerReconciler:
     single view for each Datasetgroup
     """
 
-    def createEngine(self, container: DataContainer, creds: Credential) -> sqlalchemy.Engine:
-        if creds.credentialType != CredentialType.USER_PASSWORD:
-            if isinstance(container, PostgresDatabase):
-                return sqlalchemy.create_engine(
-                    'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                        username=creds.username,
-                        password=creds.password,
-                        hostName=container.connection.hostName,
-                        port=container.connection.port,
-                        databaseName=container.databaseName
-                        )
-                )
-            else:
-                raise Exception(f"Unsupported container type {type(container)}")
+    def createEngine(self, container: DataContainer, userName: str, password: str) -> sqlalchemy.Engine:
+        if isinstance(container, PostgresDatabase):
+            return sqlalchemy.create_engine(
+                'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
+                    username=userName,
+                    password=password,
+                    hostName=container.connection.hostName,
+                    port=container.connection.port,
+                    databaseName=container.databaseName
+                    )
+            )
         else:
-            raise Exception(f"Unsupported credential type {type(creds)}")
+            raise Exception(f"Unsupported container type {type(container)}")
 
-    def __init__(self, graph: EcosystemPipelineGraph, creds: Credential) -> None:
+    def __init__(self, graph: EcosystemPipelineGraph, userName: str, password: str) -> None:
         """This really needs an intention graph to work out what we are doing"""
-        self.engine: sqlalchemy.Engine = self.createEngine(workspace.container, creds)
+        self.engine: sqlalchemy.Engine = self.createEngine(workspace.container, userName, password)
         self.graph: EcosystemPipelineGraph = graph
 
     def reconcileDatasetSink(

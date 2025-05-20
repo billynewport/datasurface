@@ -4,6 +4,9 @@
 """
 
 from abc import ABC
+from datasurface.md.json import JSONable
+from typing import Any
+from datasurface.md.lint import ValidationTree, ProblemSeverity, UserDSLObject, ValidationProblem
 
 
 class GenericKey(ABC):
@@ -78,6 +81,23 @@ class InfrastructureVendorKey(EcosystemKey):
         return hash(str(self))
 
 
+class DataPlatformKey(JSONable):
+    """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
+    resolved later at lint time."""
+    def __init__(self, name: str) -> None:
+        JSONable.__init__(self)
+        self.name: str = name
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
+
+    def __eq__(self, value: object) -> bool:
+        return isinstance(value, DataPlatformKey) and self.name == value.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
 class InfraLocationKey(InfrastructureVendorKey):
     """Soft link to an infrastructure location"""
     def __init__(self, iv: InfrastructureVendorKey, loc: list[str]) -> None:
@@ -131,3 +151,62 @@ class DatastoreKey(TeamDeclarationKey):
 
     def __str__(self) -> str:
         return super().__str__() + f".Datastore({self.dsName})"
+
+
+class InvalidLocationStringProblem(ValidationProblem):
+    def __init__(self, problem: str, locStr: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"{problem}: {locStr}", severity)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
+class LocationKey(UserDSLObject, JSONable):
+    """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
+    def __init__(self, locStr: str) -> None:
+        UserDSLObject.__init__(self)
+        JSONable.__init__(self)
+        self.locStr: str = locStr
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "locStr": self.locStr}
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, LocationKey)):
+            return self.locStr == other.locStr
+        return False
+
+    def parseToVendorAndLocations(self) -> tuple[str, list[str]]:
+        locList: list[str] = self.locStr.split(":")
+        if (len(locList) != 2):
+            raise Exception(f"Invalid location string {self.locStr}")
+        vendor = locList[0]
+        locationParts = locList[1].split("/")
+        return vendor, locationParts
+
+    def lint(self, tree: ValidationTree) -> None:
+        # First check syntax is correct
+        locList: list[str] = self.locStr.split(":")
+        if (len(locList) != 2):
+            tree.addRaw(InvalidLocationStringProblem("Format must be vendor:loc/loc/loc", self.locStr, ProblemSeverity.ERROR))
+            return
+        vendor = locList[0]
+        if len(vendor) == 0:
+            tree.addRaw(InvalidLocationStringProblem("Vendor cannot be empty", self.locStr, ProblemSeverity.ERROR))
+        locationParts: list[str] = locList[1].split("/")
+        if (len(locationParts) == 0):
+            tree.addRaw(InvalidLocationStringProblem("One location must be specified", self.locStr, ProblemSeverity.ERROR))
+            return
+        if (len(locationParts[0]) == 0):
+            tree.addRaw(InvalidLocationStringProblem("First location should not start with '/'", self.locStr, ProblemSeverity.ERROR))
+            return
+        for loc in locationParts:
+            if (len(loc) == 0):
+                tree.addRaw(InvalidLocationStringProblem("Empty locations not allowed", self.locStr, ProblemSeverity.ERROR))
+                return
+
+    def __str__(self) -> str:
+        return f"LocationKey({self.locStr})"
+
+    def __hash__(self) -> int:
+        return hash(self.locStr)

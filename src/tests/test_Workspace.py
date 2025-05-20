@@ -24,7 +24,7 @@ from datasurface.md import SQLDatabase, CronTrigger
 from datasurface.md import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md import ClearTextCredential
+from datasurface.md.credential import ClearTextCredential
 
 
 class TestWorkspace(unittest.TestCase):

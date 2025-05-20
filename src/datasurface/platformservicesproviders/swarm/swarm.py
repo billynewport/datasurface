@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import PlatformServicesProvider, LocalFileCredentialStore, FileSecretCredential
-from datasurface.md import ClearTextCredential, Datastore, IngestionMetadata, CredentialType
-from datasurface.md import Workspace, DataTransformer
+from datasurface.md import PlatformServicesProvider
+from datasurface.md import Datastore, IngestionMetadata
 from datasurface.md import Ecosystem, CredentialStore, LocationKey, Credential
 from datasurface.md.lint import ValidationTree, ProblemSeverity
 import os
+from datasurface.md.credential import FileSecretCredential, ClearTextCredential, CredentialType, LocalFileCredentialStore
 
 # The design of this is documented here: docs/SwarmRenderer.md
 

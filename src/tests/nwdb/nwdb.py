@@ -5,7 +5,8 @@
 
 from datasurface.platforms.legacy import LegacyDatPlatformChooser
 from datasurface.md.documentation import PlainTextDocumentation
-from datasurface.md import HostPortSQLDatabase, ClearTextCredential
+from datasurface.md import HostPortSQLDatabase
+from datasurface.md.credential import ClearTextCredential
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \

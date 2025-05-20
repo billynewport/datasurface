@@ -28,8 +28,11 @@ from datasurface.md.repo import Repository, GitControlledObject
 from datasurface.md.policy import Policy, AllowDisallowPolicy, DataClassification, DataClassificationPolicy, Literal
 from datasurface.md.schema import Schema
 from datasurface.md.keys import StoragePolicyKey, EcosystemKey, TeamDeclarationKey, WorkspaceKey, \
-    DatastoreKey, GovernanceZoneKey
-from datasurface.md.vendor import CloudVendor, InfrastructureVendor, InfrastructureLocation, convertCloudVendorItems
+    DatastoreKey, GovernanceZoneKey, DataPlatformKey, LocationKey
+from datasurface.md.vendor import CloudVendor, InfrastructureVendor, InfrastructureLocation, convertCloudVendorItems, \
+    UnknownLocationProblem, UnknownVendorProblem
+from datasurface.md.credential import Credential, CredentialStore
+from datasurface.md.keys import InvalidLocationStringProblem
 
 
 class ProductionStatus(Enum):
@@ -433,201 +436,6 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
-class CredentialType(Enum):
-    """This describes the type of credential"""
-    API_KEY_PAIR = 0  # AWS S3 type credential, an access id and a secret key
-    USER_PASSWORD = 1  # Username and password
-    CLIENT_CERT_WITH_KEY = 2  # Public and private key pair for mTLS or similar
-    CA_CERT_BUNDLE = 3  # Bundle of KEYs for verifying server keys
-
-
-class Credential(UserDSLObject, JSONable):
-    """These allow a client to connect to a service/server"""
-    def __init__(self, credentialType: CredentialType) -> None:
-        UserDSLObject.__init__(self)
-        JSONable.__init__(self)
-        self.credentialType: CredentialType = credentialType
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "credentialType": self.credentialType.name,
-        }
-
-    def __eq__(self, other: object) -> bool:
-        if (isinstance(other, Credential)):
-            return self.credentialType == other.credentialType
-        else:
-            return False
-
-    @abstractmethod
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        pass
-
-
-class FileSecretCredential(Credential):
-    """This allows a secret to be read from the local filesystem. Usually the secret is
-    placed in the file using an external service such as Docker secrets etc. The secret should be in the
-    form of 2 lines, first line is user name, second line is password"""
-    def __init__(self, type: CredentialType, filePath: str) -> None:
-        super().__init__(type)
-        self.secretFilePath: str = filePath
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"secretFilePath": self.secretFilePath})
-        return rc
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is FileSecretCredential and self.secretFilePath == other.secretFilePath
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        # TODO This needs to be better
-        if (self.secretFilePath == ""):
-            tree.addProblem("Secret file path is empty")
-
-    def __str__(self) -> str:
-        return f"FileSecretCredential({self.secretFilePath})"
-
-
-class CredentialStore(UserDSLObject, JSONable):
-    """This is a credential store which stores credential data in a set of infra locations"""
-    def __init__(self, name: str, locs: set['LocationKey']) -> None:
-        UserDSLObject.__init__(self)
-        JSONable.__init__(self)
-        self.name: str = name
-        self.locs: set[LocationKey] = locs
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "name": self.name,
-            "locs": {k: k.to_json() for k in self.locs},
-        }
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and \
-            isinstance(other, CredentialStore) and \
-            self.name == other.name and \
-            self.locs == other.locs
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.name})"
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        if (self.name == ""):
-            tree.addProblem("Name is empty")
-        for loc in self.locs:
-            loc.lint(eco, tree.addSubTree(loc))
-
-    @abstractmethod
-    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
-        """This is used to check if a Credential is supported by this store."""
-        pass
-
-    @abstractmethod
-    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-        """This returns the username and password for the credential"""
-        pass
-
-    @abstractmethod
-    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
-        """This fetches the credential and returns a tuple with the public and private key
-        paths and an environment variable name which contains the private key password"""
-
-
-class LocalFileCredentialStore(CredentialStore):
-    """This is a local file credential store. It represents a folder on the local file system where certificates are stored in files. This could be used with
-    docker secrets or similar"""
-    def __init__(self, name: str, locs: set['LocationKey'], folder: str) -> None:
-        super().__init__(name, locs)
-        self.credentials: dict[str, Credential] = dict()
-        self.folder: str = folder
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"folder": self.folder})
-        rc.update({"credentials": {k: v.to_json() for k, v in self.credentials.items()}})
-        return rc
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and isinstance(other, LocalFileCredentialStore) and self.folder == other.folder
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        super().lint(eco, tree)
-
-    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-        """This will read the file holding the secret and return the first and second lines
-        as a tuple to the caller."""
-        if cred.credentialType != CredentialType.USER_PASSWORD:
-            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
-        if isinstance(cred, FileSecretCredential):
-            file_path = f"{self.folder}/{cred.secretFilePath}"
-            try:
-                with open(file_path, 'r') as file:
-                    lines = file.readlines()
-                    if len(lines) < 2:
-                        raise ValueError("Credential file does not contain enough lines.")
-                    username = lines[0].strip()
-                    password = lines[1].strip()
-                    return username, password
-            except FileNotFoundError:
-                raise FileNotFoundError(f"Credential file {file_path} not found.")
-            except Exception as e:
-                raise RuntimeError(f"An error occurred while reading the credential file: {e}")
-        elif isinstance(cred, ClearTextCredential):
-            return cred.username, cred.password
-        else:
-            raise RuntimeError(f"Unsupported credential type: {type(cred)}")
-
-    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
-        """This assumes there are 3 secrets on the local filesystem. The public key
-        the private key and the private key password. A naming convention is assumed for the 3 files
-        using the credential name as the prefix with _pub, _prv, _pwd as the postfixes. The password
-        file is not mapped into the container. Instead an environment variable with the credential
-        name is provided instead."""
-        if cred.credentialType != CredentialType.CLIENT_CERT_WITH_KEY:
-            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
-        if isinstance(cred, FileSecretCredential):
-            file_path_root: str = f"{self.folder}/{cred.secretFilePath}_"
-            pub_path: str = f"{file_path_root}pub"
-            prv_path: str = f"{file_path_root}prv"
-            env_var: str = f"CERT_{cred.secretFilePath}_PWD"
-            return pub_path, prv_path, env_var
-        else:
-            raise RuntimeError(f"Only FileSecretCredentials are supported: {cred}")
-
-    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
-        return super().checkCredentialIsAvailable(cred, tree)
-
-
-class ClearTextCredential(Credential):
-    """This is implemented for testing but should never be used in production. All
-    credentials should be stored and retrieved using secrets Credential objects also
-    provided."""
-    def __init__(self, username: str, password: str) -> None:
-        super().__init__(CredentialType.USER_PASSWORD)
-        self.username: str = username
-        self.password: str = password
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"username": self.username})
-        rc.update({"password": self.password})
-        return rc
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is ClearTextCredential and self.username == other.username and self.password == other.password
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        super().lint(eco, tree)
-        tree.addProblem("ClearText credential found", ProblemSeverity.WARNING)
-
-    def __str__(self) -> str:
-        return f"ClearTextCredential({self.username})"
-
-
 class DataContainer(Documentable, UserDSLObject):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
@@ -690,7 +498,7 @@ class DataContainer(Documentable, UserDSLObject):
             self.documentation.lint(dTree)
 
         for loc in self.locations:
-            loc.lint(eco, tree.addSubTree(loc))
+            loc.lint(tree.addSubTree(loc))
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -698,7 +506,7 @@ class DataContainer(Documentable, UserDSLObject):
     def areLocationsOwnedByTheseVendors(self, eco: 'Ecosystem', vendors: set[CloudVendor]) -> bool:
         """Returns true if the container only uses locations managed by the provided set of cloud vendors"""
         for lkey in self.locations:
-            loc: Optional[InfrastructureLocation] = lkey.getAsInfraLocation(eco)
+            loc: Optional[InfrastructureLocation] = eco.getAsInfraLocation(lkey)
             if (loc is None or loc.key is None):
                 return False
             v: InfrastructureVendor = eco.getVendorOrThrow(loc.key.ivName)
@@ -1008,7 +816,7 @@ class IngestionMetadata(CaptureMetaData):
         if (self.credential is None):
             tree.addRaw(AttributeNotSet("credential"))
         else:
-            self.credential.lint(eco, tree)
+            self.credential.lint(tree)
         super().lint(eco, gz, t, d, tree)
 
 
@@ -1087,7 +895,7 @@ class KafkaServer(DataContainer):
         super().lint(eco, tree)
         self.bootstrapServers.lint(tree.addSubTree(self.bootstrapServers))
         if (self.caCertificate):
-            self.caCertificate.lint(eco, tree.addSubTree(self.caCertificate))
+            self.caCertificate.lint(tree.addSubTree(self.caCertificate))
 
     def __str__(self) -> str:
         return f"KafkaServer({self.bootstrapServers})"
@@ -1300,10 +1108,13 @@ class DefaultDataPlatform(UserDSLObject):
         self.defaultPlatform: 'DataPlatformKey' = p
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        """Lint just checks the platform exists, the platform will be linted seperatedly"""
         if (eco.getDataPlatform(self.defaultPlatform.name) is None):
             tree.addRaw(AttributeNotSet("Default Data Platform not set"))
         else:
-            self.defaultPlatform.lint(eco, tree.addSubTree(self))
+            dp: Optional['DataPlatform'] = eco.getDataPlatform(self.defaultPlatform.name)
+            if dp is None:
+                tree.addRaw(AttributeNotSet("Default Data Platform not set"))
 
     def get(self, eco: 'Ecosystem') -> 'DataPlatform':
         """This returns the default DataPlatform or throws an Exception if it has not been specified"""
@@ -1339,7 +1150,7 @@ class PlatformServicesProvider(UserDSLObject, JSONable):
 
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
-        self.credStore.lint(eco, tree.addSubTree(self.credStore))
+        self.credStore.lint(tree.addSubTree(self.credStore))
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
         graph.lint(self, self.credStore, tree.addSubTree(graph))
 
@@ -1379,6 +1190,35 @@ class Ecosystem(GitControlledObject, JSONable):
         self.resetCaches()
         self.add(*args)
 
+    def getAsInfraLocation(self, loc: 'LocationKey') -> Optional[InfrastructureLocation]:
+        # The string is in the format vendor:location1/location2/location3
+        vendor, locationParts = loc.parseToVendorAndLocations()
+        rc: Optional[InfrastructureLocation] = self.getLocation(vendor, locationParts)
+        return rc
+
+    def lintLocationKey(self, locKey: 'LocationKey', tree: ValidationTree) -> None:
+        """This lints a location key making sure it points to a valid location"""
+        locTree: ValidationTree = tree.addSubTree(locKey)
+        locKey.lint(locTree)
+        if not locTree.hasErrors():
+            vendorStr, locationParts = locKey.parseToVendorAndLocations()
+            if len(locationParts) == 0:
+                locTree.addRaw(InvalidLocationStringProblem("Location string must contain at least one location", locKey.locStr, ProblemSeverity.ERROR))
+            else:
+                vendor: Optional[InfrastructureVendor] = self.getVendor(vendorStr)
+                if vendor is None:
+                    locTree.addRaw(UnknownVendorProblem(vendorStr, ProblemSeverity.ERROR))
+                else:
+                    loc: Optional[InfrastructureLocation] = vendor.getLocation(locationParts[0])
+                    if loc is None:
+                        locTree.addRaw(UnknownLocationProblem(locationParts[0], ProblemSeverity.ERROR))
+                    else:
+                        for locIdx in range(1, len(locationParts)):
+                            loc = loc.getLocation(locationParts[locIdx])
+                            if loc is None:
+                                locTree.addRaw(UnknownLocationProblem(locationParts[locIdx], ProblemSeverity.ERROR))
+                                break
+
     def to_json(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -1397,19 +1237,26 @@ class Ecosystem(GitControlledObject, JSONable):
         self.teamCache: dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def generateBootstrapArtifacts(self, folderRoot: str):
+    def generateAllBootstrapArtifacts(self, folderRoot: str):
         """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
         platform and then create a file named after the key and write the value to the file. The caller should provide the location of the volume mounted
         to expose the files to"""
 
         for dp in self.dataPlatforms.values():
-            name: str = dp.name
-            folder: str = f"bootstrap_{name}"
-            os.makedirs(folder, exist_ok=True)
-            files: dict[str, str] = dp.generateBootstrapArtifacts()
-            for key, value in files.items():
-                with open(os.path.join(folder, key), "w") as f:
-                    f.write(value)
+            self.generateBootstrapArtifacts(folderRoot, dp)
+
+    def generateBootstrapArtifacts(self, folderRoot: str, dp: 'DataPlatform'):
+        """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
+        platform and then create a file named after the key and write the value to the file. The caller should provide the location of the volume mounted
+        to expose the files to"""
+
+        name: str = dp.name
+        folder: str = f"bootstrap_{name}"
+        os.makedirs(folder, exist_ok=True)
+        files: dict[str, str] = dp.generateBootstrapArtifacts()
+        for key, value in files.items():
+            with open(os.path.join(folder, key), "w") as f:
+                f.write(value)
 
     def add(self, *args: Union[PlatformServicesProvider, 'DataPlatform', DefaultDataPlatform,
                                Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
@@ -1744,92 +1591,6 @@ class Ecosystem(GitControlledObject, JSONable):
         # Check if the proposed changes are backwards compatible this object
         proposed.checkIfChangesAreBackwardsCompatibleWith(self, eTree)
         return eTree
-
-
-class InvalidLocationStringProblem(ValidationProblem):
-    def __init__(self, problem: str, locStr: str, severity: ProblemSeverity) -> None:
-        super().__init__(f"{problem}: {locStr}", severity)
-
-    def __hash__(self) -> int:
-        return hash(self.description)
-
-
-class UnknownLocationProblem(ValidationProblem):
-    def __init__(self, locStr: str, severity: ProblemSeverity) -> None:
-        super().__init__(f"Unknown location {locStr}", severity)
-
-    def __hash__(self) -> int:
-        return hash(self.description)
-
-
-class UnknownVendorProblem(ValidationProblem):
-    def __init__(self, vendor: str, severity: ProblemSeverity) -> None:
-        super().__init__(f"Unknown vendor {vendor}", severity)
-
-    def __hash__(self) -> int:
-        return hash(self.description)
-
-
-class LocationKey(UserDSLObject, JSONable):
-    """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
-    def __init__(self, locStr: str) -> None:
-        UserDSLObject.__init__(self)
-        JSONable.__init__(self)
-        self.locStr: str = locStr
-        self.loc: Optional[InfrastructureLocation] = None
-
-    def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "locStr": self.locStr}
-
-    def getAsInfraLocation(self, eco: Ecosystem) -> Optional[InfrastructureLocation]:
-        # The string is in the format vendor:location1/location2/location3
-        if self.loc is not None:
-            return self.loc
-        locList: list[str] = self.locStr.split(":")
-        if (len(locList) != 2):
-            raise Exception(f"Invalid location string {self.locStr}")
-        vendor = locList[0]
-        locationParts = locList[1].split("/")
-
-        # Skip the first locationParts element here
-        loc: Optional[InfrastructureLocation] = eco.getLocation(vendor, locationParts)
-        return loc
-
-    def __eq__(self, other: object) -> bool:
-        if (isinstance(other, LocationKey)):
-            return self.locStr == other.locStr
-        return False
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        # First check syntax is correct
-        locList: list[str] = self.locStr.split(":")
-        if (len(locList) != 2):
-            tree.addRaw(InvalidLocationStringProblem("Format must be vendor:loc/loc/loc", self.locStr, ProblemSeverity.ERROR))
-            return
-        vendor = locList[0]
-        locationParts: list[str] = locList[1].split("/")
-        if (len(locationParts) == 0):
-            tree.addRaw(InvalidLocationStringProblem("One location must be specified", self.locStr, ProblemSeverity.ERROR))
-            return
-        if (len(locationParts[0]) == 0):
-            tree.addRaw(InvalidLocationStringProblem("First location should not start with '/'", self.locStr, ProblemSeverity.ERROR))
-            return
-        for loc in locationParts:
-            if (len(loc) == 0):
-                tree.addRaw(InvalidLocationStringProblem("Empty locations not allowed", self.locStr, ProblemSeverity.ERROR))
-                return
-        if (eco.getVendor(vendor) is None):
-            tree.addRaw(UnknownVendorProblem(vendor, ProblemSeverity.ERROR))
-            return
-        self.loc: Optional[InfrastructureLocation] = self.getAsInfraLocation(eco)
-        if (self.loc is None):
-            tree.addRaw(UnknownLocationProblem(self.locStr, ProblemSeverity.ERROR))
-
-    def __str__(self) -> str:
-        return f"LocationKey({self.locStr})"
-
-    def __hash__(self) -> int:
-        return hash(self.locStr)
 
 
 class VendorKey(UserDSLObject, JSONable):
@@ -2220,7 +1981,7 @@ class GovernanceZone(GitControlledObject, JSONable):
     def checkLocationIsAllowed(self, eco: 'Ecosystem', location: LocationKey, tree: ValidationTree):
         """This checks that the provided location is allowed based on the vendor and location policies
         of the GZ, this allows a GZ to constrain where its data can come from or be used"""
-        loc: Optional[InfrastructureLocation] = location.getAsInfraLocation(eco)
+        loc: Optional[InfrastructureLocation] = eco.getAsInfraLocation(location)
         if (loc is None):
             tree.addRaw(UnknownLocationProblem(str(location), ProblemSeverity.ERROR))
             return
@@ -2534,32 +2295,6 @@ class DatasetConsistencyNotSupported(ValidationProblem):
     """This indicates a dataset consistency type is not supported by a data platform"""
     def __init__(self, store: Datastore, type: IngestionConsistencyType, dp: DataPlatform, sev: ProblemSeverity) -> None:
         super().__init__(f"Store: {store.name} Dataset consistency type {type} is not supported by {dp}", sev)
-
-
-class DataPlatformKey(JSONable):
-    """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
-    resolved later at lint time."""
-    def __init__(self, name: str) -> None:
-        JSONable.__init__(self)
-        self.name: str = name
-        self.platform: Optional[DataPlatform] = None
-
-    def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
-
-    def lint(self, eco: Ecosystem, tree: ValidationTree):
-        if (not self.name):
-            tree.addRaw(AttributeNotSet("name"))
-        else:
-            self.platform = eco.getDataPlatform(self.name)
-            if (self.platform is None):
-                tree.addRaw(ValidationProblem(f"Unknown DataPlatform {self.name}", ProblemSeverity.ERROR))
-
-    def __eq__(self, value: object) -> bool:
-        return isinstance(value, DataPlatformKey) and self.name == value.name
-
-    def __hash__(self) -> int:
-        return hash(self.name)
 
 
 class DataLatency(Enum):
@@ -2920,7 +2655,7 @@ class CodeExecutionEnvironment(PlatformService, JSONable):
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         for loc in self.location:
-            loc.lint(eco, tree)
+            loc.lint(tree)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.location})"

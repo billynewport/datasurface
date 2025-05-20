@@ -9,7 +9,8 @@ from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore,
     Team
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
-from datasurface.md import SQLDatabase, ClearTextCredential
+from datasurface.md import SQLDatabase
+from datasurface.md.credential import ClearTextCredential
 
 
 def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):

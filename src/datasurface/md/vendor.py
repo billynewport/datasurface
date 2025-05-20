@@ -4,12 +4,28 @@
 """
 
 from typing import Any, Optional, Union, OrderedDict
-from datasurface.md.lint import UserDSLObject, ValidationTree, AttributeNotSet
+from datasurface.md.lint import UserDSLObject, ValidationTree, AttributeNotSet, ValidationProblem, ProblemSeverity
 from datasurface.md.json import JSONable
 from datasurface.md.documentation import Documentation, Documentable
 from datasurface.md.keys import InfraLocationKey, InfrastructureVendorKey, EcosystemKey
 from datasurface.md.policy import Literal
 from enum import Enum
+
+
+class UnknownLocationProblem(ValidationProblem):
+    def __init__(self, locStr: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"Unknown location {locStr}", severity)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
+class UnknownVendorProblem(ValidationProblem):
+    def __init__(self, vendor: str, severity: ProblemSeverity) -> None:
+        super().__init__(f"Unknown vendor {vendor}", severity)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
 
 
 class InfrastructureLocation(Documentable, UserDSLObject, JSONable):

@@ -7,12 +7,13 @@ from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ec
     PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
-    DatastoreCacheEntry, FileSecretCredential, IngestionConsistencyType, DatasetConsistencyNotSupported, Schema, PrimaryKeyList, \
+    DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, Schema, PrimaryKeyList, \
     DataTransformerNode, DataTransformer, PlatformServicesProvider
 from datasurface.md.lint import ObjectWrongType, ObjectMissing
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md import CredentialStore
+from datasurface.md.credential import FileSecretCredential
 
 
 class SimplePlatformExecutor(DataPlatformExecutor):

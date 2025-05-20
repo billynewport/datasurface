@@ -6,9 +6,10 @@
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import LocationKey
 from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore, Ecosystem, GovernanceZone, IngestionConsistencyType, \
-    SQLDatabase, Team, ClearTextCredential
+    SQLDatabase, Team
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
+from datasurface.md.credential import ClearTextCredential
 
 
 def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):
