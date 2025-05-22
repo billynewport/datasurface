@@ -16,7 +16,7 @@ from datasurface.md import CredentialStore
 from datasurface.md.credential import FileSecretCredential
 
 
-class SimplePlatformExecutor(DataPlatformExecutor):
+class KubernetesPGStarterPlatformExecutor(DataPlatformExecutor):
     def __init__(self):
         super().__init__()
 
@@ -33,9 +33,9 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
     takes the data from kafka topics and writes them to a postgres staging table. A seperate job scheduled by airflow
     then runs periodically and merges the staging data in to a MERGE table as a batch. Any workspaces can also query the
     data in the MERGE tables through Workspace specific views."""
-    def __init__(self, dp: 'SimpleDataPlatform', graph: PlatformPipelineGraph) -> None:
+    def __init__(self, dp: 'KubernetesPGStarterDataPlatform', graph: PlatformPipelineGraph) -> None:
         super().__init__(graph)
-        self.dp: SimpleDataPlatform = dp
+        self.dp: KubernetesPGStarterDataPlatform = dp
         self.env: Environment = Environment(
             loader=PackageLoader('datasurface.platforms.simpledp.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
@@ -77,11 +77,11 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
         template: Template = self.createJinjaTemplate('kafka_topic_to_staging.jinja2')
 
         # Ensure the platform is the correct type early on
-        if not isinstance(self.graph.platform, SimpleDataPlatform):
+        if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
             print("Error: Platform associated with the graph is not a SimpleDataPlatform.")
             return
 
-        platform: SimpleDataPlatform = self.graph.platform
+        platform: KubernetesPGStarterDataPlatform = self.graph.platform
 
         ingest_nodes: list[dict[str, Any]] = []  # List to hold node data for the template
 
@@ -193,8 +193,8 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
 
         As validation/linting errors are found then they are added as ValidationProblems to the tree."""
 
-        if not isinstance(self.graph.platform, SimpleDataPlatform):
-            tree.addRaw(ObjectWrongType(self.graph.platform, SimpleDataPlatform, ProblemSeverity.ERROR))
+        if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
+            tree.addRaw(ObjectWrongType(self.graph.platform, KubernetesPGStarterDataPlatform, ProblemSeverity.ERROR))
 
         # Lets make sure only kafa ingestions are used.
         for storeName in self.graph.storesToIngest:
@@ -247,7 +247,7 @@ class KafkaConnectCluster(DataContainer, JSONable):
         return rc
 
 
-class SimpleDataPlatform(DataPlatform):
+class KubernetesPGStarterDataPlatform(DataPlatform):
     """This defines the simple data platform. It can consume data from sources and write them to a postgres based merge store.
       It has the use of a postgres database for staging and merge tables as well as Workspace views"""
     def __init__(
@@ -259,7 +259,7 @@ class SimpleDataPlatform(DataPlatform):
             mergeStore: PostgresDatabase,
             postgresCredential: Credential
             ):
-        super().__init__(name, doc, SimplePlatformExecutor())
+        super().__init__(name, doc, KubernetesPGStarterPlatformExecutor())
         self.kafkaConnectCluster: KafkaConnectCluster = kafkaConnectCluster
         self.connectCredentials: Credential = connectCredentials
         self.mergeStore: PostgresDatabase = mergeStore

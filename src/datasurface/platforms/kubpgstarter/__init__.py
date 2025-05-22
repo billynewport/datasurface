@@ -4,4 +4,4 @@
 """
 
 
-from .simple import * # noqa
+from .kubpgstarter import * # noqa

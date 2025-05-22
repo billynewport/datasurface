@@ -9,7 +9,7 @@ from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, Governanc
 from datasurface.md import CronTrigger, IngestionConsistencyType
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
-from datasurface.platforms.simpledp.simple import SimpleDataPlatform
+from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
 from datasurface.md import PostgresDatabase
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.credential import LocalFileCredentialStore
@@ -35,7 +35,7 @@ def createEcosystem() -> Ecosystem:
             "Home",
             GitLabRepository(gitLabServer, "demo/kafka_example", "HomeMain")
             ),
-        SimpleDataPlatform(
+        KubernetesPGStarterDataPlatform(
             "KafkaExample",
             PlainTextDocumentation("This is an example of a Kafka data platform"),
             LocalFileCredentialStore(

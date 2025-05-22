@@ -2275,6 +2275,9 @@ class DataPlatform(Documentable, UserDSLObject, JSONable):
 
     @abstractmethod
     def createGraphHandler(self, graph: 'PlatformPipelineGraph') -> 'DataPlatformGraphHandler':
+        """This is typically called in response to a merge event on a repository. This provides the DataPlatform with the ingestion graph assigned to it. This
+        is used to either lint the graph and check the DataPlatform can actually execute the pipeline described in the graph as well as create or modify an
+        existing pipeline infrastructure to execute the ingestion graph provided."""
         pass
 
     @abstractmethod
@@ -3427,7 +3430,7 @@ class FileBasedFragmentManager(IaCFragmentManager):
 
 
 class DataPlatformGraphHandler(UserDSLObject):
-    """This is a base class for DataPlatform code for handling a specific intention graph"""
+    """This is a base class for DataPlatform code for handling a specific intention graph."""
     def __init__(self, graph: PlatformPipelineGraph):
         UserDSLObject.__init__(self)
         self.graph: PlatformPipelineGraph = graph

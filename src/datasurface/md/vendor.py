@@ -260,3 +260,4 @@ def convertCloudVendorItems(items: Optional[set[CloudVendor]]) -> Optional[set[L
         return None
     else:
         return {Literal(item) for item in items}
+
