@@ -20,7 +20,7 @@ class NullableStatus(Enum):
     NOT_NULLABLE = 0
     """This column cannot store null values"""
     NULLABLE = 1
-    """This column can store null values"""
+    """The column can contain NULL values"""
 
 
 class PrimaryKeyStatus(Enum):
@@ -31,22 +31,57 @@ class PrimaryKeyStatus(Enum):
     """Part of the primary key"""
 
 
-DEFAULT_primaryKey: PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
-
-DEFAULT_nullable: NullableStatus = NullableStatus.NULLABLE
+# Default values for DDLColumn attributes
+DEFAULT_nullable = NullableStatus.NULLABLE
+DEFAULT_primaryKey = PrimaryKeyStatus.NOT_PK
 
 
 class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This is an individual attribute within a DDLTable schema"""
-    def __init__(self, name: str, dataType: DataType, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
+    def __init__(self,
+                 name: str,
+                 data_type: DataType,
+                 *args: Union[NullableStatus, PrimaryKeyStatus, DataClassification, Documentation],
+                 nullable: Optional[NullableStatus] = None,
+                 primary_key: Optional[PrimaryKeyStatus] = None,
+                 documentation: Optional[Documentation] = None,
+                 classifications: Optional[list[DataClassification]] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name, "DDLColumn", 1)
-        Documentable.__init__(self, None)
+        Documentable.__init__(self, documentation)
         JSONable.__init__(self)
-        self.type: DataType = dataType
-        self.primaryKey: PrimaryKeyStatus = DEFAULT_primaryKey
-        self.classification: Optional[list[DataClassification]] = None
-        self.nullable: NullableStatus = DEFAULT_nullable
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args
+            parsed_nullable: Optional[NullableStatus] = nullable
+            parsed_primary_key: Optional[PrimaryKeyStatus] = primary_key
+            parsed_documentation: Optional[Documentation] = documentation
+            parsed_classifications: list[DataClassification] = list(classifications) if classifications else []
+
+            for arg in args:
+                if isinstance(arg, NullableStatus):
+                    parsed_nullable = arg
+                elif isinstance(arg, DataClassification):
+                    parsed_classifications.append(arg)
+                elif isinstance(arg, PrimaryKeyStatus):
+                    parsed_primary_key = arg
+                else:
+                    # Remaining argument should be Documentation
+                    parsed_documentation = arg
+
+            # Use parsed values
+            self.type: DataType = data_type
+            self.nullable: NullableStatus = parsed_nullable if parsed_nullable is not None else DEFAULT_nullable
+            self.primaryKey: PrimaryKeyStatus = parsed_primary_key if parsed_primary_key is not None else DEFAULT_primaryKey
+            self.classification: Optional[list[DataClassification]] = parsed_classifications if parsed_classifications else None
+            if parsed_documentation:
+                self.documentation = parsed_documentation
+        else:
+            # New mode: use named parameters directly (faster!)
+            self.type: DataType = data_type
+            self.nullable: NullableStatus = nullable if nullable is not None else DEFAULT_nullable
+            self.primaryKey: PrimaryKeyStatus = primary_key if primary_key is not None else DEFAULT_primaryKey
+            self.classification: Optional[list[DataClassification]] = classifications
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -59,18 +94,34 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
             "doc": self.documentation.to_json() if self.documentation else None,
         }
 
-    def add(self, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> None:
+    @classmethod
+    def create_legacy(cls, name: str, data_type: DataType, *args: Union[NullableStatus, DataClassification, PrimaryKeyStatus, Documentation]) -> 'DDLColumn':
+        """Legacy factory method for backward compatibility with old *args pattern.
+        Use this temporarily during migration, then switch to named parameters for better performance."""
+        nullable: Optional[NullableStatus] = None
+        primary_key: Optional[PrimaryKeyStatus] = None
+        documentation: Optional[Documentation] = None
+        classifications: list[DataClassification] = []
+
         for arg in args:
-            if (isinstance(arg, NullableStatus)):
-                self.nullable = arg
-            elif (isinstance(arg, DataClassification)):
-                if (self.classification is None):
-                    self.classification = list()
-                self.classification.append(arg)
-            elif (isinstance(arg, PrimaryKeyStatus)):
-                self.primaryKey = arg
+            if isinstance(arg, NullableStatus):
+                nullable = arg
+            elif isinstance(arg, DataClassification):
+                classifications.append(arg)
+            elif isinstance(arg, PrimaryKeyStatus):
+                primary_key = arg
             else:
-                self.documentation = arg
+                # Remaining argument should be Documentation
+                documentation = arg
+
+        return cls(
+            name=name,
+            data_type=data_type,
+            nullable=nullable,
+            primary_key=primary_key,
+            documentation=documentation,
+            classifications=classifications if classifications else None
+        )
 
     def __eq__(self, o: object) -> bool:
         if (type(o) is not DDLColumn):
@@ -222,10 +273,94 @@ class Schema(Documentable, JSONable):
 class DDLTable(Schema):
     """Table definition"""
 
-    def __init__(self, *args: Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]) -> None:
+    def __init__(self,
+                 *args: Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation],
+                 columns: Optional[list[DDLColumn]] = None,
+                 primary_key_list: Optional[PrimaryKeyList] = None,
+                 partition_key_list: Optional[PartitionKeyList] = None,
+                 documentation: Optional[Documentation] = None) -> None:
         super().__init__()
         self.columns: dict[str, DDLColumn] = OrderedDict[str, DDLColumn]()
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args (slower but compatible)
+            parsed_columns: list[DDLColumn] = list(columns) if columns else []
+            parsed_primary_key_list: Optional[PrimaryKeyList] = primary_key_list
+            parsed_partition_key_list: Optional[PartitionKeyList] = partition_key_list
+            parsed_documentation: Optional[Documentation] = documentation
+
+            for arg in args:
+                if isinstance(arg, DDLColumn):
+                    parsed_columns.append(arg)
+                elif isinstance(arg, PrimaryKeyList):
+                    parsed_primary_key_list = arg
+                elif isinstance(arg, PartitionKeyList):
+                    parsed_partition_key_list = arg
+                else:
+                    # Remaining argument should be Documentation
+                    parsed_documentation = arg
+
+            # Use parsed values
+            if parsed_columns:
+                for col in parsed_columns:
+                    if self.columns.get(col.name) is not None:
+                        raise Exception(f"Duplicate column {col.name}")
+                    self.columns[col.name] = col
+
+            if parsed_primary_key_list:
+                self.primaryKeyColumns = parsed_primary_key_list
+
+            if parsed_partition_key_list:
+                self.ingestionPartitionColumns = parsed_partition_key_list
+
+            if parsed_documentation:
+                self.documentation = parsed_documentation
+        else:
+            # New mode: use named parameters directly (faster!)
+            if columns:
+                for col in columns:
+                    if self.columns.get(col.name) is not None:
+                        raise Exception(f"Duplicate column {col.name}")
+                    self.columns[col.name] = col
+
+            if primary_key_list:
+                self.primaryKeyColumns = primary_key_list
+
+            if partition_key_list:
+                self.ingestionPartitionColumns = partition_key_list
+
+            if documentation:
+                self.documentation = documentation
+
+        self.calculateKeys()
+
+    @classmethod
+    def create_legacy(cls, *args: Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]) -> 'DDLTable':
+        """Legacy factory method for backward compatibility with old *args pattern.
+        Use this temporarily during migration, then switch to named parameters for better performance."""
+        columns: list[DDLColumn] = []
+        primary_key_list: Optional[PrimaryKeyList] = None
+        partition_key_list: Optional[PartitionKeyList] = None
+        documentation: Optional[Documentation] = None
+
+        for arg in args:
+            if isinstance(arg, DDLColumn):
+                columns.append(arg)
+            elif isinstance(arg, PrimaryKeyList):
+                primary_key_list = arg
+            elif isinstance(arg, PartitionKeyList):
+                partition_key_list = arg
+            else:
+                # Remaining argument should be Documentation
+                documentation = arg
+
+        return cls(
+            columns=columns if columns else None,
+            primary_key_list=primary_key_list,
+            partition_key_list=partition_key_list,
+            documentation=documentation
+        )
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -246,21 +381,6 @@ class DDLTable(Schema):
                     if not verifier.isCompatible(dc):
                         return False
         return True
-
-    def add(self, *args: Union[DDLColumn, PrimaryKeyList, PartitionKeyList, Documentation]):
-        """Add a column or primary key list to the table"""
-        for c in args:
-            if (isinstance(c, DDLColumn)):
-                if (self.columns.get(c.name) is not None):
-                    raise Exception(f"Duplicate column {c.name}")
-                self.columns[c.name] = c
-            elif (isinstance(c, PrimaryKeyList)):
-                self.primaryKeyColumns = c
-            elif (isinstance(c, PartitionKeyList)):
-                self.ingestionPartitionColumns = c
-            else:
-                self.documentation = c
-        self.calculateKeys()
 
     def calculateKeys(self):
         """If a primarykey list is specified then set each column pk correspondingly otherwise construct a primary key list from the pk flag"""
@@ -357,3 +477,10 @@ class DDLTable(Schema):
 
     def __str__(self) -> str:
         return "DDLTable()"
+
+    def add(self, column: DDLColumn) -> None:
+        """Add a column to the table. Provided for backward compatibility."""
+        if self.columns.get(column.name) is not None:
+            raise Exception(f"Duplicate column {column.name}")
+        self.columns[column.name] = column
+        self.calculateKeys()

@@ -93,37 +93,45 @@ class TestWorkspace(unittest.TestCase):
                 Dataset(
                     "Dataset1",
                     DDLTable(
-                        DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                        DDLColumn("Col2", String(10)),
-                        DDLColumn("Col3", Date())
-                        )
-                    ),
+                        columns=[
+                            DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("Col2", String(10)),
+                            DDLColumn("Col3", Date())
+                        ]
+                    )
+                ),
                 Dataset(
                     "Dataset2",
                     DDLTable(
-                        DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                        DDLColumn("Col2", String(10))
-                        )
+                        columns=[
+                            DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("Col2", String(10))
+                        ]
                     )
-                ),
+                )
+            ),
             Datastore(
                 "Store2",
                 Dataset(
                     "Dataset1",
                     DDLTable(
-                        DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                        DDLColumn("Col2", String(10)),
-                        DDLColumn("Col3", Date())
-                        )
-                    ),
+                        columns=[
+                            DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("Col2", String(10)),
+                            DDLColumn("Col3", Date())
+                        ]
+                    )
+                ),
                 Dataset(
                     "Dataset2",
                     DDLTable(
-                        DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                        DDLColumn("Col2", String(10))
-                        )
+                        columns=[
+                            DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("Col2", String(10))
+                        ]
                     )
-                ),
+                )
+            ),
             Workspace(
                 "WK_A",
                 DatasetGroup(
@@ -207,42 +215,65 @@ class TestWorkspace(unittest.TestCase):
     def test_ColumnEquality(self):
 
         # Check equality works
-        intType: DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
-        col2: DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
+        intType: DDLColumn = DDLColumn(
+            "Col1", Integer(), primary_key=PrimaryKeyStatus.PK,
+            nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
+        )
+        col2: DDLColumn = DDLColumn(
+            "Col1", Integer(), primary_key=PrimaryKeyStatus.PK,
+            nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
+        )
         self.assertEqual(intType, col2)
         self.assertEqual(col2, intType)
 
         # Change name of type
-        col2: DDLColumn = DDLColumn("Col2", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
+        col2: DDLColumn = DDLColumn(
+            "Col2", Integer(), primary_key=PrimaryKeyStatus.PK,
+            nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
+        )
         self.assertNotEqual(intType, col2)
         self.assertNotEqual(col2, intType)
 
         # Change type to Decimal
-        col2: DDLColumn = DDLColumn("Col1", Decimal(10, 2), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
+        col2: DDLColumn = DDLColumn(
+            "Col1", Decimal(10, 2), primary_key=PrimaryKeyStatus.PK,
+            nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
+        )
         self.assertNotEqual(col2, intType)
         self.assertNotEqual(intType, col2)
 
         # Just change primary key flag
-        col2: DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.NOT_PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
+        col2: DDLColumn = DDLColumn(
+            "Col1", Integer(), primary_key=PrimaryKeyStatus.NOT_PK,
+            nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
+        )
         self.assertNotEqual(intType, col2)
         self.assertNotEqual(col2, intType)
 
         # Just change nullable
-        col2: DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NULLABLE, SimpleDC(SimpleDCTypes.MNPI))
+        col2: DDLColumn = DDLColumn(
+            "Col1", Integer(), primary_key=PrimaryKeyStatus.PK,
+            nullable=NullableStatus.NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
+        )
         self.assertNotEqual(intType, col2)
         self.assertNotEqual(col2, intType)
 
         # Just change classification
-        col2: DDLColumn = DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK,  NullableStatus.NOT_NULLABLE, SimpleDC(SimpleDCTypes.PC1))
+        col2: DDLColumn = DDLColumn(
+            "Col1", Integer(), primary_key=PrimaryKeyStatus.PK,
+            nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.PC1)]
+        )
         self.assertNotEqual(intType, col2)
         self.assertNotEqual(col2, intType)
 
     def test_DDLTable(self):
         t1: DDLTable = DDLTable(
-            DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-            DDLColumn("Col2", String(10)),
-            DDLColumn("Col3", Date())
-            )
+            columns=[
+                DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                DDLColumn("Col2", String(10)),
+                DDLColumn("Col3", Date())
+            ]
+        )
         self.assertEqual(t1, t1)
         self.assertIsNotNone(t1.primaryKeyColumns)
         if (t1.primaryKeyColumns):
@@ -252,10 +283,12 @@ class TestWorkspace(unittest.TestCase):
 
         # Move primarykey column
         t2: DDLTable = DDLTable(
-            DDLColumn("Col1", Integer(), PrimaryKeyStatus.NOT_PK),
-            DDLColumn("Col2", String(10), PrimaryKeyStatus.PK),
-            DDLColumn("Col3", Date())
-            )
+            columns=[
+                DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.NOT_PK),
+                DDLColumn("Col2", String(10), primary_key=PrimaryKeyStatus.PK),
+                DDLColumn("Col3", Date())
+            ]
+        )
         self.assertNotEqual(t1, t2)
         self.assertIsNotNone(t2.primaryKeyColumns)
         if (t2.primaryKeyColumns):
@@ -264,27 +297,33 @@ class TestWorkspace(unittest.TestCase):
 
         # Change Column name
         t2: DDLTable = DDLTable(
-            DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-            DDLColumn("Col2_XXX", String(10)),
-            DDLColumn("Col3", Date())
-            )
+            columns=[
+                DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                DDLColumn("Col2_XXX", String(10)),
+                DDLColumn("Col3", Date())
+            ]
+        )
         self.assertNotEqual(t1, t2)
 
         # Remove column
         t2: DDLTable = DDLTable(
-            DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-            DDLColumn("Col2_XXX", String(10))
-            )
+            columns=[
+                DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                DDLColumn("Col2_XXX", String(10))
+            ]
+        )
         self.assertNotEqual(t1, t2)
         self.assertEqual(len(t2.columns), 2)
 
         # Add Column name
         t2: DDLTable = DDLTable(
-            DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-            DDLColumn("Col2_XXX", String(10)),
-            DDLColumn("Col3", Date()),
-            DDLColumn("Col4", Double())
-            )
+            columns=[
+                DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                DDLColumn("Col2_XXX", String(10)),
+                DDLColumn("Col3", Date()),
+                DDLColumn("Col4", Double())
+            ]
+        )
         self.assertNotEqual(t1, t2)
         self.assertEqual(len(t2.columns), 4)
 
@@ -293,19 +332,23 @@ class TestWorkspace(unittest.TestCase):
         d1: Dataset = Dataset(
             "Dataset1",
             DDLTable(
-                DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                DDLColumn("Col2", String(10)),
-                DDLColumn("Col3", Date())
-                )
+                columns=[
+                    DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                    DDLColumn("Col2", String(10)),
+                    DDLColumn("Col3", Date())
+                ]
             )
+        )
         d2: Dataset = Dataset(
             "Dataset2",
             DDLTable(
-                DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                DDLColumn("Col2", String(10)),
-                DDLColumn("Col3", Date())
-                )
+                columns=[
+                    DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                    DDLColumn("Col2", String(10)),
+                    DDLColumn("Col3", Date())
+                ]
             )
+        )
         self.assertEqual(d1.name, "Dataset1")
         self.assertEqual(d1, d1)
         self.assertEqual(d2.name, "Dataset2")
@@ -317,31 +360,37 @@ class TestWorkspace(unittest.TestCase):
             Dataset(
                 "Dataset1",
                 DDLTable(
-                    DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                    DDLColumn("Col2", String(10)),
-                    DDLColumn("Col3", Date())
-                    )
-                ),
+                    columns=[
+                        DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                        DDLColumn("Col2", String(10)),
+                        DDLColumn("Col3", Date())
+                    ]
+                )
+            ),
             Dataset(
                 "Dataset2",
                 DDLTable(
-                    DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                    DDLColumn("Col2", String(10)),
-                    DDLColumn("Col3", Date())
-                    )
+                    columns=[
+                        DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                        DDLColumn("Col2", String(10)),
+                        DDLColumn("Col3", Date())
+                    ]
                 )
             )
+        )
         s2: Datastore = Datastore(
             "Store1",
             Dataset(
                 "Dataset1",
                 DDLTable(
-                    DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                    DDLColumn("Col2", String(10)),
-                    DDLColumn("Col3", Date())
-                    )
-                ),
-            )
+                    columns=[
+                        DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                        DDLColumn("Col2", String(10)),
+                        DDLColumn("Col3", Date())
+                    ]
+                )
+            ),
+        )
 
         d1: Dataset = s1.datasets["Dataset1"]
         d2: Dataset = s1.datasets["Dataset2"]
@@ -355,12 +404,14 @@ class TestWorkspace(unittest.TestCase):
             Dataset(
                 "Dataset2",
                 DDLTable(
-                    DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK),
-                    DDLColumn("Col2", String(10)),
-                    DDLColumn("Col3", Date())
-                    )
+                    columns=[
+                        DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
+                        DDLColumn("Col2", String(10)),
+                        DDLColumn("Col3", Date())
+                    ]
                 )
             )
+        )
         self.assertEqual(s1, s2)
 
     def createSimpleEcosystem(self) -> Ecosystem:
@@ -401,21 +452,25 @@ class TestWorkspace(unittest.TestCase):
                     "Dataset1",
                     SimpleDC(SimpleDCTypes.PUB),
                     DDLTable(
-                        DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
-                        DDLColumn("Col2", String(10)),
-                        DDLColumn("Col3", Date())
-                        )
+                        columns=[
+                            DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("Col2", String(10)),
+                            DDLColumn("Col3", Date())
+                        ]
+                    )
                 ),
                 Dataset(
                     "Dataset2",
                     SimpleDC(SimpleDCTypes.PUB),
                     DDLTable(
-                        DDLColumn("Col1", Integer(), PrimaryKeyStatus.PK, NullableStatus.NOT_NULLABLE),
-                        DDLColumn("Col2", String(10)),
-                        DDLColumn("Col3", Date())
-                        )
+                        columns=[
+                            DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("Col2", String(10)),
+                            DDLColumn("Col3", Date())
+                        ]
                     )
-                ),
+                )
+            ),
             Workspace(
                 "WK_A",
                 DatasetGroup(
@@ -423,8 +478,8 @@ class TestWorkspace(unittest.TestCase):
                     WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                     DatasetSink("Store1", "Dataset1"),
                     DatasetSink("Store1", "Dataset2")
-                    )
                 )
+            )
         )
 
         # Prepare ecosystem and check no errors or issues
