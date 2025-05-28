@@ -10,6 +10,27 @@ from types import FrameType
 import inspect
 from datasurface.md.utils import is_valid_sql_identifier
 from datasurface.md.exceptions import NameMustBeANSISQLIdentifierException
+import os
+
+# Global performance controls
+_enable_source_tracking = os.environ.get('DATASURFACE_DEBUG', 'false').lower() == 'true'
+
+
+def enable_source_tracking():
+    """Enable source tracking for debugging - impacts performance"""
+    global _enable_source_tracking
+    _enable_source_tracking = True
+
+
+def disable_source_tracking():
+    """Disable source tracking for maximum performance"""
+    global _enable_source_tracking
+    _enable_source_tracking = False
+
+
+def is_source_tracking_enabled() -> bool:
+    """Check if source tracking is currently enabled"""
+    return _enable_source_tracking
 
 
 class ValidatableObject(ABC):
@@ -30,14 +51,28 @@ class UserDSLObject(ValidatableObject):
         ValidatableObject.__init__(self)
         self._line_number: int = 0  # The _ here causes these variables to be ignore during cyclic reference checks
         self._file_name: str = ""  # We want this because we can define the identical object in two places and still want them equal
+        self._source_ref_cache: Optional[str] = None  # Cache the computed string
+
         if (filename is not None and linenumber is not None):
             self._file_name = filename
             self._line_number = linenumber
+        else:
+            # Only do expensive stack walking if source tracking is enabled
+            # You could make this conditional with an environment variable
+            self._capture_source_info()
+
+    def _capture_source_info(self) -> None:
+        """Capture minimal source info immediately (just filename and line number)"""
+        if not _enable_source_tracking:
+            # Skip expensive stack walking when source tracking is disabled
+            self._file_name = "<source_tracking_disabled>"
+            self._line_number = 0
         else:
             f: Optional[FrameType] = self.findFirstNonDataSurfaceCaller()
             if f is not None:
                 self._line_number: int = f.f_lineno
                 self._file_name: str = f.f_code.co_filename
+                # Don't hold onto the frame object itself!
 
     def setSource(self, filename: str, line: int):
         """This is used to set the file/line when the model is populated using non python DSLs. For example,
@@ -56,17 +91,20 @@ class UserDSLObject(ValidatableObject):
         assumed to be the python module defining the DSL."""
         f: Optional[FrameType] = inspect.currentframe()
         while f is not None:
-            bf: Optional[FrameType] = f.f_back
+            bf: Optional[FrameType] = f.f_back  # type: ignore
             if bf is not None:
-                module_name = bf.f_globals.get('__name__', '')
-                if not module_name.startswith('datasurface'):
-                    return bf
-            f = bf
+                module_name = bf.f_globals.get('__name__', '')  # type: ignore
+                if not module_name.startswith('datasurface'):  # type: ignore
+                    return bf  # type: ignore
+            f = bf  # type: ignore
         return None
 
     def getSourceReferenceString(self) -> str:
         """This returns a string representing where this object was first constructed"""
-        return f"{self.__class__.__name__}@{self._file_name}:{self._line_number}"
+        if self._source_ref_cache is None:
+            # Lazy computation and caching of the string
+            self._source_ref_cache = f"{self.__class__.__name__}@{self._file_name}:{self._line_number}"
+        return self._source_ref_cache
 
     def __eq__(self, other: object) -> bool:
         """Ignore the source reference when comparing objects"""
@@ -397,3 +435,16 @@ class ANSI_SQL_NamedObject(UserDSLObject):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
+
+
+def track_sources(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator to enable source tracking for specific functions"""
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        old_setting = is_source_tracking_enabled()
+        enable_source_tracking()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            if not old_setting:
+                disable_source_tracking()
+    return wrapper

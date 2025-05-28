@@ -5,7 +5,7 @@
 
 from abc import abstractmethod
 from typing import Any, Optional, OrderedDict
-from datasurface.md.lint import UserDSLObject, ValidationTree, InternalLintableObject
+from datasurface.md.lint import UserDSLObject, ValidationTree
 
 
 class Documentation(UserDSLObject):
@@ -44,10 +44,10 @@ class Documentation(UserDSLObject):
         return rc
 
 
-class Documentable(InternalLintableObject):
+class Documentable(UserDSLObject):
     """This is the base class for all objects which can have documentation."""
     def __init__(self, documentation: Optional[Documentation]) -> None:
-        InternalLintableObject.__init__(self)
+        UserDSLObject.__init__(self)
         self.documentation: Optional[Documentation] = documentation
 
     def __eq__(self, other: object):

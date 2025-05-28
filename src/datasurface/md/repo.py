@@ -7,17 +7,16 @@ from abc import abstractmethod
 from typing import Any, Optional
 
 from datasurface.md.documentation import Documentation, Documentable
-from datasurface.md.lint import UserDSLObject, ValidationTree, ValidationProblem, ProblemSeverity
+from datasurface.md.lint import ValidationTree, ValidationProblem, ProblemSeverity
 from datasurface.md.json import JSONable
 from typing import Mapping, Iterable
 import re
 from urllib.parse import urlparse, ParseResult
 
 
-class Repository(Documentable, UserDSLObject, JSONable):
+class Repository(Documentable, JSONable):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
     def __init__(self, doc: Optional[Documentation]):
-        UserDSLObject.__init__(self)
         Documentable.__init__(self, doc)
 
     @abstractmethod
@@ -26,7 +25,7 @@ class Repository(Documentable, UserDSLObject, JSONable):
         raise NotImplementedError()
 
     def __eq__(self, other: object) -> bool:
-        if (UserDSLObject.__eq__(self, other) and Documentable.__eq__(self, other) and isinstance(other, Repository)):
+        if (Documentable.__eq__(self, other) and isinstance(other, Repository)):
             return True
         else:
             return False
@@ -44,17 +43,16 @@ class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
         super().__init__(f"'{obj}' owned by {owningRepo} cannot be changed by repo {changeSource}", ProblemSeverity.ERROR)
 
 
-class GitControlledObject(Documentable, UserDSLObject):
+class GitControlledObject(Documentable):
     """This is the base class for all objects which are controlled by a git repository"""
     def __init__(self, repo: 'Repository') -> None:
         Documentable.__init__(self, None)
-        UserDSLObject.__init__(self)
         self.owningRepo: Repository = repo
         """This is the repository which is authorized to make changes to this object"""
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, GitControlledObject)):
-            return self.owningRepo == other.owningRepo and UserDSLObject.__eq__(self, other) and Documentable.__eq__(self, other)
+            return self.owningRepo == other.owningRepo and Documentable.__eq__(self, other)
         else:
             return False
 

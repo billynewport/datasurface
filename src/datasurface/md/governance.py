@@ -436,12 +436,11 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
-class DataContainer(Documentable, UserDSLObject):
+class DataContainer(Documentable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
     def __init__(self, name: str, *args: Union[set['LocationKey'], Documentation]) -> None:
-        UserDSLObject.__init__(self)
         Documentable.__init__(self, None)
         self.locations: set[LocationKey] = set()
         self.name: str = name
@@ -1152,7 +1151,7 @@ class PlatformServicesProvider(UserDSLObject, JSONable):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         self.credStore.lint(tree.addSubTree(self.credStore))
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
-        graph.lint(self, self.credStore, tree.addSubTree(graph))
+        graph.lint(self.credStore, tree.addSubTree(graph))
 
     @abstractmethod
     def mergeHandler(self, eco: 'Ecosystem'):
@@ -2210,11 +2209,10 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
 T = TypeVar('T')
 
 
-class DataPlatform(Documentable, UserDSLObject, JSONable):
+class DataPlatform(Documentable, JSONable):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str, *args: Union[DataPlatformExecutor, Documentation]) -> None:
         Documentable.__init__(self, self.findObjectOfSpecificType(Documentation, *args))
-        UserDSLObject.__init__(self)
         JSONable.__init__(self)
         self.name: str = name
         de: Optional[DataPlatformExecutor] = self.findObjectOfSpecificType(DataPlatformExecutor, *args)
@@ -2643,8 +2641,8 @@ class PythonCodeArtifact(CodeArtifact):
 class CodeExecutionEnvironment(PlatformService, JSONable):
     """This is an environment which can execute code, Spark/Flink/MR Jobs etc. The RenderEngine
     needs to support this CEE if a DataTransformer needs it to execute a CodeArtifact."""
-    def __init__(self, loc: set[LocationKey]):
-        PlatformService.__init__(self)
+    def __init__(self, name: str, loc: set[LocationKey]):
+        PlatformService.__init__(self, name)
         JSONable.__init__(self)
         self.location: set[LocationKey] = loc
 

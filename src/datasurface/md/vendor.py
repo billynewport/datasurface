@@ -4,7 +4,7 @@
 """
 
 from typing import Any, Optional, Union, OrderedDict
-from datasurface.md.lint import UserDSLObject, ValidationTree, AttributeNotSet, ValidationProblem, ProblemSeverity
+from datasurface.md.lint import ValidationTree, AttributeNotSet, ValidationProblem, ProblemSeverity
 from datasurface.md.json import JSONable
 from datasurface.md.documentation import Documentation, Documentable
 from datasurface.md.keys import InfraLocationKey, InfrastructureVendorKey, EcosystemKey
@@ -28,14 +28,13 @@ class UnknownVendorProblem(ValidationProblem):
         return hash(self.description)
 
 
-class InfrastructureLocation(Documentable, UserDSLObject, JSONable):
+class InfrastructureLocation(Documentable, JSONable):
     """This is a location within a vendors physical location hierarchy. This object
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
     def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
         Documentable.__init__(self, None)
-        UserDSLObject.__init__(self)
         JSONable.__init__(self)
 
         self.name: str = name
@@ -160,12 +159,11 @@ class CloudVendor(Enum):
     PRIVATE = 10  # Onsite or private cloud
 
 
-class InfrastructureVendor(Documentable, UserDSLObject, JSONable):
+class InfrastructureVendor(Documentable, JSONable):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an
     enterprise or an external cloud provider"""
     def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
         Documentable.__init__(self, None)
-        UserDSLObject.__init__(self)
         JSONable.__init__(self)
         self.name: str = name
         self.key: Optional[InfrastructureVendorKey] = None
@@ -260,4 +258,3 @@ def convertCloudVendorItems(items: Optional[set[CloudVendor]]) -> Optional[set[L
         return None
     else:
         return {Literal(item) for item in items}
-

@@ -159,11 +159,10 @@ class NotBackwardsCompatible(ValidationProblem):
         return hash(str(self))
 
 
-class Schema(Documentable, UserDSLObject, JSONable):
+class Schema(Documentable, JSONable):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
         Documentable.__init__(self, None)
-        UserDSLObject.__init__(self)
         JSONable.__init__(self)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
