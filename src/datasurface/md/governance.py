@@ -2550,36 +2550,37 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         self.platformMD: Optional[DataPlatformChooser] = platform_chooser
         self.sinks: dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
 
-        # Process sinks from named parameter
-        if sinks is not None:
-            for sink in sinks:
-                if self.sinks.get(sink.key) is not None:
-                    raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
-                self.sinks[sink.key] = sink
+        if args:
+            # legacy mode: parse *args
+            parsed_platformMD: Optional[DataPlatformChooser] = platform_chooser
+            parsed_documentation: Optional[Documentation] = documentation
+            parsed_sinks: dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
 
-        # Set documentation from named parameter
-        if documentation is not None:
-            self.documentation = documentation
+            for arg in args:
+                if isinstance(arg, DatasetSink):
+                    sink: DatasetSink = arg
+                    if (parsed_sinks.get(sink.key) is not None):
+                        raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
+                    parsed_sinks[sink.key] = sink
+                elif isinstance(arg, Documentation):
+                    parsed_documentation = arg
+                else:
+                    parsed_platformMD = arg
 
-        # Process *args (keeping backward compatibility)
-        for arg in args:
-            if (type(arg) is DatasetSink):
-                sink: DatasetSink = arg
-                if (self.sinks.get(sink.key) is not None):
-                    raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
-                self.sinks[sink.key] = sink
-            elif (isinstance(arg, Documentation)):
-                if self.documentation is None:
-                    self.documentation = arg
-                else:
-                    raise AttributeAlreadySetException("Documentation")
-            elif (isinstance(arg, DataPlatformChooser)):
-                if self.platformMD is None:
-                    self.platformMD = arg
-                else:
-                    raise AttributeAlreadySetException("Platform")
-            else:
-                raise UnknownArgumentException(f"Unknown argument {type(arg)}")
+            # Use parsed values
+            self.platformMD: Optional[DataPlatformChooser] = parsed_platformMD
+            self.documentation: Optional[Documentation] = parsed_documentation
+            self.sinks: dict[str, DatasetSink] = parsed_sinks
+        else:
+            # new mode: use named parameters directly (faster!)
+            self.platformMD: Optional[DataPlatformChooser] = platform_chooser
+            self.documentation: Optional[Documentation] = documentation
+
+            if sinks is not None:
+                for sink in sinks:
+                    if self.sinks.get(sink.key) is not None:
+                        raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
+                    self.sinks[sink.key] = sink
 
     def to_json(self) -> dict[str, Any]:
         json_dict: dict[str, Any] = {
