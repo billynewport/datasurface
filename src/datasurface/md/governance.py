@@ -957,16 +957,43 @@ class DatasetPerTopicKafkaIngestion(KafkaIngestion):
 class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
-    def __init__(self, name: str, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo]) -> None:
+    def __init__(self, name: str,
+                 *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo],
+                 datasets: Optional[list[Dataset]] = None,
+                 capture_metadata: Optional[CaptureMetaData] = None,
+                 documentation: Optional[Documentation] = None,
+                 production_status: Optional[ProductionStatus] = None,
+                 deprecation_info: Optional[DeprecationInfo] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         JSONable.__init__(self)
         self.datasets: dict[str, Dataset] = OrderedDict()
         self.key: Optional[DatastoreKey] = None
-        self.cmd: Optional[CaptureMetaData] = None
-        self.productionStatus: ProductionStatus = ProductionStatus.NOT_PRODUCTION
-        self.deprecationStatus: DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
+        self.cmd: Optional[CaptureMetaData] = capture_metadata
+        self.productionStatus: ProductionStatus = production_status if production_status is not None else ProductionStatus.NOT_PRODUCTION
+        self.deprecationStatus: DeprecationInfo = deprecation_info if deprecation_info is not None else DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
         """Deprecating a store deprecates all datasets in the store regardless of their deprecation status"""
+
+        # Process named parameters first
+        if datasets is not None:
+            for dataset in datasets:
+                if self.datasets.get(dataset.name) is not None:
+                    raise ObjectAlreadyExistsException(f"Duplicate Dataset {dataset.name}")
+                self.datasets[dataset.name] = dataset
+
+        if capture_metadata is not None:
+            self.cmd = capture_metadata
+
+        if documentation is not None:
+            self.documentation = documentation
+
+        if production_status is not None:
+            self.productionStatus = production_status
+
+        if deprecation_info is not None:
+            self.deprecationStatus = deprecation_info
+
+        # Process *args using existing add method
         self.add(*args)
 
     def to_json(self) -> dict[str, Any]:
@@ -2513,11 +2540,28 @@ class DatasetSink(UserDSLObject):
 class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace. The name should be
     ANSI SQL compliant because it could be used as part of a SQL View/Table name in a Workspace database"""
-    def __init__(self, name: str, *args: Union[DatasetSink, DataPlatformChooser, Documentation]) -> None:
+    def __init__(self, name: str,
+                 *args: Union[DatasetSink, DataPlatformChooser, Documentation],
+                 sinks: Optional[list[DatasetSink]] = None,
+                 platform_chooser: Optional[DataPlatformChooser] = None,
+                 documentation: Optional[Documentation] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
-        self.platformMD: Optional[DataPlatformChooser] = None
+        self.platformMD: Optional[DataPlatformChooser] = platform_chooser
         self.sinks: dict[str, DatasetSink] = OrderedDict[str, DatasetSink]()
+
+        # Process sinks from named parameter
+        if sinks is not None:
+            for sink in sinks:
+                if self.sinks.get(sink.key) is not None:
+                    raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
+                self.sinks[sink.key] = sink
+
+        # Set documentation from named parameter
+        if documentation is not None:
+            self.documentation = documentation
+
+        # Process *args (keeping backward compatibility)
         for arg in args:
             if (type(arg) is DatasetSink):
                 sink: DatasetSink = arg
@@ -2525,7 +2569,10 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                     raise ObjectAlreadyExistsException(f"Duplicate DatasetSink {sink.key}")
                 self.sinks[sink.key] = sink
             elif (isinstance(arg, Documentation)):
-                self.documentation = arg
+                if self.documentation is None:
+                    self.documentation = arg
+                else:
+                    raise AttributeAlreadySetException("Documentation")
             elif (isinstance(arg, DataPlatformChooser)):
                 if self.platformMD is None:
                     self.platformMD = arg
