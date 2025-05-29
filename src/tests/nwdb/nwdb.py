@@ -21,219 +21,220 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     t.add(
         Datastore(
             "NW_Data",
-            PlainTextDocumentation("NW_Data is a datastore that contains the Northwind database"),
-            CDCCaptureIngestion(
+            documentation=PlainTextDocumentation("NW_Data is a datastore that contains the Northwind database"),
+            capture_metadata=CDCCaptureIngestion(
                 HostPortSQLDatabase("NW_DB", {LocationKey("MyCorp:USA/NY_1")}, HostPortPair("hostName", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 ClearTextCredential("user", "pwd")
                 ),
-
-            Dataset(
-                "us_states",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("state_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("state_name", VarChar(100)),
-                        DDLColumn("state_abbr", VarChar(2)),
-                        DDLColumn("state_region", VarChar(50))
-                    ]
+            datasets=[
+                Dataset(
+                    "us_states",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("state_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("state_name", VarChar(100)),
+                            DDLColumn("state_abbr", VarChar(2)),
+                            DDLColumn("state_region", VarChar(50))
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "customers",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("customer_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("company_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("contact_name", VarChar(30)),
-                        DDLColumn("contact_title", VarChar(30)),
-                        DDLColumn("address", VarChar(60)),
-                        DDLColumn("city", VarChar(15)),
-                        DDLColumn("region", VarChar(15)),
-                        DDLColumn("postal_code", VarChar(10)),
-                        DDLColumn("country", VarChar(15)),
-                        DDLColumn("phone", VarChar(24)),
-                        DDLColumn("fax", VarChar(24))
-                    ]
+                Dataset(
+                    "customers",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("customer_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("company_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("contact_name", VarChar(30)),
+                            DDLColumn("contact_title", VarChar(30)),
+                            DDLColumn("address", VarChar(60)),
+                            DDLColumn("city", VarChar(15)),
+                            DDLColumn("region", VarChar(15)),
+                            DDLColumn("postal_code", VarChar(10)),
+                            DDLColumn("country", VarChar(15)),
+                            DDLColumn("phone", VarChar(24)),
+                            DDLColumn("fax", VarChar(24))
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PC3)],
+                    documentation=PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data.")
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PC3)],
-                documentation=PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data.")
-            ),
-            Dataset(
-                "orders",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("order_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("customer_id", VarChar(5)),
-                        DDLColumn("employee_id", SmallInt()),
-                        DDLColumn("order_date", Date()),
-                        DDLColumn("required_date", Date()),
-                        DDLColumn("shipped_date", Date()),
-                        DDLColumn("ship_via", SmallInt()),
-                        DDLColumn("freight", IEEE32()),
-                        DDLColumn("ship_name", VarChar(40)),
-                        DDLColumn("ship_address", VarChar(60)),
-                        DDLColumn("ship_city", VarChar(15)),
-                        DDLColumn("ship_region", VarChar(15)),
-                        DDLColumn("ship_postal_code", VarChar(10)),
-                        DDLColumn("ship_country", VarChar(15))
-                    ]
+                Dataset(
+                    "orders",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("order_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("customer_id", VarChar(5)),
+                            DDLColumn("employee_id", SmallInt()),
+                            DDLColumn("order_date", Date()),
+                            DDLColumn("required_date", Date()),
+                            DDLColumn("shipped_date", Date()),
+                            DDLColumn("ship_via", SmallInt()),
+                            DDLColumn("freight", IEEE32()),
+                            DDLColumn("ship_name", VarChar(40)),
+                            DDLColumn("ship_address", VarChar(60)),
+                            DDLColumn("ship_city", VarChar(15)),
+                            DDLColumn("ship_region", VarChar(15)),
+                            DDLColumn("ship_postal_code", VarChar(10)),
+                            DDLColumn("ship_country", VarChar(15))
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "employees",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("employee_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("last_name", VarChar(20), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("first_name", VarChar(10), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("title", VarChar(30)),
-                        DDLColumn("title_of_courtesy", VarChar(25)),
-                        DDLColumn("birth_date", Date()),
-                        DDLColumn("hire_date", Date()),
-                        DDLColumn("address", VarChar(60)),
-                        DDLColumn("city", VarChar(15)),
-                        DDLColumn("region", VarChar(15)),
-                        DDLColumn("postal_code", VarChar(10)),
-                        DDLColumn("country", VarChar(15)),
-                        DDLColumn("home_phone", VarChar(24)),
-                        DDLColumn("extension", VarChar(4)),
-                        DDLColumn("photo", Variant()),
-                        DDLColumn("notes", VarChar()),
-                        DDLColumn("reports_to", SmallInt()),
-                        DDLColumn("photo_path", VarChar(255))
-                    ]
+                Dataset(
+                    "employees",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("employee_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("last_name", VarChar(20), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("first_name", VarChar(10), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("title", VarChar(30)),
+                            DDLColumn("title_of_courtesy", VarChar(25)),
+                            DDLColumn("birth_date", Date()),
+                            DDLColumn("hire_date", Date()),
+                            DDLColumn("address", VarChar(60)),
+                            DDLColumn("city", VarChar(15)),
+                            DDLColumn("region", VarChar(15)),
+                            DDLColumn("postal_code", VarChar(10)),
+                            DDLColumn("country", VarChar(15)),
+                            DDLColumn("home_phone", VarChar(24)),
+                            DDLColumn("extension", VarChar(4)),
+                            DDLColumn("photo", Variant()),
+                            DDLColumn("notes", VarChar()),
+                            DDLColumn("reports_to", SmallInt()),
+                            DDLColumn("photo_path", VarChar(255))
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PC3)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PC3)]
-            ),
-            Dataset(
-                "shippers",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("shipper_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("company_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("phone", VarChar(24))
-                    ]
+                Dataset(
+                    "shippers",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("shipper_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("company_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("phone", VarChar(24))
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "products",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("product_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("product_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("supplier_id", SmallInt()),
-                        DDLColumn("category_id", SmallInt()),
-                        DDLColumn("quantity_per_unit", VarChar(20)),
-                        DDLColumn("unit_price", IEEE32()),
-                        DDLColumn("units_in_stock", SmallInt()),
-                        DDLColumn("units_on_order", SmallInt()),
-                        DDLColumn("reorder_level", SmallInt()),
-                        DDLColumn("discontinued", Integer(), nullable=NullableStatus.NOT_NULLABLE)
-                    ]
+                Dataset(
+                    "products",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("product_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("product_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("supplier_id", SmallInt()),
+                            DDLColumn("category_id", SmallInt()),
+                            DDLColumn("quantity_per_unit", VarChar(20)),
+                            DDLColumn("unit_price", IEEE32()),
+                            DDLColumn("units_in_stock", SmallInt()),
+                            DDLColumn("units_on_order", SmallInt()),
+                            DDLColumn("reorder_level", SmallInt()),
+                            DDLColumn("discontinued", Integer(), nullable=NullableStatus.NOT_NULLABLE)
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "categories",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("category_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("category_name", VarChar(15), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("description", VarChar()),
-                        DDLColumn("picture", Variant())
-                    ]
+                Dataset(
+                    "categories",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("category_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("category_name", VarChar(15), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("description", VarChar()),
+                            DDLColumn("picture", Variant())
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "suppliers",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("supplier_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("company_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("contact_name", VarChar(30)),
-                        DDLColumn("contact_title", VarChar(30)),
-                        DDLColumn("address", VarChar(60)),
-                        DDLColumn("city", VarChar(15)),
-                        DDLColumn("region", VarChar(15)),
-                        DDLColumn("postal_code", VarChar(10)),
-                        DDLColumn("country", VarChar(15)),
-                        DDLColumn("phone", VarChar(24)),
-                        DDLColumn("fax", VarChar(24)),
-                        DDLColumn("homepage", VarChar())
-                    ]
+                Dataset(
+                    "suppliers",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("supplier_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("company_name", VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("contact_name", VarChar(30)),
+                            DDLColumn("contact_title", VarChar(30)),
+                            DDLColumn("address", VarChar(60)),
+                            DDLColumn("city", VarChar(15)),
+                            DDLColumn("region", VarChar(15)),
+                            DDLColumn("postal_code", VarChar(10)),
+                            DDLColumn("country", VarChar(15)),
+                            DDLColumn("phone", VarChar(24)),
+                            DDLColumn("fax", VarChar(24)),
+                            DDLColumn("homepage", VarChar())
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "order_details",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("order_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("product_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("unit_price", IEEE32(), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("quantity", SmallInt(), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("discount", IEEE32(), nullable=NullableStatus.NOT_NULLABLE)
-                    ]
+                Dataset(
+                    "order_details",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("order_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("product_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("unit_price", IEEE32(), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("quantity", SmallInt(), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("discount", IEEE32(), nullable=NullableStatus.NOT_NULLABLE)
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "region",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("region_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("region_description", VarChar(60), nullable=NullableStatus.NOT_NULLABLE)
-                    ]
+                Dataset(
+                    "region",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("region_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("region_description", VarChar(60), nullable=NullableStatus.NOT_NULLABLE)
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "territories",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("territory_id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("territory_description", VarChar(60), nullable=NullableStatus.NOT_NULLABLE),
-                        DDLColumn("region_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE)
-                    ]
+                Dataset(
+                    "territories",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("territory_id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("territory_description", VarChar(60), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("region_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE)
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "employee_territories",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("employee_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("territory_id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK)
-                    ]
+                Dataset(
+                    "employee_territories",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("employee_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("territory_id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK)
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "customer_demographics",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("customer_type_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("customer_desc", VarChar())
-                    ]
+                Dataset(
+                    "customer_demographics",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("customer_type_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("customer_desc", VarChar())
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
                 ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            ),
-            Dataset(
-                "customer_customer_demo",
-                schema=DDLTable(
-                    columns=[
-                        DDLColumn("customer_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                        DDLColumn("customer_type_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK)
-                    ]
-                ),
-                classifications=[SimpleDC(SimpleDCTypes.PUB)]
-            )
+                Dataset(
+                    "customer_customer_demo",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn("customer_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("customer_type_id", VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK)
+                        ]
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
+                )
+            ]
         )
     )
 
@@ -249,13 +250,15 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             "LiveProducts",
-            LegacyDatPlatformChooser(
+            platform_chooser=LegacyDatPlatformChooser(
                 "LegacyA",  # Name of eco level LegacyDataPlatform
                 PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
                 set()),
-            DatasetSink("NW_Data", "products"),
-            DatasetSink("NW_Data", "customers"),
-            DatasetSink("NW_Data", "suppliers")
+            sinks=[
+                DatasetSink("NW_Data", "products"),
+                DatasetSink("NW_Data", "customers"),
+                DatasetSink("NW_Data", "suppliers")
+            ]
         ))
     t.add(w)
 
@@ -268,29 +271,33 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             "MaskCustomers",
-            LegacyDatPlatformChooser(
+            platform_chooser=LegacyDatPlatformChooser(
                 "LegacyA",  # Name of eco level LegacyDataPlatform
                 PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
                 set()),
-            DatasetSink("NW_Data", "customers")
-            ),
+            sinks=[
+                DatasetSink("NW_Data", "customers")
+            ]
+        ),
         DataTransformer(
             "MaskCustomers",
             Datastore(
                 "Masked_NW_Data",
-                Dataset(
-                    "customers",
-                    schema=DDLTable(
-                        documentation=PlainTextDocumentation("Masked version of customers table with privacy data removed"),
-                        columns=[
-                            DDLColumn("customer_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                            DDLColumn("last_name", VarChar(20), nullable=NullableStatus.NOT_NULLABLE),
-                            DDLColumn("first_name", VarChar(10), nullable=NullableStatus.NOT_NULLABLE),
-                            DDLColumn("country", VarChar(15))
-                        ]
-                    ),
-                    classifications=[SimpleDC(SimpleDCTypes.PUB)]
-                )
+                datasets=[
+                    Dataset(
+                        "customers",
+                        schema=DDLTable(
+                            documentation=PlainTextDocumentation("Masked version of customers table with privacy data removed"),
+                            columns=[
+                                DDLColumn("customer_id", SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                                DDLColumn("last_name", VarChar(20), nullable=NullableStatus.NOT_NULLABLE),
+                                DDLColumn("first_name", VarChar(10), nullable=NullableStatus.NOT_NULLABLE),
+                                DDLColumn("country", VarChar(15))
+                            ]
+                        ),
+                        classifications=[SimpleDC(SimpleDCTypes.PUB)]
+                    )
+                ]
             ),
             TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "*/10 * * * *")),
             PythonCodeArtifact([], {}, "3.11")
@@ -303,10 +310,12 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             "UseMaskedCustomers",
-            LegacyDatPlatformChooser(
+            platform_chooser=LegacyDatPlatformChooser(
                 "LegacyA",  # Name of eco level LegacyDataPlatform
                 PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
                 set()),
-            DatasetSink("Masked_NW_Data", "customers")
+            sinks=[
+                DatasetSink("Masked_NW_Data", "customers")
+            ]
         ))
     t.add(w)

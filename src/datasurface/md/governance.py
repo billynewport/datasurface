@@ -15,7 +15,6 @@ from typing import Generic
 from datasurface.md.types import DataType
 
 from datasurface.md.exceptions import AttributeAlreadySetException, ObjectAlreadyExistsException, ObjectDoesntExistException
-from datasurface.md.exceptions import UnknownArgumentException
 from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
         UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, UserDSLObject, \
