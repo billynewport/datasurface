@@ -4,7 +4,7 @@
 """
 
 
-from typing import Sequence, cast
+from typing import Sequence, cast, Optional
 import unittest
 from datasurface.md import Ecosystem, TeamDeclaration, Workspace, Team, DatasetGroup, DatasetSink, WorkspacePlatformConfig, DataLatency, DataPlatform
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Date, GovernanceZone, LocationKey
@@ -92,7 +92,7 @@ class TestWorkspace(unittest.TestCase):
                 "Store1",
                 Dataset(
                     "Dataset1",
-                    DDLTable(
+                    schema=DDLTable(
                         columns=[
                             DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                             DDLColumn("Col2", String(10)),
@@ -102,7 +102,7 @@ class TestWorkspace(unittest.TestCase):
                 ),
                 Dataset(
                     "Dataset2",
-                    DDLTable(
+                    schema=DDLTable(
                         columns=[
                             DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                             DDLColumn("Col2", String(10))
@@ -114,7 +114,7 @@ class TestWorkspace(unittest.TestCase):
                 "Store2",
                 Dataset(
                     "Dataset1",
-                    DDLTable(
+                    schema=DDLTable(
                         columns=[
                             DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                             DDLColumn("Col2", String(10)),
@@ -124,7 +124,7 @@ class TestWorkspace(unittest.TestCase):
                 ),
                 Dataset(
                     "Dataset2",
-                    DDLTable(
+                    schema=DDLTable(
                         columns=[
                             DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                             DDLColumn("Col2", String(10))
@@ -136,24 +136,154 @@ class TestWorkspace(unittest.TestCase):
                 "WK_A",
                 DatasetGroup(
                     "FastStuff",
-                    WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
-                    DatasetSink("Store1", "Dataset1"),
-                    DatasetSink("Store2", "Dataset2")
-                    ),
+                    platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                    sinks=[
+                        DatasetSink("Store1", "Dataset1"),
+                        DatasetSink("Store2", "Dataset2")
+                    ]
+                ),
                 DatasetGroup(
                     "SlowESMAStuff",
-                    WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))),
-                    DatasetSink("Store3", "Dataset4"),
-                    DatasetSink("Store4", "Dataset5")
+                    platform_chooser=WorkspacePlatformConfig(
+                        ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))
                     ),
+                    sinks=[
+                        DatasetSink("Store3", "Dataset4"),
+                        DatasetSink("Store4", "Dataset5")
+                    ]
+                ),
                 DatasetGroup(
                     "SlowSEC_Stuff",
-                    WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))),
-                    DatasetSink("Store3", "Dataset4"),
-                    DatasetSink("Store4", "Dataset5")
-                    )
+                    platform_chooser=WorkspacePlatformConfig(
+                        ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))
+                    ),
+                    sinks=[
+                        DatasetSink("Store3", "Dataset4"),
+                        DatasetSink("Store4", "Dataset5")
+                    ]
                 )
             )
+        )
+
+        # Verify that all elements created with named parameter constructors have correct values
+
+        # Test Datastore values
+        store1: Datastore = t.dataStores["Store1"]
+        store2: Datastore = t.dataStores["Store2"]
+        self.assertEqual(store1.name, "Store1")
+        self.assertEqual(store2.name, "Store2")
+        self.assertEqual(len(store1.datasets), 2)
+        self.assertEqual(len(store2.datasets), 2)
+
+        # Test Dataset values
+        dataset1_store1: Dataset = store1.datasets["Dataset1"]
+        dataset2_store1: Dataset = store1.datasets["Dataset2"]
+        dataset1_store2: Dataset = store2.datasets["Dataset1"]
+        dataset2_store2: Dataset = store2.datasets["Dataset2"]
+
+        self.assertEqual(dataset1_store1.name, "Dataset1")
+        self.assertEqual(dataset2_store1.name, "Dataset2")
+        self.assertEqual(dataset1_store2.name, "Dataset1")
+        self.assertEqual(dataset2_store2.name, "Dataset2")
+
+        # Verify schema was correctly set
+        self.assertIsNotNone(dataset1_store1.originalSchema)
+        self.assertIsNotNone(dataset2_store1.originalSchema)
+        self.assertIsNotNone(dataset1_store2.originalSchema)
+        self.assertIsNotNone(dataset2_store2.originalSchema)
+
+        # Test DDLTable values
+        table1: DDLTable = cast(DDLTable, dataset1_store1.originalSchema)
+        table2: DDLTable = cast(DDLTable, dataset2_store1.originalSchema)
+
+        self.assertEqual(len(table1.columns), 3)  # Col1, Col2, Col3
+        self.assertEqual(len(table2.columns), 2)  # Col1, Col2
+
+        # Test DDLColumn values for table1
+        col1_table1: Optional[DDLColumn] = table1.getColumnByName("Col1")
+        col2_table1: Optional[DDLColumn] = table1.getColumnByName("Col2")
+        col3_table1: Optional[DDLColumn] = table1.getColumnByName("Col3")
+
+        self.assertIsNotNone(col1_table1)
+        self.assertIsNotNone(col2_table1)
+        self.assertIsNotNone(col3_table1)
+
+        # Verify column properties were set correctly
+        if col1_table1:
+            self.assertEqual(col1_table1.name, "Col1")
+            self.assertEqual(col1_table1.primaryKey, PrimaryKeyStatus.PK)
+            self.assertEqual(col1_table1.nullable, NullableStatus.NULLABLE)  # Default value
+            self.assertIsInstance(col1_table1.type, Integer)
+
+        if col2_table1:
+            self.assertEqual(col2_table1.name, "Col2")
+            self.assertEqual(col2_table1.primaryKey, PrimaryKeyStatus.NOT_PK)  # Default value
+            self.assertEqual(col2_table1.nullable, NullableStatus.NULLABLE)  # Default value
+            self.assertIsInstance(col2_table1.type, String)
+
+        if col3_table1:
+            self.assertEqual(col3_table1.name, "Col3")
+            self.assertEqual(col3_table1.primaryKey, PrimaryKeyStatus.NOT_PK)  # Default value
+            self.assertEqual(col3_table1.nullable, NullableStatus.NULLABLE)  # Default value
+            self.assertIsInstance(col3_table1.type, Date)
+
+        # Test DDLColumn values for table2
+        col1_table2: Optional[DDLColumn] = table2.getColumnByName("Col1")
+        col2_table2: Optional[DDLColumn] = table2.getColumnByName("Col2")
+
+        self.assertIsNotNone(col1_table2)
+        self.assertIsNotNone(col2_table2)
+        # Check that the column does not exist
+        self.assertIsNone(table2.columns.get("Col3"))
+
+        if col1_table2:
+            self.assertEqual(col1_table2.name, "Col1")
+            self.assertEqual(col1_table2.primaryKey, PrimaryKeyStatus.PK)
+            self.assertIsInstance(col1_table2.type, Integer)
+
+        if col2_table2:
+            self.assertEqual(col2_table2.name, "Col2")
+            self.assertEqual(col2_table2.primaryKey, PrimaryKeyStatus.NOT_PK)
+            self.assertIsInstance(col2_table2.type, String)
+
+        # Test Workspace and DatasetGroup values
+        workspace: Workspace = t.workspaces["WK_A"]
+        self.assertEqual(workspace.name, "WK_A")
+        self.assertEqual(len(workspace.dsgs), 3)
+
+        # Test DatasetGroup values
+        dsg_fast: DatasetGroup = workspace.dsgs["FastStuff"]
+        dsg_esma: DatasetGroup = workspace.dsgs["SlowESMAStuff"]
+        dsg_sec: DatasetGroup = workspace.dsgs["SlowSEC_Stuff"]
+
+        self.assertEqual(dsg_fast.name, "FastStuff")
+        self.assertEqual(dsg_esma.name, "SlowESMAStuff")
+        self.assertEqual(dsg_sec.name, "SlowSEC_Stuff")
+
+        # Verify platform choosers were set correctly
+        self.assertIsNotNone(dsg_fast.platformMD)
+        self.assertIsNotNone(dsg_esma.platformMD)
+        self.assertIsNotNone(dsg_sec.platformMD)
+
+        self.assertIsInstance(dsg_fast.platformMD, WorkspacePlatformConfig)
+        self.assertIsInstance(dsg_esma.platformMD, WorkspacePlatformConfig)
+        self.assertIsInstance(dsg_sec.platformMD, WorkspacePlatformConfig)
+
+        # Verify sinks were set correctly
+        self.assertEqual(len(dsg_fast.sinks), 2)
+        self.assertEqual(len(dsg_esma.sinks), 2)
+        self.assertEqual(len(dsg_sec.sinks), 2)
+
+        # Check specific sink values
+        fast_sink1: DatasetSink = dsg_fast.sinks["Store1:Dataset1"]
+        fast_sink2: DatasetSink = dsg_fast.sinks["Store2:Dataset2"]
+
+        self.assertIsNotNone(fast_sink1)
+        self.assertIsNotNone(fast_sink2)
+        self.assertEqual(fast_sink1.storeName, "Store1")
+        self.assertEqual(fast_sink1.datasetName, "Dataset1")
+        self.assertEqual(fast_sink2.storeName, "Store2")
+        self.assertEqual(fast_sink2.datasetName, "Dataset2")
 
     def test_DataTypeEquality(self):
         t1: Integer = Integer()
@@ -331,7 +461,7 @@ class TestWorkspace(unittest.TestCase):
 
         d1: Dataset = Dataset(
             "Dataset1",
-            DDLTable(
+            schema=DDLTable(
                 columns=[
                     DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                     DDLColumn("Col2", String(10)),
@@ -341,7 +471,7 @@ class TestWorkspace(unittest.TestCase):
         )
         d2: Dataset = Dataset(
             "Dataset2",
-            DDLTable(
+            schema=DDLTable(
                 columns=[
                     DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                     DDLColumn("Col2", String(10)),
@@ -359,7 +489,7 @@ class TestWorkspace(unittest.TestCase):
             "Store1",
             Dataset(
                 "Dataset1",
-                DDLTable(
+                schema=DDLTable(
                     columns=[
                         DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                         DDLColumn("Col2", String(10)),
@@ -369,7 +499,7 @@ class TestWorkspace(unittest.TestCase):
             ),
             Dataset(
                 "Dataset2",
-                DDLTable(
+                schema=DDLTable(
                     columns=[
                         DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                         DDLColumn("Col2", String(10)),
@@ -382,7 +512,7 @@ class TestWorkspace(unittest.TestCase):
             "Store1",
             Dataset(
                 "Dataset1",
-                DDLTable(
+                schema=DDLTable(
                     columns=[
                         DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                         DDLColumn("Col2", String(10)),
@@ -403,7 +533,7 @@ class TestWorkspace(unittest.TestCase):
         s2.add(
             Dataset(
                 "Dataset2",
-                DDLTable(
+                schema=DDLTable(
                     columns=[
                         DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                         DDLColumn("Col2", String(10)),
@@ -450,8 +580,8 @@ class TestWorkspace(unittest.TestCase):
                     IngestionConsistencyType.MULTI_DATASET),
                 Dataset(
                     "Dataset1",
-                    SimpleDC(SimpleDCTypes.PUB),
-                    DDLTable(
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)],
+                    schema=DDLTable(
                         columns=[
                             DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
                             DDLColumn("Col2", String(10)),
@@ -461,8 +591,8 @@ class TestWorkspace(unittest.TestCase):
                 ),
                 Dataset(
                     "Dataset2",
-                    SimpleDC(SimpleDCTypes.PUB),
-                    DDLTable(
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)],
+                    schema=DDLTable(
                         columns=[
                             DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
                             DDLColumn("Col2", String(10)),
@@ -475,9 +605,11 @@ class TestWorkspace(unittest.TestCase):
                 "WK_A",
                 DatasetGroup(
                     "FastStuff",
-                    WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
-                    DatasetSink("Store1", "Dataset1"),
-                    DatasetSink("Store1", "Dataset2")
+                    platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                    sinks=[
+                        DatasetSink("Store1", "Dataset1"),
+                        DatasetSink("Store1", "Dataset2")
+                    ]
                 )
             )
         )
@@ -559,23 +691,33 @@ class TestWorkspace(unittest.TestCase):
             "WK_A",
             DatasetGroup(
                 "FastStuff",
-                WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
-                DatasetSink("Store1", "Dataset1"),
-                DatasetSink("Store2", "Dataset2")
-                ),
+                platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                sinks=[
+                    DatasetSink("Store1", "Dataset1"),
+                    DatasetSink("Store2", "Dataset2")
+                ]
+            ),
             DatasetGroup(
                 "SlowESMA_Stuff",
-                WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))),
-                DatasetSink("Store3", "Dataset4"),
-                DatasetSink("Store4", "Dataset5")
+                platform_chooser=WorkspacePlatformConfig(
+                    ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))
                 ),
+                sinks=[
+                    DatasetSink("Store3", "Dataset4"),
+                    DatasetSink("Store4", "Dataset5")
+                ]
+            ),
             DatasetGroup(
                 "SlowSEC_Stuff",
-                WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))),
-                DatasetSink("Store3", "Dataset4"),
-                DatasetSink("Store4", "Dataset5")
-                )
+                platform_chooser=WorkspacePlatformConfig(
+                    ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))
+                ),
+                sinks=[
+                    DatasetSink("Store3", "Dataset4"),
+                    DatasetSink("Store4", "Dataset5")
+                ]
             )
+        )
 
         self.assertEqual(w1, w1)
 
