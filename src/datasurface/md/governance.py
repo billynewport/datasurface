@@ -271,7 +271,12 @@ class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
 
 class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This is a single collection of homogeneous records with a primary key"""
-    def __init__(self, name: str, *args: Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
+    def __init__(self, name: str, *args: Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification],
+                 schema: Optional[Schema] = None,
+                 storage_policies: Optional[list[StoragePolicy]] = None,
+                 documentation: Optional[Documentation] = None,
+                 deprecation_info: Optional[DeprecationInfo] = None,
+                 classifications: Optional[list[DataClassification]] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         JSONable.__init__(self)
@@ -281,7 +286,27 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
         self.dataClassificationOverride: Optional[list[DataClassification]] = None
         """This is the classification of the data in the dataset. The overrides any classifications on the schema"""
         self.deprecationStatus: DeprecationInfo = DeprecationInfo(DeprecationStatus.NOT_DEPRECATED)
-        self.add(*args)
+
+        # Handle new optimized parameters first if no args provided
+        if not args and (schema is not None or storage_policies is not None or documentation is not None or
+                         deprecation_info is not None or classifications is not None):
+            # Use optimized path with named parameters
+            if schema is not None:
+                self.originalSchema = schema
+            if storage_policies is not None:
+                for policy in storage_policies:
+                    if self.policies.get(policy.name) is not None:
+                        raise Exception(f"Duplicate policy {policy.name}")
+                    self.policies[policy.name] = policy
+            if documentation is not None:
+                self.documentation = documentation
+            if deprecation_info is not None:
+                self.deprecationStatus = deprecation_info
+            if classifications is not None:
+                self.dataClassificationOverride = classifications
+        else:
+            # Use legacy path with positional arguments
+            self.add(*args)
 
     def add(self, *args: Union[Schema, StoragePolicy, Documentation, DeprecationInfo, DataClassification]) -> None:
         for arg in args:
