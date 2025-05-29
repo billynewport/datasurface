@@ -410,7 +410,8 @@ class DDLTable(Schema):
             return False
         if (type(o) is not DDLTable):
             return False
-        return self.columns == o.columns and self.columns == o.columns
+        return self.columns == o.columns and self.columns == o.columns and self.primaryKeyColumns == o.primaryKeyColumns and \
+            self.ingestionPartitionColumns == o.ingestionPartitionColumns
 
     def checkForBackwardsCompatibility(self, other: 'Schema', vTree: ValidationTree) -> bool:
         """Returns true if this schema is backward compatible with the other schema"""

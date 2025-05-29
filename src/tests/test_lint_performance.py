@@ -82,14 +82,14 @@ class TestLintPerformance(unittest.TestCase):
             for datasetIdx in range(numDatasetsPerStore):
                 datasetName: str = f"Dataset{datasetIdx}"
                 dataset: Dataset = Dataset(datasetName)
-                
+
                 # Build all columns for the table
                 columns = [DDLColumn("id", String(10), primary_key=PrimaryKeyStatus.PK)]
                 for columnIdx in range(numColumnsPerDataset):
                     columnName: str = f"Column{columnIdx}"
                     column: DDLColumn = DDLColumn(columnName, String(10))
                     columns.append(column)
-                
+
                 # Create the DDLTable with all columns
                 schema: DDLTable = DDLTable(columns=columns)
                 dataset.add(schema)

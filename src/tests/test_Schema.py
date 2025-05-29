@@ -70,6 +70,16 @@ class TestSchemaCreation(unittest.TestCase):
             DDLColumn("firstName", String(20)),
             DDLColumn("lastName", String(20)))
 
+        t_new: DDLTable = DDLTable(
+            primary_key_list=PrimaryKeyList(["id"]),
+            columns=[
+                DDLColumn("id", String(10), NullableStatus.NOT_NULLABLE),
+                DDLColumn("firstName", String(20)),
+                DDLColumn("lastName", String(20))
+            ])
+
+        self.assertEqual(t, t_new)
+
         self.assertIsNotNone(t.primaryKeyColumns)
         if (t.primaryKeyColumns is None):
             raise Exception("PrimaryKeyColumns is None")
