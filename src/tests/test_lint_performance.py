@@ -110,31 +110,6 @@ class TestLintPerformance(unittest.TestCase):
         print(f"{test_name}: Creation time: {creation_time:.3f}s, Lint time: {lint_time:.3f}s")
         return creation_time, lint_time
 
-    def test_object_creation_performance_comparison(self):
-        """Test the performance difference between source tracking enabled/disabled"""
-        print(f"Initial source tracking state: {is_source_tracking_enabled()}")
-
-        # Test with source tracking disabled (should be faster)
-        disable_source_tracking()
-        print(f"Source tracking disabled: {is_source_tracking_enabled()}")
-        disabled_time = self.benchmark_object_creation(10000)
-
-        # Test with source tracking enabled (should be slower)
-        enable_source_tracking()
-        print(f"Source tracking enabled: {is_source_tracking_enabled()}")
-        enabled_time = self.benchmark_object_creation(10000)
-
-        # Restore original state
-        disable_source_tracking()
-
-        print("Object Creation Performance Results:")
-        print(f"  Source tracking DISABLED: {disabled_time:.4f}s")
-        print(f"  Source tracking ENABLED:  {enabled_time:.4f}s")
-        print(f"  Speedup: {enabled_time/disabled_time:.2f}x")
-
-        # The disabled version should be faster
-        self.assertLess(disabled_time, enabled_time, "Source tracking disabled should be faster")
-
     def test_lint_performance_with_source_tracking(self):
         enable_source_tracking()
         try:

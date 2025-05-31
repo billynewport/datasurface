@@ -15,7 +15,7 @@ Given this reality, flexibility on how classification is done is key. It's possi
 
 DataSurface allows data classifications to be specified at both the Dataset level as well as optionally at the attribute level. If it has been specified at the Dataset level then attribute level classifications are not allowed.
 
-The DataClassification class is the basis for DataSurface classification. Model attributes and datasets can be associated with zero or more of these. There will be subclasses of DataClassification which will be used to define the specific classification schemes used by the enterprise. 
+The DataClassification class is the basis for DataSurface classification. Model attributes and datasets can be associated with zero or more of these. There will be subclasses of DataClassification which will be used to define the specific classification schemes used by the enterprise.
 
 ## SimpleDC, the builtin DataClassification
 
