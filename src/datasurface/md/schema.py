@@ -137,11 +137,13 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
             vTree.addProblem(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")
             return False
 
-        self.type.isBackwardsCompatibleWith(other.type, vTree)
+        self.type.checkIfBackwardsCompatibleWith(other.type, vTree)
         if (self.nullable != other.nullable):
             vTree.addProblem(f"Nullable status for {self.name} changed from {self.nullable} to {other.nullable}")
         if (self.classification != other.classification):
             vTree.addProblem(f"Data classification for {self.name} changed from {self.classification} to {other.classification}")
+        if (self.primaryKey != other.primaryKey):
+            vTree.addProblem(f"Primary key status for {self.name} changed from {self.primaryKey} to {other.primaryKey}")
         return not vTree.hasErrors()
 
     def lint(self, tree: ValidationTree) -> None:
