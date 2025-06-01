@@ -593,6 +593,11 @@ class MicroScaling_CustomFloat(NumericDataType):
             super().checkIfBackwardsCompatibleWith(other, vTree)
         super().checkIfBackwardsCompatibleWith(other, vTree)
 
+    def lint(self, vTree: ValidationTree) -> None:
+        super().lint(vTree)
+        if (self.batchSize <= 0):
+            vTree.addProblem("Batch size must be > 0")
+
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(batchSize={self.batchSize}, scaleType={self.scaleType}, elementType={self.elementType})"
 
