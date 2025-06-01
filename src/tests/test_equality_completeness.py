@@ -492,347 +492,163 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
                            f"Use explicit BaseClass.__eq__(self, other) calls instead.")
                 self.fail(message)
 
-    # Tests for InternalLintableObject subclasses
-    def test_pipeline_node_eq_completeness(self) -> None:
-        """Test PipelineNode and its subclasses for equality completeness."""
-        from datasurface.md.governance import ExportNode, IngestionMultiNode, IngestionSingleNode, TriggerNode, DataTransformerNode
+    def test_schema_subclasses_eq_completeness(self) -> None:
+        """Test schema-related classes and their subclasses using dynamic discovery."""
+        # Schema classes are typically in the 'Other_UserDSLObject' category
+        all_classes = get_all_lintable_object_subclasses()
+        schema_classes = [cls for cls in all_classes if 'schema' in cls.__module__.lower() or
+                          cls.__name__ in ['AttributeList', 'Schema']]
 
-        # Skip abstract base classes that can't be instantiated
-        concrete_classes = [ExportNode, IngestionMultiNode, IngestionSingleNode, TriggerNode, DataTransformerNode]
+        print(f"\n=== Testing {len(schema_classes)} Schema-related classes (dynamically discovered) ===")
+        tested_classes: List[str] = []
 
-        for cls in concrete_classes:
+        for cls in schema_classes:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                # Many pipeline nodes inherit from PipelineNode
-                if not is_complete:
-                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(cls)
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
 
-    def test_platform_pipeline_graph_eq_completeness(self) -> None:
-        """Test PlatformPipelineGraph for equality completeness."""
-        from datasurface.md.governance import PlatformPipelineGraph
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(PlatformPipelineGraph)
-        self.assertTrue(is_complete)
-        print(f"PlatformPipelineGraph auto-excluded attributes: {auto_excluded}")
-
-    def test_ecosystem_pipeline_graph_eq_completeness(self) -> None:
-        """Test EcosystemPipelineGraph for equality completeness."""
-        from datasurface.md.governance import EcosystemPipelineGraph
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(EcosystemPipelineGraph)
-        self.assertTrue(is_complete)
-        print(f"EcosystemPipelineGraph auto-excluded attributes: {auto_excluded}")
-
-    # Tests for UserDSLObject subclasses
-    def test_documentation_classes_eq_completeness(self) -> None:
-        """Test Documentation and Documentable classes."""
-        from datasurface.md.documentation import Documentation, Documentable
-
-        # Test Documentation
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(Documentation)
-        self.assertTrue(is_complete, "Documentation should have complete __eq__ method")
-        print(f"Documentation auto-excluded attributes: {auto_excluded}")
-
-        # Test Documentable
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(Documentable)
-        self.assertTrue(is_complete, "Documentable should have complete __eq__ method")
-        print(f"Documentable auto-excluded attributes: {auto_excluded}")
-
-    def test_credential_classes_eq_completeness(self) -> None:
-        """Test Credential and CredentialStore classes."""
-        from datasurface.md.credential import Credential, CredentialStore
-
-        # Test Credential
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(Credential)
-        self.assertTrue(is_complete, "Credential should have complete __eq__ method")
-        print(f"Credential auto-excluded attributes: {auto_excluded}")
-
-        # Test CredentialStore
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(CredentialStore)
-        self.assertTrue(is_complete, "CredentialStore should have complete __eq__ method")
-        print(f"CredentialStore auto-excluded attributes: {auto_excluded}")
-
-    def test_schema_classes_eq_completeness(self) -> None:
-        """Test schema-related UserDSLObject classes."""
-        from datasurface.md.schema import AttributeList
-
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(AttributeList)
-        self.assertTrue(is_complete, "AttributeList should have complete __eq__ method")
-        print(f"AttributeList auto-excluded attributes: {auto_excluded}")
-
-    def test_types_classes_eq_completeness(self) -> None:
-        """Test DataType class."""
-        from datasurface.md.types import DataType
-
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(DataType)
-        self.assertTrue(is_complete, "DataType should have complete __eq__ method")
-        print(f"DataType auto-excluded attributes: {auto_excluded}")
+        print(f"Schema classes tested: {tested_classes}")
 
     def test_datatype_subclasses_eq_completeness(self) -> None:
-        """Test all DataType subclasses for equality completeness."""
-        from datasurface.md.types import (
-            BoundedDataType, ArrayType, MapType, StructType, TextDataType,
-            NumericDataType, FixedIntegerDataType, TinyInt, SmallInt, Integer, BigInt,
-            CustomFloat, MicroScaling_CustomFloat, Decimal, TemporalDataType,
-            Timestamp, Date, Interval, UniCodeType, NonUnicodeString, Boolean, Variant, Binary
-        )
+        """Test all DataType subclasses for equality completeness using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        datatype_subclasses = categories['DataType_subclasses']
 
-        # Test all concrete DataType subclasses
-        datatype_subclasses = [
-            BoundedDataType, ArrayType, MapType, StructType, TextDataType,
-            NumericDataType, FixedIntegerDataType, TinyInt, SmallInt, Integer, BigInt,
-            CustomFloat, MicroScaling_CustomFloat, Decimal, TemporalDataType,
-            Timestamp, Date, Interval, UniCodeType, NonUnicodeString, Boolean, Variant, Binary
-        ]
-
-        print(f"\n=== Testing {len(datatype_subclasses)} DataType subclasses ===")
+        print(f"\n=== Testing {len(datatype_subclasses)} DataType subclasses (dynamically discovered) ===")
         tested_classes: List[str] = []
 
         for cls in datatype_subclasses:
             with self.subTest(class_name=cls.__name__):
-                # Only test classes that have their own __eq__ method
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                    if not is_complete:
-                        print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
-                    self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
-                    tested_classes.append(cls.__name__)
-                else:
-                    print(f"Skipping {cls.__name__} (inherits __eq__ from parent)")
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
 
         print(f"DataType subclasses tested: {tested_classes}")
 
-    def test_schema_subclasses_eq_completeness(self) -> None:
-        """Test schema-related classes and their subclasses."""
-        from datasurface.md.schema import AttributeList
-
-        # Test schema classes
-        schema_classes = [AttributeList]
-        tested_classes: List[str] = []
-
-        print(f"\n=== Testing {len(schema_classes)} Schema classes ===")
-
-        for cls in schema_classes:
-            with self.subTest(class_name=cls.__name__):
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                    self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
-                    tested_classes.append(cls.__name__)
-                    print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
-
-        print(f"Schema classes tested: {tested_classes}")
-
     def test_ansi_sql_named_object_subclasses_eq_completeness(self) -> None:
-        """Test ANSI_SQL_NamedObject subclasses."""
-        from datasurface.md.governance import (
-            Dataset, Datastore, Workspace, DatasetGroup, DataTransformer
-        )
+        """Test ANSI_SQL_NamedObject subclasses using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        ansi_sql_subclasses = categories['ANSI_SQL_NamedObject_subclasses']
 
-        # Test ANSI_SQL_NamedObject subclasses
-        ansi_sql_subclasses = [Dataset, Datastore, Workspace, DatasetGroup, DataTransformer]
+        print(f"\n=== Testing {len(ansi_sql_subclasses)} ANSI_SQL_NamedObject subclasses (dynamically discovered) ===")
         tested_classes: List[str] = []
-
-        print(f"\n=== Testing {len(ansi_sql_subclasses)} ANSI_SQL_NamedObject subclasses ===")
 
         for cls in ansi_sql_subclasses:
-            with self.subTest(class_name=cls.__name__):
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                    if not is_complete:
-                        print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
-                    self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
-                    tested_classes.append(cls.__name__)
-                    print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
-
-        print(f"ANSI_SQL_NamedObject subclasses tested: {tested_classes}")
-
-    def test_documentable_subclasses_eq_completeness(self) -> None:
-        """Test Documentable subclasses."""
-        from datasurface.md.governance import (
-            DeprecationInfo, StoragePolicy, DataContainer
-        )
-
-        # Test Documentable subclasses
-        documentable_subclasses = [DeprecationInfo, StoragePolicy, DataContainer]
-        tested_classes: List[str] = []
-
-        print(f"\n=== Testing {len(documentable_subclasses)} Documentable subclasses ===")
-
-        for cls in documentable_subclasses:
-            with self.subTest(class_name=cls.__name__):
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                    if not is_complete:
-                        print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
-                    self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
-                    tested_classes.append(cls.__name__)
-                    print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
-
-        print(f"Documentable subclasses tested: {tested_classes}")
-
-    def test_data_container_subclasses_eq_completeness(self) -> None:
-        """Test DataContainer subclasses."""
-        from datasurface.md.governance import (
-            SQLDatabase, URLSQLDatabase, HostPortSQLDatabase, PostgresDatabase,
-            ObjectStorage, PyOdbcSourceInfo, KafkaServer
-        )
-
-        # Test DataContainer subclasses
-        datacontainer_subclasses = [
-            SQLDatabase, URLSQLDatabase, HostPortSQLDatabase, PostgresDatabase,
-            ObjectStorage, PyOdbcSourceInfo, KafkaServer
-        ]
-        tested_classes: List[str] = []
-
-        print(f"\n=== Testing {len(datacontainer_subclasses)} DataContainer subclasses ===")
-
-        for cls in datacontainer_subclasses:
-            with self.subTest(class_name=cls.__name__):
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                    if not is_complete:
-                        print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
-                    self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
-                    tested_classes.append(cls.__name__)
-                    print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
-
-        print(f"DataContainer subclasses tested: {tested_classes}")
-
-    def test_capture_metadata_subclasses_eq_completeness(self) -> None:
-        """Test CaptureMetaData subclasses."""
-        from datasurface.md.governance import (
-            DataTransformerOutput, IngestionMetadata, CDCCaptureIngestion,
-            SQLPullIngestion, StreamingIngestion, KafkaIngestion, DatasetPerTopicKafkaIngestion
-        )
-
-        # Test CaptureMetaData subclasses
-        capture_metadata_subclasses = [
-            DataTransformerOutput, IngestionMetadata, CDCCaptureIngestion,
-            SQLPullIngestion, StreamingIngestion, KafkaIngestion, DatasetPerTopicKafkaIngestion
-        ]
-        tested_classes: List[str] = []
-
-        print(f"\n=== Testing {len(capture_metadata_subclasses)} CaptureMetaData subclasses ===")
-
-        for cls in capture_metadata_subclasses:
-            with self.subTest(class_name=cls.__name__):
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
-                    if not is_complete:
-                        print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
-                    self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
-                    tested_classes.append(cls.__name__)
-                    print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
-
-        print(f"CaptureMetaData subclasses tested: {tested_classes}")
-
-    def test_comprehensive_lintableobject_coverage_summary(self) -> None:
-        """Provide a comprehensive summary of all LintableObject subclasses tested."""
-        print("\n" + "="*80)
-        print("COMPREHENSIVE LINTABLEOBJECT SUBCLASS TEST COVERAGE SUMMARY")
-        print("="*80)
-
-        # Count all the classes we're testing
-        total_tested = 0
-
-        # UserDSLObject base classes
-        base_classes = ['Documentation', 'Documentable', 'ANSI_SQL_NamedObject', 'Credential',
-                        'CredentialStore', 'AttributeList', 'DataType', 'LocationKey', 'SecurityModule']
-        print(f"UserDSLObject base classes tested: {len(base_classes)}")
-        total_tested += len(base_classes)
-
-        # DataType subclasses
-        datatype_count = 23  # From our test
-        print(f"DataType subclasses tested: {datatype_count}")
-        total_tested += datatype_count
-
-        # Governance UserDSLObject classes
-        governance_classes = ['HostPortPair', 'HostPortPairList', 'DefaultDataPlatform', 'VendorKey', 'DatasetSink']
-        print(f"Governance UserDSLObject classes tested: {len(governance_classes)}")
-        total_tested += len(governance_classes)
-
-        # ANSI_SQL_NamedObject subclasses
-        ansi_sql_subclasses = ['Dataset', 'Datastore', 'Workspace', 'DatasetGroup', 'DataTransformer']
-        print(f"ANSI_SQL_NamedObject subclasses tested: {len(ansi_sql_subclasses)}")
-        total_tested += len(ansi_sql_subclasses)
-
-        # Documentable subclasses
-        documentable_subclasses = ['DeprecationInfo', 'StoragePolicy', 'DataContainer']
-        print(f"Documentable subclasses tested: {len(documentable_subclasses)}")
-        total_tested += len(documentable_subclasses)
-
-        # DataContainer subclasses
-        datacontainer_subclasses = ['SQLDatabase', 'URLSQLDatabase', 'HostPortSQLDatabase',
-                                    'PostgresDatabase', 'ObjectStorage', 'PyOdbcSourceInfo', 'KafkaServer']
-        print(f"DataContainer subclasses tested: {len(datacontainer_subclasses)}")
-        total_tested += len(datacontainer_subclasses)
-
-        # CaptureMetaData subclasses
-        capture_metadata_subclasses = ['DataTransformerOutput', 'IngestionMetadata', 'CDCCaptureIngestion',
-                                       'SQLPullIngestion', 'StreamingIngestion', 'KafkaIngestion',
-                                       'DatasetPerTopicKafkaIngestion']
-        print(f"CaptureMetaData subclasses tested: {len(capture_metadata_subclasses)}")
-        total_tested += len(capture_metadata_subclasses)
-
-        # InternalLintableObject classes
-        internal_classes = ['PipelineNode subclasses', 'PlatformPipelineGraph', 'EcosystemPipelineGraph']
-        print(f"InternalLintableObject classes tested: {len(internal_classes)}")
-        total_tested += len(internal_classes)
-
-        # Cache classes
-        cache_classes = ['WorkspaceCacheEntry', 'DatastoreCacheEntry', 'TeamCacheEntry']
-        print(f"Cache classes tested: {len(cache_classes)}")
-        total_tested += len(cache_classes)
-
-        print("-" * 80)
-        print(f"TOTAL LINTABLEOBJECT SUBCLASSES TESTED: {total_tested}")
-        print("✅ Multiple level inheritance detection: ENABLED")
-        print("✅ Dangerous super() pattern detection: ENABLED")
-        print("✅ Automatic inheritance attribute exclusion: ENABLED")
-        print("="*80)
-
-    def test_keys_classes_eq_completeness(self) -> None:
-        """Test LocationKey class."""
-        from datasurface.md.keys import LocationKey
-
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(LocationKey)
-        self.assertTrue(is_complete, "LocationKey should have complete __eq__ method")
-        print(f"LocationKey auto-excluded attributes: {auto_excluded}")
-
-    def test_security_classes_eq_completeness(self) -> None:
-        """Test SecurityModule class."""
-        from datasurface.md.security import SecurityModule
-
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(SecurityModule)
-        self.assertTrue(is_complete, "SecurityModule should have complete __eq__ method")
-        print(f"SecurityModule auto-excluded attributes: {auto_excluded}")
-
-    def test_lint_classes_eq_completeness(self) -> None:
-        """Test ANSI_SQL_NamedObject class."""
-        from datasurface.md.lint import ANSI_SQL_NamedObject
-
-        is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(ANSI_SQL_NamedObject)
-        self.assertTrue(is_complete, "ANSI_SQL_NamedObject should have complete __eq__ method")
-        print(f"ANSI_SQL_NamedObject auto-excluded attributes: {auto_excluded}")
-
-    def test_governance_userdsl_classes_eq_completeness(self) -> None:
-        """Test UserDSLObject subclasses in governance.py."""
-        from datasurface.md.governance import (
-            HostPortPair, HostPortPairList, DefaultDataPlatform,
-            VendorKey, DatasetSink
-        )
-
-        # Test concrete classes (skip abstract ones)
-        concrete_classes = [
-            HostPortPair, HostPortPairList, DefaultDataPlatform,
-            VendorKey, DatasetSink
-        ]
-
-        for cls in concrete_classes:
             with self.subTest(class_name=cls.__name__):
                 is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"ANSI_SQL_NamedObject subclasses tested: {tested_classes}")
+
+    def test_documentable_subclasses_eq_completeness(self) -> None:
+        """Test Documentable subclasses using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        documentable_subclasses = categories['Documentable_subclasses']
+
+        print(f"\n=== Testing {len(documentable_subclasses)} Documentable subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in documentable_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"Documentable subclasses tested: {tested_classes}")
+
+    def test_data_container_subclasses_eq_completeness(self) -> None:
+        """Test DataContainer subclasses using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        datacontainer_subclasses = categories['DataContainer_subclasses']
+
+        print(f"\n=== Testing {len(datacontainer_subclasses)} DataContainer subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in datacontainer_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"DataContainer subclasses tested: {tested_classes}")
+
+    def test_capture_metadata_subclasses_eq_completeness(self) -> None:
+        """Test CaptureMetaData subclasses using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        capture_metadata_subclasses = categories['CaptureMetaData_subclasses']
+
+        print(f"\n=== Testing {len(capture_metadata_subclasses)} CaptureMetaData subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in capture_metadata_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"CaptureMetaData subclasses tested: {tested_classes}")
+
+    def test_internal_lintable_object_subclasses_eq_completeness(self) -> None:
+        """Test InternalLintableObject subclasses using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        internal_subclasses = categories['InternalLintableObject']
+
+        print(f"\n=== Testing {len(internal_subclasses)} InternalLintableObject subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in internal_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"InternalLintableObject subclasses tested: {tested_classes}")
+
+    def test_other_userdsl_object_subclasses_eq_completeness(self) -> None:
+        """Test other UserDSLObject subclasses using dynamic discovery."""
+        all_classes = get_all_lintable_object_subclasses()
+        categories = categorize_lintable_classes(all_classes)
+        other_subclasses = categories['Other_UserDSLObject']
+
+        print(f"\n=== Testing {len(other_subclasses)} Other UserDSLObject subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in other_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"Other UserDSLObject subclasses tested: {tested_classes}")
 
 
 def get_all_lintable_object_subclasses() -> List[Type[Any]]:
