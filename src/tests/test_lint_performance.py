@@ -8,7 +8,7 @@ from datasurface.md import Ecosystem, DefaultDataPlatform, DataPlatformKey, Gove
                            InfrastructureVendor, CloudVendor, InfrastructureLocation, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset, \
                            DDLColumn, DDLTable, PrimaryKeyStatus
 from datasurface.md.repo import GitHubRepository
-from datasurface.md.lint import track_sources, enable_source_tracking, disable_source_tracking, is_source_tracking_enabled
+from datasurface.md.lint import track_sources, enable_source_tracking, disable_source_tracking
 from datasurface.md.types import String
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.platforms.legacy import LegacyDataPlatform
