@@ -126,8 +126,8 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
     def __eq__(self, o: object) -> bool:
         if (type(o) is not DDLColumn):
             return False
-        return super().__eq__(o) and self.type == o.type and self.primaryKey == o.primaryKey and self.nullable == o.nullable and \
-            self.classification == o.classification
+        return ANSI_SQL_NamedObject.__eq__(self, o) and Documentable.__eq__(self, o) and self.type == o.type and \
+            self.primaryKey == o.primaryKey and self.nullable == o.nullable and self.classification == o.classification
 
     def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         """Returns true if this column is backwards compatible with the other column"""

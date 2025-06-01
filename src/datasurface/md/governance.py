@@ -2590,7 +2590,9 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         return json_dict
 
     def __eq__(self, other: object) -> bool:
-        return cyclic_safe_eq(self, other, set())
+        return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and \
+            isinstance(other, DatasetGroup) and self.platformMD == other.platformMD and \
+            self.sinks == other.sinks
 
     def __hash__(self) -> int:
         return hash((self.name, tuple(self.sinks.items()), self.platformMD))
@@ -2791,7 +2793,8 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
             self.code.lint(eco, tree.addSubTree(self.code))
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, DataTransformer) and self.name == o.name and self.outputDatastore == o.outputDatastore and \
+        return ANSI_SQL_NamedObject.__eq__(self, o) and Documentable.__eq__(self, o) and \
+            isinstance(o, DataTransformer) and self.outputDatastore == o.outputDatastore and \
             self.trigger == o.trigger and self.code == o.code
 
 
@@ -2910,7 +2913,7 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
         return hash(self.name)
 
     def __eq__(self, other: object) -> bool:
-        return cyclic_safe_eq(self, other, set())
+        return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and cyclic_safe_eq(self, other, set())
 
     def isDatastoreUsed(self, store: Datastore) -> bool:
         """Returns true if the specified datastore is used by this workspace"""
