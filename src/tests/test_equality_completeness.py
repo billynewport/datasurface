@@ -650,6 +650,150 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         print(f"Other UserDSLObject subclasses tested: {tested_classes}")
 
+    def test_all_policy_subclasses_dynamically(self) -> None:
+        """
+        Dynamically discover and test ALL Policy subclasses for equality completeness.
+        This ensures no Policy subclass is missed when new classes are added.
+        """
+        print("\n" + "="*80)
+        print("DYNAMIC POLICY SUBCLASS DISCOVERY AND TESTING")
+        print("="*80)
+
+        # Dynamically discover all Policy subclasses
+        all_policy_classes = get_all_policy_subclasses()
+
+        print(f"Total Policy subclasses discovered: {len(all_policy_classes)}")
+
+        # Categorize classes for reporting
+        categories = categorize_policy_classes(all_policy_classes)
+
+        # Print discovery summary
+        for category, classes in categories.items():
+            if classes:
+                class_names = [cls.__name__ for cls in classes]
+                print(f"{category.replace('_', ' ')}: {len(classes)} classes")
+                print(f"  -> {class_names}")
+
+        print("-" * 80)
+
+        # Test all discovered classes
+        failures: List[str] = []
+        total_tested = 0
+        total_auto_excluded = 0
+
+        for cls in all_policy_classes:
+            with self.subTest(class_name=cls.__name__):
+                try:
+                    is_complete, missing, extra, auto_excluded = check_eq_completeness_with_inheritance(cls)
+
+                    total_tested += 1
+                    total_auto_excluded += len(auto_excluded)
+
+                    if not is_complete:
+                        failure_info = (f"{cls.__module__}.{cls.__name__}: "
+                                        f"Missing: {missing}")
+                        if extra:
+                            failure_info += f", Extra: {extra}"
+                        if auto_excluded:
+                            failure_info += f", Auto-excluded: {auto_excluded}"
+                        failures.append(failure_info)
+
+                        # Print detailed failure info
+                        print(f"❌ FAILED: {cls.__name__}")
+                        print(f"   Missing attributes: {missing}")
+                        if extra:
+                            print(f"   Extra attributes: {extra}")
+                        if auto_excluded:
+                            print(f"   Auto-excluded: {auto_excluded}")
+                    else:
+                        # Success - optionally print inheritance info for complex classes
+                        if auto_excluded:
+                            print(f"✅ {cls.__name__} (auto-excluded: {auto_excluded})")
+
+                except Exception as e:
+                    failures.append(f"{cls.__module__}.{cls.__name__}: Analysis failed: {e}")
+                    print(f"❌ ERROR analyzing {cls.__name__}: {e}")
+
+        # Print final summary
+        print("-" * 80)
+        print(f"RESULTS: {total_tested} Policy classes tested")
+        print(f"Inheritance attributes auto-excluded: {total_auto_excluded}")
+        print(f"Classes with inheritance detection: {sum(1 for cls in all_policy_classes if len(get_all_inherited_eq_attributes(cls)) > 0)}")
+
+        if failures:
+            print(f"\n❌ FAILURES: {len(failures)} Policy classes failed")
+            for failure in failures:
+                print(f"  - {failure}")
+            print("\nTo fix failures:")
+            print("1. Add missing attributes to __eq__ methods")
+            print("2. Ensure super().__eq__() or BaseClass.__eq__() calls are present for inheritance")
+            print("3. Add manual exclusions for cache/computed fields if needed")
+
+            self.fail(f"{len(failures)} Policy subclasses have incomplete __eq__ methods")
+        else:
+            print("✅ SUCCESS: All Policy subclasses have complete __eq__ methods!")
+
+        print("="*80)
+
+    def test_policy_subclasses_eq_completeness(self) -> None:
+        """Test Policy subclasses using dynamic discovery."""
+        all_classes = get_all_policy_subclasses()
+        categories = categorize_policy_classes(all_classes)
+        policy_subclasses = categories['Policy_subclasses']
+
+        print(f"\n=== Testing {len(policy_subclasses)} Policy subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in policy_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"Policy subclasses tested: {tested_classes}")
+
+    def test_allow_disallow_policy_subclasses_eq_completeness(self) -> None:
+        """Test AllowDisallowPolicy subclasses using dynamic discovery."""
+        all_classes = get_all_policy_subclasses()
+        categories = categorize_policy_classes(all_classes)
+        allow_disallow_subclasses = categories['AllowDisallowPolicy_subclasses']
+
+        print(f"\n=== Testing {len(allow_disallow_subclasses)} AllowDisallowPolicy subclasses (dynamically discovered) ===")
+        tested_classes: List[str] = []
+
+        for cls in allow_disallow_subclasses:
+            with self.subTest(class_name=cls.__name__):
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                if not is_complete:
+                    print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
+                self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
+                tested_classes.append(cls.__name__)
+                print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
+
+        print(f"AllowDisallowPolicy subclasses tested: {tested_classes}")
+
+    def test_policy_discovery_finds_known_classes(self) -> None:
+        """Verify that dynamic discovery finds key Policy classes we know should exist."""
+        all_classes = get_all_policy_subclasses()
+        class_names = {cls.__name__ for cls in all_classes}
+
+        # Verify some key Policy subclasses are found
+        expected_classes = {
+            'StoragePolicy', 'DataClassificationPolicy', 'DataPlatformPolicy',
+            'InfraStructureLocationPolicy', 'InfraStructureVendorPolicy'
+        }
+
+        missing_classes = expected_classes - class_names
+        if missing_classes:
+            self.fail(f"Dynamic discovery missed these known Policy classes: {missing_classes}")
+
+        print(f"✅ Dynamic discovery successfully found {len(expected_classes)} key Policy subclasses")
+        print(f"Total Policy subclasses discovered: {len(class_names)}")
+        print(f"All discovered Policy classes: {sorted(class_names)}")
+
 
 def get_all_lintable_object_subclasses() -> List[Type[Any]]:
     """Dynamically discover all LintableObject subclasses in the codebase."""
@@ -698,8 +842,9 @@ def get_all_lintable_object_subclasses() -> List[Type[Any]]:
             if (issubclass(cls, UserDSLObject) or issubclass(cls, InternalLintableObject)) and \
                cls not in (UserDSLObject, InternalLintableObject):
                 # Only include classes that have their own __eq__ method
-                if hasattr(cls, '__eq__') and '__eq__' in cls.__dict__:
-                    lintable_subclasses.append(cls)
+                cls_typed: Type[Any] = cls  # type: ignore
+                if hasattr(cls_typed, '__eq__') and '__eq__' in cls_typed.__dict__:  # type: ignore
+                    lintable_subclasses.append(cls_typed)  # type: ignore
         except TypeError:
             # Some objects might not be classes or might cause TypeError in issubclass
             continue
@@ -744,6 +889,88 @@ def categorize_lintable_classes(classes: List[Type[Any]]) -> dict[str, List[Type
         except TypeError:
             # Fallback to Other_UserDSLObject if we can't determine the category
             categories['Other_UserDSLObject'].append(cls)
+
+    return categories
+
+
+def get_all_policy_subclasses() -> List[Type[Any]]:
+    """Dynamically discover all Policy subclasses in the codebase."""
+    def get_all_classes_from_package(package_name: str) -> List[Type[Any]]:
+        """Find all classes in a package and its subpackages."""
+        classes: List[Type[Any]] = []
+
+        try:
+            package = importlib.import_module(package_name)
+
+            # Get classes from the main package
+            for _, obj in inspect.getmembers(package, inspect.isclass):
+                if obj.__module__.startswith(package_name):
+                    classes.append(obj)
+
+            # Recursively get classes from subpackages
+            if hasattr(package, '__path__'):
+                for _, modname, _ in pkgutil.iter_modules(package.__path__, package_name + "."):
+                    try:
+                        submodule = importlib.import_module(modname)
+                        for _, obj in inspect.getmembers(submodule, inspect.isclass):
+                            if obj.__module__.startswith(package_name):
+                                classes.append(obj)
+                    except (ImportError, AttributeError):
+                        # Skip modules that can't be imported
+                        continue
+
+        except ImportError:
+            # Package doesn't exist or can't be imported
+            pass
+
+        return classes
+
+    # Get all classes from datasurface package
+    all_classes = get_all_classes_from_package('datasurface')
+
+    # Import the Policy base classes
+    from datasurface.md.policy import Policy, AllowDisallowPolicy
+
+    # Find all classes that inherit from Policy or AllowDisallowPolicy
+    policy_subclasses: List[Type[Any]] = []
+
+    for cls in all_classes:
+        try:
+            # Check if class inherits from Policy or AllowDisallowPolicy
+            if (issubclass(cls, (Policy, AllowDisallowPolicy))) and \
+               cls not in (Policy, AllowDisallowPolicy):
+                # Only include classes that have their own __eq__ method
+                cls_typed: Type[Any] = cls  # type: ignore
+                if hasattr(cls_typed, '__eq__') and '__eq__' in cls_typed.__dict__:  # type: ignore
+                    policy_subclasses.append(cls_typed)  # type: ignore
+        except TypeError:
+            # Some objects might not be classes or might cause TypeError in issubclass
+            continue
+
+    return policy_subclasses
+
+
+def categorize_policy_classes(classes: List[Type[Any]]) -> dict[str, List[Type[Any]]]:
+    """Categorize Policy subclasses by their inheritance hierarchy for reporting."""
+    from datasurface.md.policy import Policy, AllowDisallowPolicy
+
+    categories: dict[str, List[Type[Any]]] = {
+        'Policy_subclasses': [],
+        'AllowDisallowPolicy_subclasses': [],
+        'Other_Policy': []
+    }
+
+    for cls in classes:
+        try:
+            if issubclass(cls, AllowDisallowPolicy) and cls != AllowDisallowPolicy:
+                categories['AllowDisallowPolicy_subclasses'].append(cls)  # type: ignore
+            elif issubclass(cls, Policy) and cls != Policy:
+                categories['Policy_subclasses'].append(cls)  # type: ignore
+            else:
+                categories['Other_Policy'].append(cls)  # type: ignore
+        except TypeError:
+            # Fallback to Other_Policy if we can't determine the category
+            categories['Other_Policy'].append(cls)  # type: ignore
 
     return categories
 
