@@ -2371,15 +2371,61 @@ T = TypeVar('T')
 
 class DataPlatform(Documentable, JSONable):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
-    def __init__(self, name: str, *args: Union[DataPlatformExecutor, Documentation]) -> None:
-        Documentable.__init__(self, self.findObjectOfSpecificType(Documentation, *args))
+    def __init__(self, name: str,
+                 *args: Union[DataPlatformExecutor, Documentation],
+                 executor: Optional[DataPlatformExecutor] = None,
+                 documentation: Optional[Documentation] = None) -> None:
         JSONable.__init__(self)
         self.name: str = name
-        de: Optional[DataPlatformExecutor] = self.findObjectOfSpecificType(DataPlatformExecutor, *args)
-        if de is None:
-            raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
-        self.executor: DataPlatformExecutor = de
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args (slower but compatible)
+            parsed_executor: Optional[DataPlatformExecutor] = executor
+            parsed_documentation: Optional[Documentation] = documentation
+
+            for arg in args:
+                if isinstance(arg, DataPlatformExecutor):
+                    parsed_executor = arg
+                else:
+                    # Remaining argument should be Documentation
+                    parsed_documentation = arg
+
+            # Use parsed values
+            if parsed_executor is None:
+                raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
+            self.executor: DataPlatformExecutor = parsed_executor
+
+            # Initialize Documentable with parsed documentation
+            Documentable.__init__(self, parsed_documentation)
+        else:
+            # New mode: use named parameters directly (faster!)
+            if executor is None:
+                raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
+            self.executor: DataPlatformExecutor = executor
+
+            # Initialize Documentable with named documentation
+            Documentable.__init__(self, documentation)
+
+    @classmethod
+    def create_legacy(cls, name: str, *args: Union[DataPlatformExecutor, Documentation]) -> 'DataPlatform':
+        """Legacy factory method for backward compatibility with old *args pattern.
+        Use this temporarily during migration, then switch to named parameters for better performance."""
+        executor: Optional[DataPlatformExecutor] = None
+        documentation: Optional[Documentation] = None
+
+        for arg in args:
+            if isinstance(arg, DataPlatformExecutor):
+                executor = arg
+            else:
+                # Remaining argument should be Documentation
+                documentation = arg
+
+        return cls(
+            name=name,
+            executor=executor,
+            documentation=documentation
+        )
 
     @abstractmethod
     def to_json(self) -> dict[str, Any]:
@@ -2391,6 +2437,7 @@ class DataPlatform(Documentable, JSONable):
         return rc
 
     def add(self, *args: Union[DataPlatformExecutor, Documentation]) -> None:
+        """Add executor or documentation. Provided for backward compatibility."""
         for arg in args:
             if isinstance(arg, DataPlatformExecutor):
                 if self.executor != arg:
@@ -2398,13 +2445,6 @@ class DataPlatform(Documentable, JSONable):
                 self.executor = arg
             else:
                 self.documentation = arg
-
-    def findObjectOfSpecificType(self, t: Type[T], *args: Any) -> Optional[T]:
-        """Finds an object of a specific type in the provided arguments."""
-        for arg in args:
-            if isinstance(arg, t):
-                return arg
-        return None
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataPlatform) and self.name == other.name and self.executor == other.executor and Documentable.__eq__(self, other)
