@@ -18,67 +18,66 @@ from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
 
 def createEcosystem() -> Ecosystem:
     ecosys: Ecosystem = Ecosystem(
-        "Test",
-        GitHubRepository("billynewport/repo", "ECOmain"),
-        LegacyDataPlatform(
-            "LegacyA",
-            PlainTextDocumentation("Test")),
+        name="Test",
+        repo=GitHubRepository("billynewport/repo", "ECOmain"),
+        data_platforms=[
+            LegacyDataPlatform(
+                "LegacyA",
+                PlainTextDocumentation("Test"))
+        ],
+        default_data_platform=DefaultDataPlatform(DataPlatformKey("LegacyA")),
+        governance_zone_declarations=[
+            GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
+            GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/repo", "EUmain")),
+            GovernanceZoneDeclaration("UK", GitHubRepository("billynewport/repo", "UKmain"))
+        ],
+        infrastructure_vendors=[
+            # Onsite data centers
+            InfrastructureVendor(
+                name="MyCorp",
+                cloud_vendor=CloudVendor.PRIVATE,
+                documentation=PlainTextDocumentation("Private company data centers"),
+                locations=[
+                    InfrastructureLocation(
+                        name="USA",
+                        locations=[
+                            InfrastructureLocation(name="NJ_1"),
+                            InfrastructureLocation(name="NY_1")
+                        ]
+                    ),
+                    InfrastructureLocation(
+                        name="UK",
+                        locations=[
+                            InfrastructureLocation(name="London"),
+                            InfrastructureLocation(name="Cambridge")
+                        ]
+                    )
+                ]
+            ),
 
-        # Data Platforms
-        DefaultDataPlatform(DataPlatformKey("LegacyA")),
-
-        # GovernanceZones
-        GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
-        GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/repo", "EUmain")),
-        GovernanceZoneDeclaration("UK", GitHubRepository("billynewport/repo", "UKmain")),
-
-        # Infra Vendors and locations
-
-        # Onsite data centers
-        InfrastructureVendor(
-            name="MyCorp",
-            cloud_vendor=CloudVendor.PRIVATE,
-            documentation=PlainTextDocumentation("Private company data centers"),
-            locations=[
-                InfrastructureLocation(
-                    name="USA",
-                    locations=[
-                        InfrastructureLocation(name="NJ_1"),
-                        InfrastructureLocation(name="NY_1")
-                    ]
-                ),
-                InfrastructureLocation(
-                    name="UK",
-                    locations=[
-                        InfrastructureLocation(name="London"),
-                        InfrastructureLocation(name="Cambridge")
-                    ]
-                )
-            ]
-        ),
-
-        # Outsourced data centers with same location equivalents
-        InfrastructureVendor(
-            name="Outsource",
-            cloud_vendor=CloudVendor.PRIVATE,
-            documentation=PlainTextDocumentation("Outsourced company data centers"),
-            locations=[
-                InfrastructureLocation(
-                    name="USA",
-                    locations=[
-                        InfrastructureLocation(name="NJ_1"),
-                        InfrastructureLocation(name="NY_1")
-                    ]
-                ),
-                InfrastructureLocation(
-                    name="UK",
-                    locations=[
-                        InfrastructureLocation(name="London"),
-                        InfrastructureLocation(name="Cambridge")
-                    ]
-                )
-            ]
-        )
+            # Outsourced data centers with same location equivalents
+            InfrastructureVendor(
+                name="Outsource",
+                cloud_vendor=CloudVendor.PRIVATE,
+                documentation=PlainTextDocumentation("Outsourced company data centers"),
+                locations=[
+                    InfrastructureLocation(
+                        name="USA",
+                        locations=[
+                            InfrastructureLocation(name="NJ_1"),
+                            InfrastructureLocation(name="NY_1")
+                        ]
+                    ),
+                    InfrastructureLocation(
+                        name="UK",
+                        locations=[
+                            InfrastructureLocation(name="London"),
+                            InfrastructureLocation(name="Cambridge")
+                        ]
+                    )
+                ]
+            )
+        ]
     )
 
     gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")

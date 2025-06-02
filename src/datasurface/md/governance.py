@@ -1223,7 +1223,13 @@ class Ecosystem(GitControlledObject, JSONable):
     def __init__(self, name: str, repo: Repository,
                  *args: Union[PlatformServicesProvider,
                               'DataPlatform', Documentation, DefaultDataPlatform,
-                              InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+                              InfrastructureVendor, 'GovernanceZoneDeclaration'],
+                 platform_services_provider: Optional[PlatformServicesProvider] = None,
+                 data_platforms: Optional[list['DataPlatform']] = None,
+                 documentation: Optional[Documentation] = None,
+                 default_data_platform: Optional[DefaultDataPlatform] = None,
+                 infrastructure_vendors: Optional[list[InfrastructureVendor]] = None,
+                 governance_zone_declarations: Optional[list['GovernanceZoneDeclaration']] = None) -> None:
         GitControlledObject.__init__(self, repo)
         JSONable.__init__(self)
         self.name: str = name
@@ -1238,7 +1244,80 @@ class Ecosystem(GitControlledObject, JSONable):
         self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
         self.platformServicesProvider: Optional[PlatformServicesProvider] = None
         self.resetCaches()
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args (slower but compatible)
+            self.add(*args)
+        else:
+            # New mode: use named parameters directly (faster!)
+            if platform_services_provider:
+                self.platformServicesProvider = platform_services_provider
+
+            if data_platforms:
+                for platform in data_platforms:
+                    if self.dataPlatforms.get(platform.name) is not None:
+                        raise ObjectAlreadyExistsException(f"Duplicate DataPlatform {platform.name}")
+                    self.dataPlatforms[platform.name] = platform
+
+            if documentation:
+                self.documentation = documentation
+
+            if default_data_platform:
+                self.defaultDataPlatform = default_data_platform
+
+            if infrastructure_vendors:
+                for vendor in infrastructure_vendors:
+                    if self.vendors.get(vendor.name) is not None:
+                        raise ObjectAlreadyExistsException(f"Duplicate Vendor {vendor.name}")
+                    self.vendors[vendor.name] = vendor
+
+            if governance_zone_declarations:
+                for zone_declaration in governance_zone_declarations:
+                    self.zones.addAuthorization(zone_declaration)
+                    zone_declaration.key = GovernanceZoneKey(self.key, zone_declaration.name)
+
+        self.resetKey()
+
+    @classmethod
+    def create_legacy(cls, name: str, repo: Repository,
+                      *args: Union[PlatformServicesProvider,
+                                   'DataPlatform', Documentation, DefaultDataPlatform,
+                                   InfrastructureVendor, 'GovernanceZoneDeclaration']) -> 'Ecosystem':
+        """Legacy factory method for backward compatibility with old *args pattern.
+        Use this temporarily during migration, then switch to named parameters for better performance."""
+        platform_services_provider: Optional[PlatformServicesProvider] = None
+        data_platforms: list['DataPlatform'] = []
+        documentation: Optional[Documentation] = None
+        default_data_platform: Optional[DefaultDataPlatform] = None
+        infrastructure_vendors: list[InfrastructureVendor] = []
+        governance_zone_declarations: list['GovernanceZoneDeclaration'] = []
+
+        for arg in args:
+            if isinstance(arg, InfrastructureVendor):
+                infrastructure_vendors.append(arg)
+            elif isinstance(arg, PlatformServicesProvider):
+                platform_services_provider = arg
+            elif isinstance(arg, Documentation):
+                documentation = arg
+            elif isinstance(arg, DataPlatform):
+                data_platforms.append(arg)
+            elif isinstance(arg, DefaultDataPlatform):
+                default_data_platform = arg
+            else:
+                # GovernanceZoneDeclaration
+                governance_zone_declarations.append(arg)
+
+        return cls(
+            name=name,
+            repo=repo,
+            platform_services_provider=platform_services_provider,
+            data_platforms=data_platforms if data_platforms else None,
+            documentation=documentation,
+            default_data_platform=default_data_platform,
+            infrastructure_vendors=infrastructure_vendors if infrastructure_vendors else None,
+            governance_zone_declarations=governance_zone_declarations if governance_zone_declarations else None
+        )
 
     def getAsInfraLocation(self, loc: 'LocationKey') -> Optional[InfrastructureLocation]:
         # The string is in the format vendor:location1/location2/location3
@@ -1316,7 +1395,7 @@ class Ecosystem(GitControlledObject, JSONable):
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {arg.name}")
                 self.vendors[arg.name] = arg
             elif isinstance(arg, PlatformServicesProvider):
-                self.brokerRenderEngine = arg
+                self.platformServicesProvider = arg
             elif isinstance(arg, Documentation):
                 self.documentation = arg
             elif isinstance(arg, DataPlatform):
@@ -1329,7 +1408,9 @@ class Ecosystem(GitControlledObject, JSONable):
             else:
                 self.zones.addAuthorization(arg)
                 arg.key = GovernanceZoneKey(self.key, arg.name)
+        self.resetKey()
 
+    def resetKey(self) -> None:
         for vendor in self.vendors.values():
             vendor.setEcosystem(self.key)
 
@@ -1530,6 +1611,7 @@ class Ecosystem(GitControlledObject, JSONable):
             rc = rc and self.vendors == proposed.vendors
             rc = rc and self.dataPlatforms == proposed.dataPlatforms
             rc = rc and self.defaultDataPlatform == proposed.defaultDataPlatform
+            rc = rc and self.platformServicesProvider == proposed.platformServicesProvider
             return rc
         else:
             return False
