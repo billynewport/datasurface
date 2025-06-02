@@ -1761,14 +1761,41 @@ class VendorKey(UserDSLObject, JSONable):
 class Team(GitControlledObject, JSONable):
     """This is the authoritive definition of a team within a goverance zone. All teams must have
     a corresponding TeamDeclaration in the owning GovernanceZone"""
-    def __init__(self, name: str, repo: Repository, *args: Union[Datastore, 'Workspace', Documentation, DataContainer]) -> None:
+    def __init__(self, name: str, repo: Repository,
+                 *args: Union[Datastore, 'Workspace', Documentation, DataContainer],
+                 datastores: Optional[list[Datastore]] = None,
+                 workspaces: Optional[list['Workspace']] = None,
+                 documentation: Optional[Documentation] = None,
+                 containers: Optional[list[DataContainer]] = None) -> None:
         GitControlledObject.__init__(self, repo)
         JSONable.__init__(self)
         self.name: str = name
         self.workspaces: dict[str, Workspace] = OrderedDict()
         self.dataStores: dict[str, Datastore] = OrderedDict()
         self.containers: dict[str, DataContainer] = OrderedDict()
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args (slower but compatible)
+            self.add(*args)
+        else:
+            # New mode: use named parameters directly (faster!)
+            if datastores is not None:
+                for datastore in datastores:
+                    self.addStore(datastore)
+
+            if workspaces is not None:
+                for workspace in workspaces:
+                    self.addWorkspace(workspace)
+
+            if documentation is not None:
+                self.documentation = documentation
+
+            if containers is not None:
+                for container in containers:
+                    if self.containers.get(container.name) is not None:
+                        raise ObjectAlreadyExistsException(f"Duplicate DataContainer {container.name}")
+                    self.containers[container.name] = container
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
