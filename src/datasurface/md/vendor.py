@@ -33,8 +33,12 @@ class InfrastructureLocation(Documentable, JSONable):
     is only fully initialized after construction when either the setParentLocation or
     setVendor methods are called. This is because the vendor is required to set the parent"""
 
-    def __init__(self, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
-        Documentable.__init__(self, None)
+    def __init__(self,
+                 name: str,
+                 *args: Union[Documentation, 'InfrastructureLocation'],
+                 locations: Optional[list['InfrastructureLocation']] = None,
+                 documentation: Optional[Documentation] = None) -> None:
+        Documentable.__init__(self, documentation)
         JSONable.__init__(self)
 
         self.name: str = name
@@ -43,7 +47,56 @@ class InfrastructureLocation(Documentable, JSONable):
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
         """These are the 'child' locations under this location. A state location would have city children for example"""
         """This specifies the parent location of this location. State is parent on city and so on"""
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args (slower but compatible)
+            parsed_locations: list[InfrastructureLocation] = list(locations) if locations else []
+            parsed_documentation: Optional[Documentation] = documentation
+
+            for arg in args:
+                if isinstance(arg, InfrastructureLocation):
+                    parsed_locations.append(arg)
+                else:
+                    # Remaining argument should be Documentation
+                    parsed_documentation = arg
+
+            # Use parsed values
+            if parsed_locations:
+                for loc in parsed_locations:
+                    self.addLocation(loc)
+
+            if parsed_documentation:
+                self.documentation = parsed_documentation
+        else:
+            # New mode: use named parameters directly (faster!)
+            if locations:
+                for loc in locations:
+                    self.addLocation(loc)
+
+            if documentation:
+                self.documentation = documentation
+        self.resetKey()
+
+    @classmethod
+    def create_legacy(cls, name: str, *args: Union[Documentation, 'InfrastructureLocation']) -> 'InfrastructureLocation':
+        """Legacy factory method for backward compatibility with old *args pattern.
+        Use this temporarily during migration, then switch to named parameters for better performance."""
+        locations: list[InfrastructureLocation] = []
+        documentation: Optional[Documentation] = None
+
+        for arg in args:
+            if isinstance(arg, InfrastructureLocation):
+                locations.append(arg)
+            else:
+                # Remaining argument should be Documentation
+                documentation = arg
+
+        return cls(
+            name=name,
+            locations=locations if locations else None,
+            documentation=documentation
+        )
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -76,10 +129,13 @@ class InfrastructureLocation(Documentable, JSONable):
 
     def add(self, *args: Union[Documentation, 'InfrastructureLocation']) -> None:
         for loc in args:
-            if (isinstance(loc, InfrastructureLocation)):
+            if isinstance(loc, InfrastructureLocation):
                 self.addLocation(loc)
             else:
                 self.documentation = loc
+        self.resetKey()
+
+    def resetKey(self) -> None:
         if (self.key):
             for loc in self.locations.values():
                 loc.setParentLocation(self.key)
@@ -162,14 +218,81 @@ class CloudVendor(Enum):
 class InfrastructureVendor(Documentable, JSONable):
     """This is a vendor which supplies infrastructure for storage and compute. It could be an internal supplier within an
     enterprise or an external cloud provider"""
-    def __init__(self, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> None:
-        Documentable.__init__(self, None)
+    def __init__(self,
+                 name: str,
+                 *args: Union[InfrastructureLocation, Documentation, CloudVendor],
+                 locations: Optional[list[InfrastructureLocation]] = None,
+                 documentation: Optional[Documentation] = None,
+                 cloud_vendor: Optional[CloudVendor] = None) -> None:
+        Documentable.__init__(self, documentation)
         JSONable.__init__(self)
         self.name: str = name
         self.key: Optional[InfrastructureVendorKey] = None
         self.locations: dict[str, 'InfrastructureLocation'] = OrderedDict()
         self.hardCloudVendor: Optional[CloudVendor] = None
-        self.add(*args)
+
+        # Handle backward compatibility: if *args are provided, parse them the old way
+        if args:
+            # Legacy mode: parse *args (slower but compatible)
+            parsed_locations: list[InfrastructureLocation] = list(locations) if locations else []
+            parsed_documentation: Optional[Documentation] = documentation
+            parsed_cloud_vendor: Optional[CloudVendor] = cloud_vendor
+
+            for arg in args:
+                if isinstance(arg, InfrastructureLocation):
+                    parsed_locations.append(arg)
+                elif isinstance(arg, CloudVendor):
+                    parsed_cloud_vendor = arg
+                else:
+                    # Remaining argument should be Documentation
+                    parsed_documentation = arg
+
+            # Use parsed values
+            if parsed_locations:
+                for loc in parsed_locations:
+                    self.addLocation(loc)
+
+            if parsed_cloud_vendor:
+                self.hardCloudVendor = parsed_cloud_vendor
+
+            if parsed_documentation:
+                self.documentation = parsed_documentation
+        else:
+            # New mode: use named parameters directly (faster!)
+            if locations:
+                for loc in locations:
+                    self.addLocation(loc)
+
+            if cloud_vendor:
+                self.hardCloudVendor = cloud_vendor
+
+            if documentation:
+                self.documentation = documentation
+        self.resetKey()
+
+    @classmethod
+    def create_legacy(cls, name: str, *args: Union[InfrastructureLocation, Documentation, CloudVendor]) -> 'InfrastructureVendor':
+        """Legacy factory method for backward compatibility with old *args pattern.
+        Use this temporarily during migration, then switch to named parameters for better performance."""
+        locations: list[InfrastructureLocation] = []
+        documentation: Optional[Documentation] = None
+        cloud_vendor: Optional[CloudVendor] = None
+
+        for arg in args:
+            if isinstance(arg, InfrastructureLocation):
+                locations.append(arg)
+            elif isinstance(arg, CloudVendor):
+                cloud_vendor = arg
+            else:
+                # Remaining argument should be Documentation
+                documentation = arg
+
+        return cls(
+            name=name,
+            locations=locations if locations else None,
+            documentation=documentation,
+            cloud_vendor=cloud_vendor
+        )
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -187,13 +310,18 @@ class InfrastructureVendor(Documentable, JSONable):
         self.add()
 
     def add(self, *args: Union['InfrastructureLocation', Documentation, CloudVendor]) -> None:
+        """We always expect the instance variables to be set with this method whether the constructor or not. The topLocationKey
+        is set here after changing the instance variables"""
         for loc in args:
-            if (isinstance(loc, InfrastructureLocation)):
+            if isinstance(loc, InfrastructureLocation):
                 self.addLocation(loc)
-            elif (isinstance(loc, CloudVendor)):
+            elif isinstance(loc, CloudVendor):
                 self.hardCloudVendor = loc
             else:
                 self.documentation = loc
+        self.resetKey()
+
+    def resetKey(self) -> None:
         if (self.key):
             topLocationKey: InfraLocationKey = InfraLocationKey(self.key, [])
             for loc in self.locations.values():

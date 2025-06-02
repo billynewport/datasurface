@@ -36,32 +36,50 @@ def createEcosystem() -> Ecosystem:
 
         # Onsite data centers
         InfrastructureVendor(
-            "MyCorp",
-            CloudVendor.PRIVATE,
-            PlainTextDocumentation("Private company data centers"),
-            InfrastructureLocation(
-                "USA",
-                InfrastructureLocation("NJ_1"),
-                InfrastructureLocation("NY_1")),
-            InfrastructureLocation(
-                "UK",
-                InfrastructureLocation("London"),
-                InfrastructureLocation("Cambridge"))),
+            name="MyCorp",
+            cloud_vendor=CloudVendor.PRIVATE,
+            documentation=PlainTextDocumentation("Private company data centers"),
+            locations=[
+                InfrastructureLocation(
+                    name="USA",
+                    locations=[
+                        InfrastructureLocation(name="NJ_1"),
+                        InfrastructureLocation(name="NY_1")
+                    ]
+                ),
+                InfrastructureLocation(
+                    name="UK",
+                    locations=[
+                        InfrastructureLocation(name="London"),
+                        InfrastructureLocation(name="Cambridge")
+                    ]
+                )
+            ]
+        ),
 
         # Outsourced data centers with same location equivalents
         InfrastructureVendor(
-            "Outsource",
-            CloudVendor.PRIVATE,
-            PlainTextDocumentation("Outsourced company data centers"),
-            InfrastructureLocation(
-                "USA",
-                InfrastructureLocation("NJ_1"),
-                InfrastructureLocation("NY_1")),
-            InfrastructureLocation(
-                "UK",
-                InfrastructureLocation("London"),
-                InfrastructureLocation("Cambridge")))
+            name="Outsource",
+            cloud_vendor=CloudVendor.PRIVATE,
+            documentation=PlainTextDocumentation("Outsourced company data centers"),
+            locations=[
+                InfrastructureLocation(
+                    name="USA",
+                    locations=[
+                        InfrastructureLocation(name="NJ_1"),
+                        InfrastructureLocation(name="NY_1")
+                    ]
+                ),
+                InfrastructureLocation(
+                    name="UK",
+                    locations=[
+                        InfrastructureLocation(name="London"),
+                        InfrastructureLocation(name="Cambridge")
+                    ]
+                )
+            ]
         )
+    )
 
     gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")
 
@@ -102,11 +120,15 @@ def createEcosystem() -> Ecosystem:
 def test_Validate():
     ecosys: Ecosystem = createEcosystem()
     vTree: ValidationTree = ecosys.lintAndHydrateCaches()
-    if (vTree.getErrors()):
-        print(vTree)
+    if (vTree.hasErrors()):
+        print("Ecosystem validation failed with errors:")
+        vTree.printTree()
         raise Exception("Ecosystem validation failed")
     else:
         print("Ecosystem validated OK")
+        if vTree.hasWarnings():
+            print("Note: There are some warnings:")
+            vTree.printTree()
 
 
 if __name__ == "__main__":
