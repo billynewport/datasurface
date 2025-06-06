@@ -17,26 +17,32 @@ class CredentialType(Enum):
     USER_PASSWORD = 1  # Username and password
     CLIENT_CERT_WITH_KEY = 2  # Public and private key pair for mTLS or similar
     CA_CERT_BUNDLE = 3  # Bundle of KEYs for verifying server keys
+    API_TOKEN = 4  # API token for a service
 
 
 class Credential(UserDSLObject, JSONable):
     """These allow a client to connect to a service/server"""
-    def __init__(self, credentialType: CredentialType) -> None:
+    def __init__(self, name: str, credentialType: CredentialType) -> None:
         UserDSLObject.__init__(self)
         JSONable.__init__(self)
+        self.name: str = name
         self.credentialType: CredentialType = credentialType
 
     def to_json(self) -> dict[str, Any]:
         return {
             "_type": self.__class__.__name__,
+            "name": self.name,
             "credentialType": self.credentialType.name,
         }
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, Credential)):
-            return self.credentialType == other.credentialType
+            return self.credentialType == other.credentialType and self.name == other.name
         else:
             return False
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
 
     @abstractmethod
     def lint(self, tree: ValidationTree) -> None:
@@ -47,8 +53,8 @@ class FileSecretCredential(Credential):
     """This allows a secret to be read from the local filesystem. Usually the secret is
     placed in the file using an external service such as Docker secrets etc. The secret should be in the
     form of 2 lines, first line is user name, second line is password"""
-    def __init__(self, type: CredentialType, filePath: str) -> None:
-        super().__init__(type)
+    def __init__(self, name: str, type: CredentialType, filePath: str) -> None:
+        super().__init__(name, type)
         self.secretFilePath: str = filePath
 
     def to_json(self) -> dict[str, Any]:
@@ -113,6 +119,17 @@ class CredentialStore(UserDSLObject, JSONable):
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
         """This fetches the credential and returns a tuple with the public and private key
         paths and an environment variable name which contains the private key password"""
+        pass
+
+    @abstractmethod
+    def getAsToken(self, cred: Credential) -> str:
+        """This fetches the credential and returns a token. This is used for API tokens."""
+        pass
+
+    @abstractmethod
+    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+        """This is used to lint a credential. This is used to check if the credential is available and compatible with the store."""
+        pass
 
 
 class LocalFileCredentialStore(CredentialStore):
@@ -176,6 +193,19 @@ class LocalFileCredentialStore(CredentialStore):
         else:
             raise RuntimeError(f"Only FileSecretCredentials are supported: {cred}")
 
+    def getAsToken(self, cred: Credential) -> str:
+        """This fetches the credential and returns a token. This is used for API tokens."""
+        if cred.credentialType != CredentialType.API_TOKEN:
+            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
+            file_path: str = f"{self.folder}/{cred.name}"
+            try:
+                with open(file_path, 'r') as file:
+                    return file.read().strip()
+            except FileNotFoundError:
+                raise FileNotFoundError(f"Credential file {file_path} not found.")
+        else:
+            raise RuntimeError(f"Only {CredentialType.API_TOKEN} are supported: {cred}")
+
     def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
         return super().checkCredentialIsAvailable(cred, tree)
 
@@ -184,8 +214,8 @@ class ClearTextCredential(Credential):
     """This is implemented for testing but should never be used in production. All
     credentials should be stored and retrieved using secrets Credential objects also
     provided."""
-    def __init__(self, username: str, password: str) -> None:
-        super().__init__(CredentialType.USER_PASSWORD)
+    def __init__(self, name: str, username: str, password: str) -> None:
+        super().__init__(name, CredentialType.USER_PASSWORD)
         self.username: str = username
         self.password: str = password
 

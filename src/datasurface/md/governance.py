@@ -3456,6 +3456,17 @@ class PlatformPipelineGraph(InternalLintableObject):
 
         return '\n'.join(graph_strs)
 
+    def lintCredentials(self, credStore: CredentialStore, tree: ValidationTree) -> None:
+        """This checks every Credential in the Graph is compatible with the CredentialStore"""
+        for node in self.nodes.values():
+            c: Optional[Credential] = None
+            if isinstance(node, IngestionNode):
+                store: Datastore = self.eco.cache_getDatastoreOrThrow(node.storeName).datastore
+                if store.cmd is not None and isinstance(store.cmd, IngestionMetadata):
+                    c = store.cmd.credential
+            if c is not None:
+                credStore.lintCredential(c, tree.addSubTree(node))
+
     def lint(self, credStore: CredentialStore, tree: ValidationTree) -> None:
         """This checks the pipeline graph for errors and warnings"""
 
@@ -3465,6 +3476,9 @@ class PlatformPipelineGraph(InternalLintableObject):
         # Lint the graph to check all nodes are valid with this platform
         # This checks for unsupported databases, vendors, transformers and so on
         gHandler.lintGraph(self.eco, credStore, tree.addSubTree(gHandler))
+        # Iterate over every ingestion node and check the credentials are compatible with
+        # the credential store
+        self.lintCredentials(credStore, tree)
 
     def propagateWorkspacePriorities(self):
         """Propagates workspace priorities through the pipeline graph.

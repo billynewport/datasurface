@@ -1,47 +1,38 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: data-services
+  name: {{ namespace_name }}
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-  namespace: data-services
-type: Opaque
-data:
-  POSTGRES_USER: cG9zdGdyZXM= # "postgres"
-  POSTGRES_PASSWORD: cGFzc3dvcmQ= # "password" - CHANGE THIS!
----
+# PostgreSQL PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-pvc
-  namespace: data-services
+  name: {{ platform_name }}-postgres-pvc
+  namespace: {{ namespace_name }}
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
-  # storageClassName: <your-storage-class> # Uncomment and specify if not using default
 ---
+# PostgreSQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres-deployment
-  namespace: data-services
+  name: {{ platform_name }}-postgres
+  namespace: {{ namespace_name }}
   labels:
-    app: postgres
+    app: {{ platform_name }}-postgres
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgres
+      app: {{ platform_name }}-postgres
   template:
     metadata:
       labels:
-        app: postgres
+        app: {{ platform_name }}-postgres
     spec:
       containers:
         - name: postgres
@@ -50,7 +41,7 @@ spec:
             - containerPort: 5432
           envFrom:
             - secretRef:
-                name: postgres-secret
+                name: {{ postgres_credential_secret_name }}
           volumeMounts:
             - name: postgres-storage
               mountPath: /var/lib/postgresql/data
@@ -64,124 +55,106 @@ spec:
       volumes:
         - name: postgres-storage
           persistentVolumeClaim:
-            claimName: postgres-pvc
+            claimName: {{ platform_name }}-postgres-pvc
 ---
+# PostgreSQL Service
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-service
-  namespace: data-services
+  name: {{ postgres_hostname }}
+  namespace: {{ namespace_name }}
 spec:
-  type: LoadBalancer # Or NodePort for local clusters / specific setups
+  type: ClusterIP
   selector:
-    app: postgres
+    app: {{ platform_name }}-postgres
   ports:
     - protocol: TCP
       port: 5432
       targetPort: 5432
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: airflow-secrets
-  namespace: data-services
-type: Opaque
-data:
-  # Generate a strong Fernet key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-  AIRFLOW__CORE__FERNET_KEY: ZmVybmV0X2tleV9wbGFjZWhvbGRlcg== # Replace with your generated Fernet key
-  # Optional: Airflow Webserver basic auth credentials
-  # _AIRFLOW_WWW_USER_USERNAME: YWRtaW4= # "admin"
-  # _AIRFLOW_WWW_USER_PASSWORD: YWRtaW4= # "admin" - CHANGE THIS!
----
+# Airflow DAGs PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: airflow-dags-pvc
-  namespace: data-services
+  name: {{ airflow_name }}-dags-pvc
+  namespace: {{ namespace_name }}
 spec:
   accessModes:
-    - ReadWriteOnce # Or ReadWriteMany if using multiple schedulers/workers and a compatible StorageClass
+    - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
-  # storageClassName: <your-storage-class> # Uncomment and specify if not using default
 ---
+# Airflow Logs PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: airflow-logs-pvc
-  namespace: data-services
+  name: {{ airflow_name }}-logs-pvc
+  namespace: {{ namespace_name }}
 spec:
   accessModes:
-    - ReadWriteOnce # Or ReadWriteMany if using multiple schedulers/workers and a compatible StorageClass
+    - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
-  # storageClassName: <your-storage-class> # Uncomment and specify if not using default
 ---
+# Airflow ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: airflow-config
-  namespace: data-services
+  name: {{ airflow_name }}-config
+  namespace: {{ namespace_name }}
 data:
   airflow.cfg: |
     [core]
-    executor = LocalExecutor # For simplicity; consider CeleryExecutor or KubernetesExecutor for production
-    sql_alchemy_conn = postgresql+psycopg2://postgres:password@postgres-service.data-services.svc.cluster.local:5432/airflow_db
+    executor = LocalExecutor
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db
     dags_folder = /opt/airflow/dags
     load_examples = False
-    # fernet_key is set via Secret
 
     [webserver]
-    # web_server_host = 0.0.0.0
-    # web_server_port = 8080
-    # expose_config = True # Set to True if you want to view config in UI (potential security risk)
+    web_server_host = 0.0.0.0
+    web_server_port = 8080
 
     [logging]
     base_log_folder = /opt/airflow/logs
-    remote_logging = False # Configure remote logging for production
+    remote_logging = False
 
     [database]
-    sql_alchemy_conn = postgresql+psycopg2://postgres:password@postgres-service.data-services.svc.cluster.local:5432/airflow_db
-    # Ensure the user/password matches postgres-secret and the DB name is airflow_db (Postgres will create it if it doesn't exist on first connect by Airflow)
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db
 ---
+# Airflow Scheduler Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: airflow-scheduler
-  namespace: data-services
+  name: {{ airflow_name }}-scheduler
+  namespace: {{ namespace_name }}
   labels:
-    app: airflow-scheduler
+    app: {{ airflow_name }}-scheduler
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: airflow-scheduler
+      app: {{ airflow_name }}-scheduler
   template:
     metadata:
       labels:
-        app: airflow-scheduler
+        app: {{ airflow_name }}-scheduler
     spec:
       initContainers:
       - name: airflow-db-init
-        image: apache/airflow:2.8.1 # Use the same version as other Airflow components
+        image: apache/airflow:2.8.1
         command: ["/bin/bash", "-c"]
         args:
-          - airflow db init # Was airflow initdb in older versions
+          - airflow db init
         envFrom:
           - secretRef:
-              name: airflow-secrets
+              name: {{ airflow_credential_secret_name }}
+          - secretRef:
+              name: {{ postgres_credential_secret_name }}
         env:
-          - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-            valueFrom:
-              configMapKeyRef:
-                name: airflow-config
-                key: airflow.cfg # This is a bit of a hack; ideally, parse it.
-                # For a more robust way, directly set SQL_ALCHEMY_CONN here if it's not in airflow.cfg or set it like other env vars
-          # Direct way for DB connection:
           - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-            value: "postgresql+psycopg2://postgres:password@postgres-service.data-services.svc.cluster.local:5432/airflow_db"
+            value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
         volumeMounts:
           - name: airflow-dags
             mountPath: /opt/airflow/dags
@@ -196,12 +169,18 @@ spec:
           command: ["airflow", "scheduler"]
           envFrom:
             - secretRef:
-                name: airflow-secrets
+                name: {{ airflow_credential_secret_name }}
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - secretRef:
+                name: {{ slack_credential_secret_name }}
           env:
             - name: AIRFLOW_UID
-              value: "50000" # Run as non-root
-            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN # Ensure DB connection
-              value: "postgresql+psycopg2://postgres:password@postgres-service.data-services.svc.cluster.local:5432/airflow_db"
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
@@ -210,6 +189,9 @@ spec:
             - name: airflow-config
               mountPath: /opt/airflow/airflow.cfg
               subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
           resources:
             requests:
               memory: "1Gi"
@@ -220,30 +202,37 @@ spec:
       volumes:
         - name: airflow-dags
           persistentVolumeClaim:
-            claimName: airflow-dags-pvc
+            claimName: {{ airflow_name }}-dags-pvc
         - name: airflow-logs
           persistentVolumeClaim:
-            claimName: airflow-logs-pvc
+            claimName: {{ airflow_name }}-logs-pvc
         - name: airflow-config
           configMap:
-            name: airflow-config
+            name: {{ airflow_name }}-config
+        - name: git-repo
+          secret:
+            secretName: {{ git_credential_secret_name }}
+            items:
+              - key: git-repo-data
+                path: .
 ---
+# Airflow Webserver Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: airflow-webserver
-  namespace: data-services
+  name: {{ airflow_name }}-webserver
+  namespace: {{ namespace_name }}
   labels:
-    app: airflow-webserver
+    app: {{ airflow_name }}-webserver
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: airflow-webserver
+      app: {{ airflow_name }}-webserver
   template:
     metadata:
       labels:
-        app: airflow-webserver
+        app: {{ airflow_name }}-webserver
     spec:
       containers:
         - name: airflow-webserver
@@ -253,12 +242,16 @@ spec:
             - containerPort: 8080
           envFrom:
             - secretRef:
-                name: airflow-secrets
+                name: {{ airflow_credential_secret_name }}
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+            - secretRef:
+                name: {{ slack_credential_secret_name }}
           env:
             - name: AIRFLOW_UID
-              value: "50000" # Run as non-root
-            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN # Ensure DB connection
-              value: "postgresql+psycopg2://postgres:password@postgres-service.data-services.svc.cluster.local:5432/airflow_db"
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
@@ -267,6 +260,9 @@ spec:
             - name: airflow-config
               mountPath: /opt/airflow/airflow.cfg
               subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
           resources:
             requests:
               memory: "1Gi"
@@ -277,108 +273,198 @@ spec:
       volumes:
         - name: airflow-dags
           persistentVolumeClaim:
-            claimName: airflow-dags-pvc
+            claimName: {{ airflow_name }}-dags-pvc
         - name: airflow-logs
           persistentVolumeClaim:
-            claimName: airflow-logs-pvc
+            claimName: {{ airflow_name }}-logs-pvc
         - name: airflow-config
           configMap:
-            name: airflow-config
+            name: {{ airflow_name }}-config
+        - name: git-repo
+          secret:
+            secretName: {{ git_credential_secret_name }}
+            items:
+              - key: git-repo-data
+                path: .
 ---
+# Airflow Webserver Service
 apiVersion: v1
 kind: Service
 metadata:
-  name: airflow-webserver-service
-  namespace: data-services
+  name: {{ airflow_name }}-webserver-service
+  namespace: {{ namespace_name }}
 spec:
-  type: LoadBalancer # Or NodePort
+  type: LoadBalancer
   selector:
-    app: airflow-webserver
+    app: {{ airflow_name }}-webserver
   ports:
     - protocol: TCP
-      port: 8080 # External port
-      targetPort: 8080 # Airflow webserver port
+      port: 8080
+      targetPort: 8080
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kafka-connect-config
-  namespace: data-services
-data:
-  connect-distributed.properties: |
-    bootstrap.servers=YOUR_KAFKA_BROKER_1:9092,YOUR_KAFKA_BROKER_2:9092 # REPLACE THIS
-    group.id=connect-cluster-group
-
-    key.converter=org.apache.kafka.connect.json.JsonConverter
-    value.converter=org.apache.kafka.connect.json.JsonConverter
-    key.converter.schemas.enable=true
-    value.converter.schemas.enable=true
-
-    offset.storage.topic=connect-offsets
-    offset.storage.replication.factor=1 # For dev; use 3 for prod
-    offset.storage.partitions=1 # For dev; use 25 or 50 for prod
-
-    config.storage.topic=connect-configs
-    config.storage.replication.factor=1 # For dev; use 3 for prod
-
-    status.storage.topic=connect-status
-    status.storage.replication.factor=1 # For dev; use 3 for prod
-    status.storage.partitions=1 # For dev; use 5 for prod
-
-    # REST API
-    rest.advertised.host.name=kafka-connect-service.data-services.svc.cluster.local # Or pod IP if needed from outside cluster without service
-    rest.port=8083
-
-    # Plugin path - if you build a custom image with plugins
-    plugin.path=/usr/share/java,/usr/share/confluent-hub-components
-    # internal.key.converter=org.apache.kafka.connect.json.JsonConverter
-    # internal.value.converter=org.apache.kafka.connect.json.JsonConverter
-    # internal.key.converter.schemas.enable=false
-    # internal.value.converter.schemas.enable=false
----
+# Kafka Cluster Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kafka-connect-deployment
-  namespace: data-services
+  name: {{ kafka_cluster_name }}
+  namespace: {{ namespace_name }}
   labels:
-    app: kafka-connect
+    app: {{ kafka_cluster_name }}
 spec:
-  replicas: 1 # Start with 1, can be scaled
+  replicas: 1
   selector:
     matchLabels:
-      app: kafka-connect
+      app: {{ kafka_cluster_name }}
   template:
     metadata:
       labels:
-        app: kafka-connect
+        app: {{ kafka_cluster_name }}
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          ports:
+            - containerPort: 9092
+            - containerPort: 9093
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "{{ kafka_cluster_name }}-zookeeper-service.{{ namespace_name }}.svc.cluster.local:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ kafka_cluster_name }}-service.{{ namespace_name }}.svc.cluster.local:9092,PLAINTEXT_HOST://localhost:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_cluster_name }}-service
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ kafka_cluster_name }}
+  ports:
+    - protocol: TCP
+      port: 9092
+      targetPort: 9092
+      name: kafka
+---
+# Zookeeper Deployment (required for Kafka)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_cluster_name }}-zookeeper
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_cluster_name }}-zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_cluster_name }}-zookeeper
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_cluster_name }}-zookeeper
+    spec:
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.5.0
+          ports:
+            - containerPort: 2181
+          env:
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: ZOOKEEPER_TICK_TIME
+              value: "2000"
+            - name: ZOOKEEPER_SERVER_ID
+              value: "1"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+# Zookeeper Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_cluster_name }}-zookeeper-service
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ kafka_cluster_name }}-zookeeper
+  ports:
+    - protocol: TCP
+      port: 2181
+      targetPort: 2181
+---
+# Kafka Connect Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_connect_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_connect_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_connect_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_connect_name }}
     spec:
       containers:
         - name: kafka-connect
-          image: confluentinc/cp-kafka-connect:7.5.0 # Or your custom image with connectors
+          image: confluentinc/cp-kafka-connect:7.5.0
           ports:
-            - containerPort: 8083 # REST API
+            - containerPort: 8083
+          envFrom:
+            - secretRef:
+                name: {{ kafka_connect_credential_secret_name }}
           env:
             - name: CONNECT_BOOTSTRAP_SERVERS
-              valueFrom:
-                configMapKeyRef:
-                  name: kafka-connect-config
-                  key: connect-distributed.properties # This is not ideal; better to directly set env var for bootstrap servers
-            # Direct env vars are better for Kafka Connect
-            - name: CONNECT_BOOTSTRAP_SERVERS
-              value: "YOUR_KAFKA_BROKER_1:9092,YOUR_KAFKA_BROKER_2:9092" # REPLACE THIS
+              value: "{{ kafka_bootstrap_servers }}"
             - name: CONNECT_REST_ADVERTISED_HOST_NAME
-              value: "kafka-connect-deployment" # Pod's hostname
+              value: "{{ kafka_connect_name }}.{{ namespace_name }}.svc.cluster.local"
             - name: CONNECT_REST_PORT
               value: "8083"
             - name: CONNECT_GROUP_ID
-              value: "connect-cluster-group"
+              value: "{{ kafka_connect_name }}-group"
             - name: CONNECT_CONFIG_STORAGE_TOPIC
-              value: "connect-configs"
+              value: "{{ kafka_connect_name }}-configs"
             - name: CONNECT_OFFSET_STORAGE_TOPIC
-              value: "connect-offsets"
+              value: "{{ kafka_connect_name }}-offsets"
             - name: CONNECT_STATUS_STORAGE_TOPIC
-              value: "connect-status"
+              value: "{{ kafka_connect_name }}-status"
             - name: CONNECT_KEY_CONVERTER
               value: "org.apache.kafka.connect.json.JsonConverter"
             - name: CONNECT_VALUE_CONVERTER
@@ -388,18 +474,13 @@ spec:
             - name: CONNECT_INTERNAL_VALUE_CONVERTER
               value: "org.apache.kafka.connect.json.JsonConverter"
             - name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR
-              value: "1" # Dev only
+              value: "1"
             - name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR
-              value: "1" # Dev only
+              value: "1"
             - name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR
-              value: "1" # Dev only
+              value: "1"
             - name: CONNECT_PLUGIN_PATH
               value: "/usr/share/java,/usr/share/confluent-hub-components"
-          # volumeMounts:
-          # - name: kafka-connect-config-volume
-          #   mountPath: /etc/kafka-connect/
-          # - name: kafka-connectors # Mount if you have custom connectors
-          #   mountPath: /usr/share/confluent-hub-components/
           resources:
             requests:
               memory: "1Gi"
@@ -407,79 +488,106 @@ spec:
             limits:
               memory: "2Gi"
               cpu: "1"
-      # volumes:
-      #   - name: kafka-connect-config-volume
-      #     configMap:
-      #       name: kafka-connect-config
-      #       items:
-      #         - key: connect-distributed.properties
-      #           path: connect-distributed.properties
-        # - name: kafka-connectors
-        #   emptyDir: {} # Or a PVC if connectors are large/managed
 ---
+# Kafka Connect Service
 apiVersion: v1
 kind: Service
 metadata:
-  name: kafka-connect-service
-  namespace: data-services
+  name: {{ kafka_connect_name }}-service
+  namespace: {{ namespace_name }}
 spec:
-  type: LoadBalancer # Or NodePort
+  type: LoadBalancer
   selector:
-    app: kafka-connect
+    app: {{ kafka_connect_name }}
   ports:
     - protocol: TCP
-      port: 8083 # External port
-      targetPort: 8083 # Kafka Connect REST API port
+      port: 8083
+      targetPort: 8083
 ---
+# DataSurface Job Pod Template (for KubernetesPodOperator)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ platform_name }}-datasurface-pod-template
+  namespace: {{ namespace_name }}
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: datasurface-job
+          image: {{ datasurface_docker_image }}
+          envFrom:
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - secretRef:
+                name: {{ slack_credential_secret_name }}
+            - secretRef:
+                name: {{ kafka_connect_credential_secret_name }}
+          env:
+            - name: PLATFORM_NAME
+              value: "{{ platform_name }}"
+            - name: POSTGRES_HOST
+              value: "{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local"
+            - name: KAFKA_CONNECT_URL
+              value: "http://{{ kafka_connect_name }}-service.{{ namespace_name }}.svc.cluster.local:8083"
+          volumeMounts:
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: git-repo
+          secret:
+            secretName: {{ git_credential_secret_name }}
+            items:
+              - key: git-repo-data
+                path: .
+---
+# Network Policy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: data-services-network-policy
-  namespace: data-services
+  name: {{ platform_name }}-network-policy
+  namespace: {{ namespace_name }}
 spec:
-  podSelector: {} # Apply to all pods in the data-services namespace
+  podSelector: {}
   policyTypes:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from any pod in the same namespace (data-services)
     - from:
         - podSelector: {}
           namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: data-services # Ensure this matches your namespace name if it's labelled differently
-    # Allow traffic from Kubernetes control plane (e.g., for liveness/readiness probes)
-    # Also allows external access if LoadBalancers are used and correctly routed
+              kubernetes.io/metadata.name: {{ namespace_name }}
     - from:
         - ipBlock:
-            cidr: 0.0.0.0/0 # Be more restrictive if possible for production
+            cidr: 0.0.0.0/0
       ports:
-        # Allow PostgreSQL access
         - protocol: TCP
           port: 5432
-        # Allow Airflow Webserver access
         - protocol: TCP
           port: 8080
-        # Allow Kafka Connect REST API access
         - protocol: TCP
           port: 8083
   egress:
-    # Allow all egress from pods in data-services namespace
-    # For production, restrict this to known endpoints (e.g., Kafka brokers, external services)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-    # Example: Allow DNS resolution (usually necessary)
-    - to:
+    - to: []
       ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
-          port: 53
-    # Example: Allow egress to Kafka brokers (replace with your Kafka broker IPs/CIDRs)
-    # - to:
-    #   - ipBlock:
-    #       cidr: <YOUR_KAFKA_BROKER_NETWORK_CIDR> # e.g., 10.x.x.x/16
-    #   ports:
-    #     - protocol: TCP
-    #       port: 9092 # Or your Kafka broker port 
+          port: 53 

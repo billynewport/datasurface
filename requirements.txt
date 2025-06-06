@@ -13,4 +13,4 @@ urllib3==2.3.0
 pyyaml==6.0.2
 fastapi==0.115.12
 pydantic==2.11.2
-
+slack_sdk==3.35.0

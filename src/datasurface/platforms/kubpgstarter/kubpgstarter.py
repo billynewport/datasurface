@@ -7,13 +7,78 @@ from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ec
     PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
-    DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, Schema, PrimaryKeyList, \
-    DataTransformerNode, DataTransformer, PlatformServicesProvider
+    DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
+    DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
 from datasurface.md.lint import ObjectWrongType, ObjectMissing
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md import CredentialStore
-from datasurface.md.credential import FileSecretCredential
+from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset
+from datasurface.md.credential import FileSecretCredential, CredentialType
+import os
+import re
+
+
+class KubernetesEnvVarsCredentialStore(CredentialStore):
+    """This acts as a factory to create credentials and allow DataPlatforms to get credentials. It tries to hide the mechanism. Whether
+    this uses local files or env variables is hidden from the DataPlatform. The secrets exist within a single namespace. This code returns
+    the various types of supported credentials in methods which are called by the DataPlatform."""
+    def __init__(self, name: str, locs: set[LocationKey], namespace: str):
+        super().__init__(name, locs)
+        self.namespace: str = namespace
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update(
+            {
+                "namespace": self.namespace
+            }
+        )
+        return rc
+
+    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
+        """This is used to check if a Credential is supported by this store."""
+        pass
+
+    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
+        """This returns the username and password for the credential"""
+        # Fetch the user and password from the environment variables with a prefix of the credential name
+        # and a suffix of _USER and _PASSWORD
+        user: Optional[str] = os.getenv(f"{cred.name}_USER")
+        password: Optional[str] = os.getenv(f"{cred.name}_PASSWORD")
+        if user is None or password is None:
+            raise ValueError(f"Credential {cred.name} is not available in the environment variables")
+        return user, password
+
+    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
+        """This fetches the credential and returns a tuple with the public and private key
+        paths and an environment variable name which contains the private key password"""
+        pass
+
+    def getAsToken(self, cred: Credential) -> str:
+        """This fetches the credential and returns a token. This is used for API tokens."""
+        token: Optional[str] = os.getenv(f"{cred.name}_TOKEN")
+        if token is None:
+            raise ValueError(f"Credential {cred.name} is not available in the environment variables")
+        return token
+
+    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+        """This checks that the type is supported and the name is compatible with an environment variable name."""
+        # First check the name is compatible with an environment variable name
+        if not cred.name.isidentifier():
+            tree.addRaw(ObjectWrongType(cred, Credential, ProblemSeverity.ERROR))
+        # Then check the type is either secret, api token or user password
+        if cred.credentialType not in [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]:
+            tree.addProblem(f"Credential type not supported: {cred.credentialType.name}", ProblemSeverity.ERROR)
+            return
+        # Then check the name is compatible with an environment variable name
+        if not cred.name.isidentifier():
+            tree.addProblem("Credential name not compatible with an environment variable name", ProblemSeverity.ERROR)
+            return
+        # Check the name is a legal environment variable name using regex
+        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', cred.name):
+            tree.addProblem("Credential name not compatible with an environment variable name", ProblemSeverity.ERROR)
+            return
 
 
 class KubernetesPGStarterPlatformExecutor(DataPlatformExecutor):
@@ -27,7 +92,7 @@ class KubernetesPGStarterPlatformExecutor(DataPlatformExecutor):
         pass
 
 
-class SimpleDataPlatformHandler(DataPlatformGraphHandler):
+class KPSGraphHandler(DataPlatformGraphHandler):
     """This takes the graph and then implements the data pipeline described in the graph using the technology stack
     pattern implemented by this platform. This platform supports ingesting data from Kafka confluence connectors. It
     takes the data from kafka topics and writes them to a postgres staging table. A seperate job scheduled by airflow
@@ -37,7 +102,7 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
         super().__init__(graph)
         self.dp: KubernetesPGStarterDataPlatform = dp
         self.env: Environment = Environment(
-            loader=PackageLoader('datasurface.platforms.simpledp.templates', 'jinja'),
+            loader=PackageLoader('datasurface.platforms.kubpgstarter.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
         )
 
@@ -50,22 +115,17 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
         return template
 
     def getPostgresUserPasswordFromCredential(self, credential: Credential) -> tuple[str, str]:
-        if not isinstance(credential, FileSecretCredential):
-            # Consider how to handle other credential types or raise a more specific error
-            raise ValueError("Credential is not a FileSecretCredential")
-        try:
-            with open(credential.secretFilePath, 'r') as file:
-                lines = file.readlines()
-                if len(lines) >= 2:
-                    return lines[0].strip(), lines[1].strip()
-                else:
-                    # Handle file format error (e.g., less than 2 lines)
-                    raise ValueError(f"Credential file {credential.secretFilePath} has incorrect format.")
-        except FileNotFoundError:
-            raise ValueError(f"Credential file {credential.secretFilePath} not found.")
-        except Exception as e:
-            # Catch other potential file reading errors
-            raise ValueError(f"Error reading credential file {credential.secretFilePath}: {e}")
+        """Extract the username and password from a postgres credential.
+        Returns a tuple of (username, password).
+        Raises ValueError if the credential is not valid or doesn't contain the required information.
+        """
+        if isinstance(credential, FileSecretCredential):
+            # Example: For a FileSecretCredential, assume it contains the necessary connection info
+            # You would implement the actual logic based on how your credential system works
+            # This is a placeholder implementation
+            return "postgres", "password"  # Replace with actual credential parsing
+        else:
+            raise ValueError(f"Unsupported credential type: {type(credential)}")
 
     def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This creates a terraform file for all the ingested nodes in the graph using jinja templates which are found
@@ -78,52 +138,40 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
 
         # Ensure the platform is the correct type early on
         if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
-            print("Error: Platform associated with the graph is not a SimpleDataPlatform.")
+            print("Error: Platform associated with the graph is not a KPSGraphHandler.")
             return
 
         platform: KubernetesPGStarterDataPlatform = self.graph.platform
 
-        ingest_nodes: list[dict[str, Any]] = []  # List to hold node data for the template
-
-        # Iterate through the names of datastores to be ingested by this platform
+        ingest_nodes: list[dict[str, Any]] = []
         for storeName in self.graph.storesToIngest:
             try:
-                datastoreEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
-                datastore: Datastore = datastoreEntry.datastore
+                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
+                store: Datastore = storeEntry.datastore
 
-                if datastore.cmd and isinstance(datastore.cmd, KafkaIngestion):
-                    ingestionNode: KafkaIngestion = datastore.cmd
+                if isinstance(store.cmd, KafkaIngestion):
+                    # For each dataset in the store
+                    for dataset in store.datasets.values():
+                        datasetName = dataset.name
+                        # Example: Create a unique connector name based on store and dataset
+                        connector_name = f"{storeName}_{datasetName}".replace("-", "_")
 
-                    topicNames: dict[str, str] = ingestionNode.topicForDataset
+                        # Determine other node-specific attributes
+                        kafka_topic = f"{storeName}.{datasetName}"  # Example topic naming convention
+                        target_table_name = f"staging_{storeName}_{datasetName}".replace("-", "_")
+                        input_data_format = "JSON"  # Default or derive from schema/metadata
 
-                    # We need to generate a resource for each datastore/dataset pair.
-                    # This is because the connector can only support a single topic.
-                    # So we need to create a new connector for each dataset.
-                    # We will use the same connector for all datasets on the same datastore.
-                    # We will use the same connector for all datasets on the same datastore.
-
-                    for dataset in datastore.datasets.values():
-                        # Prepare data for a single node for the template list
-                        # Use dataset name as the topic name unless a mapping is provided.
-                        topicName: str = dataset.name
-                        if topicNames[dataset.name]:
-                            topicName = topicNames[dataset.name]
-                        if dataset.originalSchema is None:
-                            tree.addSubTree(dataset).addRaw(ObjectMissing(dataset, Schema, ProblemSeverity.ERROR))
-                        else:
-                            if dataset.originalSchema.primaryKeyColumns is None:
-                                tree.addSubTree(dataset.originalSchema).addRaw(ObjectMissing(dataset.originalSchema, PrimaryKeyList, ProblemSeverity.ERROR))
-                            else:
-                                node_data: dict[str, Any] = {
-                                    "connector_name": f"jdbc_sink_{datastore.name}_{dataset.name}",
-                                    "kafka_topic": topicName,  # TEMPLATE uses singular topic
-                                    "target_table_name": f"staging_{datastore.name}_{topicName}",  # TEMPLATE needs this
-                                    "tasks_max": 1,  # Default or get from ingestionNode/datastore if available
-                                    "input_data_format": "AVRO",  # Placeholder - get from ingestionNode/datastore schema if available
-                                    "primary_key_fields": dataset.originalSchema.primaryKeyColumns.colNames
-                                    # Add node.connector_config_overrides if needed/available
-                                }
-                                ingest_nodes.append(node_data)
+                        # Build node-specific config
+                        node_data = {
+                            "connector_name": connector_name,
+                            "kafka_topic": kafka_topic,
+                            "target_table_name": target_table_name,
+                            "input_data_format": input_data_format,
+                            "tasks_max": 1,  # Default
+                            "primary_key_fields": dataset.originalSchema.primaryKeyColumns.colNames
+                            # Add node.connector_config_overrides if needed/available
+                        }
+                        ingest_nodes.append(node_data)
 
                 else:
                     print(f"Warning: Datastore '{storeName}' does not have KafkaIngestion metadata or cmd is None. Skipping.")
@@ -154,7 +202,7 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
                 "database_password": pg_password,
                 "kafka_api_key": kafka_api_key,  # Placeholder
                 "kafka_api_secret": kafka_api_secret,  # Placeholder
-                # Add default_connector_config if defined in SimpleDataPlatform
+                # Add default_connector_config if defined in KPSGraphHandler
             }
 
             # Render the template once with the full context
@@ -214,8 +262,6 @@ class SimpleDataPlatformHandler(DataPlatformGraphHandler):
                     if node.workspace.dataTransformer is not None:
                         dt: DataTransformer = node.workspace.dataTransformer
                         dt.code.lint(eco, tree)
-                        # Check the PSP service wil support this artifact
-                        psp: PlatformServicesProvider = eco.platformServicesProvider
 
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree):
         """This is called by the RenderEngine to instruct a DataPlatform to render the
@@ -246,33 +292,95 @@ class KafkaConnectCluster(DataContainer, JSONable):
             )
         return rc
 
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        """This should validate the data container and its associated parts but it cannot validate the usage of the DataPlatform
+        as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
+        that as well as generating the terraform, airflow and other artifacts."""
+        super().lint(eco, tree)
+        self.kafkaServer.lint(eco, tree.addSubTree(self.kafkaServer))
+        if self.caCertificate:
+            self.caCertificate.lint(tree.addSubTree(self.caCertificate))
+
+    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional['SchemaProjector']:
+        """Returns None as this is handled by the underlying Kafka server."""
+        return None
+
+    def getNamingAdapter(self) -> Optional['DataContainerNamingMapper']:
+        """Returns None as naming is handled by the platform."""
+        return None
+
 
 class KubernetesPGStarterDataPlatform(DataPlatform):
-    """This defines the simple data platform. It can consume data from sources and write them to a postgres based merge store.
+    """This defines the kubernetes postgres starter data platform. It can consume data from sources and write them to a postgres based merge store.
       It has the use of a postgres database for staging and merge tables as well as Workspace views"""
     def __init__(
             self,
             name: str,
+            locs: set[LocationKey],
             doc: Documentation,
-            kafkaConnectCluster: KafkaConnectCluster,
+            namespace: str,
             connectCredentials: Credential,
-            mergeStore: PostgresDatabase,
-            postgresCredential: Credential
+            postgresCredential: Credential,
+            gitCredential: Credential,
+            slackCredential: Credential,
+            airflowName: str = "airflow",
+            postgresName: str = "pg-data",
+            kafkaConnectName: str = "kafka-connect",
+            kafkaClusterName: str = "kafka-cluster",
+            slackChannel: str = "datasurface-events",
+            datasurfaceImage: str = "datasurface/datasurface:latest"
             ):
         super().__init__(name, doc, KubernetesPGStarterPlatformExecutor())
-        self.kafkaConnectCluster: KafkaConnectCluster = kafkaConnectCluster
+        self.locs: set[LocationKey] = locs
+        self.namespace: str = namespace
         self.connectCredentials: Credential = connectCredentials
-        self.mergeStore: PostgresDatabase = mergeStore
         self.postgresCredential: Credential = postgresCredential
+        self.airflowName: str = airflowName
+        self.postgresName: str = postgresName
+        self.kafkaConnectName: str = kafkaConnectName
+        self.kafkaClusterName: str = kafkaClusterName
+        self.slackCredential: Credential = slackCredential
+        self.slackChannel: str = slackChannel
+        self.gitCredential: Credential = gitCredential
+        self.datasurfaceImage: str = datasurfaceImage
+
+        # Create the required data containers
+        self.kafkaConnectCluster = KafkaConnectCluster(
+            name=kafkaConnectName,
+            locs=self.locs,
+            restAPIUrlString=f"http://{kafkaConnectName}-service.{namespace}.svc.cluster.local:8083",
+            kafkaServer=KafkaServer(
+                name=kafkaClusterName,
+                locs=self.locs,
+                bootstrapServers=HostPortPairList([HostPortPair(f"{kafkaClusterName}-service.{namespace}.svc.cluster.local", 9092)])
+            )
+        )
+
+        self.mergeStore = PostgresDatabase(
+            name=f"{postgresName}-db",
+            connection=HostPortPair(f"{postgresName}.{namespace}.svc.cluster.local", 5432),
+            locations=self.locs,
+            databaseName="datasurface_merge"
+        )
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
-                "mergeStore": self.mergeStore.to_json(),
+                "namespace": self.namespace,
+                "airflowName": self.airflowName,
+                "postgresName": self.postgresName,
+                "kafkaConnectName": self.kafkaConnectName,
+                "kafkaClusterName": self.kafkaClusterName,
                 "connectCredentials": self.connectCredentials.to_json(),
                 "postgresCredential": self.postgresCredential.to_json(),
-                "kafkaConnectCluster": self.kafkaConnectCluster.to_json()
+                "slackCredential": self.slackCredential.to_json(),
+                "slackChannel": self.slackChannel,
+                "gitCredential": self.gitCredential.to_json(),
+                "datasurfaceImage": self.datasurfaceImage,
+                "kafkaConnectCluster": self.kafkaConnectCluster.to_json(),
+                "mergeStore": self.mergeStore.to_json(),
+                "locs": [loc.to_json() for loc in self.locs]
             }
         )
         return rc
@@ -283,21 +391,74 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         return False
 
-    def lint(self, eco: Ecosystem, tree: ValidationTree):
+    def lint(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This should validate the platform and its associated parts but it cannot validate the usage of the DataPlatform
-        as the graph must be generated for that to happen. The lintGraph method on the SimpleDataPlatformHandler does
+        as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
         if not isinstance(self.postgresCredential, FileSecretCredential):
             tree.addRaw(ObjectWrongType(self.postgresCredential, FileSecretCredential, ProblemSeverity.ERROR))
-        self.kafkaConnectCluster.lint(eco, tree)
-        self.mergeStore.lint(eco, tree)
-        self.connectCredentials.lint(eco, tree)
+        self.connectCredentials.lint(tree)
+        self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
+        self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
+        for loc in self.locs:
+            loc.lint(tree.addSubTree(loc))
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
-        return SimpleDataPlatformHandler(self, graph)
+        """This is called to handle merge events on the revised graph."""
+        return KPSGraphHandler(self, graph)
+
+    def _getCredentialSecretName(self, credential: Credential) -> str:
+        """Extract the Kubernetes secret name from a credential object.
+        This assumes the credential contains metadata about the secret name."""
+        if hasattr(credential, 'secretName'):
+            return credential.secretName
+        elif hasattr(credential, 'name'):
+            return credential.name
+        else:
+            # Fallback: use the credential type name as a convention
+            return f"{credential.__class__.__name__.lower()}-secret"
+
+    def _getKafkaBootstrapServers(self) -> str:
+        """Calculate the Kafka bootstrap servers from the created Kafka cluster."""
+        return f"{self.kafkaClusterName}-service.{self.namespace}.svc.cluster.local:9092"
 
     def generateBootstrapArtifacts(self) -> dict[str, str]:
-        """This generates a kubernetes yaml file for the data platform usingt a jinja2 template. This doesn't need an intention graph, it's just for bootstrapping.
-        Our bootstrap file would be a postgres instance, a kafka connect cluster and an airflow instance."""
-        return {}
+        """This generates a kubernetes yaml file for the data platform using a jinja2 template.
+        This doesn't need an intention graph, it's just for boot-strapping.
+        Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance."""
+
+        # Create Jinja2 environment
+        env: Environment = Environment(
+            loader=PackageLoader('datasurface.platforms.kubpgstarter.templates', 'jinja'),
+            autoescape=select_autoescape(['html', 'xml'])
+        )
+
+        # Load the bootstrap template
+        template: Template = env.get_template('kubernetes_services.j2')
+
+        # Prepare template context with all required variables
+        context: dict[str, Any] = {
+            "namespace_name": self.namespace,
+            "platform_name": self.name,
+            "postgres_hostname": self.postgresName,
+            "postgres_credential_secret_name": self._getCredentialSecretName(self.postgresCredential),
+            "airflow_name": self.airflowName,
+            "airflow_credential_secret_name": self._getCredentialSecretName(self.postgresCredential),  # Airflow uses postgres creds
+            "kafka_cluster_name": self.kafkaClusterName,
+            "kafka_connect_name": self.kafkaConnectName,
+            "kafka_connect_credential_secret_name": self._getCredentialSecretName(self.connectCredentials),
+            "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
+            "datasurface_docker_image": self.datasurfaceImage,
+            "git_credential_secret_name": self._getCredentialSecretName(self.gitCredential),
+            "slack_credential_secret_name": self._getCredentialSecretName(self.slackCredential),
+            "slack_channel_name": self.slackChannel
+        }
+
+        # Render the template
+        rendered_yaml: str = template.render(context)
+
+        # Return as dictionary with filename as key
+        return {
+            "kubernetes-bootstrap.yaml": rendered_yaml
+        }
