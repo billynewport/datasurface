@@ -27,7 +27,6 @@ class TestEcosystemValidation(unittest.TestCase):
         rc: ValidationTree = e.lintAndHydrateCaches()
         rc.printTree()
         self.assertFalse(rc.hasErrors())
-        self.assertTrue(rc.hasWarnings())  # ClearTextCredential
 
     def test_nwdb_has_all_softlinks(self):
         e: Ecosystem = tests.nwdb.eco.createEcosystem()

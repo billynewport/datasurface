@@ -145,7 +145,7 @@ def gatherDataContainerLocationsIntoSet(containers: set[DataContainer]) -> set[L
 class LegacyDataTransformer(CodeExecutionEnvironment):
     """This is an existing DataTransformer which is unmanaged by DataSurface."""
     def __init__(self, name: str, doc: Documentation, containers: set[DataContainer]) -> None:
-        super().__init__(gatherDataContainerLocationsIntoSet(containers))
+        super().__init__(name, gatherDataContainerLocationsIntoSet(containers))
         self.name: str = name
         """The name of the DataTransformer"""
         self.doc: Documentation = doc

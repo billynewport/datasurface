@@ -6,7 +6,7 @@
 from datasurface.platforms.legacy import LegacyDatPlatformChooser
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import HostPortSQLDatabase
-from datasurface.md.credential import ClearTextCredential
+from datasurface.md.credential import Credential, CredentialType
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
@@ -26,7 +26,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
                 HostPortSQLDatabase("NW_DB", {LocationKey("MyCorp:USA/NY_1")}, HostPortPair("hostName", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                ClearTextCredential("user", "pwd")
+                Credential("eu_cred", CredentialType.USER_PASSWORD),
                 ),
             datasets=[
                 Dataset(

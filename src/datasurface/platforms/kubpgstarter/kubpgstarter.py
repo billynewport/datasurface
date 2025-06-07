@@ -14,7 +14,7 @@ from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md import CredentialStore
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset
-from datasurface.md.credential import FileSecretCredential, CredentialType
+from datasurface.md.credential import CredentialType, CredentialTypeNotSupported
 import os
 import re
 
@@ -52,8 +52,14 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
 
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
         """This fetches the credential and returns a tuple with the public and private key
-        paths and an environment variable name which contains the private key password"""
-        pass
+        strings and an the private key password"""
+        """These all need to be in environment variables"""
+        pub_key: Optional[str] = os.getenv(f"{cred.name}_PUB")
+        prv_key: Optional[str] = os.getenv(f"{cred.name}_PRV")
+        pwd: Optional[str] = os.getenv(f"{cred.name}_PWD")
+        if pub_key is None or prv_key is None or pwd is None:
+            raise ValueError(f"Credential {cred.name} is not available in the environment variables")
+        return pub_key, prv_key, pwd
 
     def getAsToken(self, cred: Credential) -> str:
         """This fetches the credential and returns a token. This is used for API tokens."""
@@ -69,7 +75,7 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
             tree.addRaw(ObjectWrongType(cred, Credential, ProblemSeverity.ERROR))
         # Then check the type is either secret, api token or user password
         if cred.credentialType not in [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]:
-            tree.addProblem(f"Credential type not supported: {cred.credentialType.name}", ProblemSeverity.ERROR)
+            tree.addRaw(CredentialTypeNotSupported(cred, [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]))
             return
         # Then check the name is compatible with an environment variable name
         if not cred.name.isidentifier():
@@ -298,8 +304,6 @@ class KafkaConnectCluster(DataContainer, JSONable):
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
         self.kafkaServer.lint(eco, tree.addSubTree(self.kafkaServer))
-        if self.caCertificate:
-            self.caCertificate.lint(tree.addSubTree(self.caCertificate))
 
     def projectDatasetSchema(self, dataset: 'Dataset') -> Optional['SchemaProjector']:
         """Returns None as this is handled by the underlying Kafka server."""
@@ -396,9 +400,14 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
-        if not isinstance(self.postgresCredential, FileSecretCredential):
-            tree.addRaw(ObjectWrongType(self.postgresCredential, FileSecretCredential, ProblemSeverity.ERROR))
-        self.connectCredentials.lint(tree)
+        if self.postgresCredential.credentialType != CredentialType.USER_PASSWORD:
+            tree.addRaw(CredentialTypeNotSupported(self.postgresCredential, [CredentialType.USER_PASSWORD]))
+        if self.connectCredentials.credentialType != CredentialType.API_TOKEN:
+            tree.addRaw(CredentialTypeNotSupported(self.connectCredentials, [CredentialType.API_TOKEN]))
+        if self.gitCredential.credentialType != CredentialType.API_TOKEN:
+            tree.addRaw(CredentialTypeNotSupported(self.gitCredential, [CredentialType.API_TOKEN]))
+        if self.slackCredential.credentialType != CredentialType.API_TOKEN:
+            tree.addRaw(CredentialTypeNotSupported(self.slackCredential, [CredentialType.API_TOKEN]))
         self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
         for loc in self.locs:

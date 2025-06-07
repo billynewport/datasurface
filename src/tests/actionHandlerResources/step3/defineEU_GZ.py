@@ -9,7 +9,7 @@ from datasurface.md import CDCCaptureIngestion, CronTrigger, Dataset, Datastore,
     SQLDatabase, Team
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import IEEE32, DDLColumn, DDLTable, Date, NullableStatus, PrimaryKeyStatus, SmallInt, VarChar
-from datasurface.md.credential import ClearTextCredential
+from datasurface.md.credential import Credential, CredentialType
 
 
 def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):
@@ -26,7 +26,7 @@ def defineEU_GZ(gzEU: GovernanceZone, e: Ecosystem):
                     {LocationKey("AWS:EU/eu-central-1")},  # Where is the database
                     databaseName="nwdb"),
                 CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
-                ClearTextCredential("user", "password"),
+                Credential("eu_cred", CredentialType.USER_PASSWORD),
                 IngestionConsistencyType.MULTI_DATASET),
             Dataset(
                 "customers",

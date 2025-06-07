@@ -4,11 +4,13 @@
 """
 
 from enum import Enum
-from datasurface.md.lint import UserDSLObject, ValidationTree, ProblemSeverity
+from datasurface.md.lint import UserDSLObject, ValidationTree, ProblemSeverity, ValidationProblem
 from datasurface.md.json import JSONable
 from datasurface.md.keys import LocationKey
 from abc import abstractmethod
-from typing import Any
+from typing import Any, Optional
+import re
+import os
 
 
 class CredentialType(Enum):
@@ -43,36 +45,6 @@ class Credential(UserDSLObject, JSONable):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
-
-    @abstractmethod
-    def lint(self, tree: ValidationTree) -> None:
-        pass
-
-
-class FileSecretCredential(Credential):
-    """This allows a secret to be read from the local filesystem. Usually the secret is
-    placed in the file using an external service such as Docker secrets etc. The secret should be in the
-    form of 2 lines, first line is user name, second line is password"""
-    def __init__(self, name: str, type: CredentialType, filePath: str) -> None:
-        super().__init__(name, type)
-        self.secretFilePath: str = filePath
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"secretFilePath": self.secretFilePath})
-        return rc
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is FileSecretCredential and self.secretFilePath == other.secretFilePath
-
-    def lint(self, tree: ValidationTree) -> None:
-        """This checks if the source is valid for the specified ecosystem, governance zone and team"""
-        # TODO This needs to be better
-        if (self.secretFilePath == ""):
-            tree.addProblem("Secret file path is empty")
-
-    def __str__(self) -> str:
-        return f"FileSecretCredential({self.secretFilePath})"
 
 
 class CredentialStore(UserDSLObject, JSONable):
@@ -118,7 +90,7 @@ class CredentialStore(UserDSLObject, JSONable):
     @abstractmethod
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
         """This fetches the credential and returns a tuple with the public and private key
-        paths and an environment variable name which contains the private key password"""
+        strings and the private key password"""
         pass
 
     @abstractmethod
@@ -157,24 +129,19 @@ class LocalFileCredentialStore(CredentialStore):
         as a tuple to the caller."""
         if cred.credentialType != CredentialType.USER_PASSWORD:
             raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
-        if isinstance(cred, FileSecretCredential):
-            file_path = f"{self.folder}/{cred.secretFilePath}"
-            try:
-                with open(file_path, 'r') as file:
-                    lines = file.readlines()
-                    if len(lines) < 2:
-                        raise ValueError("Credential file does not contain enough lines.")
-                    username = lines[0].strip()
-                    password = lines[1].strip()
-                    return username, password
-            except FileNotFoundError:
-                raise FileNotFoundError(f"Credential file {file_path} not found.")
-            except Exception as e:
-                raise RuntimeError(f"An error occurred while reading the credential file: {e}")
-        elif isinstance(cred, ClearTextCredential):
-            return cred.username, cred.password
-        else:
-            raise RuntimeError(f"Unsupported credential type: {type(cred)}")
+        file_path = f"{self.folder}/{cred.name}"
+        try:
+            with open(file_path, 'r') as file:
+                lines = file.readlines()
+                if len(lines) < 2:
+                    raise ValueError("Credential file does not contain enough lines.")
+                username = lines[0].strip()
+                password = lines[1].strip()
+                return username, password
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Credential file {file_path} not found.")
+        except Exception as e:
+            raise RuntimeError(f"An error occurred while reading the credential file: {e}")
 
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
         """This assumes there are 3 secrets on the local filesystem. The public key
@@ -184,20 +151,27 @@ class LocalFileCredentialStore(CredentialStore):
         name is provided instead."""
         if cred.credentialType != CredentialType.CLIENT_CERT_WITH_KEY:
             raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
-        if isinstance(cred, FileSecretCredential):
-            file_path_root: str = f"{self.folder}/{cred.secretFilePath}_"
-            pub_path: str = f"{file_path_root}pub"
-            prv_path: str = f"{file_path_root}prv"
-            env_var: str = f"CERT_{cred.secretFilePath}_PWD"
-            return pub_path, prv_path, env_var
+        file_path_root: str = f"{self.folder}/{cred.name}"
+        pub_path: str = f"{file_path_root}_pub"
+        prv_path: str = f"{file_path_root}_prv"
+        env_var: str = f"CERT_{cred.name}_PWD"
+        # Now read the files and return the strings
+        with open(pub_path, 'r') as pub_file:
+            pub_key: str = pub_file.read().strip()
+        with open(prv_path, 'r') as prv_file:
+            prv_key: str = prv_file.read().strip()
+        # Return the value of the private key password from the environment variable
+        pwd: Optional[str] = os.getenv(env_var)
+        if pwd is None:
+            raise RuntimeError(f"Private key password environment variable {env_var} is not set")
         else:
-            raise RuntimeError(f"Only FileSecretCredentials are supported: {cred}")
+            return pub_key, prv_key, pwd
 
     def getAsToken(self, cred: Credential) -> str:
         """This fetches the credential and returns a token. This is used for API tokens."""
         if cred.credentialType != CredentialType.API_TOKEN:
             raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
-            file_path: str = f"{self.folder}/{cred.name}"
+            file_path: str = f"{self.folder}/{cred.name}" 
             try:
                 with open(file_path, 'r') as file:
                     return file.read().strip()
@@ -209,28 +183,20 @@ class LocalFileCredentialStore(CredentialStore):
     def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
         return super().checkCredentialIsAvailable(cred, tree)
 
+    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+        """This store supports token, user password and api key pair"""
+        if cred.credentialType not in [CredentialType.API_TOKEN, CredentialType.USER_PASSWORD, CredentialType.API_KEY_PAIR]:
+            tree.addProblem(f"Credential type {cred.credentialType.name} not supported", ProblemSeverity.ERROR)
+        # Check the name is a legal environment variable name using regex
+        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', cred.name):
+            tree.addProblem("Credential name not compatible with an environment variable name", ProblemSeverity.ERROR)
+            return
 
-class ClearTextCredential(Credential):
-    """This is implemented for testing but should never be used in production. All
-    credentials should be stored and retrieved using secrets Credential objects also
-    provided."""
-    def __init__(self, name: str, username: str, password: str) -> None:
-        super().__init__(name, CredentialType.USER_PASSWORD)
-        self.username: str = username
-        self.password: str = password
 
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"username": self.username})
-        rc.update({"password": self.password})
-        return rc
+class CredentialTypeNotSupported(ValidationProblem):
+    """This indicates a credential type is not supported"""
+    def __init__(self, cred: Credential, supportedTypes: list[CredentialType]) -> None:
+        super().__init__(f"Credential {cred.name} is not of type {supportedTypes}", ProblemSeverity.ERROR)
 
     def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and type(other) is ClearTextCredential and self.username == other.username and self.password == other.password
-
-    def lint(self, tree: ValidationTree) -> None:
-        super().lint(tree)
-        tree.addProblem("ClearText credential found", ProblemSeverity.WARNING)
-
-    def __str__(self) -> str:
-        return f"ClearTextCredential({self.username})"
+        return super().__eq__(other) and isinstance(other, CredentialTypeNotSupported)

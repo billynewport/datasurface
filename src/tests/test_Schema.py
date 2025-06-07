@@ -133,7 +133,7 @@ class TestSchemaCreation(unittest.TestCase):
         tree: ValidationTree = eco.lintAndHydrateCaches()
 
         self.assertFalse(tree.hasErrors())
-        self.assertTrue(tree.hasWarnings())
+        self.assertFalse(tree.hasWarnings())
 
         store: Datastore = eco.cache_getDatastoreOrThrow("NW_Data").datastore
         dataset: Dataset = store.datasets["suppliers"]
@@ -156,7 +156,7 @@ class TestSchemaCreation(unittest.TestCase):
         # Clear it and check it's good
         tree = eco.lintAndHydrateCaches()
         self.assertFalse(tree.hasErrors())
-        self.assertTrue(tree.hasWarnings())
+        self.assertFalse(tree.hasWarnings())
 
         # Now dataset and all columns do not have classification
         dataset.dataClassificationOverride = None

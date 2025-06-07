@@ -24,7 +24,7 @@ from datasurface.md import SQLDatabase, CronTrigger
 from datasurface.md import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md.credential import ClearTextCredential
+from datasurface.md.credential import Credential, CredentialType
 
 
 class TestWorkspace(unittest.TestCase):
@@ -575,7 +575,7 @@ class TestWorkspace(unittest.TestCase):
                         {LocationKey("Azure:FL")},  # Where is the database
                         databaseName="nwdb"
                     ),
-                    ClearTextCredential("user", "password"),
+                    Credential("eu_cred", CredentialType.USER_PASSWORD),
                     CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
                     IngestionConsistencyType.MULTI_DATASET),
                 Dataset(
@@ -618,7 +618,7 @@ class TestWorkspace(unittest.TestCase):
         tree: ValidationTree = e.lintAndHydrateCaches()
         tree.printTree()
         self.assertFalse(tree.hasErrors())
-        self.assertTrue(tree.hasWarnings())
+        self.assertFalse(tree.hasWarnings())
         return e
 
     def test_StoreDependants(self):
@@ -644,7 +644,7 @@ class TestWorkspace(unittest.TestCase):
 
         eTree: ValidationTree = e.lintAndHydrateCaches()
         self.assertTrue(eTree.hasErrors())
-        self.assertTrue(eTree.hasWarnings())
+        self.assertFalse(eTree.hasWarnings())
         self.assertEqual(eTree.numWarnings, 0)
 
         # Mark Sink as allowing deprecated datasets and check again, should be good

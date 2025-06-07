@@ -4,15 +4,14 @@
 """
 
 from datasurface.md import Ecosystem, InfrastructureVendor, CloudVendor, LocationKey, InfrastructureLocation
+from datasurface.md import GovernanceZone, Team, TeamDeclaration, Datastore, Dataset
 from datasurface.md.repo import GitLabRepository
-from datasurface.md import GovernanceZoneDeclaration, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset
-from datasurface.md import CronTrigger, IngestionConsistencyType
+from datasurface.md import GovernanceZoneDeclaration, HostPortPairList, HostPortPair, DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus
+from datasurface.md import KafkaIngestion, CronTrigger, IngestionConsistencyType, KafkaServer
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
-from datasurface.md import DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus, KafkaIngestion, KafkaServer, HostPortPairList, HostPortPair
 from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
-from datasurface.md import PostgresDatabase
 from datasurface.md.documentation import PlainTextDocumentation
-from datasurface.md.credential import LocalFileCredentialStore
+from datasurface.md.credential import Credential, CredentialType
 
 
 def createEcosystem() -> Ecosystem:
@@ -37,18 +36,15 @@ def createEcosystem() -> Ecosystem:
             ),
         KubernetesPGStarterDataPlatform(
             "KafkaExample",
+            {LocationKey("HomeLab:USA/Home")},
             PlainTextDocumentation("This is an example of a Kafka data platform"),
-            LocalFileCredentialStore(
-                "HomeLab",
-                {LocationKey("HomeLab:USA/Home")},
-                "/run/secrets"),
-            PostgresDatabase(
-                "postgres",
-                HostPortPair("localhost", 5432),
-                {LocationKey("HomeLab:USA/Home")},
-                "postgres"),
-            )
+            "testNamespace",
+            Credential("connect_cred", CredentialType.API_TOKEN),
+            Credential("postgres_cred", CredentialType.USER_PASSWORD),
+            Credential("git_cred", CredentialType.API_TOKEN),
+            Credential("slack_cred", CredentialType.API_TOKEN)
         )
+    )
 
     # Define the USA gz
     gz: GovernanceZone = eco.getZoneOrThrow("Home")

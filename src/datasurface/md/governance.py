@@ -836,10 +836,7 @@ class IngestionMetadata(CaptureMetaData):
             capTree: ValidationTree = tree.addSubTree(self.dataContainer)
             self.dataContainer.lint(eco, capTree)
         # Credential is needed for a platform connect to a datacontainer and ingest data
-        if (self.credential is None):
-            tree.addRaw(AttributeNotSet("credential"))
-        else:
-            self.credential.lint(tree)
+        # But, Credentials are linted by the DataPlatform using its CredentialStore
         super().lint(eco, gz, t, d, tree)
 
 
@@ -917,8 +914,6 @@ class KafkaServer(DataContainer):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
         self.bootstrapServers.lint(tree.addSubTree(self.bootstrapServers))
-        if (self.caCertificate):
-            self.caCertificate.lint(tree.addSubTree(self.caCertificate))
 
     def __str__(self) -> str:
         return f"KafkaServer({self.bootstrapServers})"

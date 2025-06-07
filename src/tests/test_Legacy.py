@@ -7,7 +7,7 @@ import unittest
 from datasurface.md import Ecosystem, GovernanceZone, Team, DataPlatformKey, TeamDeclaration, GovernanceZoneDeclaration
 from datasurface.md.repo import GitHubRepository
 from datasurface.md import DataContainer, Workspace, DatasetGroup
-from datasurface.md.credential import ClearTextCredential
+from datasurface.md.credential import Credential, CredentialType
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfrastructureVendor, InfrastructureLocation, LocationKey
 from datasurface.md import HostPortSQLDatabase, HostPortPair, DatasetSink
 from datasurface.md.documentation import PlainTextDocumentation
@@ -33,7 +33,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[Loc
                 HostPortSQLDatabase("NW_DB", locations, HostPortPair("hostName.com", 1344), "DBName"),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
-                ClearTextCredential("user", "pwd")
+                Credential("eu_cred", CredentialType.USER_PASSWORD),
                 ),
 
             Dataset(
