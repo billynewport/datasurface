@@ -171,7 +171,7 @@ class LocalFileCredentialStore(CredentialStore):
         """This fetches the credential and returns a token. This is used for API tokens."""
         if cred.credentialType != CredentialType.API_TOKEN:
             raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
-            file_path: str = f"{self.folder}/{cred.name}" 
+            file_path: str = f"{self.folder}/{cred.name}"
             try:
                 with open(file_path, 'r') as file:
                     return file.read().strip()

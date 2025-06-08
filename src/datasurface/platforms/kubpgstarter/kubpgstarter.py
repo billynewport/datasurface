@@ -68,6 +68,10 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
             raise ValueError(f"Credential {cred.name} is not available in the environment variables")
         return token
 
+    def isLegalEnvVarName(self, name: str) -> bool:
+        """This checks if the name is a legal environment variable name."""
+        return re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', name) is not None
+
     def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
         """This checks that the type is supported and the name is compatible with an environment variable name."""
         # First check the name is compatible with an environment variable name
@@ -78,11 +82,7 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
             tree.addRaw(CredentialTypeNotSupported(cred, [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]))
             return
         # Then check the name is compatible with an environment variable name
-        if not cred.name.isidentifier():
-            tree.addProblem("Credential name not compatible with an environment variable name", ProblemSeverity.ERROR)
-            return
-        # Check the name is a legal environment variable name using regex
-        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', cred.name):
+        if not self.isLegalEnvVarName(cred.name):
             tree.addProblem("Credential name not compatible with an environment variable name", ProblemSeverity.ERROR)
             return
 
@@ -120,19 +120,6 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         template: Template = self.env.get_template(name, None)
         return template
 
-    def getPostgresUserPasswordFromCredential(self, credential: Credential) -> tuple[str, str]:
-        """Extract the username and password from a postgres credential.
-        Returns a tuple of (username, password).
-        Raises ValueError if the credential is not valid or doesn't contain the required information.
-        """
-        if isinstance(credential, FileSecretCredential):
-            # Example: For a FileSecretCredential, assume it contains the necessary connection info
-            # You would implement the actual logic based on how your credential system works
-            # This is a placeholder implementation
-            return "postgres", "password"  # Replace with actual credential parsing
-        else:
-            raise ValueError(f"Unsupported credential type: {type(credential)}")
-
     def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This creates a terraform file for all the ingested nodes in the graph using jinja templates which are found
         in the templates directory. It creates a sink connector to copy from the topics to a postgres
@@ -167,6 +154,11 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         target_table_name = f"staging_{storeName}_{datasetName}".replace("-", "_")
                         input_data_format = "JSON"  # Default or derive from schema/metadata
 
+                        # These should not be None after passing lint
+                        assert dataset.originalSchema is not None
+                        assert dataset.originalSchema.primaryKeyColumns is not None
+                        assert dataset.originalSchema.primaryKeyColumns.colNames is not None
+
                         # Build node-specific config
                         node_data = {
                             "connector_name": connector_name,
@@ -192,7 +184,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
 
         # Prepare the global context for the template
         try:
-            pg_user, pg_password = self.getPostgresUserPasswordFromCredential(platform.postgresCredential)
+            pg_user, pg_password = self.dp.credStore.getAsUserPassword(platform.postgresCredential)
             # Prepare Kafka API keys if needed (using connectCredentials)
             # kafka_api_key, kafka_api_secret = self.getKafkaKeysFromCredential(platform.connectCredentials)
             # TODO: Implement getKafkaKeysFromCredential similar to getPostgresUserPasswordFromCredential
@@ -366,6 +358,11 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             locations=self.locs,
             databaseName="datasurface_merge"
         )
+        self.credStore = KubernetesEnvVarsCredentialStore(
+            name=f"{name}-cred-store",
+            locs=self.locs,
+            namespace=namespace
+        )
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -417,17 +414,6 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         """This is called to handle merge events on the revised graph."""
         return KPSGraphHandler(self, graph)
 
-    def _getCredentialSecretName(self, credential: Credential) -> str:
-        """Extract the Kubernetes secret name from a credential object.
-        This assumes the credential contains metadata about the secret name."""
-        if hasattr(credential, 'secretName'):
-            return credential.secretName
-        elif hasattr(credential, 'name'):
-            return credential.name
-        else:
-            # Fallback: use the credential type name as a convention
-            return f"{credential.__class__.__name__.lower()}-secret"
-
     def _getKafkaBootstrapServers(self) -> str:
         """Calculate the Kafka bootstrap servers from the created Kafka cluster."""
         return f"{self.kafkaClusterName}-service.{self.namespace}.svc.cluster.local:9092"
@@ -451,16 +437,16 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             "namespace_name": self.namespace,
             "platform_name": self.name,
             "postgres_hostname": self.postgresName,
-            "postgres_credential_secret_name": self._getCredentialSecretName(self.postgresCredential),
+            "postgres_credential_secret_name": self.postgresCredential.name,
             "airflow_name": self.airflowName,
-            "airflow_credential_secret_name": self._getCredentialSecretName(self.postgresCredential),  # Airflow uses postgres creds
+            "airflow_credential_secret_name": self.postgresCredential.name,  # Airflow uses postgres creds
             "kafka_cluster_name": self.kafkaClusterName,
             "kafka_connect_name": self.kafkaConnectName,
-            "kafka_connect_credential_secret_name": self._getCredentialSecretName(self.connectCredentials),
+            "kafka_connect_credential_secret_name": self.connectCredentials.name,
             "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
             "datasurface_docker_image": self.datasurfaceImage,
-            "git_credential_secret_name": self._getCredentialSecretName(self.gitCredential),
-            "slack_credential_secret_name": self._getCredentialSecretName(self.slackCredential),
+            "git_credential_secret_name": self.gitCredential.name,
+            "slack_credential_secret_name": self.slackCredential.name,
             "slack_channel_name": self.slackChannel
         }
 
