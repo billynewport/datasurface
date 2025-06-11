@@ -3681,9 +3681,9 @@ class DataPlatformGraphHandler(UserDSLObject):
         pass
 
     @abstractmethod
-    def renderGraph(self, credStore: CredentialStore, issueTree: ValidationTree) -> None:
+    def renderGraph(self, credStore: CredentialStore, issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
-        intention graph that it manages."""
+        intention graph that it manages. It returns a dictionary of file names and their contents."""
         pass
 
 

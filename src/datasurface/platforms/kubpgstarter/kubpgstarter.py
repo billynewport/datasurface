@@ -120,7 +120,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         template: Template = self.env.get_template(name, None)
         return template
 
-    def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> None:
+    def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> str:
         """This creates a terraform file for all the ingested nodes in the graph using jinja templates which are found
         in the templates directory. It creates a sink connector to copy from the topics to a postgres
         staging file and a cluster link resource if required to recreate the topics on this cluster.
@@ -132,7 +132,8 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         # Ensure the platform is the correct type early on
         if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
             print("Error: Platform associated with the graph is not a KPSGraphHandler.")
-            return
+            tree.addRaw(ObjectWrongType(self.graph.platform, KubernetesPGStarterDataPlatform, ProblemSeverity.ERROR))
+            return ""
 
         platform: KubernetesPGStarterDataPlatform = self.graph.platform
 
@@ -208,6 +209,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
 
             # TODO: Decide what to do with the generated 'code' string (write to file, etc.)
             print(f"Generated Terraform code:\n{code}")
+            return code
 
         except ValueError as e:
             print(f"Error processing platform credentials: {e}")
@@ -225,7 +227,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             elif store.cmd.singleOrMultiDatasetIngestion != IngestionConsistencyType.SINGLE_DATASET:
                 cmdTree.addRaw(DatasetConsistencyNotSupported(store, store.cmd.singleOrMultiDatasetIngestion, self.graph.platform, ProblemSeverity.ERROR))
 
-    def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree):
+    def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree) -> None:
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
         no issues then the graph is executed. Executed here means
         1. Terraform file which creates kafka connect connectors to ingest topics to postgres tables.
@@ -241,6 +243,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
 
         if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
             tree.addRaw(ObjectWrongType(self.graph.platform, KubernetesPGStarterDataPlatform, ProblemSeverity.ERROR))
+            return
 
         # Lets make sure only kafa ingestions are used.
         for storeName in self.graph.storesToIngest:
@@ -248,6 +251,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             storeTree: ValidationTree = tree.addSubTree(store)
             if store.cmd is None:
                 storeTree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
+                return ""
             elif not isinstance(store.cmd, KafkaIngestion):
                 storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
             else:
@@ -261,10 +265,27 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         dt: DataTransformer = node.workspace.dataTransformer
                         dt.code.lint(eco, tree)
 
-    def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree):
-        """This is called by the RenderEngine to instruct a DataPlatform to render the
-        intention graph that it manages."""
+    def createAirflowDAG(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
+        """This creates an AirFlow DAG containing the MERGE task for every ingestion (store or dataset depending on whether
+        the model specifies single or multidataset)"""
+
         pass
+
+    def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
+        """This is called by the RenderEngine to instruct a DataPlatform to render the
+        intention graph that it manages. For this platform it returns a dictionary containing a terraform
+        file which configures all the kafka connect sink connectors to copy datastores using
+        kafka ingestion capture meta data to postgres staging tables. It also needs to create
+        an AirFlow DAG containing the MERGE task for every ingestion (store or dataset depending on whether
+        the model specifies single or multidataset)"""
+        # First create the terraform file
+        terraform_code: str = self.createTerraformForAllIngestedNodes(eco, issueTree)
+        # Then create the AirFlow DAG
+        airflow_dag: str = self.createAirflowDAG(eco, issueTree)
+        return {
+            "terraform_code": terraform_code,
+            "airflow_dag": airflow_dag
+        }
 
 
 class KafkaConnectCluster(DataContainer, JSONable):
@@ -421,7 +442,8 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
     def generateBootstrapArtifacts(self) -> dict[str, str]:
         """This generates a kubernetes yaml file for the data platform using a jinja2 template.
         This doesn't need an intention graph, it's just for boot-strapping.
-        Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance."""
+        Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
+        needs to create the DAG for the infrastructure."""
 
         # Create Jinja2 environment
         env: Environment = Environment(
@@ -430,7 +452,10 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         )
 
         # Load the bootstrap template
-        template: Template = env.get_template('kubernetes_services.j2')
+        kubernetes_template: Template = env.get_template('kubernetes_services.j2')
+        
+        # Load the infrastructure DAG template
+        dag_template: Template = env.get_template('infrastructure_dag.py.j2')
 
         # Prepare template context with all required variables
         context: dict[str, Any] = {
@@ -450,10 +475,12 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             "slack_channel_name": self.slackChannel
         }
 
-        # Render the template
-        rendered_yaml: str = template.render(context)
+        # Render the templates
+        rendered_yaml: str = kubernetes_template.render(context)
+        rendered_dag: str = dag_template.render(context)
 
         # Return as dictionary with filename as key
         return {
-            "kubernetes-bootstrap.yaml": rendered_yaml
+            "kubernetes-bootstrap.yaml": rendered_yaml,
+            f"{self.name}_infrastructure_dag.py": rendered_dag
         }

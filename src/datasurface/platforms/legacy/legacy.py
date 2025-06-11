@@ -74,9 +74,9 @@ class LegacyDataPlatformHandler(DataPlatformGraphHandler):
         """This is preexisting infra, it all exists already so it's by definition compatible with this platform"""
         pass
 
-    def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree):
+    def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is preexisting infra, it all exists already so it's by definition compatible with this platform"""
-        pass
+        return {}
 
 
 class LegacyDataPlatform(DataPlatform):
