@@ -521,7 +521,9 @@ class DataContainer(Documentable):
             self.documentation.lint(dTree)
 
         for loc in self.locations:
-            loc.lint(tree.addSubTree(loc))
+            ltree: ValidationTree = tree.addSubTree(loc)
+            loc.lint(ltree)
+            eco.lintLocationKey(loc, ltree)
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -1322,6 +1324,8 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def lintLocationKey(self, locKey: 'LocationKey', tree: ValidationTree) -> None:
         """This lints a location key making sure it points to a valid location"""
+        if locKey in self.validLocationsSeen:
+            return
         locTree: ValidationTree = tree.addSubTree(locKey)
         locKey.lint(locTree)
         if not locTree.hasErrors():
@@ -1343,6 +1347,10 @@ class Ecosystem(GitControlledObject, JSONable):
                                 locTree.addRaw(UnknownLocationProblem(locationParts[locIdx], ProblemSeverity.ERROR))
                                 break
 
+        """If the location key is valid then add it to the set of valid locations"""
+        if not locTree.hasErrors():
+            self.validLocationsSeen.add(locKey)
+
     def to_json(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -1354,6 +1362,7 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def resetCaches(self) -> None:
         """Empties the caches"""
+        self.validLocationsSeen: set[LocationKey] = set()
         self.datastoreCache: dict[str, DatastoreCacheEntry] = {}
         """This is a cache of all data stores in the ecosystem"""
         self.workSpaceCache: dict[str, WorkspaceCacheEntry] = {}
@@ -2874,7 +2883,9 @@ class CodeExecutionEnvironment(PlatformService, JSONable):
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         for loc in self.location:
-            loc.lint(tree)
+            ltree: ValidationTree = tree.addSubTree(loc)
+            loc.lint(ltree)
+            eco.lintLocationKey(loc, ltree)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.location})"
