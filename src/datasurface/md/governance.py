@@ -46,10 +46,11 @@ class DeprecationStatus(Enum):
     DEPRECATED = 1
 
 
-class DeprecationInfo(Documentable):
+class DeprecationInfo(Documentable, JSONable):
     """This is the deprecation information for an object"""
     def __init__(self, status: DeprecationStatus, reason: Optional[Documentation] = None) -> None:
-        super().__init__(reason)
+        Documentable.__init__(self, reason)
+        JSONable.__init__(self)
         self.status: DeprecationStatus = status
         """If it deprecated or not"""
         """If deprecated then this explains why and what an existing user should do, alternative dataset for example"""
@@ -57,6 +58,12 @@ class DeprecationInfo(Documentable):
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and \
             isinstance(other, DeprecationInfo) and self.status == other.status
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {"status": self.status.name}
+        if self.documentation:
+            rc["reason"] = self.documentation.to_json()
+        return rc
 
 
 def handleUnsupportedObjectsToJson(obj: object) -> str:
@@ -277,7 +284,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
                  deprecation_info: Optional[DeprecationInfo] = None,
                  classifications: Optional[list[DataClassification]] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
-        Documentable.__init__(self, None)
+        Documentable.__init__(self, documentation)
         JSONable.__init__(self)
         self.originalSchema: Optional[Schema] = None
         # Explicit policies, note these need to be added to mandatory policies for the owning GZ
@@ -400,6 +407,8 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
         rc.update({"name": self.name})
         rc.update({"originalSchema": self.originalSchema.to_json() if self.originalSchema else None})
         rc.update({"policies": {k: v.to_json() for k, v in self.policies.items()}})
+        rc.update({"dataClassificationOverride": [dc.to_json() for dc in self.dataClassificationOverride] if self.dataClassificationOverride else None})
+        rc.update({"deprecationStatus": self.deprecationStatus.to_json()})
         return rc
 
     def hasClassifications(self) -> bool:
@@ -460,12 +469,13 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
-class DataContainer(Documentable):
+class DataContainer(Documentable, JSONable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform
     and is used to determine whether a dataset is compatible with the container by a governancezone."""
     def __init__(self, name: str, *args: Union[set['LocationKey'], Documentation]) -> None:
         Documentable.__init__(self, None)
+        JSONable.__init__(self)
         self.locations: set[LocationKey] = set()
         self.name: str = name
         self.serverSideEncryptionKeys: Optional[EncryptionSystem] = None
@@ -563,6 +573,11 @@ class SQLDatabase(DataContainer):
         super().__init__(name, locations)
         self.databaseName: str = databaseName
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "databaseName": self.databaseName})
+        return rc
+
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, SQLDatabase)):
             return super().__eq__(other) and self.databaseName == other.databaseName
@@ -584,6 +599,11 @@ class URLSQLDatabase(SQLDatabase):
         super().__init__(name, locations, databaseName)
         self.url: str = url
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "url": self.url})
+        return rc
+
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, URLSQLDatabase)):
             return super().__eq__(other) and self.url == other.url
@@ -593,11 +613,16 @@ class URLSQLDatabase(SQLDatabase):
         return hash(self.name)
 
 
-class HostPortPair(UserDSLObject):
+class HostPortPair(UserDSLObject, JSONable):
     """This represents a host and port pair"""
     def __init__(self, hostName: str, port: int) -> None:
+        UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.hostName: str = hostName
         self.port: int = port
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "hostName": self.hostName, "port": self.port}
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, HostPortPair)):
@@ -617,10 +642,15 @@ class HostPortPair(UserDSLObject):
             tree.addProblem(f"Port {self.port} is not a valid port number")
 
 
-class HostPortPairList(UserDSLObject):
+class HostPortPairList(UserDSLObject, JSONable):
     """This is a list of host port pairs"""
     def __init__(self, pairs: list[HostPortPair]) -> None:
+        UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.pairs: list[HostPortPair] = pairs
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "pairs": [p.to_json() for p in self.pairs]}
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, HostPortPairList)):
@@ -644,6 +674,11 @@ class HostPortSQLDatabase(SQLDatabase):
         super().__init__(name, locations, databaseName)
         self.hostPortPair: HostPortPair = hostPort
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "hostPort": self.hostPortPair.to_json()})
+        return rc
+
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, HostPortSQLDatabase)):
             return super().__eq__(other) and self.hostPortPair == other.hostPortPair
@@ -662,6 +697,11 @@ class PostgresDatabase(SQLDatabase):
     def __init__(self, name: str, connection: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
         super().__init__(name, locations, databaseName)
         self.connection: HostPortPair = connection
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "connection": self.connection.to_json()})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, PostgresDatabase)):
@@ -684,6 +724,11 @@ class ObjectStorage(DataContainer):
         self.bucketName: str = bucketName
         self.prefix: Optional[str] = prefix
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "endPointURI": self.endPointURI, "bucketName": self.bucketName, "prefix": self.prefix})
+        return rc
+
     def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
         return super().projectDatasetSchema(dataset)
 
@@ -700,6 +745,12 @@ class PyOdbcSourceInfo(SQLDatabase):
         self.serverHost: str = serverHost
         self.driver: str = driver
         self.connectionStringTemplate: str = connectionStringTemplate
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "serverHost": self.serverHost, "databaseName": self.databaseName,
+                   "driver": self.driver, "connectionStringTemplate": self.connectionStringTemplate})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and type(other) is PyOdbcSourceInfo and self.serverHost == other.serverHost and \
@@ -816,6 +867,11 @@ class IngestionMetadata(CaptureMetaData):
         self.credential: Optional[Credential] = None
         self.add(*args)
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "credential": self.credential.to_json() if self.credential else None})
+        return rc
+
     def add(self, *args: Union[Credential, DataContainer, StepTrigger, IngestionConsistencyType]) -> None:
         for arg in args:
             if (isinstance(arg, Credential)):
@@ -870,6 +926,11 @@ class SQLPullIngestion(IngestionMetadata):
         self.deltaSQL: dict[str, str] = OrderedDict()
         """A SQL string per dataset which pulls all rows which changed since last time for a table"""
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "variableNames": self.variableNames, "snapshotSQL": self.snapshotSQL, "deltaSQL": self.deltaSQL})
+        return rc
+
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SQLPullIngestion):
             return super().__eq__(other) and self.variableNames == other.variableNames and \
@@ -894,6 +955,11 @@ class StreamingIngestion(IngestionMetadata):
             if isinstance(arg, dict):
                 self.topicForDataset.update(arg)
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "topicForDataset": self.topicForDataset})
+        return rc
+
     def __eq__(self, other: object) -> bool:
         if isinstance(other, StreamingIngestion):
             return super().__eq__(other) and self.topicForDataset == other.topicForDataset
@@ -908,6 +974,14 @@ class KafkaServer(DataContainer):
         self.bootstrapServers: HostPortPairList = bootstrapServers
         self.groupID: Optional[str] = groupID
         self.caCertificate: Optional[Credential] = caCert
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, 
+                   "bootstrapServers": self.bootstrapServers.to_json(), 
+                   "groupID": self.groupID, 
+                   "caCertificate": self.caCertificate.to_json() if self.caCertificate else None})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, KafkaServer) and self.bootstrapServers == other.bootstrapServers and \
@@ -961,7 +1035,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
                  production_status: Optional[ProductionStatus] = None,
                  deprecation_info: Optional[DeprecationInfo] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
-        Documentable.__init__(self, None)
+        Documentable.__init__(self, documentation)
         JSONable.__init__(self)
         self.datasets: dict[str, Dataset] = OrderedDict()
         self.key: Optional[DatastoreKey] = None
@@ -1000,6 +1074,8 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
         rc.update({"cmd": self.cmd.to_json() if self.cmd else None})
         if (self.documentation):
             rc.update({"doc": self.documentation.to_json()})
+        rc.update({"productionStatus": self.productionStatus.name})
+        rc.update({"deprecationStatus": self.deprecationStatus.to_json()})
         return rc
 
     def setTeam(self, tdKey: TeamDeclarationKey):
@@ -2963,12 +3039,15 @@ class WorkloadTier(Enum):
     UNKNOWN = 4
 
 
-class WorkspacePriority(UserDSLObject, ABC):
-
+class WorkspacePriority(UserDSLObject, JSONable):
     """This is a relative priority of a Workspace against other Workspaces. This priority propogates backwards to producers whose data a Workspace
     uses. Thus, producers don't set the priority of their data, it's determined by the priority of whose is using it."""
     def __init__(self):
         super().__init__()
+
+    def to_json(self) -> dict[str, Any]:
+        """Base implementation that subclasses can extend"""
+        return {"_type": self.__class__.__name__}
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -2976,7 +3055,7 @@ class WorkspacePriority(UserDSLObject, ABC):
     @abstractmethod
     def isMoreImportantThan(self, other: 'WorkspacePriority') -> bool:
         """This checks if this priority is more important than the other priority"""
-        return False
+        pass
 
 
 class PrioritizedWorkloadTier(WorkspacePriority):
@@ -2984,6 +3063,11 @@ class PrioritizedWorkloadTier(WorkspacePriority):
     def __init__(self, priority: WorkloadTier):
         super().__init__()
         self.priority: WorkloadTier = priority
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"priority": self.priority.name})
+        return rc
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.priority})"
@@ -3023,12 +3107,11 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
             "name": self.name,
             "datasetGroups": {name: dsg.to_json() for name, dsg in self.dsgs.items()},
             "productionStatus": self.productionStatus.name,
-
-            "deprecationStatus": {
-                "status": self.deprecationStatus.status.name,
-                "documentation": self.deprecationStatus.documentation.to_json() if self.deprecationStatus.documentation else None
-            }
+            "deprecationStatus": self.deprecationStatus.to_json(),
+            "priority": self.priority.to_json()
         }
+        if self.dataContainer:
+            json_dict["dataContainer"] = self.dataContainer.to_json()
         if self.dataTransformer:
             json_dict["dataTransformer"] = self.dataTransformer.to_json()
         return json_dict
