@@ -403,8 +403,9 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
         return f"Dataset({self.name})"
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"name": self.name})
+        rc: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
+        rc.update(Documentable.to_json(self))
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"originalSchema": self.originalSchema.to_json() if self.originalSchema else None})
         rc.update({"policies": {k: v.to_json() for k, v in self.policies.items()}})
         rc.update({"dataClassificationOverride": [dc.to_json() for dc in self.dataClassificationOverride] if self.dataClassificationOverride else None})
@@ -977,9 +978,9 @@ class KafkaServer(DataContainer):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, 
-                   "bootstrapServers": self.bootstrapServers.to_json(), 
-                   "groupID": self.groupID, 
+        rc.update({"_type": self.__class__.__name__,
+                   "bootstrapServers": self.bootstrapServers.to_json(),
+                   "groupID": self.groupID,
                    "caCertificate": self.caCertificate.to_json() if self.caCertificate else None})
         return rc
 
@@ -1067,8 +1068,10 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
         self.add(*args)
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"name": self.name, "datasets": {k: v.to_json() for k, v in self.datasets.items()}})
+        rc: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
+        rc.update(Documentable.to_json(self))
+        rc.update({"_type": self.__class__.__name__})
+        rc.update({"datasets": {k: v.to_json() for k, v in self.datasets.items()}})
         if (self.key is not None):
             rc.update({"team": self.key.tdName, "governance_zone": self.key.gzName})
         rc.update({"cmd": self.cmd.to_json() if self.cmd else None})
@@ -2995,12 +2998,12 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
         self.documentation = doc
 
     def to_json(self) -> dict[str, Any]:
-        json_dict: dict[str, Any] = {
-            "name": self.name,
-            "outputDatastore": self.outputDatastore.to_json(),
-            "trigger": self.trigger.to_json(),
-            "code": self.code.to_json()
-        }
+        json_dict: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
+        json_dict.update(Documentable.to_json(self))
+        json_dict.update({"_type": self.__class__.__name__})
+        json_dict.update({"outputDatastore": self.outputDatastore.to_json()})
+        json_dict.update({"trigger": self.trigger.to_json()})
+        json_dict.update({"code": self.code.to_json()})
         if self.documentation:
             json_dict["documentation"] = self.documentation.to_json()
         return json_dict
@@ -3103,13 +3106,15 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
         self.add(*args)
 
     def to_json(self) -> dict[str, Any]:
-        json_dict: dict[str, Any] = {
-            "name": self.name,
+        json_dict: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
+        json_dict.update(Documentable.to_json(self))
+
+        json_dict.update({
             "datasetGroups": {name: dsg.to_json() for name, dsg in self.dsgs.items()},
             "productionStatus": self.productionStatus.name,
             "deprecationStatus": self.deprecationStatus.to_json(),
             "priority": self.priority.to_json()
-        }
+        })
         if self.dataContainer:
             json_dict["dataContainer"] = self.dataContainer.to_json()
         if self.dataTransformer:

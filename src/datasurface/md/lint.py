@@ -11,6 +11,7 @@ import inspect
 from datasurface.md.utils import is_valid_sql_identifier
 from datasurface.md.exceptions import NameMustBeANSISQLIdentifierException
 import os
+from datasurface.md.json import JSONable
 
 # Global performance controls
 _enable_source_tracking = os.environ.get('DATASURFACE_DEBUG', 'false').lower() == 'true'
@@ -404,7 +405,7 @@ class ValidationTree:
         return next((True for _ in self.findMatchingProblems(lambda p: isinstance(p, type))), False)
 
 
-class ANSI_SQL_NamedObject(UserDSLObject):
+class ANSI_SQL_NamedObject(UserDSLObject, JSONable):
     name: str
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
@@ -435,6 +436,9 @@ class ANSI_SQL_NamedObject(UserDSLObject):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
 
 
 def track_sources(func: Callable[..., Any]) -> Callable[..., Any]:

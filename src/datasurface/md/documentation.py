@@ -6,13 +6,15 @@
 from abc import abstractmethod
 from typing import Any, Optional, OrderedDict
 from datasurface.md.lint import UserDSLObject, ValidationTree
+from datasurface.md.json import JSONable
 
 
-class Documentation(UserDSLObject):
+class Documentation(UserDSLObject, JSONable):
     """This is the base class for all documentation objects. There are subclasses for different ways to express documentation such as plain text \
     or markdown and so on."""
     def __init__(self, description: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         if not description:
             raise ValueError("Description cannot be empty")
         if tags is not None:
@@ -44,10 +46,11 @@ class Documentation(UserDSLObject):
         return rc
 
 
-class Documentable(UserDSLObject):
+class Documentable(UserDSLObject, JSONable):
     """This is the base class for all objects which can have documentation."""
     def __init__(self, documentation: Optional[Documentation]) -> None:
         UserDSLObject.__init__(self)
+        JSONable.__init__(self)
         self.documentation: Optional[Documentation] = documentation
 
     def __eq__(self, other: object):
@@ -57,6 +60,10 @@ class Documentable(UserDSLObject):
 
     def __str__(self) -> str:
         return f"Documentable({self.documentation})"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {"documentation": self.documentation.to_json() if self.documentation else None}
+        return rc
 
 
 class PlainTextDocumentation(Documentation):
