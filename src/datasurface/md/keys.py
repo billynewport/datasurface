@@ -161,20 +161,14 @@ class InvalidLocationStringProblem(ValidationProblem):
         return hash(self.description)
 
 
-class LocationKey(UserDSLObject, JSONable):
+class LocationKey(UserDSLObject):
     """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
     def __init__(self, locStr: str) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.locStr: str = locStr
 
-    def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "locStr": self.locStr}
-
-    def __eq__(self, other: object) -> bool:
-        if (isinstance(other, LocationKey)):
-            return self.locStr == other.locStr
-        return False
+    def _hash(self) -> int:
+        return hash(self.locStr)
 
     def parseToVendorAndLocations(self) -> tuple[str, list[str]]:
         locList: list[str] = self.locStr.split(":")
@@ -210,3 +204,11 @@ class LocationKey(UserDSLObject, JSONable):
 
     def __hash__(self) -> int:
         return hash(self.locStr)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "locStr": self.locStr}
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, LocationKey)):
+            return self.locStr == other.locStr
+        return False

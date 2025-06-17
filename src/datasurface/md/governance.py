@@ -614,11 +614,10 @@ class URLSQLDatabase(SQLDatabase):
         return hash(self.name)
 
 
-class HostPortPair(UserDSLObject, JSONable):
+class HostPortPair(UserDSLObject):
     """This represents a host and port pair"""
     def __init__(self, hostName: str, port: int) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.hostName: str = hostName
         self.port: int = port
 
@@ -643,11 +642,10 @@ class HostPortPair(UserDSLObject, JSONable):
             tree.addProblem(f"Port {self.port} is not a valid port number")
 
 
-class HostPortPairList(UserDSLObject, JSONable):
+class HostPortPairList(UserDSLObject):
     """This is a list of host port pairs"""
     def __init__(self, pairs: list[HostPortPair]) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.pairs: list[HostPortPair] = pairs
 
     def to_json(self) -> dict[str, Any]:
@@ -771,12 +769,11 @@ class PyOdbcSourceInfo(SQLDatabase):
         return super().projectDatasetSchema(dataset)
 
 
-class CaptureMetaData(UserDSLObject, JSONable):
+class CaptureMetaData(UserDSLObject):
     """This describes how a platform can pull data for a Datastore"""
 
     def __init__(self, *args: Union[StepTrigger, DataContainer, IngestionConsistencyType]):
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.singleOrMultiDatasetIngestion: Optional[IngestionConsistencyType] = None
         self.stepTrigger: Optional[StepTrigger] = None
         self.dataContainer: Optional[DataContainer] = None
@@ -1233,6 +1230,9 @@ class DefaultDataPlatform(UserDSLObject):
         UserDSLObject.__init__(self)
         self.defaultPlatform: 'DataPlatformKey' = p
 
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "defaultPlatform": self.defaultPlatform.name}
+
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         """Lint just checks the platform exists, the platform will be linted seperatedly"""
         if (eco.getDataPlatform(self.defaultPlatform.name) is None):
@@ -1261,10 +1261,9 @@ class PlatformService(JSONable):
         return {"_type": self.__class__.__name__, "name": self.name}
 
 
-class PlatformServicesProvider(UserDSLObject, JSONable):
+class PlatformServicesProvider(UserDSLObject):
     def __init__(self, name: str, credStore: CredentialStore):
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.name: str = name
         self.credStore: CredentialStore = credStore
 
@@ -1808,11 +1807,10 @@ class Ecosystem(GitControlledObject, JSONable):
         return eTree
 
 
-class VendorKey(UserDSLObject, JSONable):
+class VendorKey(UserDSLObject):
     """This is used to reference a vendor during DSL construction"""
     def __init__(self, vendor: str) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.vendorString: str = vendor
         self.vendor: Optional[InfrastructureVendor] = None
 
@@ -2409,11 +2407,10 @@ class DockerContainer:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatformExecutor(UserDSLObject, JSONable):
+class DataPlatformExecutor(UserDSLObject):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataPlatformExecutor)
@@ -2708,6 +2705,7 @@ class DatasetSink(UserDSLObject):
 
     def to_json(self) -> dict[str, Any]:
         json_dict: dict[str, Any] = {
+            "_type": self.__class__.__name__,
             "storeName": self.storeName,
             "datasetName": self.datasetName,
             "deprecationsAllowed": self.deprecationsAllowed.name
@@ -2889,11 +2887,10 @@ class TimedTransformerTrigger(TransformerTrigger):
         return isinstance(o, TimedTransformerTrigger) and self.trigger == o.trigger and super().__eq__(o)
 
 
-class CodeArtifact(UserDSLObject, JSONable):
+class CodeArtifact(UserDSLObject):
     """This defines a piece of code which can be used to transform data in a workspace"""
 
     def __init__(self):
-        JSONable.__init__(self)
         UserDSLObject.__init__(self)
 
     @abstractmethod
@@ -3042,7 +3039,7 @@ class WorkloadTier(Enum):
     UNKNOWN = 4
 
 
-class WorkspacePriority(UserDSLObject, JSONable):
+class WorkspacePriority(UserDSLObject):
     """This is a relative priority of a Workspace against other Workspaces. This priority propogates backwards to producers whose data a Workspace
     uses. Thus, producers don't set the priority of their data, it's determined by the priority of whose is using it."""
     def __init__(self):
@@ -3759,10 +3756,10 @@ class FileBasedFragmentManager(IaCFragmentManager):
         return hash(self.name)
 
 
-class DataPlatformGraphHandler(UserDSLObject):
+class DataPlatformGraphHandler(InternalLintableObject):
     """This is a base class for DataPlatform code for handling a specific intention graph."""
     def __init__(self, graph: PlatformPipelineGraph):
-        UserDSLObject.__init__(self)
+        InternalLintableObject.__init__(self)
         self.graph: PlatformPipelineGraph = graph
 
     @abstractmethod

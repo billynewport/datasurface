@@ -5,7 +5,6 @@
 
 from enum import Enum
 from datasurface.md.lint import UserDSLObject, ValidationTree, ProblemSeverity, ValidationProblem
-from datasurface.md.json import JSONable
 from datasurface.md.keys import LocationKey
 from abc import abstractmethod
 from typing import Any, Optional
@@ -22,20 +21,12 @@ class CredentialType(Enum):
     API_TOKEN = 4  # API token for a service
 
 
-class Credential(UserDSLObject, JSONable):
+class Credential(UserDSLObject):
     """These allow a client to connect to a service/server"""
     def __init__(self, name: str, credentialType: CredentialType) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.name: str = name
         self.credentialType: CredentialType = credentialType
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "name": self.name,
-            "credentialType": self.credentialType.name,
-        }
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, Credential)):
@@ -46,21 +37,20 @@ class Credential(UserDSLObject, JSONable):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 
-
-class CredentialStore(UserDSLObject, JSONable):
-    """This is a credential store which stores credential data in a set of infra locations"""
-    def __init__(self, name: str, locs: set['LocationKey']) -> None:
-        UserDSLObject.__init__(self)
-        JSONable.__init__(self)
-        self.name: str = name
-        self.locs: set[LocationKey] = locs
-
     def to_json(self) -> dict[str, Any]:
         return {
             "_type": self.__class__.__name__,
             "name": self.name,
-            "locs": {k: k.to_json() for k in self.locs},
+            "credentialType": self.credentialType.name,
         }
+
+
+class CredentialStore(UserDSLObject):
+    """This is a credential store which stores credential data in a set of infra locations"""
+    def __init__(self, name: str, locs: set['LocationKey']) -> None:
+        UserDSLObject.__init__(self)
+        self.name: str = name
+        self.locs: set[LocationKey] = locs
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and \
@@ -76,6 +66,13 @@ class CredentialStore(UserDSLObject, JSONable):
             tree.addProblem("Name is empty")
         for loc in self.locs:
             loc.lint(tree.addSubTree(loc))
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "name": self.name,
+            "locs": [k.to_json() for k in self.locs]
+        }
 
     @abstractmethod
     def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:

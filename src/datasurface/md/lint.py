@@ -44,12 +44,13 @@ class ValidatableObject(ABC):
         pass
 
 
-class UserDSLObject(ValidatableObject):
+class UserDSLObject(ValidatableObject, JSONable):
     """This walks back the stack to find the file and line number constructing the object. It needs
     to skip all datasurface classes on the call stack until a non datasurface class is found and that is
     the frame we should use. Objects which we validate in the DSL should inherit from this class"""
     def __init__(self, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:
         ValidatableObject.__init__(self)
+        JSONable.__init__(self)
         self._line_number: int = 0  # The _ here causes these variables to be ignore during cyclic reference checks
         self._file_name: str = ""  # We want this because we can define the identical object in two places and still want them equal
         self._source_ref_cache: Optional[str] = None  # Cache the computed string
@@ -61,6 +62,10 @@ class UserDSLObject(ValidatableObject):
             # Only do expensive stack walking if source tracking is enabled
             # You could make this conditional with an environment variable
             self._capture_source_info()
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = {"_type": self.__class__.__name__}
+        return rc
 
     def _capture_source_info(self) -> None:
         """Capture minimal source info immediately (just filename and line number)"""
@@ -405,11 +410,12 @@ class ValidationTree:
         return next((True for _ in self.findMatchingProblems(lambda p: isinstance(p, type))), False)
 
 
-class ANSI_SQL_NamedObject(UserDSLObject, JSONable):
+class ANSI_SQL_NamedObject(UserDSLObject):
     name: str
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
     def __init__(self, name: str, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:
+        UserDSLObject.__init__(self, filename, linenumber)
         self.name: str = name
         """The name of the object"""
         if not is_valid_sql_identifier(self.name):

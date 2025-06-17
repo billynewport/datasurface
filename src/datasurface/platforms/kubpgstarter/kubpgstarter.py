@@ -6,7 +6,7 @@
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
     PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
 from typing import Any, Optional
-from datasurface.md import LocationKey, Credential, JSONable, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
+from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
 from datasurface.md.lint import ObjectWrongType, ObjectMissing
@@ -288,7 +288,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         }
 
 
-class KafkaConnectCluster(DataContainer, JSONable):
+class KafkaConnectCluster(DataContainer):
     def __init__(self, name: str, locs: set[LocationKey], restAPIUrlString: str, kafkaServer: KafkaServer, caCert: Optional[Credential] = None) -> None:
         super().__init__(name, locs)
         self.restAPIUrlString: str = restAPIUrlString

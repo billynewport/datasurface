@@ -3,19 +3,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md.json import JSONable
 from datasurface.md.lint import UserDSLObject, ValidationTree
 from abc import abstractmethod
 from typing import Any, Optional, OrderedDict, Type, cast
 from enum import Enum
 
 
-class DataType(UserDSLObject, JSONable):
+class DataType(UserDSLObject):
     """Base class for all data types. These DataTypes are not nullable. Nullable status is a property of
     columns and is specified in the DDLColumn constructor"""
     def __init__(self) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         pass
 
     def __eq__(self, other: object) -> bool:

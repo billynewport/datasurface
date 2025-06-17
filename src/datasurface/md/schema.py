@@ -6,7 +6,6 @@
 from enum import Enum
 from typing import Any, Optional, Union, List, cast
 from datasurface.md.documentation import Documentation, Documentable
-from datasurface.md.json import JSONable
 from datasurface.md.lint import UserDSLObject, ValidationTree, ValidationProblem, ProblemSeverity, ANSI_SQL_NamedObject
 from datasurface.md.types import DataType
 from datasurface.md.utils import is_valid_sql_identifier
@@ -36,7 +35,7 @@ DEFAULT_nullable = NullableStatus.NULLABLE
 DEFAULT_primaryKey = PrimaryKeyStatus.NOT_PK
 
 
-class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
+class DDLColumn(ANSI_SQL_NamedObject, Documentable):
     """This is an individual attribute within a DDLTable schema"""
     def __init__(self,
                  name: str,
@@ -48,7 +47,6 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
                  classifications: Optional[list[DataClassification]] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name, "DDLColumn", 1)
         Documentable.__init__(self, documentation)
-        JSONable.__init__(self)
 
         # Handle backward compatibility: if *args are provided, parse them the old way
         if args:
@@ -158,11 +156,10 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable, JSONable):
         return f"DDLColumn({self.name})"
 
 
-class AttributeList(UserDSLObject, JSONable):
+class AttributeList(UserDSLObject):
     """A list of column names."""
     def __init__(self, colNames: list[str]) -> None:
         UserDSLObject.__init__(self)
-        JSONable.__init__(self)
         self.colNames: List[str] = []
         for col in colNames:
             self.colNames.append(col)
@@ -212,11 +209,10 @@ class NotBackwardsCompatible(ValidationProblem):
         return hash(str(self))
 
 
-class Schema(Documentable, JSONable):
+class Schema(Documentable):
     """This is a basic schema in the system. It has base meta attributes common for all schemas and core methods for all schemas"""
     def __init__(self) -> None:
         Documentable.__init__(self, None)
-        JSONable.__init__(self)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
         """How should this dataset be partitioned for ingestion and storage"""
