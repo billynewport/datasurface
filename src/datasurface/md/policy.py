@@ -51,7 +51,9 @@ class Literal(JSONable, Generic[L]):
         self.value: L = value
 
     def to_json(self) -> dict[str, Any]:
-        return {"value": self.value}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "value": self.value})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Literal):
@@ -146,6 +148,11 @@ class SimpleDC(DataClassification):
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, SimpleDC) and self.dcType == o.dcType and self.name == o.name
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "dcType": self.dcType.name, "name": self.name})
+        return rc
+
 
 class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
     """This checks whether a data classification is explicitly allowed or explicitly forbidden"""
@@ -158,6 +165,11 @@ class DataClassificationPolicy(AllowDisallowPolicy[DataClassification]):
 
     def __hash__(self) -> int:
         return super().__hash__()
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
 
 class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
@@ -174,3 +186,8 @@ class VerifyNoPrivacyDataVerify(DataClassificationPolicy):
 
     def __hash__(self) -> int:
         return super().__hash__()
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc

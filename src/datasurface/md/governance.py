@@ -136,6 +136,11 @@ class InfraHardVendorPolicy(AllowDisallowPolicy[Literal[CloudVendor]]):
 
     def __hash__(self) -> int:
         return super().__hash__()
+    
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
 
 class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
@@ -152,6 +157,11 @@ class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
 
     def __hash__(self) -> int:
         return super().__hash__()
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
 
 class EncryptionSystem(JSONable):
@@ -3973,6 +3983,11 @@ class InfraStructureLocationPolicy(AllowDisallowPolicy[LocationKey]):
     def __hash__(self) -> int:
         return super().__hash__()
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
+
 
 class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
     """Allows a GZ to police which vendors can be used with datastore or workspaces within itself"""
@@ -3990,3 +4005,8 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
 
     def __hash__(self) -> int:
         return super().__hash__()
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
