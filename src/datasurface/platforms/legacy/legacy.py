@@ -87,6 +87,7 @@ class LegacyDataPlatform(DataPlatform):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         return rc
 
     def __str__(self) -> str:
@@ -132,6 +133,9 @@ class LegacyDatPlatformChooser(DataPlatformChooser):
         rc: dict[str, Any] = super().to_json()
         rc.update({"dataPlatformName": self.dataPlatformName, "containers": [dc.to_json() for dc in self.containers]})
         return rc
+
+    def __hash__(self) -> int:
+        return hash((self.dataPlatformName, frozenset(self.containers)))
 
 
 def gatherDataContainerLocationsIntoSet(containers: set[DataContainer]) -> set[LocationKey]:

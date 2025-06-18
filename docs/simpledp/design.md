@@ -30,4 +30,4 @@ Security isn't really a DataPlatform problem, the DataPlatform problem is simply
 
 The merge job will run and periodically merging the staging records that are unprocessed in to the merge table. The staging records might have a IUD attribute indicating insert/update/delete. The merge job will be able to keep the merge records as a live view of active records with this attribute. If there is no IUD attribute then it have update records but records will never be deleted.
 
-If a merge fails due to data issues then the job will need to fail and flag an error to the dev ops team why the job failed. The dev ops team may then need to work with the data owners to fix the data issues upstream. The stream will be stalled until this is fixed.
+If a merge fails due to data issues then the job will need to fail and flag an error to the dev ops team why the job failed. The dev ops team may then need to work with the data owners to fix the data issues upstream. The stream will be stalled until this is fixed

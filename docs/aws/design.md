@@ -11,6 +11,7 @@ The pipeline will be fully generated from the Ecosystem model. The subset of tha
 This means that when the ecosystem model is modified then the IaC will be updated and the AWS resources will be updated. This is a very powerful way to manage the data platform. It allows the data platform to be managed by the data producers and consumers.
 
 This will result in:
+
 * Ingestion jobs to use DMS to get data from sources are store LOAD and CDC data in S3 staging buckets. A Trigger will then load a Spark Job to process these staging files in to an Iceberg Table for each dataset ingested.
 * Export job for Snowflake External tables. These will either create the external table OR refresh it to point at the latest metadata files
 * Export job for Redshift External tables. These will either create the table or refresh it

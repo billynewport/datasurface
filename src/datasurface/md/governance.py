@@ -136,7 +136,7 @@ class InfraHardVendorPolicy(AllowDisallowPolicy[Literal[CloudVendor]]):
 
     def __hash__(self) -> int:
         return super().__hash__()
-    
+
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__, "name": self.name})
@@ -2621,7 +2621,7 @@ class DataRetentionPolicy(Enum):
 
 # This needs to be keyed and rolled up to manage definitions centrally, there should
 # be a common ESMA definition for example (5 years forensic)
-class ConsumerRetentionRequirements:
+class ConsumerRetentionRequirements(UserDSLObject):
     """Consumers specify the retention requirements for the data they consume. Platforms use this to backtrack
     retention requirements for data in the full inferred pipeline to manage that consumer"""
     def __init__(self, r: DataRetentionPolicy, latency: DataLatency, regulator: Optional[str],
@@ -2631,8 +2631,8 @@ class ConsumerRetentionRequirements:
         self.minRetentionTime: Optional[timedelta] = minRetentionDurationIfNeeded
         self.regulator: Optional[str] = regulator
 
-    def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+    def __eq__(self, other: object) -> bool:
+        return cyclic_safe_eq(self, other, set())
 
     def __hash__(self) -> int:
         return hash((self.policy, self.latency, self.minRetentionTime, self.regulator))
@@ -2642,11 +2642,11 @@ class ConsumerRetentionRequirements:
                 "minRetentionTime": self.minRetentionTime, "regulator": self.regulator}
 
 
-class DataPlatformChooser(ABC):
+class DataPlatformChooser(UserDSLObject):
     """Subclasses of this choose a DataPlatform to render the pipeline for moving data from a producer to a Workspace possibly
     through intermediate Workspaces"""
     def __init__(self):
-        pass
+        UserDSLObject.__init__(self)
 
     @abstractmethod
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
@@ -2666,8 +2666,8 @@ class WorkspacePlatformConfig(DataPlatformChooser):
     def __init__(self, hist: ConsumerRetentionRequirements) -> None:
         self.retention: ConsumerRetentionRequirements = hist
 
-    def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+    def __eq__(self, other: object) -> bool:
+        return cyclic_safe_eq(self, other, set())
 
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         """For now, just return default"""
@@ -2681,7 +2681,9 @@ class WorkspacePlatformConfig(DataPlatformChooser):
         return hash(self.retention)
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "retention": self.retention.to_json()}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"retention": self.retention.to_json()})
+        return rc
 
 
 class WorkspaceFixedDataPlatform(DataPlatformChooser):
@@ -2702,7 +2704,9 @@ class WorkspaceFixedDataPlatform(DataPlatformChooser):
         return hash(self.dataPlatform)
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "dataPlatform": self.dataPlatform.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"dataPlatform": self.dataPlatform.name})
+        return rc
 
 
 class DeprecationsAllowed(Enum):
@@ -2832,9 +2836,10 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                     self.sinks[sink.key] = sink
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
+        rc: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
+        rc.update(Documentable.to_json(self))
         rc.update({
-            "name": self.name,
+            "_type": self.__class__.__name__,
             "sinks": {sink.key: sink.to_json() for sink in self.sinks.values()},
             "platformMD": self.platformMD.to_json() if self.platformMD else None
         })
@@ -2907,6 +2912,11 @@ class TimedTransformerTrigger(TransformerTrigger):
     def __eq__(self, o: object) -> bool:
         return isinstance(o, TimedTransformerTrigger) and self.trigger == o.trigger and super().__eq__(o)
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"trigger": self.trigger.to_json()})
+        return rc
+
 
 class CodeArtifact(UserDSLObject):
     """This defines a piece of code which can be used to transform data in a workspace"""
@@ -2941,6 +2951,7 @@ class PythonCodeArtifact(CodeArtifact):
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
+                "_type": self.__class__.__name__,
                 "requirements": self.requirements,
                 "envVars": self.envVars,
                 "requiredVersion": self.requiredVersion
@@ -2972,7 +2983,10 @@ class CodeExecutionEnvironment(PlatformService, JSONable):
 
     @abstractmethod
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "locations": [loc.to_json() for loc in self.location]}
+        rc: dict[str, Any] = PlatformService.to_json(self)
+        rc.update({"_type": self.__class__.__name__})
+        rc.update({"locations": [loc.to_json() for loc in self.location]})
+        return rc
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, CodeExecutionEnvironment) and self.location == o.location
@@ -3126,8 +3140,8 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
     def to_json(self) -> dict[str, Any]:
         json_dict: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
         json_dict.update(Documentable.to_json(self))
-
         json_dict.update({
+            "_type": self.__class__.__name__,
             "datasetGroups": {name: dsg.to_json() for name, dsg in self.dsgs.items()},
             "productionStatus": self.productionStatus.name,
             "deprecationStatus": self.deprecationStatus.to_json(),
@@ -3219,10 +3233,11 @@ class PlatformStyle(Enum):
     OBJECT = 3
 
 
-class PipelineNode(InternalLintableObject):
+class PipelineNode(InternalLintableObject, JSONable):
     """This is a named node in the pipeline graph. It stores node common information and which nodes this node depends on and those that depend on this node"""
     def __init__(self, name: str, platform: DataPlatform):
         InternalLintableObject.__init__(self)
+        JSONable.__init__(self)
         self.name: str = name
         self.platform: DataPlatform = platform
         # This node depends on this set of nodes
@@ -3236,6 +3251,16 @@ class PipelineNode(InternalLintableObject):
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, PipelineNode) and self.name == o.name and self.leftHandNodes == o.leftHandNodes and self.rightHandNodes == o.rightHandNodes
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = dict()
+        rc.update({"_type": self.__class__.__name__,
+                   "name": self.name,
+                   "platform": self.platform.name,
+                   "leftHandNodes": {str(node): node.to_json() for node in self.leftHandNodes.values()},
+                   "rightHandNodes": {str(node): node.to_json() for node in self.rightHandNodes.values()},
+                   "priority": self.priority.to_json() if self.priority else None})
+        return rc
 
     def addRightHandNode(self, rhNode: 'PipelineNode'):
         """This records a node that depends on this node"""
@@ -3269,6 +3294,14 @@ class ExportNode(PipelineNode):
         return super().__eq__(o) and isinstance(o, ExportNode) and self.dataContainer == o.dataContainer and \
             self.storeName == o.storeName and self.datasetName == o.datasetName
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__,
+                   "dataContainer": self.dataContainer.to_json(),
+                   "storeName": self.storeName,
+                   "datasetName": self.datasetName})
+        return rc
+
 
 class IngestionNode(PipelineNode):
     """This is a super class node for ingestion nodes. It represents an ingestion stream source for a pipeline."""
@@ -3279,6 +3312,13 @@ class IngestionNode(PipelineNode):
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName and self.captureTrigger == o.captureTrigger
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__,
+                   "storeName": self.storeName,
+                   "captureTrigger": self.captureTrigger.to_json() if self.captureTrigger else None})
+        return rc
 
 
 class IngestionMultiNode(IngestionNode):
@@ -3292,6 +3332,11 @@ class IngestionMultiNode(IngestionNode):
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, IngestionMultiNode)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
 
 
 class IngestionSingleNode(IngestionNode):
@@ -3307,6 +3352,12 @@ class IngestionSingleNode(IngestionNode):
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, IngestionSingleNode) and self.datasetName == o.datasetName
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__,
+                   "datasetName": self.datasetName})
+        return rc
+
 
 class TriggerNode(PipelineNode):
     """This is a node which represents the trigger for a DataTransformer. The trigger is a join on all the exports to a single Workspace."""
@@ -3319,6 +3370,12 @@ class TriggerNode(PipelineNode):
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, TriggerNode) and self.workspace == o.workspace
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__,
+                   "workspace": self.workspace.name})
+        return rc
 
 
 class DataTransformerNode(PipelineNode):
@@ -3333,6 +3390,12 @@ class DataTransformerNode(PipelineNode):
 
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, DataTransformerNode) and self.workspace == o.workspace
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__,
+                   "workspace": self.workspace.name})
+        return rc
 
 
 class DSGRootNode:

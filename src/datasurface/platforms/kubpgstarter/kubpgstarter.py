@@ -252,7 +252,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             storeTree: ValidationTree = tree.addSubTree(store)
             if store.cmd is None:
                 storeTree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
-                return ""
+                return
             elif not isinstance(store.cmd, KafkaIngestion):
                 storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
             else:
