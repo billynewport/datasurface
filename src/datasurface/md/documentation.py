@@ -58,7 +58,9 @@ class Documentable(UserDSLObject):
         return f"Documentable({self.documentation})"
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {"_type": self.__class__.__name__, "documentation": self.documentation.to_json() if self.documentation else None}
+        rc: dict[str, Any] = {"_type": self.__class__.__name__}
+        if self.documentation is not None:
+            rc.update({"documentation": self.documentation.to_json()})
         return rc
 
 

@@ -34,7 +34,9 @@ class Repository(Documentable, JSONable):
         return f"{self.__class__.__name__}()"
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
 
 
 class RepositoryNotAuthorizedToMakeChanges(ValidationProblem):
@@ -61,6 +63,11 @@ class GitControlledObject(Documentable):
             self.showDictChangesAsProblems(current_dict, proposed_dict, validation_tree.addSubTree(self))
             return True
         return False
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "owningRepo": self.owningRepo.to_json()})
+        return rc
 
     @abstractmethod
     def areTopLevelChangesAuthorized(self, proposed: 'GitControlledObject', changeSource: Repository, tree: ValidationTree) -> bool:
@@ -223,7 +230,9 @@ class FakeRepository(Repository):
             return False
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
 
 class GitRepository(Repository):
@@ -252,6 +261,11 @@ class GitRepository(Repository):
             return False
         pattern = r'^[a-zA-Z0-9_.-]+$'
         return re.match(pattern, owner) is not None and re.match(pattern, repo) is not None
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
 
     def is_valid_github_branch(self, branch: str) -> bool:
         # Branch names cannot contain the sequence ..
@@ -305,7 +319,9 @@ class GitHubRepository(GitRepository):
             tree.addProblem(f"Branch name <{self.branchName}> is not valid")
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "repositoryName": self.repositoryName, "branchName": self.branchName}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "repositoryName": self.repositoryName, "branchName": self.branchName})
+        return rc
 
 
 class GitLabRepository(GitRepository):
@@ -348,4 +364,6 @@ class GitLabRepository(GitRepository):
             tree.addProblem(f"Branch name <{self.branchName}> is not valid")
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "repoUrl": self.repoUrl, "repositoryName": self.repositoryName, "branchName": self.branchName}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "repoUrl": self.repoUrl, "repositoryName": self.repositoryName, "branchName": self.branchName})
+        return rc

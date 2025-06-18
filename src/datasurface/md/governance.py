@@ -60,9 +60,10 @@ class DeprecationInfo(Documentable, JSONable):
             isinstance(other, DeprecationInfo) and self.status == other.status
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {"status": self.status.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "status": self.status.name})
         if self.documentation:
-            rc["reason"] = self.documentation.to_json()
+            rc.update({"reason": self.documentation.to_json()})
         return rc
 
 
@@ -166,7 +167,8 @@ class EncryptionSystem(JSONable):
         return cyclic_safe_eq(self, __value, set())
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"name": self.name})
         rc.update({"keyContainer": self.keyContainer.to_json() if self.keyContainer else None})
         rc.update({"hasThirdPartySuperUser": self.hasThirdPartySuperUser})
@@ -440,7 +442,9 @@ class StepTrigger(JSONable):
         self.name: str = name
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
     def __eq__(self, o: object) -> bool:
         return isinstance(o, StepTrigger) and self.name == o.name
@@ -458,6 +462,7 @@ class CronTrigger(StepTrigger):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"cron": self.cron})
         return rc
 
@@ -489,8 +494,9 @@ class DataContainer(Documentable, JSONable):
         self.add(*args)
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {}
-        rc.update({"_type": self.__class__.__name__, "name": self.name, "locations": [loc.to_json() for loc in self.locations]})
+        rc: dict[str, Any] = Documentable.to_json(self)
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        rc.update({"locations": [loc.to_json() for loc in self.locations]})
         rc.update({"serverSideEncryptionKeys": self.serverSideEncryptionKeys.to_json() if self.serverSideEncryptionKeys else None})
         rc.update({"clientSideEncryptionKeys": self.clientSideEncryptionKeys.to_json() if self.clientSideEncryptionKeys else None})
         rc.update({"isReadOnly": self.isReadOnly})
@@ -751,7 +757,7 @@ class PyOdbcSourceInfo(SQLDatabase):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "serverHost": self.serverHost, "databaseName": self.databaseName,
+        rc.update({"_type": self.__class__.__name__, "serverHost": self.serverHost,
                    "driver": self.driver, "connectionStringTemplate": self.connectionStringTemplate})
         return rc
 

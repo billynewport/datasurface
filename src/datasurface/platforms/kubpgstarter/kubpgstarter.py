@@ -31,6 +31,7 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
+                "_type": self.__class__.__name__,
                 "namespace": self.namespace
             }
         )
@@ -299,6 +300,7 @@ class KafkaConnectCluster(DataContainer):
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
+                "_type": self.__class__.__name__,
                 "restAPIUrlString": self.restAPIUrlString,
                 "kafkaServer": self.kafkaServer.to_json()
             }
@@ -389,6 +391,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
+                "_type": self.__class__.__name__,
                 "namespace": self.namespace,
                 "airflowName": self.airflowName,
                 "postgresName": self.postgresName,
