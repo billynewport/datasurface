@@ -3,13 +3,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from abc import ABC
-from datasurface.md.json import JSONable
 from typing import Any
-from datasurface.md.lint import ValidationTree, ProblemSeverity, UserDSLObject, ValidationProblem
+from datasurface.md.lint import ValidationTree, ProblemSeverity, ValidationProblem, UserDSLObject
 
 
-class GenericKey(ABC):
+class GenericKey(UserDSLObject):
     """Base class for all keys"""
     def __hash__(self) -> int:
         return hash(str(self))
@@ -23,14 +21,19 @@ class EcosystemKey(GenericKey):
     def __init__(self, ecoName: str) -> None:
         self.ecoName: str = ecoName
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, EcosystemKey) and self.ecoName == __value.ecoName
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, EcosystemKey) and self.ecoName == other.ecoName
 
     def __str__(self) -> str:
         return f"Ecosystem({self.ecoName})"
 
     def __hash__(self) -> int:
         return hash(str(self))
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "ecoName": self.ecoName})
+        return rc
 
 
 class GovernanceZoneKey(EcosystemKey):
@@ -39,14 +42,19 @@ class GovernanceZoneKey(EcosystemKey):
         super().__init__(e.ecoName)
         self.gzName: str = gz
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, GovernanceZoneKey) and self.gzName == __value.gzName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, GovernanceZoneKey) and self.gzName == other.gzName
 
     def __hash__(self) -> int:
         return hash(str(self))
 
     def __str__(self) -> str:
         return super().__str__() + f".GovernanceZone({self.gzName})"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "gzName": self.gzName})
+        return rc
 
 
 class StoragePolicyKey(GovernanceZoneKey):
@@ -55,14 +63,19 @@ class StoragePolicyKey(GovernanceZoneKey):
         super().__init__(gz, gz.gzName)
         self.policyName: str = policyName
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, StoragePolicyKey) and self.policyName == __value.policyName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, StoragePolicyKey) and self.policyName == other.policyName
 
     def __str__(self) -> str:
         return super().__str__() + f".StoragePolicy({self.policyName})"
 
     def __hash__(self) -> int:
         return hash(str(self))
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "policyName": self.policyName})
+        return rc
 
 
 class InfrastructureVendorKey(EcosystemKey):
@@ -71,8 +84,8 @@ class InfrastructureVendorKey(EcosystemKey):
         super().__init__(eco.ecoName)
         self.ivName: str = iv
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, InfrastructureVendorKey) and self.ivName == __value.ivName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, InfrastructureVendorKey) and self.ivName == other.ivName
 
     def __str__(self) -> str:
         return super().__str__() + f".InfrastructureVendor({self.ivName})"
@@ -80,19 +93,26 @@ class InfrastructureVendorKey(EcosystemKey):
     def __hash__(self) -> int:
         return hash(str(self))
 
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "vendorName": self.ivName})
+        return rc
 
-class DataPlatformKey(JSONable):
+
+class DataPlatformKey(GenericKey):
     """This is a named reference to a DataPlatform. This allows a DataPlatform to be specified and
     resolved later at lint time."""
     def __init__(self, name: str) -> None:
-        JSONable.__init__(self)
+        GenericKey.__init__(self)
         self.name: str = name
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
-    def __eq__(self, value: object) -> bool:
-        return isinstance(value, DataPlatformKey) and self.name == value.name
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DataPlatformKey) and self.name == other.name
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -104,14 +124,19 @@ class InfraLocationKey(InfrastructureVendorKey):
         super().__init__(iv, iv.ivName)
         self.locationPath: list[str] = loc
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, InfraLocationKey) and self.locationPath == __value.locationPath
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, InfraLocationKey) and self.locationPath == other.locationPath
 
     def __str__(self) -> str:
         return super().__str__() + f".InfraLocation({self.locationPath})"
 
     def __hash__(self) -> int:
         return hash(str(self))
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "locationPath": self.locationPath})
+        return rc
 
 
 class TeamDeclarationKey(GovernanceZoneKey):
@@ -120,11 +145,16 @@ class TeamDeclarationKey(GovernanceZoneKey):
         super().__init__(gz, gz.gzName)
         self.tdName: str = td
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, TeamDeclarationKey) and self.tdName == __value.tdName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, TeamDeclarationKey) and self.tdName == other.tdName
 
     def __str__(self) -> str:
         return super().__str__() + f".TeamDeclaration({self.tdName})"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "tdName": self.tdName})
+        return rc
 
 
 class WorkspaceKey(TeamDeclarationKey):
@@ -132,12 +162,17 @@ class WorkspaceKey(TeamDeclarationKey):
         super().__init__(tdKey, tdKey.tdName)
         self.name: str = name
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, WorkspaceKey) and \
-            self.name == __value.name
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, WorkspaceKey) and \
+            self.name == other.name
 
     def __str__(self) -> str:
         return super().__str__() + f".WorkspaceKey({self.name})"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
 
 class DatastoreKey(TeamDeclarationKey):
@@ -146,11 +181,16 @@ class DatastoreKey(TeamDeclarationKey):
         super().__init__(td, td.tdName)
         self.dsName: str = ds
 
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, DatastoreKey) and self.dsName == __value.dsName
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DatastoreKey) and self.dsName == other.dsName
 
     def __str__(self) -> str:
         return super().__str__() + f".Datastore({self.dsName})"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "storeName": self.dsName})
+        return rc
 
 
 class InvalidLocationStringProblem(ValidationProblem):
@@ -161,10 +201,10 @@ class InvalidLocationStringProblem(ValidationProblem):
         return hash(self.description)
 
 
-class LocationKey(UserDSLObject):
+class LocationKey(GenericKey):
     """This is used to reference a location on a vendor during DSL construction. This string has format vendor:loc1/loc2/loc3/..."""
     def __init__(self, locStr: str) -> None:
-        UserDSLObject.__init__(self)
+        GenericKey.__init__(self)
         self.locStr: str = locStr
 
     def _hash(self) -> int:
@@ -206,7 +246,9 @@ class LocationKey(UserDSLObject):
         return hash(self.locStr)
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "locStr": self.locStr}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "locStr": self.locStr})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, LocationKey)):
