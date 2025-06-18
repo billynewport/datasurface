@@ -88,9 +88,9 @@ DataSurface uses Git repositories to store metadata, treating the entire data mo
 - Linear scaling through additional servers
 
 **Trade-offs:**
-- **Model size limitations** - Git repositories become unwieldy at extreme scales
+- **Model size limitations** - Git repositories become unwieldy beyond ~10k-100k objects (datasets, schemas, policies)
 - **Query constraints** - No SQL-style queries, requires in-memory traversal
-- **Bootstrap overhead** - Initial model loading can be time-consuming
+- **Bootstrap overhead** - Initial model loading scales with model complexity
 - **Tooling gaps** - Limited ecosystem compared to traditional databases
 
 ### Compliance Through Standard Tools
@@ -125,6 +125,36 @@ git log --follow policies/data_retention.py
 - Teams must adopt Git-based workflows for metadata changes
 - May be overkill for smaller organizations
 - Requires Git expertise beyond basic usage
+
+### Git Scaling Characteristics
+
+While Git-as-database introduces scaling constraints, these constraints align well with realistic enterprise metadata requirements:
+
+**Scaling Sweet Spot:**
+- **Target scale:** 10k datastores, 12 million datasets, 3k workspaces (40-50k datasets per container)
+- **Git efficiency:** Repositories with 10k-100k tracked objects remain highly performant
+- **Memory footprint:** Full model typically fits in 1-10GB RAM across server fleet
+- **Network efficiency:** Git's delta compression minimizes transfer overhead
+
+**Scaling Limitations:**
+- **Repository size:** Git performance degrades significantly beyond 100k+ objects
+- **Clone time:** Initial repository clones grow linearly with object count
+- **Merge complexity:** Large repositories increase merge conflict resolution overhead
+- **File system limits:** Individual file count and directory depth constraints
+
+**Mitigation Strategies:**
+- **Model partitioning:** Split extremely large ecosystems across multiple repositories
+- **Shallow clones:** Use `--depth` flags for servers that don't need full history
+- **Garbage collection:** Regular Git maintenance to optimize repository size
+- **Caching layers:** CDN-style caching for frequently accessed model fragments
+
+**When Git Scaling Becomes Limiting:**
+- Metadata objects exceeding 1M+ entities
+- Organizations with >100k individual datasets requiring separate tracking
+- Real-time metadata update requirements (sub-second consistency needs)
+- Environments where Git infrastructure expertise is unavailable
+
+For most enterprise data platforms, Git scaling limits are reached only at exceptional scale, well beyond typical organizational data catalog requirements.
 
 ### Technology Abstraction Layer
 
@@ -215,9 +245,9 @@ This separation optimizes each storage system for its specific access patterns a
 ## Limitations and Considerations
 
 **Technical Constraints:**
-- Git repository size limitations at extreme scale
-- Memory requirements for full model loading
-- Limited query capabilities compared to SQL databases
+- Git repository size limitations beyond 100k+ metadata objects (typically 10x+ larger than most enterprise catalogs)
+- Memory requirements for full model loading (1-10GB RAM per server, acceptable for most deployments)
+- Limited query capabilities compared to SQL databases (compensated by in-memory performance)
 - Custom tooling development and maintenance overhead
 
 **Organizational Requirements:**
@@ -234,6 +264,17 @@ This separation optimizes each storage system for its specific access patterns a
 
 DataSurface represents a specialized architectural approach optimized for enterprise-scale metadata management. The core insight—that metadata and operational data have different characteristics requiring different storage strategies—addresses specific challenges encountered at large scale.
 
-The approach trades traditional database flexibility for improved scaling characteristics and compliance integration. This makes it well-suited for large enterprises with strong governance requirements and high metadata query volumes, while potentially being over-engineered for smaller organizations or different usage patterns.
+The approach trades traditional database flexibility for improved scaling characteristics and compliance integration. Git-as-database scaling constraints (affecting repositories beyond 100k+ objects) are rarely reached in practice, as most enterprise data catalogs manage 10k-100k metadata entities—well within Git's performance sweet spot.
 
-The architectural decisions reflect practical solutions to real operational challenges rather than theoretical improvements, making DataSurface most valuable in contexts similar to those that drove its development. 
+**Optimal Use Cases:**
+- Large enterprises with 1k-50k datastores and proportional metadata complexity
+- Organizations requiring strong audit trails and compliance workflows
+- Environments with high metadata read-to-write ratios (typical of most data platforms)
+- Teams already using Git-based development processes
+
+**Less Suitable For:**
+- Organizations managing >100k distinct metadata objects requiring real-time updates
+- Environments lacking Git infrastructure expertise
+- Use cases requiring complex metadata queries not easily expressed through code traversal
+
+The architectural decisions reflect practical solutions to real operational challenges rather than theoretical improvements, making DataSurface most valuable in contexts similar to those that drove its development. For the vast majority of enterprise data platforms, Git scaling constraints are not limiting factors, while the benefits of versioned, distributed, auditable metadata management provide substantial operational advantages. 
