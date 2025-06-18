@@ -34,7 +34,9 @@ class Policy(Documentable, JSONable, Generic[T]):
         return f"{self.__class__.__name__}({self.name})"
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
+        rc: dict[str, Any] = Documentable.to_json(self)
+        rc.update({"name": self.name, "_type": self.__class__.__name__})
+        return rc
 
 
 P = TypeVar('P', bound=JSONable)

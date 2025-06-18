@@ -622,7 +622,9 @@ class HostPortPair(UserDSLObject):
         self.port: int = port
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "hostName": self.hostName, "port": self.port}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "hostName": self.hostName, "port": self.port})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, HostPortPair)):
@@ -649,7 +651,9 @@ class HostPortPairList(UserDSLObject):
         self.pairs: list[HostPortPair] = pairs
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "pairs": [p.to_json() for p in self.pairs]}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "pairs": [p.to_json() for p in self.pairs]})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, HostPortPairList)):
@@ -780,7 +784,7 @@ class CaptureMetaData(UserDSLObject):
         self.add(*args)
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {}
+        rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__})
         rc.update({"singleOrMultiDatasetIngestion": self.singleOrMultiDatasetIngestion.value if self.singleOrMultiDatasetIngestion else None})
         rc.update({"stepTrigger": self.stepTrigger.to_json() if self.stepTrigger else None})
@@ -1231,7 +1235,9 @@ class DefaultDataPlatform(UserDSLObject):
         self.defaultPlatform: 'DataPlatformKey' = p
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "defaultPlatform": self.defaultPlatform.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "defaultPlatform": self.defaultPlatform.name})
+        return rc
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         """Lint just checks the platform exists, the platform will be linted seperatedly"""
@@ -1815,7 +1821,9 @@ class VendorKey(UserDSLObject):
         self.vendor: Optional[InfrastructureVendor] = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "vendorString": self.vendorString}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "vendorString": self.vendorString, "vendor": self.vendor.to_json() if self.vendor else None})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, VendorKey)):
@@ -2407,10 +2415,10 @@ class DockerContainer:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatformExecutor(UserDSLObject):
+class DataPlatformExecutor(InternalLintableObject):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
-        UserDSLObject.__init__(self)
+        InternalLintableObject.__init__(self)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataPlatformExecutor)
@@ -2455,6 +2463,7 @@ class DataPlatform(Documentable, JSONable):
                  *args: Union[DataPlatformExecutor, Documentation],
                  executor: Optional[DataPlatformExecutor] = None,
                  documentation: Optional[Documentation] = None) -> None:
+        Documentable.__init__(self, documentation)
         JSONable.__init__(self)
         self.name: str = name
 
@@ -2477,15 +2486,12 @@ class DataPlatform(Documentable, JSONable):
             self.executor: DataPlatformExecutor = parsed_executor
 
             # Initialize Documentable with parsed documentation
-            Documentable.__init__(self, parsed_documentation)
+            self.documentation = parsed_documentation
         else:
             # New mode: use named parameters directly (faster!)
             if executor is None:
                 raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
             self.executor: DataPlatformExecutor = executor
-
-            # Initialize Documentable with named documentation
-            Documentable.__init__(self, documentation)
 
     @classmethod
     def create_legacy(cls, name: str, *args: Union[DataPlatformExecutor, Documentation]) -> 'DataPlatform':
@@ -2509,11 +2515,8 @@ class DataPlatform(Documentable, JSONable):
 
     @abstractmethod
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {
-            "_type": self.__class__.__name__,
-            "name": self.name,
-            "executor": self.executor.to_json()
-        }
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
         return rc
 
     def add(self, *args: Union[DataPlatformExecutor, Documentation]) -> None:
@@ -2704,13 +2707,14 @@ class DatasetSink(UserDSLObject):
         self.deprecationsAllowed: DeprecationsAllowed = deprecationsAllowed
 
     def to_json(self) -> dict[str, Any]:
-        json_dict: dict[str, Any] = {
+        rc: dict[str, Any] = super().to_json()
+        rc.update({
             "_type": self.__class__.__name__,
             "storeName": self.storeName,
             "datasetName": self.datasetName,
             "deprecationsAllowed": self.deprecationsAllowed.name
-        }
-        return json_dict
+        })
+        return rc
 
     def __eq__(self, other: object) -> bool:
         if (type(other) is DatasetSink):
@@ -2812,12 +2816,13 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                     self.sinks[sink.key] = sink
 
     def to_json(self) -> dict[str, Any]:
-        json_dict: dict[str, Any] = {
+        rc: dict[str, Any] = super().to_json()
+        rc.update({
             "name": self.name,
             "sinks": {sink.key: sink.to_json() for sink in self.sinks.values()},
             "platformMD": self.platformMD.to_json() if self.platformMD else None
-        }
-        return json_dict
+        })
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and \

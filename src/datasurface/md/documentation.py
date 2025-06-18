@@ -37,7 +37,7 @@ class Documentation(UserDSLObject):
         pass
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {"description": self.description}
+        rc: dict[str, Any] = {"_type": self.__class__.__name__, "description": self.description}
         if (self.tags is not None):
             rc["tags"] = {key: value for key, value in self.tags.items()}
         return rc
@@ -58,7 +58,7 @@ class Documentable(UserDSLObject):
         return f"Documentable({self.documentation})"
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = {"documentation": self.documentation.to_json() if self.documentation else None}
+        rc: dict[str, Any] = {"_type": self.__class__.__name__, "documentation": self.documentation.to_json() if self.documentation else None}
         return rc
 
 
@@ -75,7 +75,9 @@ class PlainTextDocumentation(Documentation):
         pass
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "description": self.description, "tags": self.tags}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
 
 
 class MarkdownDocumentation(Documentation):
@@ -92,4 +94,6 @@ class MarkdownDocumentation(Documentation):
         pass
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "description": self.description, "markdown": self.markdown, "tags": self.tags}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "markdown": self.markdown})
+        return rc
