@@ -3398,7 +3398,7 @@ class DataTransformerNode(PipelineNode):
         return rc
 
 
-class DSGRootNode:
+class DSGRootNode(JSONable):
     """This represents a target for a DataPlatform. A DataPlatforms purpose is to hydrated and maintain
     the datasets for a DatasetGroup. A Workspace owns one or more DatasetGroups and all datasets used in
     its DatasetGroups must be exported to the DataContainer used by the Workspace."""
@@ -3414,6 +3414,11 @@ class DSGRootNode:
 
     def __str__(self) -> str:
         return f"{self.workspace.name}/{self.dsg.name}"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "workspace": self.workspace.name, "dsg": self.dsg.name})
+        return rc
 
 
 class PlatformPipelineGraph(InternalLintableObject):
