@@ -1,3 +1,4 @@
+
 """
 // Copyright (c) William Newport
 // SPDX-License-Identifier: BUSL-1.1
@@ -45,6 +46,44 @@ class Credential(UserDSLObject):
         }
 
 
+class CredentialLookupException(Exception):
+    """This is raised when a credential is not found in the credential store"""
+    def __init__(self, cred: Credential, issue: str):
+        super().__init__(f"Credential {cred.name} is not found: {issue}")
+        self.cred: Credential = cred
+        self.issue: str = issue
+
+
+class CredentialNotAvailableException(CredentialLookupException):
+    """This is raised when a credential is not available in the credential store"""
+    def __init__(self, cred: Credential, issue: str):
+        super().__init__(cred, issue)
+
+
+class CredentialWrongTypeException(CredentialLookupException):
+    """This is raised when a credential is not of the expected type"""
+    def __init__(self, cred: Credential, expectedType: CredentialType):
+        super().__init__(cred, f"Credential {cred.name} is not of type {expectedType.name}")
+
+
+class CredentialTypeNotSupportedProblem(ValidationProblem):
+    """This indicates a credential type is not supported"""
+    def __init__(self, cred: Credential, supportedTypes: list[CredentialType]) -> None:
+        super().__init__(f"Credential {cred.name} is not of type {supportedTypes}", ProblemSeverity.ERROR)
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, CredentialTypeNotSupportedProblem)
+
+
+class CredentialNotAvailableProblem(ValidationProblem):
+    """This is raised when a credential is not available in the credential store"""
+    def __init__(self, cred: Credential, issue: str):
+        super().__init__(f"Credential {cred.name} is not available: {issue}", ProblemSeverity.ERROR)
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, CredentialNotAvailableProblem)
+
+
 class CredentialStore(UserDSLObject):
     """This is a credential store which stores credential data in a set of infra locations"""
     def __init__(self, name: str, locs: set['LocationKey']) -> None:
@@ -81,18 +120,19 @@ class CredentialStore(UserDSLObject):
 
     @abstractmethod
     def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-        """This returns the username and password for the credential"""
+        """This returns the username and password for the credential. This can raise a CredentialNotAvailable exception if the credential is not available."""
         pass
 
     @abstractmethod
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
         """This fetches the credential and returns a tuple with the public and private key
-        strings and the private key password"""
+        strings and the private key password. This can raise a CredentialNotAvailable exception if the credential is not available."""
         pass
 
     @abstractmethod
     def getAsToken(self, cred: Credential) -> str:
-        """This fetches the credential and returns a token. This is used for API tokens."""
+        """This fetches the credential and returns a token. This is used for API tokens. This can raise a CredentialNotAvailable exception if the
+        credential is not available."""
         pass
 
     @abstractmethod
@@ -125,18 +165,18 @@ class LocalFileCredentialStore(CredentialStore):
         """This will read the file holding the secret and return the first and second lines
         as a tuple to the caller."""
         if cred.credentialType != CredentialType.USER_PASSWORD:
-            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
+            raise CredentialWrongTypeException(cred, CredentialType.USER_PASSWORD)
         file_path = f"{self.folder}/{cred.name}"
         try:
             with open(file_path, 'r') as file:
                 lines = file.readlines()
                 if len(lines) < 2:
-                    raise ValueError("Credential file does not contain enough lines.")
+                    raise CredentialNotAvailableException(cred, "Credential file does not contain enough lines.")
                 username = lines[0].strip()
                 password = lines[1].strip()
                 return username, password
         except FileNotFoundError:
-            raise FileNotFoundError(f"Credential file {file_path} not found.")
+            raise CredentialNotAvailableException(cred, f"Credential file {file_path} not found.")
         except Exception as e:
             raise RuntimeError(f"An error occurred while reading the credential file: {e}")
 
@@ -147,7 +187,7 @@ class LocalFileCredentialStore(CredentialStore):
         file is not mapped into the container. Instead an environment variable with the credential
         name is provided instead."""
         if cred.credentialType != CredentialType.CLIENT_CERT_WITH_KEY:
-            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
+            raise CredentialWrongTypeException(cred, CredentialType.CLIENT_CERT_WITH_KEY)
         file_path_root: str = f"{self.folder}/{cred.name}"
         pub_path: str = f"{file_path_root}_pub"
         prv_path: str = f"{file_path_root}_prv"
@@ -160,22 +200,21 @@ class LocalFileCredentialStore(CredentialStore):
         # Return the value of the private key password from the environment variable
         pwd: Optional[str] = os.getenv(env_var)
         if pwd is None:
-            raise RuntimeError(f"Private key password environment variable {env_var} is not set")
+            raise CredentialNotAvailableException(cred, f"Private key password environment variable {env_var} is not set")
         else:
             return pub_key, prv_key, pwd
 
     def getAsToken(self, cred: Credential) -> str:
         """This fetches the credential and returns a token. This is used for API tokens."""
-        if cred.credentialType != CredentialType.API_TOKEN:
-            raise RuntimeError(f"Unsupported credential type: {cred.credentialType.name}")
+        if cred.credentialType == CredentialType.API_TOKEN:
             file_path: str = f"{self.folder}/{cred.name}"
             try:
                 with open(file_path, 'r') as file:
                     return file.read().strip()
             except FileNotFoundError:
-                raise FileNotFoundError(f"Credential file {file_path} not found.")
+                raise CredentialNotAvailableException(cred, f"Credential file {file_path} not found.")
         else:
-            raise RuntimeError(f"Only {CredentialType.API_TOKEN} are supported: {cred}")
+            raise CredentialWrongTypeException(cred, CredentialType.API_TOKEN)
 
     def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
         return super().checkCredentialIsAvailable(cred, tree)
@@ -183,17 +222,8 @@ class LocalFileCredentialStore(CredentialStore):
     def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
         """This store supports token, user password and api key pair"""
         if cred.credentialType not in [CredentialType.API_TOKEN, CredentialType.USER_PASSWORD, CredentialType.API_KEY_PAIR]:
-            tree.addProblem(f"Credential type {cred.credentialType.name} not supported", ProblemSeverity.ERROR)
+            tree.addRaw(CredentialTypeNotSupportedProblem(cred, [CredentialType.API_TOKEN, CredentialType.USER_PASSWORD, CredentialType.API_KEY_PAIR]))
         # Check the name is a legal environment variable name using regex
         if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', cred.name):
-            tree.addProblem("Credential name not compatible with an environment variable name", ProblemSeverity.ERROR)
+            tree.addProblem(f"Credential name {cred.name} not compatible with an environment variable name", ProblemSeverity.ERROR)
             return
-
-
-class CredentialTypeNotSupported(ValidationProblem):
-    """This indicates a credential type is not supported"""
-    def __init__(self, cred: Credential, supportedTypes: list[CredentialType]) -> None:
-        super().__init__(f"Credential {cred.name} is not of type {supportedTypes}", ProblemSeverity.ERROR)
-
-    def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and isinstance(other, CredentialTypeNotSupported)

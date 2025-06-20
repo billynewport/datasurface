@@ -9,12 +9,12 @@ from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
-from datasurface.md.lint import ObjectWrongType, ObjectMissing
+from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
-from datasurface.md import CredentialStore
+from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
+    CredentialNotAvailableProblem
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset
-from datasurface.md.credential import CredentialType, CredentialTypeNotSupported
 import os
 import re
 
@@ -48,7 +48,7 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
         user: Optional[str] = os.getenv(f"{cred.name}_USER")
         password: Optional[str] = os.getenv(f"{cred.name}_PASSWORD")
         if user is None or password is None:
-            raise ValueError(f"Credential {cred.name} is not available in the environment variables")
+            raise CredentialNotAvailableException(cred, "user or password is None")
         return user, password
 
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
@@ -59,14 +59,14 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
         prv_key: Optional[str] = os.getenv(f"{cred.name}_PRV")
         pwd: Optional[str] = os.getenv(f"{cred.name}_PWD")
         if pub_key is None or prv_key is None or pwd is None:
-            raise ValueError(f"Credential {cred.name} is not available in the environment variables")
+            raise CredentialNotAvailableException(cred, "pub_key or prv_key or pwd is None")
         return pub_key, prv_key, pwd
 
     def getAsToken(self, cred: Credential) -> str:
         """This fetches the credential and returns a token. This is used for API tokens."""
         token: Optional[str] = os.getenv(f"{cred.name}_TOKEN")
         if token is None:
-            raise ValueError(f"Credential {cred.name} is not available in the environment variables")
+            raise CredentialNotAvailableException(cred, "token is None")
         return token
 
     def isLegalEnvVarName(self, name: str) -> bool:
@@ -80,7 +80,7 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
             tree.addRaw(ObjectWrongType(cred, Credential, ProblemSeverity.ERROR))
         # Then check the type is either secret, api token or user password
         if cred.credentialType not in [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]:
-            tree.addRaw(CredentialTypeNotSupported(cred, [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]))
+            tree.addRaw(CredentialTypeNotSupportedProblem(cred, [CredentialType.API_KEY_PAIR, CredentialType.API_TOKEN, CredentialType.USER_PASSWORD]))
             return
         # Then check the name is compatible with an environment variable name
         if not self.isLegalEnvVarName(cred.name):
@@ -174,15 +174,12 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         ingest_nodes.append(node_data)
 
                 else:
-                    print(f"Warning: Datastore '{storeName}' does not have KafkaIngestion metadata or cmd is None. Skipping.")
+                    tree.addRaw(ObjectMissing(store, "cmd is none or is not KafkaIngestion", ProblemSeverity.ERROR))
                     continue
 
-            except ObjectDoesntExistException as e:
-                print(f"Error: Datastore '{storeName}' mentioned in graph not found in ecosystem cache: {e}")
-                continue
-            except ValueError as e:
-                print(f"Error processing credentials for datastore '{storeName}': {e}")
-                continue  # Skip node if credential processing fails
+            except ObjectDoesntExistException:
+                tree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
+                return ""
 
         # Prepare the global context for the template
         try:
@@ -208,14 +205,16 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             # Render the template once with the full context
             code: str = template.render(context)
 
-            # TODO: Decide what to do with the generated 'code' string (write to file, etc.)
             print(f"Generated Terraform code:\n{code}")
             return code
 
-        except ValueError as e:
-            print(f"Error processing platform credentials: {e}")
+        except CredentialNotAvailableException as e:
+            tree.addRaw(CredentialNotAvailableProblem(e.cred, e.issue))
         except Exception as e:
-            print(f"An unexpected error occurred during template rendering: {e}")
+            tree.addRaw(UnexpectedExceptionProblem(e))
+
+        """Must be an issue, just return an empty string, the linting will have the details"""
+        return ""
 
     def lintKafkaIngestion(self, store: Datastore, storeTree: ValidationTree):
         """Kafka ingestions can only be single dataset. Each dataset is published on a different topic."""
@@ -269,8 +268,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
     def createAirflowDAG(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
         """This creates an AirFlow DAG containing the MERGE task for every ingestion (store or dataset depending on whether
         the model specifies single or multidataset)"""
-
-        pass
+        raise NotImplementedError("Airflow DAG generation is not implemented")
 
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
@@ -280,9 +278,9 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         an AirFlow DAG containing the MERGE task for every ingestion (store or dataset depending on whether
         the model specifies single or multidataset)"""
         # First create the terraform file
-        terraform_code: str = self.createTerraformForAllIngestedNodes(eco, issueTree)
+        terraform_code: str = self.createTerraformForAllIngestedNodes(self.graph.eco, issueTree)
         # Then create the AirFlow DAG
-        airflow_dag: str = self.createAirflowDAG(eco, issueTree)
+        airflow_dag: str = self.createAirflowDAG(self.graph.eco, issueTree)
         return {
             "terraform_code": terraform_code,
             "airflow_dag": airflow_dag
@@ -422,13 +420,13 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
         if self.postgresCredential.credentialType != CredentialType.USER_PASSWORD:
-            tree.addRaw(CredentialTypeNotSupported(self.postgresCredential, [CredentialType.USER_PASSWORD]))
+            tree.addRaw(CredentialTypeNotSupportedProblem(self.postgresCredential, [CredentialType.USER_PASSWORD]))
         if self.connectCredentials.credentialType != CredentialType.API_TOKEN:
-            tree.addRaw(CredentialTypeNotSupported(self.connectCredentials, [CredentialType.API_TOKEN]))
+            tree.addRaw(CredentialTypeNotSupportedProblem(self.connectCredentials, [CredentialType.API_TOKEN]))
         if self.gitCredential.credentialType != CredentialType.API_TOKEN:
-            tree.addRaw(CredentialTypeNotSupported(self.gitCredential, [CredentialType.API_TOKEN]))
+            tree.addRaw(CredentialTypeNotSupportedProblem(self.gitCredential, [CredentialType.API_TOKEN]))
         if self.slackCredential.credentialType != CredentialType.API_TOKEN:
-            tree.addRaw(CredentialTypeNotSupported(self.slackCredential, [CredentialType.API_TOKEN]))
+            tree.addRaw(CredentialTypeNotSupportedProblem(self.slackCredential, [CredentialType.API_TOKEN]))
         self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
         for loc in self.locs:
@@ -456,7 +454,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
 
         # Load the bootstrap template
         kubernetes_template: Template = env.get_template('kubernetes_services.j2')
-        
+
         # Load the infrastructure DAG template
         dag_template: Template = env.get_template('infrastructure_dag.py.j2')
 

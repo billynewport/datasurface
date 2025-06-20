@@ -1,6 +1,6 @@
 # Creating the initial ecosystem model
 
-DataSurface has a starter repository which can be cloned to get started. It's located [here](http://www.github.com/billynewport/datasurfacetemplate). To get started, we need to make a new github repository which will contain the live version of your ecosystem model.
+[DataSurface has a starter repository](http://www.github.com/billynewport/datasurfacetemplate) which can be cloned to get started. To get started, we need to make a new github repository which will contain the live version of your ecosystem model.
 
 This is named <http://www.github.com/billynewport/test-surface> in this tutorial. Please use your repository names. The main branch will be the live model. We will create the test-surface repository in github. We now have an empty git repository. Next, we will clone the starter repository and then push it to this repository.
 
@@ -44,7 +44,7 @@ Likewise, for changes to different parts of the model which have their own repos
 
 ## Procedure to make changes using vscode
 
-See [here](vscodeeditbranch.md) for the procedure to make changes using Visual Studio Code.
+See [here for the procedure to make changes using VS Code](vscodeeditbranch.md).
 
 ## Adding a vendor and some locations
 
