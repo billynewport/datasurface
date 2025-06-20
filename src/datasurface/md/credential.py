@@ -151,6 +151,7 @@ class LocalFileCredentialStore(CredentialStore):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"folder": self.folder})
         rc.update({"credentials": {k: v.to_json() for k, v in self.credentials.items()}})
         return rc

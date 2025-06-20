@@ -1453,6 +1453,7 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def to_json(self) -> dict[str, Any]:
         return {
+            "_type": self.__class__.__name__,
             "name": self.name,
             "zones": {k: k.name for k in self.zones.defineAllObjects()},
             "vendors": {k: k.to_json() for k in self.vendors.values()},
@@ -1904,6 +1905,7 @@ class Team(GitControlledObject, JSONable):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"name": self.name})
         rc.update({"dataStores": {k: v.name for k, v in self.dataStores.items()}})
         rc.update({"workspaces": {k: v.name for k, v in self.workspaces.items()}})
@@ -2224,8 +2226,10 @@ class GovernanceZone(GitControlledObject, JSONable):
         self.add(*args)
 
     def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         teamKeys: list[Team] = self.teams.defineAllObjects()
-        return {
+        rc.update({
             "name": self.name,
             "teams": {k: k.name for k in teamKeys},
             "storagePolicies": {k: v.to_json() for k, v in self.storagePolicies.items()},
@@ -2234,7 +2238,8 @@ class GovernanceZone(GitControlledObject, JSONable):
             "hardVendorPolicies": {k: v.to_json() for k, v in self.hardVendorPolicies.items()},
             "locationPolicies": {k: v.to_json() for k, v in self.locationPolicies.items()},
             "dataplatformPolicies": {k: v.to_json() for k, v in self.dataplatformPolicies.items()},
-        }
+        })
+        return rc
 
     def setEcosystem(self, eco: Ecosystem) -> None:
         """Sets the ecosystem for this zone and sets the zone for all teams"""
@@ -2431,10 +2436,16 @@ class DockerContainer:
         return f"DockerContainer({self.name})"
 
 
-class DataPlatformExecutor(InternalLintableObject):
+class DataPlatformExecutor(InternalLintableObject, JSONable):
     """This specifies how a DataPlatform should execute"""
     def __init__(self) -> None:
         InternalLintableObject.__init__(self)
+        JSONable.__init__(self)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DataPlatformExecutor)
@@ -2464,10 +2475,9 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
         self.iacRepo.lint(tree.addSubTree(self.iacRepo))
 
     def to_json(self) -> dict[str, Any]:
-        return {
-            "_type": self.__class__.__name__,
-            "iacRepo": self.iacRepo.to_json(),
-        }
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "iacRepo": self.iacRepo.to_json()})
+        return rc
 
 
 T = TypeVar('T')
@@ -2638,8 +2648,10 @@ class ConsumerRetentionRequirements(UserDSLObject):
         return hash((self.policy, self.latency, self.minRetentionTime, self.regulator))
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "policy": self.policy.name, "latency": self.latency.name,
-                "minRetentionTime": self.minRetentionTime, "regulator": self.regulator}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "policy": self.policy.name, "latency": self.latency.name,
+                   "minRetentionTime": self.minRetentionTime, "regulator": self.regulator})
+        return rc
 
 
 class DataPlatformChooser(UserDSLObject):
@@ -2682,6 +2694,7 @@ class WorkspacePlatformConfig(DataPlatformChooser):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"retention": self.retention.to_json()})
         return rc
 
@@ -2705,6 +2718,7 @@ class WorkspaceFixedDataPlatform(DataPlatformChooser):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
         rc.update({"dataPlatform": self.dataPlatform.name})
         return rc
 
@@ -2895,7 +2909,9 @@ class TransformerTrigger(JSONable):
         self.name: str = name
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "name": self.name})
+        return rc
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
@@ -2914,7 +2930,7 @@ class TimedTransformerTrigger(TransformerTrigger):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"trigger": self.trigger.to_json()})
+        rc.update({"_type": self.__class__.__name__, "trigger": self.trigger.to_json()})
         return rc
 
 
@@ -2926,7 +2942,9 @@ class CodeArtifact(UserDSLObject):
 
     @abstractmethod
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
 
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
@@ -3101,7 +3119,7 @@ class PrioritizedWorkloadTier(WorkspacePriority):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"priority": self.priority.name})
+        rc.update({"_type": self.__class__.__name__, "priority": self.priority.name})
         return rc
 
     def __str__(self) -> str:
