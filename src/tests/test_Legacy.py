@@ -28,42 +28,55 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team, locations: set[Loc
     """Create a sample Producer with a couple of tables"""
     t.add(
         Datastore(
-            "NW_Data",
-            CDCCaptureIngestion(
-                HostPortSQLDatabase("NW_DB", locations, HostPortPair("hostName.com", 1344), "DBName"),
+            name="NW_Data",
+            capture_metadata=CDCCaptureIngestion(
+                HostPortSQLDatabase(
+                    name="NW_DB",
+                    locations=locations,
+                    hostPort=HostPortPair(hostName="hostName.com", port=1344),
+                    databaseName="DBName"
+                ),
                 CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
                 IngestionConsistencyType.MULTI_DATASET,
                 Credential("eu_cred", CredentialType.USER_PASSWORD),
                 ),
-
-            Dataset(
-                "us_states",
-                SimpleDC(SimpleDCTypes.PUB),
-                DDLTable(
-                    DDLColumn("state_id", SmallInt(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
-                    DDLColumn("state_name", VarChar(100)),
-                    DDLColumn("state_abbr", VarChar(2)),
-                    DDLColumn("state_region", VarChar(50))
+            datasets=[
+                Dataset(
+                    name="us_states",
+                    classifications=[SimpleDC(SimpleDCTypes.PUB)],
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn(name="state_id", data_type=SmallInt(), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn(name="state_name", data_type=VarChar(100)),
+                            DDLColumn(name="state_abbr", data_type=VarChar(2)),
+                            DDLColumn(name="state_region", data_type=VarChar(50))
+                        ]
+                    )
+                ),
+                Dataset(
+                    name="customers",
+                    classifications=[SimpleDC(SimpleDCTypes.PC3)],
+                    documentation=PlainTextDocumentation(
+                        description="This data includes customer information from the Northwind database. It contains PII data."
+                    ),
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn(name="customer_id", data_type=VarChar(5), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn(name="company_name", data_type=VarChar(40), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn(name="contact_name", data_type=VarChar(30)),
+                            DDLColumn(name="contact_title", data_type=VarChar(30)),
+                            DDLColumn(name="address", data_type=VarChar(60)),
+                            DDLColumn(name="city", data_type=VarChar(15)),
+                            DDLColumn(name="region", data_type=VarChar(15)),
+                            DDLColumn(name="postal_code", data_type=VarChar(10)),
+                            DDLColumn(name="country", data_type=VarChar(15)),
+                            DDLColumn(name="phone", data_type=VarChar(24)),
+                            DDLColumn(name="fax", data_type=VarChar(24))
+                        ]
+                    )
                 )
-            ),
-            Dataset(
-                "customers",
-                SimpleDC(SimpleDCTypes.PC3),
-                PlainTextDocumentation("This data includes customer information from the Northwind database. It contains PII data."),
-                DDLTable(
-                    DDLColumn("customer_id", VarChar(5), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
-                    DDLColumn("company_name", VarChar(40), NullableStatus.NOT_NULLABLE),
-                    DDLColumn("contact_name", VarChar(30)),
-                    DDLColumn("contact_title", VarChar(30)),
-                    DDLColumn("address", VarChar(60)),
-                    DDLColumn("city", VarChar(15)),
-                    DDLColumn("region", VarChar(15)),
-                    DDLColumn("postal_code", VarChar(10)),
-                    DDLColumn("country", VarChar(15)),
-                    DDLColumn("phone", VarChar(24)),
-                    DDLColumn("fax", VarChar(24))
-                )
-            ))
+            ]
+        )
     )
 
 
@@ -71,19 +84,29 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
-    ws_db: DataContainer = HostPortSQLDatabase("WHDB", locations, HostPortPair("whhostname.com", 1344), "WHDB")
+    ws_db: DataContainer = HostPortSQLDatabase(
+        name="WHDB",
+        locations=locations,
+        hostPort=HostPortPair(hostName="whhostname.com", port=1344),
+        databaseName="WHDB"
+    )
 
     w: Workspace = Workspace(
         "ProductLiveAdhocReporting",
         ws_db,
         DatasetGroup(
-            "LiveProducts",
-            LegacyDatPlatformChooser(
-                "LegacyA",
-                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
-                set()),
-            DatasetSink("NW_Data", "customers"),
-            DatasetSink("NW_Data", "us_states")
+            name="LiveProducts",
+            platform_chooser=LegacyDatPlatformChooser(
+                dataPlatformName="LegacyA",
+                doc=PlainTextDocumentation(
+                    description="This is a legacy application that is managed by the LegacyApplicationTeam"
+                ),
+                containers=set()
+            ),
+            sinks=[
+                DatasetSink(storeName="NW_Data", datasetName="customers"),
+                DatasetSink(storeName="NW_Data", datasetName="us_states")
+            ]
         ))
     t.add(w)
 
@@ -91,38 +114,62 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
 def createEcosystem() -> Ecosystem:
     """Create an Ecosystem with a LegacyDataPlatform"""
     ecosys: Ecosystem = Ecosystem(
-        "Test",
-        GitHubRepository("billynewport/repo", "ECOmain"),
-        LegacyDataPlatform(
-            "LegacyA",
-            PlainTextDocumentation("Test")),
-
-        # Data Platforms
-        DefaultDataPlatform(DataPlatformKey("LegacyA")),
-
-        # GovernanceZones
-        GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
-
-        # Infra Vendors and locations
-        InfrastructureVendor(
-            "LegacyA",
-            CloudVendor.PRIVATE,
-            PlainTextDocumentation("Legacy infrastructure"),
-            InfrastructureLocation(
-                "USA",
-                InfrastructureLocation("ny1"),  # New York City
-                InfrastructureLocation("nj1")))  # New Jersey
-        )
+        name="Test",
+        repo=GitHubRepository(
+            repo="billynewport/repo",
+            branchName="ECOmain"
+        ),
+        data_platforms=[
+            LegacyDataPlatform(
+                name="LegacyA",
+                doc=PlainTextDocumentation(description="Test")
+            )
+        ],
+        default_data_platform=DefaultDataPlatform(
+            p=DataPlatformKey(name="LegacyA")
+        ),
+        governance_zone_declarations=[
+            GovernanceZoneDeclaration(
+                name="USA",
+                authRepo=GitHubRepository(
+                    repo="billynewport/repo",
+                    branchName="USAmain"
+                )
+            )
+        ],
+        infrastructure_vendors=[
+            InfrastructureVendor(
+                name="LegacyA",
+                cloud_vendor=CloudVendor.PRIVATE,
+                documentation=PlainTextDocumentation(description="Legacy infrastructure"),
+                locations=[
+                    InfrastructureLocation(
+                        name="USA",
+                        locations=[
+                            InfrastructureLocation(name="ny1"),  # New York City
+                            InfrastructureLocation(name="nj1")   # New Jersey
+                        ]
+                    )
+                ]
+            )
+        ]
+    )
 
     gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")
 
     gzUSA.add(
-            TeamDeclaration("LegacyApplicationTeam", GitHubRepository("billynewport/repo", "legacyAppTeamMain")),
-        )
+        TeamDeclaration(
+            name="LegacyApplicationTeam",
+            authRepo=GitHubRepository(
+                repo="billynewport/repo",
+                branchName="legacyAppTeamMain"
+            )
+        ),
+    )
 
     # Fill out the NorthWindTeam managed by the USA governance zone
     legacy_Team: Team = ecosys.getTeamOrThrow("USA", "LegacyApplicationTeam")
-    locations: set[LocationKey] = {LocationKey("LegacyA:USA/ny1")}
+    locations: set[LocationKey] = {LocationKey(locStr="LegacyA:USA/ny1")}
     defineTables(ecosys, gzUSA, legacy_Team, locations)
     defineWorkspaces(ecosys, legacy_Team, locations)
 
@@ -136,3 +183,4 @@ def createEcosystem() -> Ecosystem:
 class TestLegacy(unittest.TestCase):
     def testLegacyPlatform(self):
         e: Ecosystem = createEcosystem()
+        self.assertIsNotNone(e)
