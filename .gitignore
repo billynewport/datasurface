@@ -24,3 +24,6 @@ java/dmsingester/bin/**
 **/gitlab_vols/*
 **/.vscode/*
 test_lint_performance.prof
+
+src/tests/kubpgtests/base/*
+
