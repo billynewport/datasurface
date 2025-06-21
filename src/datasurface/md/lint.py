@@ -347,6 +347,10 @@ class ValidationTree:
         self.children.append(child)
         return child
 
+    def addNamedSubTree(self, obj: 'ValidationTree', name: str) -> None:
+        """This adds an existing tree under a string name in the tree"""
+        self.children.append(obj)
+
     def prune(self) -> None:
         """This prunes the tree of objects that have no problems"""
         self.children = [child for child in self.children if child.hasErrors() or child.hasWarnings()]

@@ -15,7 +15,7 @@ from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngesti
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import SmallInt, VarChar
-from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDatPlatformChooser
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDataPlatformChooser
 
 
 """
@@ -96,7 +96,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             name="LiveProducts",
-            platform_chooser=LegacyDatPlatformChooser(
+            platform_chooser=LegacyDataPlatformChooser(
                 dataPlatformName="LegacyA",
                 doc=PlainTextDocumentation(
                     description="This is a legacy application that is managed by the LegacyApplicationTeam"

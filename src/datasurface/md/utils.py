@@ -6,7 +6,6 @@
 from typing import Any, Callable, Dict, Generic, TypeVar, Tuple
 import re
 
-
 sql_reserved_words: list[str] = [
     "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "INSERT", "UPDATE", "DELETE",
     "CREATE", "ALTER", "DROP", "TABLE", "DATABASE", "INDEX", "VIEW", "TRIGGER",
@@ -61,8 +60,8 @@ def is_valid_hostname_or_ip(s: str) -> bool:
     if re.fullmatch(pattern_ipv6, s) is not None:
         return True
 
-    # Check hostname
-    pattern_hostname = r"^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$"
+    # Check hostname - updated to allow underscores for Kubernetes DNS names
+    pattern_hostname = r"^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-_]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-_]*[A-Za-z0-9])$"
     if re.fullmatch(pattern_hostname, s) is not None and len(s) <= 253:
         return True
 

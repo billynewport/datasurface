@@ -6,15 +6,15 @@
 
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
 from datasurface.md import Ecosystem, LocationKey
-from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
+from datasurface.platforms.kubpgstarter import KubernetesPGStarterDataPlatform
 from datasurface.md import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy, \
-        DataPlatformKey, DataPlatformChooser
+        DataPlatformKey, WorkspaceFixedDataPlatform
 from datasurface.md import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
-from datasurface.platforms.legacy import LegacyDataPlatformChooser
 
 
 def createEcosystem() -> Ecosystem:
@@ -22,11 +22,18 @@ def createEcosystem() -> Ecosystem:
         name="Test",
         repo=GitHubRepository("billynewport/repo", "ECOmain"),
         data_platforms=[
-            LegacyDataPlatform(
-                "LegacyA",
-                PlainTextDocumentation("Test"))
+            KubernetesPGStarterDataPlatform(
+                "Test_DP",
+                {LocationKey("MyCorp:USA/NY_1")},
+                PlainTextDocumentation("Test"),
+                "ns_kub_pg_test",
+                Credential("connect", CredentialType.API_TOKEN),
+                Credential("postgres", CredentialType.USER_PASSWORD),
+                Credential("git", CredentialType.API_TOKEN),
+                Credential("slack", CredentialType.API_TOKEN),
+                "airflow")
         ],
-        default_data_platform=DefaultDataPlatform(DataPlatformKey("LegacyA")),
+        default_data_platform=DefaultDataPlatform(DataPlatformKey("Test_DP")),
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
             GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/repo", "EUmain")),
@@ -108,11 +115,7 @@ def createEcosystem() -> Ecosystem:
     # Fill out the NorthWindTeam managed by the USA governance zone
     nw_team: Team = ecosys.getTeamOrThrow("USA", "NorthWindTeam")
     defineNWTeamTables(ecosys, gzUSA, nw_team)
-    chooser: DataPlatformChooser = LegacyDataPlatformChooser(
-        "LegacyA",
-        PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
-        set()
-    )
+    chooser: WorkspaceFixedDataPlatform = WorkspaceFixedDataPlatform(DataPlatformKey("Test_DP"))
     defineNWTeamWorkspaces(ecosys, nw_team, {LocationKey("MyCorp:USA/NY_1")}, chooser)
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()

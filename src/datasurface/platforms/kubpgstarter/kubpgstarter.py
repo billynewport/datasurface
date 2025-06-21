@@ -412,7 +412,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         return {CloudVendor.PRIVATE}
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
-        return False
+        return True
 
     def lint(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This should validate the platform and its associated parts but it cannot validate the usage of the DataPlatform

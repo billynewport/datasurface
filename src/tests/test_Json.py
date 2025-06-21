@@ -200,7 +200,7 @@ class TestDataStoreJSON(unittest.TestCase):
         chooser: dict[str, Any] = liveProducts["platformMD"]
         self.assertTrue("dataPlatformName" in chooser)
         self.assertEqual(chooser["dataPlatformName"], "LegacyA")
-        self.assertEqual(chooser["_type"], "LegacyDatPlatformChooser")
+        self.assertEqual(chooser["_type"], "LegacyDataPlatformChooser")
 
     def test_EveryDataTypeHasJSON(self):
         # Check bounded ArrayType

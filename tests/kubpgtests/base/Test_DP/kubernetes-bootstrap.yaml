@@ -1,0 +1,593 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ns_kub_pg_test
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: Test_DP-postgres-pvc
+  namespace: ns_kub_pg_test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: Test_DP-postgres
+  namespace: ns_kub_pg_test
+  labels:
+    app: Test_DP-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: Test_DP-postgres
+  template:
+    metadata:
+      labels:
+        app: Test_DP-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: postgres
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: Test_DP-postgres-pvc
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-data
+  namespace: ns_kub_pg_test
+spec:
+  type: ClusterIP
+  selector:
+    app: Test_DP-postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+# Airflow DAGs PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-dags-pvc
+  namespace: ns_kub_pg_test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Airflow Logs PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-logs-pvc
+  namespace: ns_kub_pg_test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Airflow ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-config
+  namespace: ns_kub_pg_test
+data:
+  airflow.cfg: |
+    [core]
+    executor = LocalExecutor
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@pg-data.ns_kub_pg_test.svc.cluster.local:5432/airflow_db
+    dags_folder = /opt/airflow/dags
+    load_examples = False
+
+    [webserver]
+    web_server_host = 0.0.0.0
+    web_server_port = 8080
+
+    [logging]
+    base_log_folder = /opt/airflow/logs
+    remote_logging = False
+
+    [database]
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@pg-data.ns_kub_pg_test.svc.cluster.local:5432/airflow_db
+---
+# Airflow Scheduler Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: ns_kub_pg_test
+  labels:
+    app: airflow-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      initContainers:
+      - name: airflow-db-init
+        image: apache/airflow:2.8.1
+        command: ["/bin/bash", "-c"]
+        args:
+          - airflow db init
+        envFrom:
+          - secretRef:
+              name: postgres
+          - secretRef:
+              name: postgres
+        env:
+          - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+            value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@pg-data.ns_kub_pg_test.svc.cluster.local:5432/airflow_db"
+        volumeMounts:
+          - name: airflow-dags
+            mountPath: /opt/airflow/dags
+          - name: airflow-logs
+            mountPath: /opt/airflow/logs
+          - name: airflow-config
+            mountPath: /opt/airflow/airflow.cfg
+            subPath: airflow.cfg
+      containers:
+        - name: airflow-scheduler
+          image: apache/airflow:2.8.1
+          command: ["airflow", "scheduler"]
+          envFrom:
+            - secretRef:
+                name: postgres
+            - secretRef:
+                name: postgres
+            - secretRef:
+                name: git
+            - secretRef:
+                name: slack
+          env:
+            - name: AIRFLOW_UID
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@pg-data.ns_kub_pg_test.svc.cluster.local:5432/airflow_db"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: airflow-config
+              mountPath: /opt/airflow/airflow.cfg
+              subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: airflow-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: airflow-logs-pvc
+        - name: airflow-config
+          configMap:
+            name: airflow-config
+        - name: git-repo
+          secret:
+            secretName: git
+            items:
+              - key: git-repo-data
+                path: .
+---
+# Airflow Webserver Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-webserver
+  namespace: ns_kub_pg_test
+  labels:
+    app: airflow-webserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-webserver
+  template:
+    metadata:
+      labels:
+        app: airflow-webserver
+    spec:
+      containers:
+        - name: airflow-webserver
+          image: apache/airflow:2.8.1
+          command: ["airflow", "webserver"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: postgres
+            - secretRef:
+                name: postgres
+            - secretRef:
+                name: slack
+          env:
+            - name: AIRFLOW_UID
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@pg-data.ns_kub_pg_test.svc.cluster.local:5432/airflow_db"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: airflow-config
+              mountPath: /opt/airflow/airflow.cfg
+              subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: airflow-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: airflow-logs-pvc
+        - name: airflow-config
+          configMap:
+            name: airflow-config
+        - name: git-repo
+          secret:
+            secretName: git
+            items:
+              - key: git-repo-data
+                path: .
+---
+# Airflow Webserver Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-webserver-service
+  namespace: ns_kub_pg_test
+spec:
+  type: LoadBalancer
+  selector:
+    app: airflow-webserver
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+# Kafka Cluster Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-cluster
+  namespace: ns_kub_pg_test
+  labels:
+    app: kafka-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-cluster
+  template:
+    metadata:
+      labels:
+        app: kafka-cluster
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          ports:
+            - containerPort: 9092
+            - containerPort: 9093
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "kafka-cluster-zookeeper-service.ns_kub_pg_test.svc.cluster.local:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka-cluster-service.ns_kub_pg_test.svc.cluster.local:9092,PLAINTEXT_HOST://localhost:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-cluster-service
+  namespace: ns_kub_pg_test
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka-cluster
+  ports:
+    - protocol: TCP
+      port: 9092
+      targetPort: 9092
+      name: kafka
+---
+# Zookeeper Deployment (required for Kafka)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-cluster-zookeeper
+  namespace: ns_kub_pg_test
+  labels:
+    app: kafka-cluster-zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-cluster-zookeeper
+  template:
+    metadata:
+      labels:
+        app: kafka-cluster-zookeeper
+    spec:
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.5.0
+          ports:
+            - containerPort: 2181
+          env:
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: ZOOKEEPER_TICK_TIME
+              value: "2000"
+            - name: ZOOKEEPER_SERVER_ID
+              value: "1"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+# Zookeeper Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-cluster-zookeeper-service
+  namespace: ns_kub_pg_test
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka-cluster-zookeeper
+  ports:
+    - protocol: TCP
+      port: 2181
+      targetPort: 2181
+---
+# Kafka Connect Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-connect
+  namespace: ns_kub_pg_test
+  labels:
+    app: kafka-connect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-connect
+  template:
+    metadata:
+      labels:
+        app: kafka-connect
+    spec:
+      containers:
+        - name: kafka-connect
+          image: confluentinc/cp-kafka-connect:7.5.0
+          ports:
+            - containerPort: 8083
+          envFrom:
+            - secretRef:
+                name: connect
+          env:
+            - name: CONNECT_BOOTSTRAP_SERVERS
+              value: "kafka-cluster-service.ns_kub_pg_test.svc.cluster.local:9092"
+            - name: CONNECT_REST_ADVERTISED_HOST_NAME
+              value: "kafka-connect.ns_kub_pg_test.svc.cluster.local"
+            - name: CONNECT_REST_PORT
+              value: "8083"
+            - name: CONNECT_GROUP_ID
+              value: "kafka-connect-group"
+            - name: CONNECT_CONFIG_STORAGE_TOPIC
+              value: "kafka-connect-configs"
+            - name: CONNECT_OFFSET_STORAGE_TOPIC
+              value: "kafka-connect-offsets"
+            - name: CONNECT_STATUS_STORAGE_TOPIC
+              value: "kafka-connect-status"
+            - name: CONNECT_KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_INTERNAL_KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_INTERNAL_VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_PLUGIN_PATH
+              value: "/usr/share/java,/usr/share/confluent-hub-components"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Connect Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-connect-service
+  namespace: ns_kub_pg_test
+spec:
+  type: LoadBalancer
+  selector:
+    app: kafka-connect
+  ports:
+    - protocol: TCP
+      port: 8083
+      targetPort: 8083
+---
+# DataSurface Job Pod Template (for KubernetesPodOperator)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: Test_DP-datasurface-pod-template
+  namespace: ns_kub_pg_test
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: datasurface-job
+          image: datasurface/datasurface:latest
+          envFrom:
+            - secretRef:
+                name: postgres
+            - secretRef:
+                name: git
+            - secretRef:
+                name: slack
+            - secretRef:
+                name: connect
+          env:
+            - name: PLATFORM_NAME
+              value: "Test_DP"
+            - name: POSTGRES_HOST
+              value: "pg-data.ns_kub_pg_test.svc.cluster.local"
+            - name: KAFKA_CONNECT_URL
+              value: "http://kafka-connect-service.ns_kub_pg_test.svc.cluster.local:8083"
+          volumeMounts:
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: git-repo
+          secret:
+            secretName: git
+            items:
+              - key: git-repo-data
+                path: .
+---
+# Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: Test_DP-network-policy
+  namespace: ns_kub_pg_test
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ns_kub_pg_test
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8083
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53 

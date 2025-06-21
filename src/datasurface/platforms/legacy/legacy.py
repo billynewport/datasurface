@@ -45,7 +45,7 @@ class LegacyDataPlatformHandler(DataPlatformGraphHandler):
         for dsgSet in self.graph.dataContainerConsumers.values():
             for (_, dsg) in dsgSet:  # ws is not used
                 if dsg.platformMD is not None:
-                    if isinstance(dsg.platformMD, LegacyDatPlatformChooser):
+                    if isinstance(dsg.platformMD, LegacyDataPlatformChooser):
                         self.internalContainers.update(dsg.platformMD.containers)
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
@@ -59,7 +59,7 @@ class LegacyDataPlatformHandler(DataPlatformGraphHandler):
                 if dsg.platformMD is None:
                     tree.addRaw(AttributeNotSet(f"DSG {ws.name, dsg.name} needs a LegacyDataPlatformChooser"))
                 else:
-                    if not isinstance(dsg.platformMD, LegacyDatPlatformChooser):
+                    if not isinstance(dsg.platformMD, LegacyDataPlatformChooser):
                         tree.addRaw(ObjectWrongType(dsg.platformMD, LegacyDataPlatform, ProblemSeverity.ERROR))
 
     def __str__(self) -> str:
@@ -113,7 +113,7 @@ class LegacyDataPlatform(DataPlatform):
         return {}
 
 
-class LegacyDatPlatformChooser(DataPlatformChooser):
+class LegacyDataPlatformChooser(DataPlatformChooser):
     """This chooses the legacy DataPlatform and allows the specifics of the particular
     data pipeline to be specified such as DataContainers used"""
     def __init__(self, dataPlatformName: str, doc: Documentation, containers: set[DataContainer]) -> None:

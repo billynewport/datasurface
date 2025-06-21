@@ -3,14 +3,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.legacy import LegacyDatPlatformChooser
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import HostPortSQLDatabase
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
         DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
         IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
-        Workspace, HostPortPair
+        Workspace, HostPortPair, DataPlatformChooser
 
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md.schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus
@@ -239,7 +238,7 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     )
 
 
-def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
+def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], chooser: DataPlatformChooser):
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
@@ -250,10 +249,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             "LiveProducts",
-            platform_chooser=LegacyDatPlatformChooser(
-                "LegacyA",  # Name of eco level LegacyDataPlatform
-                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
-                set()),
+            platform_chooser=chooser,
             sinks=[
                 DatasetSink("NW_Data", "products"),
                 DatasetSink("NW_Data", "customers"),
@@ -271,10 +267,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             "MaskCustomers",
-            platform_chooser=LegacyDatPlatformChooser(
-                "LegacyA",  # Name of eco level LegacyDataPlatform
-                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
-                set()),
+            platform_chooser=chooser,
             sinks=[
                 DatasetSink("NW_Data", "customers")
             ]
@@ -310,10 +303,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
         ws_db,
         DatasetGroup(
             "UseMaskedCustomers",
-            platform_chooser=LegacyDatPlatformChooser(
-                "LegacyA",  # Name of eco level LegacyDataPlatform
-                PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
-                set()),
+            platform_chooser=chooser,
             sinks=[
                 DatasetSink("Masked_NW_Data", "customers")
             ]

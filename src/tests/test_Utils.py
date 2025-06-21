@@ -17,6 +17,7 @@ class Test_Utils(unittest.TestCase):
         self.assertTrue(is_valid_hostname_or_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334"))  # IP v6
 
         self.assertTrue(is_valid_hostname_or_ip("www.google.com"))  # hostname
+        self.assertTrue(is_valid_hostname_or_ip("pg-data.ns_kub_pg_test.svc.cluster.local"))  # Kubernetes DNS with underscore
 
         self.assertFalse(is_valid_hostname_or_ip("192.0.2.1.1"))
         self.assertFalse(is_valid_hostname_or_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334:"))
