@@ -2519,6 +2519,11 @@ class DataPlatform(Documentable, JSONable):
                 raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
             self.executor: DataPlatformExecutor = executor
 
+    @abstractmethod
+    def getCredentialStore(self) -> CredentialStore:
+        """This returns the credential store for the data platform"""
+        raise NotImplementedError("getCredentialStore not implemented")
+
     @classmethod
     def create_legacy(cls, name: str, *args: Union[DataPlatformExecutor, Documentation]) -> 'DataPlatform':
         """Legacy factory method for backward compatibility with old *args pattern.

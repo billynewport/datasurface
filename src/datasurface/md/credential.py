@@ -141,6 +141,41 @@ class CredentialStore(UserDSLObject):
         pass
 
 
+class NoopCredentialStore(CredentialStore):
+    """This is a no-op credential store. It's intent is to specify that the data flows are already realized and externally managed
+    by existing systems. However, DataSurface will still track the data flows and manage governance for the data."""
+    def __init__(self) -> None:
+        super().__init__("NoopCredentialStore", set())
+
+    def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
+        raise NotImplementedError("NoopCredentialStore does not support checking credentials")
+
+    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
+        raise NotImplementedError("NoopCredentialStore does not support getting credentials")
+
+    def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
+        raise NotImplementedError("NoopCredentialStore does not support getting credentials")
+
+    def getAsToken(self, cred: Credential) -> str:
+        raise NotImplementedError("NoopCredentialStore does not support getting credentials")
+
+    def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:
+        pass
+
+    def __str__(self) -> str:
+        return "NoopCredentialStore()"
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, NoopCredentialStore)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "name": self.name,
+            "locs": [k.to_json() for k in self.locs]
+        }
+
+
 class LocalFileCredentialStore(CredentialStore):
     """This is a local file credential store. It represents a folder on the local file system where certificates are stored in files. This could be used with
     docker secrets or similar"""

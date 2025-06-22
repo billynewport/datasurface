@@ -7,6 +7,7 @@ from datasurface.md import DataPlatform, Ecosystem, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
     CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore
+from datasurface.md.credential import NoopCredentialStore
 
 from typing import Optional, Any
 
@@ -95,6 +96,9 @@ class LegacyDataPlatform(DataPlatform):
 
     def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:
         return {CloudVendor.PRIVATE}
+
+    def getCredentialStore(self) -> CredentialStore:
+        return NoopCredentialStore()
 
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         # For a Legacy platform, we assume if its configured then its supported. This data platform

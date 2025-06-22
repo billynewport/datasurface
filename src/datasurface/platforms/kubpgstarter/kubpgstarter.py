@@ -385,6 +385,9 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             namespace=namespace
         )
 
+    def getCredentialStore(self) -> CredentialStore:
+        return self.credStore
+
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update(
