@@ -4,7 +4,7 @@
 """
 
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, MetaData  # type: ignore[attr-defined]
 from sqlalchemy.exc import OperationalError
 from datasurface.md import Datastore
 from datasurface.md import convertSQLAlchemyTableSetToDatastore
@@ -17,10 +17,8 @@ def get_metadata():
     engine = None
     metadata = MetaData()
     try:
-        engine = create_engine('postgresql://postgres:apjc3742@localhost:5432/postgres')
-        connection = engine.connect()
-        connection.commit()
-        metadata.reflect(bind=engine)
+        engine = create_engine('postgresql://postgres:apjc3742@localhost:5432/postgres')  # type: ignore[attr-defined]
+        metadata.reflect(bind=engine)  # type: ignore[attr-defined]
         print("Connection to PostgreSQL DB successful")
     except OperationalError as e:
         print(f"The error '{e}' occurred")

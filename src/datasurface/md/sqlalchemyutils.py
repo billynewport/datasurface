@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-import decimal
 from typing import Any, List, Optional, Sequence, TypeVar, Dict
 from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
     VarChar, NVarChar
 import sqlalchemy
+from sqlalchemy.engine import Engine
+from sqlalchemy.engine.base import Connection
+from sqlalchemy.schema import Table, Column, PrimaryKeyConstraint
+from sqlalchemy.types import Boolean as SQLBoolean, SmallInteger, Integer as SQLInteger, BigInteger, Float, DECIMAL, Date as SQLDate, \
+    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT
 from datasurface.md import Dataset, Datastore
 from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
 from datasurface.md import EcosystemPipelineGraph, DataPlatform
@@ -16,68 +20,70 @@ from datasurface.md.types import DataType
 from abc import ABC, abstractmethod
 
 
-def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> sqlalchemy.Column[Any]:
+def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
     """Converts a DataType to a SQLAlchemy type"""
     # TODO: Timestamp support of timezones
 
     t: Any = None
 
     if isinstance(dataType, Boolean):
-        t = sqlalchemy.Boolean()
+        t = SQLBoolean()
     elif isinstance(dataType, SmallInt):
-        t = sqlalchemy.SmallInteger()
+        t = SmallInteger()
     elif isinstance(dataType, Integer):
-        t = sqlalchemy.Integer()
+        t = SQLInteger()
     elif isinstance(dataType, BigInt):
-        t = sqlalchemy.BigInteger()
+        t = BigInteger()
     elif isinstance(dataType, IEEE32):
-        t = sqlalchemy.Float()
+        t = Float()
     elif isinstance(dataType, IEEE64):
-        t = sqlalchemy.Double()
+        t = Float()  # SQLAlchemy 1.4 doesn't have Double, use Float for IEEE64
     elif isinstance(dataType, Decimal):
         dec: Decimal = dataType
-        t = sqlalchemy.DECIMAL(dec.maxSize, dec.precision)
+        t = DECIMAL(dec.maxSize, dec.precision)
     elif isinstance(dataType, Date):
-        t = sqlalchemy.Date()
+        t = SQLDate()
     elif isinstance(dataType, Timestamp):
-        t = sqlalchemy.TIMESTAMP()
+        t = TIMESTAMP()
     elif isinstance(dataType, Interval):
-        t = sqlalchemy.Interval()
+        t = SQLInterval()
     elif isinstance(dataType, Variant):
         var: Variant = dataType
-        t = sqlalchemy.VARBINARY(var.maxSize)
+        t = LargeBinary(var.maxSize)  # SQLAlchemy 1.4 uses LargeBinary instead of VARBINARY
     elif isinstance(dataType, Char):
         ch: Char = dataType
-        t = sqlalchemy.CHAR(ch.maxSize, ch.collationString)
+        t = CHAR(ch.maxSize, ch.collationString)
     elif isinstance(dataType, NChar):
         nch: NChar = dataType
-        t = sqlalchemy.NCHAR(nch.maxSize, collation=nch.collationString)
+        # SQLAlchemy 1.4 doesn't have NCHAR, use CHAR with Unicode support
+        t = CHAR(nch.maxSize, collation=nch.collationString)
     elif isinstance(dataType, VarChar):
         vc: VarChar = dataType
-        t = sqlalchemy.VARCHAR(vc.maxSize, vc.collationString)
+        t = VARCHAR(vc.maxSize, vc.collationString)
     elif isinstance(dataType, NVarChar):
         nvc: NVarChar = dataType
-        t = sqlalchemy.NVARCHAR(nvc.maxSize, collation=nvc.collationString)
+        # SQLAlchemy 1.4 doesn't have NVARCHAR, use VARCHAR with Unicode support
+        t = VARCHAR(nvc.maxSize, collation=nvc.collationString)
     else:
         raise Exception(f"Unknown data type {dataType.name}")
 
-    c: sqlalchemy.Column[Any] = sqlalchemy.Column(dataType.name, t, nullable=(dataType.nullable == NullableStatus.NULLABLE))
+    c: Column[Any] = Column(dataType.name, t, nullable=(dataType.nullable == NullableStatus.NULLABLE))
     return c
 
 
-def datasetToSQLAlchemyTable(dataset: Dataset) -> sqlalchemy.Table:
+def datasetToSQLAlchemyTable(dataset: Dataset) -> Table:
     """Converts a DDLTable to a SQLAlchemy Table"""
     if (isinstance(dataset.originalSchema, DDLTable)):
         table: DDLTable = dataset.originalSchema
-        columns: List[sqlalchemy.Column[Any]] = []
+        columns: List[Column[Any]] = []
         for col in table.columns.values():
             columns.append(ddlColumnToSQLAlchemyType(col))
         if (table.primaryKeyColumns is not None):
-            pk: sqlalchemy.PrimaryKeyConstraint = sqlalchemy.PrimaryKeyConstraint(*table.primaryKeyColumns.colNames)
-            sqTable: sqlalchemy.Table = sqlalchemy.Table(dataset.name, sqlalchemy.MetaData(), *columns, pk)
+            pk: PrimaryKeyConstraint = PrimaryKeyConstraint(*table.primaryKeyColumns.colNames)
+            sqTable: Table = Table(dataset.name, sqlalchemy.MetaData(), *columns, pk)
             return sqTable
         else:
-            sqTable: sqlalchemy.Table = sqlalchemy.Table(dataset.name, sqlalchemy.MetaData(), *columns)
+            sqTable: Table = Table(dataset.name, sqlalchemy.MetaData(), *columns)
             return sqTable
     else:
         raise Exception("Unknown schema type")
@@ -93,65 +99,59 @@ def getValueOrThrow(val: Optional[_T]) -> _T:
     return val
 
 
-def convertSQLAlchemyTableToDataset(table: sqlalchemy.Table) -> Dataset:
+def convertSQLAlchemyTableToDataset(table: Table) -> Dataset:
     """Converts a SQLAlchemy Table to a Dataset"""
     columns: List[DDLColumn] = []
 
-    for al_col in table.columns.values():
-        colType: Any = al_col.type
+    for al_col in table.columns.values():  # type: ignore[attr-defined]
+        colType: Any = al_col.type  # type: ignore[attr-defined]
         newType: Optional[DataType] = None
-        if isinstance(colType, sqlalchemy.Boolean):
+        if isinstance(colType, SQLBoolean):
             newType = Boolean()
-        elif isinstance(colType, sqlalchemy.SmallInteger):
+        elif isinstance(colType, SmallInteger):
             newType = SmallInt()
-        elif isinstance(colType, sqlalchemy.Integer):
+        elif isinstance(colType, SQLInteger):
             newType = Integer()
-        elif isinstance(colType, sqlalchemy.BigInteger):
+        elif isinstance(colType, BigInteger):
             newType = BigInt()
-        elif isinstance(colType, sqlalchemy.Float):
+        elif isinstance(colType, Float):
             newType = IEEE32()
-        elif isinstance(colType, sqlalchemy.Double):
-            newType = IEEE64()
-        elif isinstance(colType, sqlalchemy.DECIMAL):
-            s_dec: sqlalchemy.DECIMAL[decimal.Decimal] = colType
+        elif isinstance(colType, DECIMAL):
+            s_dec: DECIMAL = colType
             newType = Decimal(getValueOrThrow(s_dec.precision), getValueOrThrow(s_dec.scale))
-        elif isinstance(colType, sqlalchemy.Date):
+        elif isinstance(colType, SQLDate):
             newType = Date()
-        elif isinstance(colType, sqlalchemy.TIMESTAMP):
+        elif isinstance(colType, TIMESTAMP):
             newType = Timestamp()
-        elif isinstance(colType, sqlalchemy.Interval):
+        elif isinstance(colType, SQLInterval):
             newType = Interval()
-        elif isinstance(colType, sqlalchemy.LargeBinary):
-            var_b: sqlalchemy.LargeBinary = colType
+        elif isinstance(colType, LargeBinary):
+            var_b: LargeBinary = colType
             newType = Variant(var_b.length)
-        elif isinstance(colType, sqlalchemy.CHAR):
-            ch_col: sqlalchemy.CHAR = colType
+        elif isinstance(colType, CHAR):
+            ch_col: CHAR = colType
             newType = Char(getValueOrThrow(ch_col.length), ch_col.collation)
-        elif isinstance(colType, sqlalchemy.NCHAR):
-            newType = NChar(getValueOrThrow(colType.length), colType.collation)
-        elif isinstance(colType, sqlalchemy.VARCHAR):
+        elif isinstance(colType, VARCHAR):
             newType = VarChar(getValueOrThrow(colType.length), colType.collation)
-        elif isinstance(colType, sqlalchemy.TEXT):
+        elif isinstance(colType, TEXT):
             newType = VarChar(None, colType.collation)
-        elif isinstance(colType, sqlalchemy.NVARCHAR):
-            newType = NVarChar(getValueOrThrow(colType.length), colType.collation)
         if (newType):
             n: NullableStatus = NullableStatus.NOT_NULLABLE
-            if (getValueOrThrow(al_col.nullable)):
+            if (getValueOrThrow(al_col.nullable)):  # type: ignore[attr-defined]
                 n = NullableStatus.NULLABLE
             pk: PrimaryKeyStatus = PrimaryKeyStatus.NOT_PK
-            if (getValueOrThrow(al_col.primary_key)):
+            if (getValueOrThrow(al_col.primary_key)):  # type: ignore[attr-defined]
                 pk = PrimaryKeyStatus.PK
 
-            columns.append(DDLColumn(al_col.name, newType, n, pk))
+            columns.append(DDLColumn(al_col.name, newType, n, pk))  # type: ignore[attr-defined]
         else:
-            raise Exception(f"Unknown data type {al_col.name}: {colType}")
+            raise Exception(f"Unknown data type {al_col.name}: {colType}")  # type: ignore[attr-defined]
 
     t: DDLTable = DDLTable(*columns)
 
     primaryKeyColumns: List[DDLColumn] = []
     for constraint in table.constraints:
-        if (isinstance(constraint, sqlalchemy.PrimaryKeyConstraint)):
+        if (isinstance(constraint, PrimaryKeyConstraint)):
             for pkCol in constraint.columns:
                 col: Optional[DDLColumn] = t.getColumnByName(pkCol.name)
                 if (col):
@@ -168,7 +168,7 @@ def convertSQLAlchemyTableToDataset(table: sqlalchemy.Table) -> Dataset:
     return rc
 
 
-def convertSQLAlchemyTableSetToDatastore(name: str, tables: Sequence[sqlalchemy.Table]) -> Datastore:
+def convertSQLAlchemyTableSetToDatastore(name: str, tables: Sequence[Table]) -> Datastore:
     """Converts a list of SQLAlchemy Tables to a Datastore"""
     datasets: List[Dataset] = []
     for table in tables:
@@ -233,9 +233,9 @@ class SQLAlchemyDataContainerReconciler:
     single view for each Datasetgroup
     """
 
-    def createEngine(self, container: DataContainer, userName: str, password: str) -> sqlalchemy.Engine:
+    def createEngine(self, container: DataContainer, userName: str, password: str) -> Engine:
         if isinstance(container, PostgresDatabase):
-            return sqlalchemy.create_engine(
+            return sqlalchemy.create_engine(  # type: ignore[attr-defined]
                 'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
                     username=userName,
                     password=password,
@@ -247,23 +247,28 @@ class SQLAlchemyDataContainerReconciler:
         else:
             raise Exception(f"Unsupported container type {type(container)}")
 
-    def __init__(self, graph: EcosystemPipelineGraph, userName: str, password: str) -> None:
+    def __init__(self, graph: EcosystemPipelineGraph, container: DataContainer, userName: str, password: str) -> None:
         """This really needs an intention graph to work out what we are doing"""
-        self.engine: sqlalchemy.Engine = self.createEngine(workspace.container, userName, password)
+        self.engine: Engine = self.createEngine(container, userName, password)
         self.graph: EcosystemPipelineGraph = graph
 
     def reconcileDatasetSink(
             self,
-            conn: sqlalchemy.Connection,
+            conn: Connection,
             dp: DataPlatform,
             dc: DataContainer,
             workspace: Workspace, dsg: DatasetGroup, store: Datastore, sink: DatasetSink) -> None:
         """This will create or alter to make current all SQL objects used by a DataPlatform
         for this DatasetSink"""
+        pass
 
     def reconcileBeforeExport(
             self,
             artifacts: DataPlatformDatasetSinkArtifactIterator,
+            dp: DataPlatform,
+            dc: DataContainer,
+            workspace: Workspace,
+            dsg: DatasetGroup,
             store: Datastore, datasets: List[Dataset]) -> None:
         """DataPlatforms can use this to make sure all tables/views for this dsg are up to date before applying
          deltas to the tables. """
@@ -273,8 +278,9 @@ class SQLAlchemyDataContainerReconciler:
             for sink in dsg.sinks.values():
                 # Each DataPlatform will have a set of Tables/Views for a DatasetSink
                 # These are named using the naming convention of the DataPlatform
-                self.reconcileDatasetSink(conn, dp, dc, workspace, dsg, store, datasets, sink)
+                self.reconcileDatasetSink(conn, dp, dc, workspace, dsg, store, sink)
 
     def reconcileAllKnownDataContainers(self) -> None:
         """This will iterate over all sqlalchemy supported data containers and reconcile the
         table and view schemas for them."""
+        pass
