@@ -1558,7 +1558,7 @@ class Ecosystem(GitControlledObject, JSONable):
         vendor: Optional[InfrastructureVendor] = self.getVendor(vendorName)
         loc: Optional[InfrastructureLocation] = None
         if vendor:
-            loc: Optional[InfrastructureLocation] = vendor.findLocationUsingKey(locKey)
+            loc = vendor.findLocationUsingKey(locKey)
         return loc
 
     def getLocationOrThrow(self, vendorName: str, locKey: list[str]) -> InfrastructureLocation:
