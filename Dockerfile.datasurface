@@ -1,0 +1,40 @@
+# DataSurface Container Image for Kubernetes PG Starter
+# This image contains Python and the DataSurface source code for running tasks
+
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the DataSurface source code and setup files
+COPY src/ /app/src/
+COPY setup.py /app/
+COPY MANIFEST.in /app/
+COPY README.md /app/
+COPY requirements.txt /app/
+
+# Install DataSurface in development mode
+RUN pip install -e /app/
+
+# Create workspace directory for Git repository
+RUN mkdir -p /workspace/model
+
+# Set default command
+CMD ["python", "-c", "import datasurface; print('DataSurface container ready')"] 
