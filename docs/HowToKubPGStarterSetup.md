@@ -176,6 +176,7 @@ python -m datasurface.cmd.platform generatePlatformBootstrap \
 ```
 
 This will create:
+
 - `kubernetes-bootstrap.yaml` - Complete Kubernetes deployment
 - `my-kub-platform_infrastructure_dag.py` - Airflow DAG for infrastructure
 
@@ -291,7 +292,8 @@ kubectl exec -n my-kub-namespace $(kubectl get pods -n my-kub-namespace -l app=a
 ```
 
 Expected output:
-```
+
+```text
 GIT_REPO_URL=https://github.com/your-username/your-repo
 GIT_REPO_BRANCH=main
 GIT_REPO_NAME=your-username/your-repo
@@ -362,6 +364,7 @@ test_task = PythonOperator(
 ### Common Issues
 
 #### 1. Pods Stuck in Pending
+
 ```bash
 # Check resource availability
 kubectl describe pod <pod-name> -n my-kub-namespace
@@ -371,6 +374,7 @@ kubectl top nodes
 ```
 
 #### 2. Airflow Database Connection Issues
+
 ```bash
 # Verify database exists
 kubectl exec -n my-kub-namespace $POSTGRES_POD -- psql -U airflow -l
@@ -380,6 +384,7 @@ kubectl logs -n my-kub-namespace <airflow-pod-name>
 ```
 
 #### 3. Secret Not Found Errors
+
 ```bash
 # Verify secrets exist
 kubectl get secrets -n my-kub-namespace
@@ -389,6 +394,7 @@ kubectl get secret <secret-name> -n my-kub-namespace -o yaml
 ```
 
 #### 4. Namespace Validation Errors
+
 ```bash
 # Ensure namespace follows RFC 1123 (lowercase, hyphens only)
 # Valid: my-kub-namespace
@@ -434,6 +440,7 @@ kubectl delete -f src/tests/my-ecosystem/output/my-kub-platform/kubernetes-boots
 ## Support
 
 For issues and questions:
+
 - Check the DataSurface documentation
 - Review Kubernetes and Airflow logs
 - Consult the troubleshooting section above

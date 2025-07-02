@@ -1,7 +1,7 @@
 # DataSurface Container Image for Kubernetes PG Starter
 # This image contains Python and the DataSurface source code for running tasks
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
