@@ -26,7 +26,7 @@ def createEcosystem() -> Ecosystem:
                 "Test_DP",
                 {LocationKey("MyCorp:USA/NY_1")},
                 PlainTextDocumentation("Test"),
-                "ns_kub_pg_test",
+                "ns-kub-pg-test",
                 Credential("connect", CredentialType.API_TOKEN),
                 Credential("postgres", CredentialType.USER_PASSWORD),
                 Credential("git", CredentialType.API_TOKEN),

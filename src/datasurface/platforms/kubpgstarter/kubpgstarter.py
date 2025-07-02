@@ -417,11 +417,20 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
     def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         return True
 
+    def isLegalKubernetesNamespaceName(self, name: str) -> bool:
+        """Check if the name is a valid Kubernetes namespace (RFC 1123 label)."""
+        return re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', name) is not None
+
     def lint(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This should validate the platform and its associated parts but it cannot validate the usage of the DataPlatform
         as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
+        if not self.isLegalKubernetesNamespaceName(self.namespace):
+            tree.addProblem(
+                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
+                ProblemSeverity.ERROR
+            )
         if self.postgresCredential.credentialType != CredentialType.USER_PASSWORD:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.postgresCredential, [CredentialType.USER_PASSWORD]))
         if self.connectCredentials.credentialType != CredentialType.API_TOKEN:
@@ -442,6 +451,15 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
     def _getKafkaBootstrapServers(self) -> str:
         """Calculate the Kafka bootstrap servers from the created Kafka cluster."""
         return f"{self.kafkaClusterName}-service.{self.namespace}.svc.cluster.local:9092"
+
+    @staticmethod
+    def to_k8s_name(name: str) -> str:
+        """Convert a name to a valid Kubernetes resource name (RFC 1123)."""
+        name = name.lower().replace('_', '-').replace(' ', '-')
+        name = re.sub(r'[^a-z0-9-]', '', name)
+        name = re.sub(r'-+', '-', name)
+        name = name.strip('-')
+        return name
 
     def generateBootstrapArtifacts(self) -> dict[str, str]:
         """This generates a kubernetes yaml file for the data platform using a jinja2 template.
@@ -464,18 +482,18 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         # Prepare template context with all required variables
         context: dict[str, Any] = {
             "namespace_name": self.namespace,
-            "platform_name": self.name,
-            "postgres_hostname": self.postgresName,
-            "postgres_credential_secret_name": self.postgresCredential.name,
-            "airflow_name": self.airflowName,
-            "airflow_credential_secret_name": self.postgresCredential.name,  # Airflow uses postgres creds
-            "kafka_cluster_name": self.kafkaClusterName,
-            "kafka_connect_name": self.kafkaConnectName,
-            "kafka_connect_credential_secret_name": self.connectCredentials.name,
+            "platform_name": self.to_k8s_name(self.name),
+            "postgres_hostname": self.to_k8s_name(self.postgresName),
+            "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
+            "airflow_name": self.to_k8s_name(self.airflowName),
+            "airflow_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
+            "kafka_cluster_name": self.to_k8s_name(self.kafkaClusterName),
+            "kafka_connect_name": self.to_k8s_name(self.kafkaConnectName),
+            "kafka_connect_credential_secret_name": self.to_k8s_name(self.connectCredentials.name),
             "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
             "datasurface_docker_image": self.datasurfaceImage,
-            "git_credential_secret_name": self.gitCredential.name,
-            "slack_credential_secret_name": self.slackCredential.name,
+            "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
+            "slack_credential_secret_name": self.to_k8s_name(self.slackCredential.name),
             "slack_channel_name": self.slackChannel
         }
 
@@ -486,5 +504,5 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         # Return as dictionary with filename as key
         return {
             "kubernetes-bootstrap.yaml": rendered_yaml,
-            f"{self.name}_infrastructure_dag.py": rendered_dag
+            f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_dag
         }
