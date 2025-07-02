@@ -30,7 +30,7 @@ def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platf
     for platformName in platformNames:
         dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
         # Generate the bootstrap files
-        bootstrapArtifacts: dict[str, str] = dp.generateBootstrapArtifacts()
+        bootstrapArtifacts: dict[str, str] = dp.generateBootstrapArtifacts(eco)
         # Create the platform directory if it doesn't exist
         os.makedirs(os.path.join(basePlatformDir, platformName), exist_ok=True)
         for name, content in bootstrapArtifacts.items():

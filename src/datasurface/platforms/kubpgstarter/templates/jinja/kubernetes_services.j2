@@ -173,14 +173,20 @@ spec:
             - secretRef:
                 name: {{ postgres_credential_secret_name }}
             - secretRef:
-                name: {{ git_credential_secret_name }}
-            - secretRef:
                 name: {{ slack_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
           env:
             - name: AIRFLOW_UID
               value: "50000"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
               value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
+            - name: GIT_REPO_URL
+              value: "{{ git_repo_url }}"
+            - name: GIT_REPO_BRANCH
+              value: "{{ git_repo_branch }}"
+            - name: GIT_REPO_NAME
+              value: "{{ git_repo_name }}"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
@@ -210,11 +216,7 @@ spec:
           configMap:
             name: {{ airflow_name }}-config
         - name: git-repo
-          secret:
-            secretName: {{ git_credential_secret_name }}
-            items:
-              - key: git-repo-data
-                path: .
+          emptyDir: {}
 ---
 # Airflow Webserver Deployment
 apiVersion: apps/v1
@@ -247,11 +249,19 @@ spec:
                 name: {{ postgres_credential_secret_name }}
             - secretRef:
                 name: {{ slack_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
           env:
             - name: AIRFLOW_UID
               value: "50000"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
               value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
+            - name: GIT_REPO_URL
+              value: "{{ git_repo_url }}"
+            - name: GIT_REPO_BRANCH
+              value: "{{ git_repo_branch }}"
+            - name: GIT_REPO_NAME
+              value: "{{ git_repo_name }}"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
@@ -281,11 +291,7 @@ spec:
           configMap:
             name: {{ airflow_name }}-config
         - name: git-repo
-          secret:
-            secretName: {{ git_credential_secret_name }}
-            items:
-              - key: git-repo-data
-                path: .
+          emptyDir: {}
 ---
 # Airflow Webserver Service
 apiVersion: v1

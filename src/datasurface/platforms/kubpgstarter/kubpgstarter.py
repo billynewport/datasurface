@@ -17,6 +17,8 @@ from datasurface.md.credential import CredentialStore, CredentialType, Credentia
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset
 import os
 import re
+from datasurface.md.repo import GitHubRepository
+from typing import cast
 
 
 class KubernetesEnvVarsCredentialStore(CredentialStore):
@@ -439,6 +441,11 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             tree.addRaw(CredentialTypeNotSupportedProblem(self.gitCredential, [CredentialType.API_TOKEN]))
         if self.slackCredential.credentialType != CredentialType.API_TOKEN:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.slackCredential, [CredentialType.API_TOKEN]))
+
+        # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
+        if not isinstance(eco.owningRepo, GitHubRepository):
+            tree.addRaw(ObjectWrongType(eco.owningRepo, GitHubRepository, ProblemSeverity.ERROR))
+
         self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
         for loc in self.locs:
@@ -461,7 +468,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         name = name.strip('-')
         return name
 
-    def generateBootstrapArtifacts(self) -> dict[str, str]:
+    def generateBootstrapArtifacts(self, eco: Ecosystem) -> dict[str, str]:
         """This generates a kubernetes yaml file for the data platform using a jinja2 template.
         This doesn't need an intention graph, it's just for boot-strapping.
         Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
@@ -479,6 +486,8 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
         # Load the infrastructure DAG template
         dag_template: Template = env.get_template('infrastructure_dag.py.j2')
 
+        gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+
         # Prepare template context with all required variables
         context: dict[str, Any] = {
             "namespace_name": self.namespace,
@@ -494,7 +503,10 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             "datasurface_docker_image": self.datasurfaceImage,
             "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
             "slack_credential_secret_name": self.to_k8s_name(self.slackCredential.name),
-            "slack_channel_name": self.slackChannel
+            "slack_channel_name": self.slackChannel,
+            "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+            "git_repo_branch": gitRepo.branchName,
+            "git_repo_name": gitRepo.repositoryName
         }
 
         # Render the templates

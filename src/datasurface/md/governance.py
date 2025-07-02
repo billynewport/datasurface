@@ -1487,7 +1487,7 @@ class Ecosystem(GitControlledObject, JSONable):
         name: str = dp.name
         folder: str = f"bootstrap_{name}"
         os.makedirs(folder, exist_ok=True)
-        files: dict[str, str] = dp.generateBootstrapArtifacts()
+        files: dict[str, str] = dp.generateBootstrapArtifacts(self)
         for key, value in files.items():
             with open(os.path.join(folder, key), "w") as f:
                 f.write(value)
@@ -2593,7 +2593,8 @@ class DataPlatform(Documentable, JSONable):
         pass
 
     @abstractmethod
-    def generateBootstrapArtifacts(self) -> dict[str, str]:
+    def generateBootstrapArtifacts(self, eco: Ecosystem) -> dict[str, str]:
+        """This generates the bootstrap artifacts from the data platform. The ecosystem is needed to get the eco reposistory among other things"""
         pass
 
 

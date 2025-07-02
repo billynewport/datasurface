@@ -295,7 +295,8 @@ class GitHubRepository(GitRepository):
     def __init__(self, repo: str, branchName: str, doc: Optional[Documentation] = None) -> None:
         super().__init__(doc)
         self.repositoryName: str = repo
-        """The name of the git repository from which changes to Team objects are authorized"""
+        """The name of the git repository from which changes to objects are authorized. The name is in the form 'owner/repo'. The system will
+        add https://github.com/ to the front of the name implicitly, there is no need to include it in the name."""
         self.branchName: str = branchName
         """The name of the branch containing an eco.py to construct an ecosystem"""
 
