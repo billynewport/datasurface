@@ -9,7 +9,7 @@ from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
-from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem
+from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, ObjectNotSupportedByDataPlatform
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
@@ -255,7 +255,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                 storeTree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
                 return
             elif not isinstance(store.cmd, KafkaIngestion):
-                storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+                storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion], ProblemSeverity.ERROR))
             else:
                 self.lintKafkaIngestion(store, storeTree)
 
@@ -444,7 +444,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
 
         # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
         if not isinstance(eco.owningRepo, GitHubRepository):
-            tree.addRaw(ObjectWrongType(eco.owningRepo, GitHubRepository, ProblemSeverity.ERROR))
+            tree.addRaw(ObjectNotSupportedByDataPlatform(eco.owningRepo, [GitHubRepository], ProblemSeverity.ERROR))
 
         self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))

@@ -931,12 +931,61 @@ class CDCCaptureIngestion(IngestionMetadata):
         return super().__eq__(other) and type(other) is CDCCaptureIngestion
 
 
-class SQLPullIngestion(IngestionMetadata):
+class SQLIngestion(IngestionMetadata):
+    """This is an abstract class for SQL ingestion. It allows a dataset to table name mapping to be specified.
+    If its not specified then the dataset name is used as the table name"""
+    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+        super().__init__(*[arg for arg in args if not isinstance(arg, dict)])
+        self.tableForDataset: dict[str, str] = {}
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "tableForDataset": self.tableForDataset})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SQLIngestion):
+            return super().__eq__(other) and self.tableForDataset == other.tableForDataset
+        return False
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
+        super().lint(eco, gz, t, d, tree)
+        # Check every dataset in the datastore has a table name specified if any mappings are specified, all or none
+        if len(self.tableForDataset) > 0:
+            # Check all values in the mapping are valid SQL table names
+            for table in self.tableForDataset.values():
+                if not is_valid_sql_identifier(table):
+                    tree.addRaw(NameMustBeSQLIdentifier(table, ProblemSeverity.ERROR))
+
+            for dataset in d.datasets.values():
+                if dataset.name not in self.tableForDataset:
+                    tree.addRaw(AttributeNotSet(f"Dataset {dataset.name} has no table name specified"))
+
+    def __str__(self) -> str:
+        return "SQLIngestion()"
+
+
+class SQLSnapshotIngestion(SQLIngestion):
+    """This is an SQL ingestion which does a select * from each table every batch."""
+    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+        super().__init__(*args)
+
+    def __str__(self) -> str:
+        return "SQLSnapshotIngestion()"
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, SQLSnapshotIngestion)
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
+        super().lint(eco, gz, t, d, tree)
+
+
+class SQLSnapshotDeltaIngestion(SQLIngestion):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, dc: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
-        super().__init__(dc, *args)
+    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(*args)
         self.variableNames: list[str] = []
         """The names of state variables produced by snapshot and delta sql strings"""
         self.snapshotSQL: dict[str, str] = OrderedDict()
@@ -950,16 +999,21 @@ class SQLPullIngestion(IngestionMetadata):
         return rc
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, SQLPullIngestion):
+        if isinstance(other, SQLSnapshotDeltaIngestion):
             return super().__eq__(other) and self.variableNames == other.variableNames and \
                 self.snapshotSQL == other.snapshotSQL and self.deltaSQL == other.deltaSQL
         return False
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
-        raise NotImplementedError()
+        super().lint(eco, gz, t, d, tree)
+        # It would be nice to check the SQL strings are valid but that's a lot of work and we're not doing it yet.
+        # We'll just check the variable names are valid SQL identifiers
+        for var in self.variableNames:
+            if not is_valid_sql_identifier(var):
+                tree.addRaw(NameMustBeSQLIdentifier(var, ProblemSeverity.ERROR))
 
     def __str__(self) -> str:
-        return "SQLPullIngestion()"
+        return "SQLSnapshotDeltaIngestion()"
 
 
 class StreamingIngestion(IngestionMetadata):

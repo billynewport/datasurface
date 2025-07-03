@@ -207,6 +207,15 @@ class ObjectWrongType(ValidationProblem):
         return hash(self.description)
 
 
+class ObjectNotSupportedByDataPlatform(ValidationProblem):
+    """This indicates an object is not supported by a data platform"""
+    def __init__(self, obj: object, supportedTypes: list[type], sev: ProblemSeverity) -> None:
+        super().__init__(f"Object {obj} is not supported by data platform {supportedTypes}", sev)
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, ObjectNotSupportedByDataPlatform)
+
+
 class ObjectMissing(ValidationProblem):
     """This indicates an object is missing"""
     def __init__(self, container: object, missingObject: object, sev: ProblemSeverity) -> None:
