@@ -124,7 +124,7 @@ def createOrUpdateTable(engine: Engine, table: Table) -> None:
         # Execute all schema changes in a single transaction
         if newColumns or columnsToAlter:
             with engine.begin() as connection:
-                # Add new columns
+                # Add new columns (these need to be individual statements)
                 for column in newColumns:
                     column_type = str(column.type)  # type: ignore[attr-defined]
                     alter_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"  # type: ignore[attr-defined]
@@ -132,9 +132,14 @@ def createOrUpdateTable(engine: Engine, table: Table) -> None:
                         alter_sql += " NOT NULL"
                     connection.execute(text(alter_sql))
 
-                # Alter existing columns
-                for column in columnsToAlter:
-                    alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {column.name} TYPE {str(column.type)}"  # type: ignore[attr-defined]
+                # Alter existing columns (batch multiple alterations into a single statement)
+                if columnsToAlter:
+                    alter_parts = []
+                    for column in columnsToAlter:
+                        alter_parts.append(f"ALTER COLUMN {column.name} TYPE {str(column.type)}")  # type: ignore[attr-defined]
+                    
+                    # Combine all alterations into a single ALTER TABLE statement
+                    alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
                     connection.execute(text(alter_sql))
 
             if newColumns:
@@ -185,6 +190,18 @@ class SnapshotMergeJob:
         t.append_column(Column(name="ds_surf_key_hash", type_=String(length=32)))  # type: ignore[attr-defined]
         return t
 
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the merge schema for a dataset"""
+        t: Table = datasetToSQLAlchemyTable(dataset, tableName)
+        # Add the platform specific columns
+        # batch_id here represents the batch a record was inserted in to the merge table
+        t.append_column(Column(name="ds_surf_batch_id", type_=Integer()))  # type: ignore[attr-defined]
+        # The md5 hash of all the columns in the record
+        t.append_column(Column(name="ds_surf_all_hash", type_=String(length=32)))  # type: ignore[attr-defined]
+        # The md5 hash of the primary key columns or all the columns if there are no primary key columns
+        t.append_column(Column(name="ds_surf_key_hash", type_=String(length=32)))  # type: ignore[attr-defined]
+        return t
+
     def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
         """This will make sure the staging table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
@@ -193,6 +210,15 @@ class SnapshotMergeJob:
             tableName = tableName + "_staging"
             stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
             createOrUpdateTable(mergeEngine, stagingTable)
+
+    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
+        """This will make sure the merge table exists and has the current schema for each dataset"""
+        for dataset in store.datasets.values():
+            # Map the dataset name if necessary
+            tableName: str = dataset.name if dataset.name not in cmd.tableForDataset else cmd.tableForDataset[dataset.name]
+            tableName = tableName + "_merge"
+            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
+            createOrUpdateTable(mergeEngine, mergeTable)
 
     def run(self) -> None:
         # First, get a connection to the source database
@@ -207,8 +233,9 @@ class SnapshotMergeJob:
         mergeUser, mergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
         mergeEngine: Engine = self.createEngine(self.dp.mergeStore, mergeUser, mergePassword)
 
-        # Make sure the staging table exists and has the current schema for each dataset
+        # Make sure the staging and merge tables exist and have the current schema for each dataset
         self.reconcileStagingTableSchemas(mergeEngine, self.store, cmd)
+        self.reconcileMergeTableSchemas(mergeEngine, self.store, cmd)
 
         # TODO: Implement the actual snapshot merge logic using sourceEngine and mergeEngine
         # For now, we'll keep the sourceEngine reference to avoid the unused variable warning

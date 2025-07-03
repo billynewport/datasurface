@@ -387,3 +387,56 @@ class TestCreateOrUpdateTable:
         # This should raise an exception
         with pytest.raises(Exception):
             createOrUpdateTable(test_db, invalid_table)
+
+    def test_multiple_column_alterations_are_batched(self, test_db: Engine) -> None:
+        """Test that multiple column type changes are batched into a single ALTER TABLE statement."""
+        metadata = MetaData()
+
+        # Create initial table with smaller columns
+        initial_table = Table(
+            'test_batch_alterations',
+            metadata,
+            Column('id', Integer, primary_key=True),
+            Column('name', String(30)),
+            Column('description', String(50)),
+            Column('email', String(40))
+        )
+
+        # Clean up if exists
+        inspector = inspect(test_db)  # type: ignore[attr-defined]
+        if inspector.has_table('test_batch_alterations'):  # type: ignore[attr-defined]
+            initial_table.drop(test_db)
+
+        initial_table.create(test_db)
+
+        # Create updated table definition with larger columns
+        updated_table = Table(
+            'test_batch_alterations',
+            MetaData(),
+            Column('id', Integer, primary_key=True),
+            Column('name', String(100)),  # Widened from 30 to 100
+            Column('description', String(200)),  # Widened from 50 to 200
+            Column('email', String(150))  # Widened from 40 to 150
+        )
+
+        # Call the function
+        with patch('builtins.print') as mock_print:
+            createOrUpdateTable(test_db, updated_table)
+
+        # Verify print was called with correct message indicating all columns were altered
+        mock_print.assert_called()
+        print_args = str(mock_print.call_args)
+        assert 'Altered columns' in print_args
+        assert 'name' in print_args
+        assert 'description' in print_args
+        assert 'email' in print_args
+
+        # Verify the table was actually altered by checking the current schema
+        current_table = Table('test_batch_alterations', MetaData(), autoload_with=test_db)
+        column_names = [col.name for col in current_table.columns]  # type: ignore[attr-defined]
+        assert 'name' in column_names
+        assert 'description' in column_names
+        assert 'email' in column_names
+
+        # Clean up
+        initial_table.drop(test_db)
