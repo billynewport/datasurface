@@ -33,12 +33,62 @@ def _types_are_compatible(current_type: str, desired_type: str) -> bool:
     if current in ['BOOLEAN', 'BOOL'] and desired in ['BOOLEAN', 'BOOL']:
         return True
 
-    # For VARCHAR and TEXT, we need to be more careful about lengths
+    # For VARCHAR and CHAR, we need to be strict about lengths
     # Only consider them compatible if they have the same constraints
     # This means VARCHAR(50) and VARCHAR(200) are NOT compatible
+    if current.startswith('VARCHAR(') and desired.startswith('VARCHAR('):
+        # Extract the length values and compare them
+        current_length = _extract_length_from_type(current)
+        desired_length = _extract_length_from_type(desired)
+        return current_length == desired_length
+
+    if current.startswith('CHAR(') and desired.startswith('CHAR('):
+        # Extract the length values and compare them
+        current_length = _extract_length_from_type(current)
+        desired_length = _extract_length_from_type(desired)
+        return current_length == desired_length
+
+    # For DECIMAL/NUMERIC types, compare precision and scale
+    if (current.startswith('DECIMAL(') or current.startswith('NUMERIC(')) and \
+       (desired.startswith('DECIMAL(') or desired.startswith('NUMERIC(')):
+        current_precision, current_scale = _extract_decimal_params(current)
+        desired_precision, desired_scale = _extract_decimal_params(desired)
+        return current_precision == desired_precision and current_scale == desired_scale
 
     # If we can't determine compatibility, assume they're different
     return False
+
+
+def _extract_length_from_type(type_str: str) -> int:
+    """Extract the length parameter from a type string like VARCHAR(50)."""
+    try:
+        # Find the opening and closing parentheses
+        start = type_str.find('(')
+        end = type_str.find(')')
+        if start != -1 and end != -1 and end > start:
+            length_str = type_str[start + 1:end]
+            return int(length_str)
+        return -1  # No length parameter found
+    except (ValueError, IndexError):
+        return -1  # Invalid format
+
+
+def _extract_decimal_params(type_str: str) -> tuple[int, int]:
+    """Extract precision and scale from a DECIMAL/NUMERIC type string like DECIMAL(10,2)."""
+    try:
+        # Find the opening and closing parentheses
+        start = type_str.find('(')
+        end = type_str.find(')')
+        if start != -1 and end != -1 and end > start:
+            params_str = type_str[start + 1:end]
+            params = params_str.split(',')
+            if len(params) == 2:
+                precision = int(params[0].strip())
+                scale = int(params[1].strip())
+                return precision, scale
+        return -1, -1  # No parameters found
+    except (ValueError, IndexError):
+        return -1, -1  # Invalid format
 
 
 def createOrUpdateTable(engine: Engine, table: Table) -> None:

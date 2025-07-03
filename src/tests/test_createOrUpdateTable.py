@@ -9,7 +9,103 @@ from unittest.mock import patch
 from sqlalchemy import Table, MetaData, Column, Integer, String, Boolean, inspect
 from sqlalchemy.engine import Engine
 
-from datasurface.platforms.kubpgstarter.jobs import createOrUpdateTable
+from datasurface.platforms.kubpgstarter.jobs import createOrUpdateTable, _types_are_compatible, _extract_length_from_type, _extract_decimal_params
+
+
+class TestTypeCompatibility:
+    """Test cases for the _types_are_compatible function."""
+
+    def test_identical_types_are_compatible(self) -> None:
+        """Test that identical types are considered compatible."""
+        assert _types_are_compatible('VARCHAR(50)', 'VARCHAR(50)') is True
+        assert _types_are_compatible('INTEGER', 'INTEGER') is True
+        assert _types_are_compatible('BOOLEAN', 'BOOLEAN') is True
+
+    def test_integer_type_equivalencies(self) -> None:
+        """Test that different INTEGER type names are considered equivalent."""
+        assert _types_are_compatible('INTEGER', 'INT') is True
+        assert _types_are_compatible('INT', 'INT4') is True
+        assert _types_are_compatible('INTEGER', 'INT4') is True
+
+    def test_boolean_type_equivalencies(self) -> None:
+        """Test that different BOOLEAN type names are considered equivalent."""
+        assert _types_are_compatible('BOOLEAN', 'BOOL') is True
+        assert _types_are_compatible('BOOL', 'BOOLEAN') is True
+
+    def test_varchar_length_changes_are_incompatible(self) -> None:
+        """Test that VARCHAR with different lengths are considered incompatible."""
+        assert _types_are_compatible('VARCHAR(50)', 'VARCHAR(200)') is False
+        assert _types_are_compatible('VARCHAR(100)', 'VARCHAR(50)') is False
+        assert _types_are_compatible('VARCHAR(10)', 'VARCHAR(10)') is True
+
+    def test_char_length_changes_are_incompatible(self) -> None:
+        """Test that CHAR with different lengths are considered incompatible."""
+        assert _types_are_compatible('CHAR(10)', 'CHAR(20)') is False
+        assert _types_are_compatible('CHAR(5)', 'CHAR(5)') is True
+
+    def test_decimal_precision_scale_changes_are_incompatible(self) -> None:
+        """Test that DECIMAL with different precision/scale are considered incompatible."""
+        assert _types_are_compatible('DECIMAL(10,2)', 'DECIMAL(10,3)') is False
+        assert _types_are_compatible('DECIMAL(10,2)', 'DECIMAL(11,2)') is False
+        assert _types_are_compatible('DECIMAL(10,2)', 'DECIMAL(10,2)') is True
+        assert _types_are_compatible('NUMERIC(10,2)', 'DECIMAL(10,2)') is True
+
+    def test_different_base_types_are_incompatible(self) -> None:
+        """Test that different base types are considered incompatible."""
+        assert _types_are_compatible('VARCHAR(50)', 'INTEGER') is False
+        assert _types_are_compatible('BOOLEAN', 'VARCHAR(10)') is False
+        assert _types_are_compatible('CHAR(10)', 'VARCHAR(10)') is False
+
+    def test_case_insensitive_comparison(self) -> None:
+        """Test that type comparison is case insensitive."""
+        assert _types_are_compatible('varchar(50)', 'VARCHAR(50)') is True
+        assert _types_are_compatible('VARCHAR(50)', 'varchar(50)') is True
+        assert _types_are_compatible('integer', 'INTEGER') is True
+
+    def test_whitespace_handling(self) -> None:
+        """Test that whitespace is properly handled."""
+        assert _types_are_compatible(' VARCHAR(50) ', 'VARCHAR(50)') is True
+        assert _types_are_compatible('VARCHAR(50)', ' VARCHAR(50) ') is True
+
+
+class TestLengthExtraction:
+    """Test cases for the _extract_length_from_type function."""
+
+    def test_extract_varchar_length(self) -> None:
+        """Test extracting length from VARCHAR type."""
+        assert _extract_length_from_type('VARCHAR(50)') == 50
+        assert _extract_length_from_type('VARCHAR(200)') == 200
+        assert _extract_length_from_type('VARCHAR(10)') == 10
+
+    def test_extract_char_length(self) -> None:
+        """Test extracting length from CHAR type."""
+        assert _extract_length_from_type('CHAR(10)') == 10
+        assert _extract_length_from_type('CHAR(1)') == 1
+
+    def test_invalid_length_format(self) -> None:
+        """Test handling of invalid length formats."""
+        assert _extract_length_from_type('VARCHAR') == -1
+        assert _extract_length_from_type('VARCHAR()') == -1
+        assert _extract_length_from_type('VARCHAR(abc)') == -1
+        assert _extract_length_from_type('') == -1
+
+
+class TestDecimalParamExtraction:
+    """Test cases for the _extract_decimal_params function."""
+
+    def test_extract_decimal_params(self) -> None:
+        """Test extracting precision and scale from DECIMAL type."""
+        assert _extract_decimal_params('DECIMAL(10,2)') == (10, 2)
+        assert _extract_decimal_params('DECIMAL(5,0)') == (5, 0)
+        assert _extract_decimal_params('NUMERIC(15,3)') == (15, 3)
+
+    def test_invalid_decimal_format(self) -> None:
+        """Test handling of invalid decimal formats."""
+        assert _extract_decimal_params('DECIMAL') == (-1, -1)
+        assert _extract_decimal_params('DECIMAL()') == (-1, -1)
+        assert _extract_decimal_params('DECIMAL(10)') == (-1, -1)
+        assert _extract_decimal_params('DECIMAL(abc,def)') == (-1, -1)
+        assert _extract_decimal_params('') == (-1, -1)
 
 
 class TestCreateOrUpdateTable:
