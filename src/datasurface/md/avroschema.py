@@ -69,7 +69,7 @@ class AvroSchema(Schema):
     def checkIfSchemaIsFlat(self) -> bool:
         """Check if the schema is flat, i.e. no nested records"""
         rec: RecordSchema = cast(RecordSchema, self.avroSchema)
-        for field in rec.fields:
+        for field in rec.fields_dict.values():
             if (isinstance(field.type, RecordSchema)):
                 return False
         return True

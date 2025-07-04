@@ -137,7 +137,7 @@ def createOrUpdateTable(engine: Engine, table: Table) -> None:
                     alter_parts = []
                     for column in columnsToAlter:
                         alter_parts.append(f"ALTER COLUMN {column.name} TYPE {str(column.type)}")  # type: ignore[attr-defined]
-                    
+
                     # Combine all alterations into a single ALTER TABLE statement
                     alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
                     connection.execute(text(alter_sql))
@@ -159,8 +159,6 @@ class SnapshotMergeJob:
     databases.
     The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
 
-    store: Datastore
-
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: KubernetesPGStarterDataPlatform, store: Datastore) -> None:
         self.eco: Ecosystem = eco
         self.credStore: CredentialStore = credStore
@@ -180,6 +178,10 @@ class SnapshotMergeJob:
             )
         else:
             raise Exception(f"Unsupported container type {type(container)}")
+        
+    def getTableForPlatform(self, tableName: str) -> str:
+        """This returns the table name for the platform"""
+        return f"{self.dp.platformName}_{tableName}"
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
         """This returns the staging schema for a dataset"""
@@ -207,7 +209,7 @@ class SnapshotMergeJob:
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = dataset.name if dataset.name not in cmd.tableForDataset else cmd.tableForDataset[dataset.name]
-            tableName = tableName + "_staging"
+            tableName = self.getTableForPlatform(tableName + "_staging")
             stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
             createOrUpdateTable(mergeEngine, stagingTable)
 
@@ -216,7 +218,7 @@ class SnapshotMergeJob:
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = dataset.name if dataset.name not in cmd.tableForDataset else cmd.tableForDataset[dataset.name]
-            tableName = tableName + "_merge"
+            tableName = self.getTableForPlatform(tableName + "_merge")
             mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
             createOrUpdateTable(mergeEngine, mergeTable)
 
@@ -236,6 +238,25 @@ class SnapshotMergeJob:
         # Make sure the staging and merge tables exist and have the current schema for each dataset
         self.reconcileStagingTableSchemas(mergeEngine, self.store, cmd)
         self.reconcileMergeTableSchemas(mergeEngine, self.store, cmd)
+
+        """
+        The metadata is kept in 2 tables. The batch_counter table has 2 columns, a string key and an int
+        currentBatch. The key is either just {storeName} or '{storeName}#{datasetName}. The currentBatch
+        is the current batch. Creating a new batch means incrementing the currentBatch column for the key.
+
+        Every batch has a record in the batch_metrics table. The key for this table is the above key plus the
+        batch id {counterKey}#batchId. It has a batch_status column, started, inserting, merged, committed, failed.
+        There are columns for records_inserted, records_updated, records_deleted, total_records."""
+
+        """These tables have the platform name as a prefix which allows multiple platforms to be used in the same database."""
+
+        batchCounterTableName: str = self.getTableForPlatform("batch_counter")
+        batchMetricsTableName: str = self.getTableForPlatform("batch_metrics")
+
+        # Get the current batch for the store
+        with sourceEngine.connect() as connection:
+            result = connection.execute(text(f"SELECT currentBatch FROM {batchCounterTableName} WHERE key = '{self.store.name}'"))
+            currentBatch = result.fetchone()[0]
 
         # TODO: Implement the actual snapshot merge logic using sourceEngine and mergeEngine
         # For now, we'll keep the sourceEngine reference to avoid the unused variable warning

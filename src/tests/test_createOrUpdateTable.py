@@ -133,6 +133,7 @@ class TestCreateOrUpdateTable:
         createOrUpdateTable(test_db, test_table)
 
         # Verify table was created
+        inspector = inspect(test_db)  # type: ignore[attr-defined]
         assert inspector.has_table('test_new_table')  # type: ignore[attr-defined]
 
         # Verify table structure
