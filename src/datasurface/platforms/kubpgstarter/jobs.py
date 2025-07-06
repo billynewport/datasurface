@@ -171,7 +171,7 @@ def createOrUpdateTable(engine: Engine, table: Table) -> None:
 class BatchStatus(Enum):
     """This is the status of a batch"""
     STARTED = "started"
-    INGESTING = "ingesting"
+    INGESTED = "ingested"
     MERGED = "merged"
     COMMITTED = "committed"
     FAILED = "failed"
@@ -407,10 +407,10 @@ class SnapshotMergeJob:
 
     def ingestDatasetToStaging(self, sourceEngine: Engine, mergeEngine: Engine, dataset: Dataset,
                                batchId: int, cmd: SQLSnapshotIngestion) -> tuple[int, int, int]:
-        """Ingest a dataset from source to staging table"""
-        # Map the dataset name if necessary
+        # Get source table name, Map the dataset name if necessary
         tableName: str = dataset.name if dataset.name not in cmd.tableForDataset else cmd.tableForDataset[dataset.name]
         sourceTableName: str = tableName
+        # Get destination staging table name
         stagingTableName: str = self.getStagingTableNameForDataset(dataset)
 
         # Get primary key columns
@@ -442,32 +442,36 @@ class SnapshotMergeJob:
                 if not rows:
                     break
 
-                # Process each row and insert into staging
+                # Process batch and insert into staging using prepared statement
                 with mergeEngine.begin() as mergeConn:
+                    # Prepare batch data
+                    batchValues: List[List[Any]] = []
                     for row in rows:
-                        # Convert row to list of values
                         values = list(row)
-
                         # Calculate hashes
                         allHash = self.calculateHash(values)
                         keyHash = self.calculateHash([values[allColumns.index(col)] for col in pkColumns])
-
-                        # Build insert statement
-                        columns = allColumns + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
-                        placeholders = ", ".join(["%s"] * len(columns))
-                        insertSql = f"INSERT INTO {stagingTableName} ({', '.join(columns)}) VALUES ({placeholders})"
-
-                        # Execute insert
+                        # Add batch metadata
                         insertValues = values + [batchId, allHash, keyHash]
-                        mergeConn.execute(text(insertSql), insertValues)
-                        recordsInserted += 1
+                        batchValues.append(insertValues)
+
+                    # Build insert statement with proper PostgreSQL placeholders
+                    columns = allColumns + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
+                    placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
+                    insertSql = f"INSERT INTO {stagingTableName} ({', '.join(columns)}) VALUES ({placeholders})"
+
+                    # Execute batch insert using proper SQLAlchemy batch execution
+                    # Use executemany from the underlying DBAPI for true batch efficiency
+                    # This is the most efficient way to do batch inserts
+                    mergeConn.executemany(text(insertSql), batchValues)
+                    recordsInserted += len(batchValues)
 
                 offset += batchSize
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
 
     def mergeStagingToMerge(self, mergeEngine: Engine, dataset: Dataset, batchId: int,
-                            cmd: SQLSnapshotIngestion) -> None:
+                            cmd: SQLSnapshotIngestion, key: str) -> tuple[int, int, int]:
         """Merge staging data into merge table using PostgreSQL MERGE command and ds_surf_key_hash as join key, including deletions."""
         # Map the dataset name if necessary
         stagingTableName: str = self.getStagingTableNameForDataset(dataset)
@@ -526,6 +530,8 @@ class SnapshotMergeJob:
             self.markBatchMerged(connection, key, batchId, BatchStatus.MERGED,
                                  recordsInserted, recordsUpdated, 0, totalRecords)
 
+        return recordsInserted, recordsUpdated, totalRecords
+
     def run(self) -> None:
         # First, get a connection to the source database
         cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, self.store.cmd)
@@ -563,7 +569,7 @@ class SnapshotMergeJob:
 
                 try:
                     # Update status to ingesting
-                    self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.INGESTING)
+                    self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.INGESTED)
 
                     # Ingest data to staging
                     recordsInserted, recordsUpdated, totalRecords = self.ingestDatasetToStaging(
@@ -578,7 +584,7 @@ class SnapshotMergeJob:
 
                     # Merge staging to merge table
                     finalInserted, finalUpdated, finalTotal = self.mergeStagingToMerge(
-                        mergeEngine, dataset, batchId, cmd
+                        mergeEngine, dataset, batchId, cmd, key
                     )
 
                     # Update status to committed
@@ -598,7 +604,7 @@ class SnapshotMergeJob:
 
             try:
                 # Update status to ingesting
-                self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.INGESTING)
+                self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.INGESTED)
 
                 totalRecordsInserted = 0
                 totalRecordsUpdated = 0
@@ -624,7 +630,7 @@ class SnapshotMergeJob:
                 finalTotalUpdated = 0
                 for dataset in self.store.datasets.values():
                     finalInserted, finalUpdated, _ = self.mergeStagingToMerge(
-                        mergeEngine, dataset, batchId, cmd
+                        mergeEngine, dataset, batchId, cmd, key
                     )
                     finalTotalInserted += finalInserted
                     finalTotalUpdated += finalUpdated
