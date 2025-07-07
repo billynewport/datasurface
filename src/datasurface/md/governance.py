@@ -934,8 +934,8 @@ class CDCCaptureIngestion(IngestionMetadata):
 class SQLIngestion(IngestionMetadata):
     """This is an abstract class for SQL ingestion. It allows a dataset to table name mapping to be specified.
     If its not specified then the dataset name is used as the table name"""
-    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
-        super().__init__(*[arg for arg in args if not isinstance(arg, dict)])
+    def __init__(self, db: SQLDatabase, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+        super().__init__(db, *[arg for arg in args if not isinstance(arg, dict)])
         self.tableForDataset: dict[str, str] = {}
 
     def to_json(self) -> dict[str, Any]:
@@ -967,8 +967,8 @@ class SQLIngestion(IngestionMetadata):
 
 class SQLSnapshotIngestion(SQLIngestion):
     """This is an SQL ingestion which does a select * from each table every batch."""
-    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
-        super().__init__(*args)
+    def __init__(self, db: SQLDatabase, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+        super().__init__(db, *args)
 
     def __str__(self) -> str:
         return "SQLSnapshotIngestion()"
@@ -984,8 +984,8 @@ class SQLSnapshotDeltaIngestion(SQLIngestion):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
     state variables which are used to next pull a delta per dataset and then persist the state
     again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
-        super().__init__(*args)
+    def __init__(self, db: SQLDatabase, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+        super().__init__(db, *args)
         self.variableNames: list[str] = []
         """The names of state variables produced by snapshot and delta sql strings"""
         self.snapshotSQL: dict[str, str] = OrderedDict()
@@ -1019,9 +1019,9 @@ class SQLSnapshotDeltaIngestion(SQLIngestion):
 class StreamingIngestion(IngestionMetadata):
     """This is an abstract class for streaming data sources. It allows a dataset to topic name mapping to be specified.
     If its not specified then the dataset name is used as the topic name"""
-    def __init__(self, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+    def __init__(self, dc: DataContainer, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
         # Pass all args except any which are dict[str, str]
-        super().__init__(*[arg for arg in args if not isinstance(arg, dict)])
+        super().__init__(dc, *[arg for arg in args if not isinstance(arg, dict)])
         self.topicForDataset: dict[str, str] = {}
         for arg in args:
             if isinstance(arg, dict):
@@ -1078,7 +1078,7 @@ class KafkaServer(DataContainer):
 class KafkaIngestion(StreamingIngestion):
     """This allows a topic and a schema format to be specified for a source publishing messages to a Kafka topic"""
     def __init__(self, kafkaServer: KafkaServer, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
-        super().__init__(*args)
+        super().__init__(kafkaServer, *args)
         self.kafkaServer: KafkaServer = kafkaServer
 
     def __eq__(self, other: object) -> bool:

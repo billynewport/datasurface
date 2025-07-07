@@ -10,7 +10,7 @@ from typing import Optional
 import os
 
 
-def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> None:
+def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
     """This will generate the platform bootstrap files for a given platform using the model defined in
     the model folder, the model must be called 'eco.py'. The files will be generated in the {basePlatformDir}/{platformName} directory."""
 
@@ -37,8 +37,10 @@ def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platf
             with open(os.path.join(basePlatformDir, platformName, name), "w") as f:
                 f.write(content)
 
+    return eco
 
-def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> None:
+
+def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
     """This creates the graph defined by the model and for the specified data platforms, it asks each dataplatform
     to turns the subset of the graph that it is responsible for in to artifacts to use to execute the data pipelines
     needed for this subset. These artifacts would include job schedule DAGs, terraform files and so on as needed."""
@@ -77,3 +79,5 @@ def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames:
         for name, content in files.items():
             with open(os.path.join(basePlatformDir, platformName, name), "w") as f:
                 f.write(content)
+
+    return eco

@@ -5,8 +5,9 @@
 
 import unittest
 from datasurface.cmd.platform import generatePlatformBootstrap
+from datasurface.md.governance import Ecosystem
 
 
 class Test_KubPGStarter(unittest.TestCase):
     def test_bootstrap(self):
-        generatePlatformBootstrap("src/tests/kubpgtests", "src/tests/kubpgtests/base", "Test_DP")
+        eco: Ecosystem = generatePlatformBootstrap("src/tests/kubpgtests", "src/tests/kubpgtests/base", "Test_DP")

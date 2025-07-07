@@ -10,14 +10,19 @@ from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
 from datasurface.platforms.kubpgstarter import KubernetesPGStarterDataPlatform
-from datasurface.md import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy, \
+from datasurface.md import CloudVendor, DefaultDataPlatform, \
         DataPlatformKey, WorkspaceFixedDataPlatform
 from datasurface.md import ValidationTree
-from tests.nwdb.nwdb import defineTables as defineNWTeamTables
-from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
+from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
+from datasurface.md.types import VarChar, Date
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
+from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase
 
 
 def createEcosystem() -> Ecosystem:
+    """This is a very simple test model with a single datastore and dataset.
+    It is used to test the KubernetesPGStarterDataPlatform."""
     ecosys: Ecosystem = Ecosystem(
         name="Test",
         repo=GitHubRepository("billynewport/repo", "ECOmain"),
@@ -35,9 +40,7 @@ def createEcosystem() -> Ecosystem:
         ],
         default_data_platform=DefaultDataPlatform(DataPlatformKey("Test_DP")),
         governance_zone_declarations=[
-            GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
-            GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/repo", "EUmain")),
-            GovernanceZoneDeclaration("UK", GitHubRepository("billynewport/repo", "UKmain"))
+            GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],
         infrastructure_vendors=[
             # Onsite data centers
@@ -49,74 +52,71 @@ def createEcosystem() -> Ecosystem:
                     InfrastructureLocation(
                         name="USA",
                         locations=[
-                            InfrastructureLocation(name="NJ_1"),
                             InfrastructureLocation(name="NY_1")
-                        ]
-                    ),
-                    InfrastructureLocation(
-                        name="UK",
-                        locations=[
-                            InfrastructureLocation(name="London"),
-                            InfrastructureLocation(name="Cambridge")
-                        ]
-                    )
-                ]
-            ),
-
-            # Outsourced data centers with same location equivalents
-            InfrastructureVendor(
-                name="Outsource",
-                cloud_vendor=CloudVendor.PRIVATE,
-                documentation=PlainTextDocumentation("Outsourced company data centers"),
-                locations=[
-                    InfrastructureLocation(
-                        name="USA",
-                        locations=[
-                            InfrastructureLocation(name="NJ_1"),
-                            InfrastructureLocation(name="NY_1")
-                        ]
-                    ),
-                    InfrastructureLocation(
-                        name="UK",
-                        locations=[
-                            InfrastructureLocation(name="London"),
-                            InfrastructureLocation(name="Cambridge")
                         ]
                     )
                 ]
             )
         ]
     )
+    gz: GovernanceZone = ecosys.getZoneOrThrow("USA")
 
-    gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")
+    # Add a team to the governance zone
+    gz.add(TeamDeclaration(
+        "team1",
+        GitHubRepository("billynewport/repo", "team1")
+        ))
 
-    allUSALocations: set[InfrastructureLocation] = ecosys.getAllChildLocations("MyCorp", ["USA"])
-    allUSAKeys: set[LocationKey] = {LocationKey("MyCorp:USA/" + loc.name) for loc in allUSALocations}
-
-    gzUSA.add(
-            TeamDeclaration("FrontOffice", GitHubRepository("billynewport/repo", "FOmain")),
-            TeamDeclaration("MiddleOffice", GitHubRepository("billynewport/repo", "MOmain")),
-            TeamDeclaration("NorthWindTeam", GitHubRepository("billynewport/repo", "NWmain")),
-            TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain")),
-            InfraStructureLocationPolicy("Private USA Only", PlainTextDocumentation("Test"), allUSAKeys, None)
+    team: Team = gz.getTeamOrThrow("team1")
+    team.add(
+        Datastore(
+            "Store1",
+            documentation=PlainTextDocumentation("Test datastore"),
+            capture_metadata=SQLSnapshotIngestion(
+                PostgresDatabase("NW_DB", HostPortPair("localhost", 1344), {LocationKey("MyCorp:USA/NY_1")}, "DBName"),
+                CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
+                IngestionConsistencyType.MULTI_DATASET,
+                Credential("eu_cred", CredentialType.USER_PASSWORD),
+                ),
+            datasets=[
+                Dataset(
+                    "people",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn(
+                                "id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
+                            DDLColumn(
+                                "firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "First Name")]),
+                            DDLColumn(
+                                "lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Last Name")]),
+                            DDLColumn(
+                                "dob", Date(), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Birth")]),
+                            DDLColumn(
+                                "employer", VarChar(100), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Employer")]),
+                            DDLColumn(
+                                "dod", Date(), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Death")])
+                        ]
+                    )
+                )
+            ]
+        ),
+        Workspace(
+            "Consumer1",
+            DatasetGroup(
+                "TestDSG",
+                sinks=[
+                    DatasetSink("Store1", "people")
+                ],
+                platform_chooser=WorkspaceFixedDataPlatform(DataPlatformKey("Test_DP"))
+            )
         )
-
-    allUKLocations: set[InfrastructureLocation] = ecosys.getAllChildLocations("MyCorp", ["UK"])
-    allUKKeys: set[LocationKey] = {LocationKey("MyCorp:UK/" + loc.name) for loc in allUKLocations}
-
-    gzUK: GovernanceZone = ecosys.getZoneOrThrow("UK")
-    gzUK.add(
-        TeamDeclaration("FrontOffice", GitHubRepository("billynewport/repo", "FOmain")),
-        TeamDeclaration("MiddleOffice", GitHubRepository("billynewport/repo", "MOmain")),
-        TeamDeclaration("BackOffice", GitHubRepository("billynewport/repo", "BOmain")),
-        InfraStructureLocationPolicy("Private UK Only", PlainTextDocumentation("Test"), allUKKeys, None)
     )
-
-    # Fill out the NorthWindTeam managed by the USA governance zone
-    nw_team: Team = ecosys.getTeamOrThrow("USA", "NorthWindTeam")
-    defineNWTeamTables(ecosys, gzUSA, nw_team)
-    chooser: WorkspaceFixedDataPlatform = WorkspaceFixedDataPlatform(DataPlatformKey("Test_DP"))
-    defineNWTeamWorkspaces(ecosys, nw_team, {LocationKey("MyCorp:USA/NY_1")}, chooser)
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
     if (tree.hasErrors()):
