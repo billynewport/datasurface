@@ -73,10 +73,15 @@ def createEcosystem() -> Ecosystem:
             "Store1",
             documentation=PlainTextDocumentation("Test datastore"),
             capture_metadata=SQLSnapshotIngestion(
-                PostgresDatabase("NW_DB", HostPortPair("localhost", 1344), {LocationKey("MyCorp:USA/NY_1")}, "DBName"),
-                CronTrigger("NW_Data Every 10 mins", "0,10,20,30,40,50 * * * *"),
-                IngestionConsistencyType.MULTI_DATASET,
-                Credential("eu_cred", CredentialType.USER_PASSWORD),
+                PostgresDatabase(
+                    "Test_DB",  # Model name for database
+                    HostPortPair("localhost", 5432),  # Host and port for database
+                    {LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                    "test_db"  # Database name
+                ),
+                CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
+                IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
+                Credential("postgres", CredentialType.USER_PASSWORD),  # Credential for platform to read from database
                 ),
             datasets=[
                 Dataset(

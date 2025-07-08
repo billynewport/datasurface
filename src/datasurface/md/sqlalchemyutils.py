@@ -7,6 +7,7 @@ from typing import Any, List, Optional, Sequence, TypeVar, Dict
 from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
     VarChar, NVarChar
 import sqlalchemy
+from sqlalchemy import inspect, MetaData, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.schema import Table, Column, PrimaryKeyConstraint
@@ -284,3 +285,137 @@ class SQLAlchemyDataContainerReconciler:
         """This will iterate over all sqlalchemy supported data containers and reconcile the
         table and view schemas for them."""
         pass
+
+
+def _types_are_compatible(current_type: str, desired_type: str) -> bool:
+    """Check if two SQLAlchemy type strings represent compatible types."""
+    # Remove whitespace and convert to uppercase for comparison
+    current = current_type.strip().upper()
+    desired = desired_type.strip().upper()
+
+    # If they're exactly the same, they're compatible
+    if current == desired:
+        return True
+
+    # Handle common PostgreSQL type equivalencies (but be strict about lengths)
+    # INTEGER types are often equivalent
+    if current in ['INTEGER', 'INT', 'INT4'] and desired in ['INTEGER', 'INT', 'INT4']:
+        return True
+
+    # BOOLEAN types
+    if current in ['BOOLEAN', 'BOOL'] and desired in ['BOOLEAN', 'BOOL']:
+        return True
+
+    # For VARCHAR and CHAR, we need to be strict about lengths
+    # Only consider them compatible if they have the same constraints
+    # This means VARCHAR(50) and VARCHAR(200) are NOT compatible
+    if current.startswith('VARCHAR(') and desired.startswith('VARCHAR('):
+        # Extract the length values and compare them
+        current_length = _extract_length_from_type(current)
+        desired_length = _extract_length_from_type(desired)
+        return current_length == desired_length
+
+    if current.startswith('CHAR(') and desired.startswith('CHAR('):
+        # Extract the length values and compare them
+        current_length = _extract_length_from_type(current)
+        desired_length = _extract_length_from_type(desired)
+        return current_length == desired_length
+
+    # For DECIMAL/NUMERIC types, compare precision and scale
+    if (current.startswith('DECIMAL(') or current.startswith('NUMERIC(')) and \
+       (desired.startswith('DECIMAL(') or desired.startswith('NUMERIC(')):
+        current_precision, current_scale = _extract_decimal_params(current)
+        desired_precision, desired_scale = _extract_decimal_params(desired)
+        return current_precision == desired_precision and current_scale == desired_scale
+
+    # If we can't determine compatibility, assume they're different
+    return False
+
+
+def _extract_length_from_type(type_str: str) -> int:
+    """Extract the length parameter from a type string like VARCHAR(50)."""
+    try:
+        # Find the opening and closing parentheses
+        start = type_str.find('(')
+        end = type_str.find(')')
+        if start != -1 and end != -1 and end > start:
+            length_str = type_str[start + 1:end]
+            return int(length_str)
+        return -1  # No length parameter found
+    except (ValueError, IndexError):
+        return -1  # Invalid format
+
+
+def _extract_decimal_params(type_str: str) -> tuple[int, int]:
+    """Extract precision and scale from a DECIMAL/NUMERIC type string like DECIMAL(10,2)."""
+    try:
+        # Find the opening and closing parentheses
+        start = type_str.find('(')
+        end = type_str.find(')')
+        if start != -1 and end != -1 and end > start:
+            params_str = type_str[start + 1:end]
+            params = params_str.split(',')
+            if len(params) == 2:
+                precision = int(params[0].strip())
+                scale = int(params[1].strip())
+                return precision, scale
+        return -1, -1  # No parameters found
+    except (ValueError, IndexError):
+        return -1, -1  # Invalid format
+
+
+def createOrUpdateTable(engine: Engine, table: Table) -> None:
+    """This will create the table if it doesn't exist or update it if it does"""
+    # If the table doesn't exist, create it
+    inspector = inspect(engine)  # type: ignore[attr-defined]
+    if not inspector.has_table(table.name):  # type: ignore[attr-defined]
+        table.create(engine)
+    # If the table exists, check if it has the correct schema
+    else:
+        # Get the current schema of the table
+        currentSchema: Table = Table(table.name, MetaData(), autoload_with=engine)
+        # Find new columns to add
+        newColumns: List[Column[Any]] = []
+        for column in table.columns:
+            col_typed: Column[Any] = column  # Type annotation for clarity
+            if col_typed.name not in currentSchema.columns:  # type: ignore[attr-defined]
+                newColumns.append(col_typed)
+
+        # Find columns that need type changes
+        columnsToAlter: List[Column[Any]] = []
+        for column in currentSchema.columns:
+            col_typed: Column[Any] = column  # Type annotation for clarity
+            if col_typed.name not in table.columns:  # type: ignore[attr-defined]
+                continue
+            # Compare column types more carefully - convert both to string representation
+            current_type_str = str(col_typed.type).upper()  # type: ignore[attr-defined]
+            desired_type_str = str(table.columns[col_typed.name].type).upper()  # type: ignore[attr-defined]
+            # Only consider it a change if the types are meaningfully different
+            if current_type_str != desired_type_str and not _types_are_compatible(current_type_str, desired_type_str):
+                columnsToAlter.append(table.columns[col_typed.name])  # type: ignore[attr-defined]
+
+        # Execute all schema changes in a single transaction
+        if newColumns or columnsToAlter:
+            with engine.begin() as connection:
+                # Add new columns (these need to be individual statements)
+                for column in newColumns:
+                    column_type = str(column.type)  # type: ignore[attr-defined]
+                    alter_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"  # type: ignore[attr-defined]
+                    if column.nullable is False:
+                        alter_sql += " NOT NULL"
+                    connection.execute(text(alter_sql))
+
+                # Alter existing columns (batch multiple alterations into a single statement)
+                if columnsToAlter:
+                    alter_parts = []
+                    for column in columnsToAlter:
+                        alter_parts.append(f"ALTER COLUMN {column.name} TYPE {str(column.type)}")  # type: ignore[attr-defined]
+
+                    # Combine all alterations into a single ALTER TABLE statement
+                    alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
+                    connection.execute(text(alter_sql))
+
+            if newColumns:
+                print(f"Added columns to table {table.name}: {[col.name for col in newColumns]}")  # type: ignore[attr-defined]
+            if columnsToAlter:
+                print(f"Altered columns in table {table.name}: {[col.name for col in columnsToAlter]}")  # type: ignore[attr-defined]
