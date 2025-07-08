@@ -5,7 +5,7 @@
 """
 
 from datasurface.md import Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, DataContainer, PostgresDatabase, Dataset, IngestionConsistencyType
-from sqlalchemy import create_engine, Table, MetaData, text, inspect
+from sqlalchemy import create_engine, Table, MetaData, text
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Integer, String, DateTime
