@@ -13,6 +13,7 @@ from datasurface.md.types import String
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.platforms.legacy import LegacyDataPlatform
 import time
+import os
 
 
 class TestLintPerformance(unittest.TestCase):
@@ -22,11 +23,11 @@ class TestLintPerformance(unittest.TestCase):
         store: Datastore = Datastore("Store1")
         # Split the source reference string into filename and line number
         source_ref = store.getSourceReferenceString()
-        filename, lineno = source_ref.split('@')[1].split(':')
-        # Only keep the filename, not the folder
-        filename = filename.split('/')[-1]
+        full_path, lineno = source_ref.split('@')[1].split('::')
+        # Use os.path.basename to get just the filename, handling any path separator
+        filename = os.path.basename(full_path)
         self.assertEqual(filename, "test_lint_performance.py")
-        self.assertEqual(lineno, "22")
+        self.assertEqual(lineno, "23")
 
     def benchmark_object_creation(self, count: int = 10000) -> float:
         """Benchmark creating many UserDSLObject instances"""
