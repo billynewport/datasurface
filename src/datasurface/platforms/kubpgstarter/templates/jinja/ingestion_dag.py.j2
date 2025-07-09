@@ -1,0 +1,125 @@
+"""
+Ingestion Stream DAG for {{ platform_name }} - {{ stream_key }}
+Generated automatically by DataSurface KubernetesPGStarter Platform
+
+This DAG handles a single ingestion stream. It runs the SnapshotMergeJob
+until the batch is committed or failed, then waits for the next external trigger.
+"""
+
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+
+# Default arguments for the DAG
+default_args = {
+    'owner': 'datasurface',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 0,  # No retries - the job handles its own retry logic
+    'retry_delay': timedelta(minutes=5),
+}
+
+# Create the DAG
+dag = DAG(
+    '{{ platform_name }}_{{ stream_key | replace("-", "_") }}_ingestion',
+    default_args=default_args,
+    description='Ingestion Stream DAG for {{ platform_name }} - {{ stream_key }}',
+    schedule='@hourly',  # External trigger schedule
+    catchup=False,
+    tags=['datasurface', 'ingestion', '{{ platform_name }}', '{{ stream_key }}']
+)
+
+# Start task
+start_task = EmptyOperator(
+    task_id='start_ingestion',
+    dag=dag
+)
+
+# Environment variables for all tasks
+common_env_vars = {
+    # Postgres credentials
+    '{{ postgres_credential_secret_name }}_USER': {
+        'secret_name': '{{ postgres_credential_secret_name }}',
+        'secret_key': 'username'
+    },
+    '{{ postgres_credential_secret_name }}_PASSWORD': {
+        'secret_name': '{{ postgres_credential_secret_name }}',
+        'secret_key': 'password'
+    },
+    # Kafka Connect credentials
+    '{{ kafka_connect_credential_secret_name }}_TOKEN': {
+        'secret_name': '{{ kafka_connect_credential_secret_name }}',
+        'secret_key': 'token'
+    },
+    # Git credentials
+    '{{ git_credential_secret_name }}_TOKEN': {
+        'secret_name': '{{ git_credential_secret_name }}',
+        'secret_key': 'token'
+    },
+    # Slack credentials
+    '{{ slack_credential_secret_name }}_TOKEN': {
+        'secret_name': '{{ slack_credential_secret_name }}',
+        'secret_key': 'token'
+    },
+    # Platform configuration
+    'DATASURFACE_PLATFORM_NAME': '{{ platform_name }}',
+    'DATASURFACE_NAMESPACE': '{{ namespace_name }}',
+    'DATASURFACE_SLACK_CHANNEL': '{{ slack_channel_name }}'
+}
+
+# Ingestion Task - Runs the SnapshotMergeJob
+ingestion_task = KubernetesPodOperator(
+    task_id='snapshot_merge_job',
+    name='{{ platform_name }}-{{ stream_key | replace("-", "_") }}-ingestion',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.jobs'],
+    arguments=[
+        '--platform-name', '{{ platform_name }}',
+        '--store-name', '{{ store_name }}',
+        {% if dataset_name %}
+        '--dataset-name', '{{ dataset_name }}',
+        {% endif %}
+        '--operation', 'snapshot-merge',
+        '--git-repo-path', '/workspace/model'
+    ],
+    env_vars=common_env_vars,  # type: ignore
+    volumes=[  # type: ignore
+        {
+            'name': 'git-workspace',
+            'configMap': {'name': '{{ platform_name }}-git-config'}
+        }
+    ],
+    volume_mounts=[  # type: ignore
+        {
+            'name': 'git-workspace',
+            'mountPath': '/workspace/model',
+            'readOnly': True
+        }
+    ],
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# Self-triggering logic - triggers the same DAG again if job returns KEEP_WORKING
+self_trigger = TriggerDagRunOperator(
+    task_id='trigger_self',
+    trigger_dag_id='{{ platform_name }}_{{ stream_key | replace("-", "_") }}_ingestion',
+    conf={'triggered_by': '{{ stream_key }}_self_trigger'},
+    dag=dag
+)
+
+# End task
+end_task = EmptyOperator(
+    task_id='end_ingestion',
+    dag=dag
+)
+
+# Define task dependencies
+# The job runs first, then either self-triggers or ends
+start_task >> ingestion_task >> [self_trigger, end_task]  # type: ignore 

@@ -6,7 +6,7 @@
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
     PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
 from typing import Any, Optional
-from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, ProblemSeverity, UnsupportedIngestionType, \
+from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, ObjectNotSupportedByDataPlatform
@@ -268,9 +268,90 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         dt.code.lint(eco, tree)
 
     def createAirflowDAG(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
-        """This creates an AirFlow DAG containing the MERGE task for every ingestion (store or dataset depending on whether
-        the model specifies single or multidataset)"""
-        raise NotImplementedError("Airflow DAG generation is not implemented")
+        """This creates individual AirFlow DAGs for each ingestion stream. Each DAG runs the SnapshotMergeJob
+        until the batch is committed or failed, then waits for the next external trigger."""
+
+        # Create Jinja2 environment
+        env: Environment = Environment(
+            loader=PackageLoader('datasurface.platforms.kubpgstarter.templates', 'jinja'),
+            autoescape=select_autoescape(['html', 'xml'])
+        )
+
+        # Load the ingestion stream DAG template
+        dag_template: Template = env.get_template('ingestion_dag.py.j2')
+
+        # Build the ingestion_streams context from the graph
+        ingestion_streams: dict[str, dict[str, Any]] = {}
+
+        for storeName in self.graph.storesToIngest:
+            try:
+                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
+                store: Datastore = storeEntry.datastore
+
+                if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion)):
+                    # Determine if this is single or multi dataset ingestion
+                    is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
+
+                    if is_single_dataset:
+                        # For single dataset, create a separate entry for each dataset
+                        for dataset in store.datasets.values():
+                            stream_key = f"{storeName}_{dataset.name}"
+                            ingestion_streams[stream_key] = {
+                                "single_dataset": True,
+                                "datasets": [dataset.name],
+                                "store_name": storeName,
+                                "dataset_name": dataset.name
+                            }
+                    else:
+                        # For multi dataset, create one entry for the entire store
+                        ingestion_streams[storeName] = {
+                            "single_dataset": False,
+                            "datasets": [dataset.name for dataset in store.datasets.values()],
+                            "store_name": storeName
+                        }
+                else:
+                    issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
+                    continue
+
+            except ObjectDoesntExistException:
+                issueTree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
+                continue
+
+        # Generate individual DAGs for each ingestion stream
+        all_dags: list[str] = []
+
+        for stream_key, stream_data in ingestion_streams.items():
+            try:
+                gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+
+                context: dict[str, Any] = {
+                    "namespace_name": self.dp.namespace,
+                    "platform_name": self.dp.to_k8s_name(self.dp.name),
+                    "postgres_hostname": self.dp.to_k8s_name(self.dp.postgresName),
+                    "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
+                    "kafka_connect_credential_secret_name": self.dp.to_k8s_name(self.dp.connectCredentials.name),
+                    "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
+                    "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
+                    "slack_channel_name": self.dp.slackChannel,
+                    "datasurface_docker_image": self.dp.datasurfaceImage,
+                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                    "git_repo_branch": gitRepo.branchName,
+                    "git_repo_name": gitRepo.repositoryName,
+                    "stream_key": stream_key,
+                    "store_name": stream_data["store_name"],
+                    "dataset_name": stream_data.get("dataset_name")  # None for multi-dataset
+                }
+
+                # Render the individual DAG
+                dag_content: str = dag_template.render(context)
+                all_dags.append(dag_content)
+
+            except Exception as e:
+                issueTree.addRaw(UnexpectedExceptionProblem(e))
+                continue
+
+        # Return all DAGs concatenated with separators
+        return "\n\n# " + "="*80 + "\n\n".join(all_dags)
 
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
@@ -506,7 +587,8 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             "slack_channel_name": self.slackChannel,
             "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
             "git_repo_branch": gitRepo.branchName,
-            "git_repo_name": gitRepo.repositoryName
+            "git_repo_name": gitRepo.repositoryName,
+            "ingestion_streams": {}  # Empty for bootstrap - no ingestion streams yet
         }
 
         # Render the templates

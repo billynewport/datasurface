@@ -1654,6 +1654,11 @@ class Ecosystem(GitControlledObject, JSONable):
             raise ObjectDoesntExistException(f"Unknown workspace {work}")
         return w
 
+    def cache_getWorkspace(self, work: str) -> Optional[WorkspaceCacheEntry]:
+        """This returns the named workspace if it exists"""
+        w: Optional[WorkspaceCacheEntry] = self.workSpaceCache.get(work)
+        return w
+
     def cache_getDatastoreOrThrow(self, store: str) -> DatastoreCacheEntry:
         s: Optional[DatastoreCacheEntry] = self.datastoreCache.get(store)
         if s is None:
@@ -2862,6 +2867,48 @@ class DatasetSink(UserDSLObject):
 
     def __str__(self) -> str:
         return f"DatasetSink({self.storeName}:{self.datasetName})"
+
+
+class DatasetGroupDataPlatformAssignment(UserDSLObject):
+    """This is a reference to a DataPlatform which is assigned to a Workspace"""
+    def __init__(self, workspace: str, dsgName: str, dp: DataPlatformKey, doc: Documentation, productionStatus: ProductionStatus = ProductionStatus.PRODUCTION,
+                 deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER) -> None:
+        UserDSLObject.__init__(self)
+        self.workspace: str = workspace
+        self.dsgName: str = dsgName
+        self.dataPlatform: DataPlatformKey = dp
+        self.documentation: Documentation = doc
+        self.productionStatus: ProductionStatus = productionStatus
+        self.deprecationsAllowed: DeprecationsAllowed = deprecationsAllowed
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "dataPlatform": self.dataPlatform.name, "documentation": self.documentation.to_json(),
+                   "productionStatus": self.productionStatus.name, "deprecationsAllowed": self.deprecationsAllowed.name})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DatasetGroupDataPlatformAssignment) and self.dataPlatform == other.dataPlatform and \
+            self.documentation == other.documentation and self.productionStatus == other.productionStatus and \
+            self.deprecationsAllowed == other.deprecationsAllowed
+
+    def __hash__(self) -> int:
+        return hash((self.dataPlatform, self.documentation, self.productionStatus, self.deprecationsAllowed))
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        # Make sure the workspace and dsg exist
+        w: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(self.workspace)
+        if w is None:
+            tree.addRaw(UnknownObjectReference(f"Unknown workspace {self.workspace}", ProblemSeverity.ERROR))
+        else:
+            # Make sure the dsg exists
+            dsg: Optional[DatasetGroup] = w.workspace.dsgs.get(self.dsgName)
+            if dsg is None:
+                tree.addRaw(UnknownObjectReference(f"Unknown dataset group {self.workspace}:{self.dsgName}", ProblemSeverity.ERROR))
+        # Make sure the data platform exists
+        dp: Optional[DataPlatform] = eco.getDataPlatform(self.dataPlatform.name)
+        if dp is None:
+            tree.addRaw(UnknownObjectReference(f"Unknown data platform {self.dataPlatform.name}", ProblemSeverity.ERROR))
 
 
 class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
