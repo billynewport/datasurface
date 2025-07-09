@@ -408,7 +408,7 @@ class SnapshotMergeJob:
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""
         with mergeEngine.connect() as connection:
             result = connection.execute(text(f"""
-                SELECT bm.batch_status 
+                SELECT bm.batch_status
                 FROM {self.getBatchMetricsTableName()} bm
                 INNER JOIN {self.getBatchCounterTableName()} bc ON bc.key = bm.key
                 WHERE bm.key = '{key}' AND bm.batch_id = bc.currentBatch
@@ -444,37 +444,37 @@ class SnapshotMergeJob:
             for dataset in self.store.datasets.values():
                 key = f"{self.store.name}#{dataset.name}"
                 currentStatus = self.checkBatchStatus(mergeEngine, key)
-                
+
                 if currentStatus is None:
                     # No batch exists, start a new one
                     batchId = self.startBatch(mergeEngine, self.store, dataset)
                     print(f"Started new batch {batchId} for {key}")
                     return 0  # KEEP_WORKING
-                
+
                 elif currentStatus == BatchStatus.STARTED.value:
                     # Batch is started, continue with ingestion
                     batchId = self.getCurrentBatchId(mergeEngine, key)
                     print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
                     return 0  # KEEP_WORKING
-                
+
                 elif currentStatus == BatchStatus.INGESTED.value:
                     # Batch is ingested, continue with merge
                     batchId = self.getCurrentBatchId(mergeEngine, key)
                     print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
                     return 0  # KEEP_WORKING
-                
+
                 elif currentStatus == BatchStatus.MERGED.value:
                     # Batch is merged, mark as committed
                     batchId = self.getCurrentBatchId(mergeEngine, key)
                     self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.COMMITTED)
                     print(f"Committed batch {batchId} for {key}")
                     return 1  # DONE
-                
+
                 elif currentStatus == BatchStatus.COMMITTED.value:
                     # Batch is already committed, we're done
                     print(f"Batch for {key} is already committed")
                     return 1  # DONE
-                
+
                 elif currentStatus == BatchStatus.FAILED.value:
                     # Batch failed, we're done
                     print(f"Batch for {key} failed")
@@ -483,37 +483,37 @@ class SnapshotMergeJob:
             # For multi-dataset ingestion, process all datasets in a single batch
             key = self.store.name
             currentStatus = self.checkBatchStatus(mergeEngine, key)
-            
+
             if currentStatus is None:
                 # No batch exists, start a new one
                 batchId = self.startBatch(mergeEngine, self.store, None)
                 print(f"Started new multi-dataset batch {batchId} for {key}")
                 return 0  # KEEP_WORKING
-            
+
             elif currentStatus == BatchStatus.STARTED.value:
                 # Batch is started, continue with ingestion
                 batchId = self.getCurrentBatchId(mergeEngine, key)
                 print(f"Continuing multi-dataset batch {batchId} for {key} (status: {currentStatus})")
                 return 0  # KEEP_WORKING
-            
+
             elif currentStatus == BatchStatus.INGESTED.value:
                 # Batch is ingested, continue with merge
                 batchId = self.getCurrentBatchId(mergeEngine, key)
                 print(f"Continuing multi-dataset batch {batchId} for {key} (status: {currentStatus})")
                 return 0  # KEEP_WORKING
-            
+
             elif currentStatus == BatchStatus.MERGED.value:
                 # Batch is merged, mark as committed
                 batchId = self.getCurrentBatchId(mergeEngine, key)
                 self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.COMMITTED)
                 print(f"Committed multi-dataset batch {batchId} for {key}")
                 return 1  # DONE
-            
+
             elif currentStatus == BatchStatus.COMMITTED.value:
                 # Batch is already committed, we're done
                 print(f"Multi-dataset batch for {key} is already committed")
                 return 1  # DONE
-            
+
             elif currentStatus == BatchStatus.FAILED.value:
                 # Batch failed, we're done
                 print(f"Multi-dataset batch for {key} failed")
@@ -537,17 +537,17 @@ def main():
     parser.add_argument('--dataset-name', help='Name of the dataset (for single dataset ingestion)')
     parser.add_argument('--operation', default='snapshot-merge', help='Operation to perform')
     parser.add_argument('--git-repo-path', required=True, help='Path to the git repository')
-    
+
     args = parser.parse_args()
-    
+
     # TODO: Load the ecosystem from the git repo path
     # This would involve loading the ecosystem model and finding the specific store/dataset
     # For now, this is a placeholder implementation
-    
+
     print(f"Running SnapshotMergeJob for platform: {args.platform_name}, store: {args.store_name}")
     if args.dataset_name:
         print(f"Dataset: {args.dataset_name}")
-    
+
     # TODO: Implement the actual job execution
     # For now, return DONE to indicate completion
     print("Job completed successfully")

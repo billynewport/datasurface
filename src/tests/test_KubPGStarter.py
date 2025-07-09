@@ -32,7 +32,7 @@ class Test_KubPGStarter(unittest.TestCase):
 
         # Check that the graph output directory was created
         import os
-        graph_output_dir = "src/tests/kubpgtests/graph_output/Test_DP"
+        graph_output_dir = "src/tests/kubpgtests/base/graph_output/Test_DP"
         self.assertTrue(os.path.exists(graph_output_dir))
 
         # Check that the airflow_dag file was created
