@@ -1,4 +1,4 @@
-name: Publish DataSurface GRPC Server Docker Image
+name: Publish DataSurface Docker Image
 
 on:
   push:
@@ -6,9 +6,9 @@ on:
       - main
 
 env:
-  DOCKER_USERNAME: datafracture
-  DOCKER_IMAGE_NAME: datasurface_api
-  DOCKERFILE_PATH: src/datasurface/api/Docker/Dockerfile
+  DOCKER_USERNAME: datasurface
+  DOCKER_IMAGE_NAME: datasurface
+  DOCKERFILE_PATH: Dockerfile.datasurface
 
 jobs:
   build-and-publish:
