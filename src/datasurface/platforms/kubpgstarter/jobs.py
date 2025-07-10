@@ -279,11 +279,6 @@ class SnapshotMergeJob:
         update_sql = f"UPDATE {self.getBatchMetricsTableName()} SET {', '.join(update_parts)} WHERE key = '{key}' AND batch_id = {batchId}"
         connection.execute(text(update_sql))
 
-    def calculateHash(self, values: List[Any]) -> str:
-        """Calculate MD5 hash of concatenated string values"""
-        concatenated = "".join(str(val) if val is not None else "" for val in values)
-        return hashlib.md5(concatenated.encode('utf-8')).hexdigest()
-
     def ingestDatasetToStaging(self, sourceEngine: Engine, mergeEngine: Engine, dataset: Dataset,
                                batchId: int, cmd: SQLSnapshotIngestion) -> tuple[int, int, int]:
         # Get source table name, Map the dataset name if necessary
@@ -301,6 +296,13 @@ class SnapshotMergeJob:
         # Get all column names
         allColumns: List[str] = [col.name for col in dataset.schema.columns]
 
+        # Build hash expressions for PostgreSQL MD5 function
+        # For all columns hash: concatenate all column values
+        allColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in allColumns])
+
+        # For key columns hash: concatenate only primary key column values
+        keyColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in pkColumns])
+
         # Read from source table
         with sourceEngine.connect() as sourceConn:
             # Get total count for metrics
@@ -313,25 +315,32 @@ class SnapshotMergeJob:
             recordsInserted = 0
 
             while True:
-                # Read batch from source
-                selectSql = f"SELECT * FROM {sourceTableName} LIMIT {batchSize} OFFSET {offset}"
+                # Read batch from source with hash calculation in SQL
+                selectSql = f"""
+                SELECT {', '.join(allColumns)},
+                       MD5({allColumnsHashExpr}) as ds_surf_all_hash,
+                       MD5({keyColumnsHashExpr}) as ds_surf_key_hash
+                FROM {sourceTableName}
+                LIMIT {batchSize} OFFSET {offset}
+                """
                 result = sourceConn.execute(text(selectSql))
                 rows = result.fetchall()
 
                 if not rows:
                     break
 
-                # Process batch and insert into staging using prepared statement
+                # Process batch and insert into staging
                 with mergeEngine.begin() as mergeConn:
-                    # Prepare batch data
+                    # Prepare batch data - now includes pre-calculated hashes
                     batchValues: List[List[Any]] = []
                     for row in rows:
-                        values = list(row)
-                        # Calculate hashes
-                        allHash = self.calculateHash(values)
-                        keyHash = self.calculateHash([values[allColumns.index(col)] for col in pkColumns])
+                        # Extract data columns (excluding the hash columns we added)
+                        dataValues = list(row)[:len(allColumns)]
+                        # Extract hash values (last two columns from our SELECT)
+                        allHash = row[-2]  # ds_surf_all_hash
+                        keyHash = row[-1]  # ds_surf_key_hash
                         # Add batch metadata
-                        insertValues = values + [batchId, allHash, keyHash]
+                        insertValues = dataValues + [batchId, allHash, keyHash]
                         batchValues.append(insertValues)
 
                     # Build insert statement with proper PostgreSQL placeholders
