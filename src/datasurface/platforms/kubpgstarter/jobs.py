@@ -9,13 +9,18 @@ from sqlalchemy import create_engine, Table, MetaData, text
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Integer, String, DateTime
+from sqlalchemy.engine.result import Row
 from enum import Enum
 from typing import cast, List, Any, Optional
+from datasurface.md.governance import EcosystemPipelineGraph, PlatformPipelineGraph
+from datasurface.md.lint import ValidationTree
 from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 import hashlib
 import argparse
 import sys
+from datasurface.md.model_loader import loadEcosystemFromEcoModule
+from datasurface.md import DataPlatform
 
 """
 This job runs to ingest/merge new data into a dataset. The data is ingested from a source in to a staging table named
@@ -180,10 +185,11 @@ class SnapshotMergeJob:
         In this case, the current batch is 0.
         """
         result = connection.execute(text(f"SELECT currentBatch FROM {self.getBatchCounterTableName()} WHERE key = '{key}'"))
-        if result.fetchone() is None:
+        counterRow: Optional[Row[Any]] = result.fetchone()
+        if counterRow is None:
             currentBatch = 0
         else:
-            currentBatch = result.fetchone()[0]
+            currentBatch = counterRow[0]
 
         # Check if the current batch is committed
         result = connection.execute(text(f"SELECT batch_status FROM {self.getBatchMetricsTableName()} WHERE key = '{key}' AND batch_id = {currentBatch}"))
@@ -540,18 +546,68 @@ def main():
 
     args = parser.parse_args()
 
-    # TODO: Load the ecosystem from the git repo path
-    # This would involve loading the ecosystem model and finding the specific store/dataset
-    # For now, this is a placeholder implementation
+    eco: Ecosystem
+    tree: ValidationTree
+    eco, tree = loadEcosystemFromEcoModule(args.git_repo_path)
+    if tree.hasErrors():
+        print("Ecosystem model has errors")
+        return -1  # ERROR
 
-    print(f"Running SnapshotMergeJob for platform: {args.platform_name}, store: {args.store_name}")
-    if args.dataset_name:
-        print(f"Dataset: {args.dataset_name}")
+    if args.operation == "snapshot-merge":
+        print(f"Running SnapshotMergeJob for platform: {args.platform_name}, store: {args.store_name}")
+        if args.dataset_name:
+            print(f"Dataset: {args.dataset_name}")
 
-    # TODO: Implement the actual job execution
-    # For now, return DONE to indicate completion
-    print("Job completed successfully")
-    return 1  # DONE
+        dp: Optional[DataPlatform] = eco.getDataPlatform(args.platform_name)
+        if dp is None:
+            print(f"Unknown platform: {args.platform_name}")
+            return -1  # ERROR
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco, dp.name)
+        root: Optional[PlatformPipelineGraph] = graph.roots.get(dp)
+        if root is None:
+            print(f"Unknown graph for platform: {args.platform_name}")
+            return -1  # ERROR
+        # Is this datastore being ingested by this platform?
+        if root.storesToIngest.get(args.store_name) is None:
+            print(f"Datastore {args.store_name} is not being ingested by platform: {args.platform_name}")
+            return -1  # ERROR
+
+        store: Optional[Datastore] = eco.getDatastore(args.store_name)
+        if store is None:
+            print(f"Unknown store: {args.store_name}")
+            return -1  # ERROR
+
+        if store.cmd is None:
+            print(f"Store {args.store_name} has no capture meta data")
+            return -1  # ERROR
+        else:
+            if store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
+                if args.dataset_name is None:
+                    print("Single dataset ingestion requires a dataset name")
+                    return -1  # ERROR
+            elif store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET:
+                if args.dataset_name is not None:
+                    print("Multi dataset ingestion does not require a dataset name")
+                    return -1  # ERROR
+
+        if store.cmd.credential is None:
+            print(f"Store {args.store_name} has no credential")
+            return -1  # ERROR
+
+        if args.dataset_name:
+            dataset: Optional[Dataset] = store.datasets.get(args.dataset_name)
+            if dataset is None:
+                print(f"Unknown dataset: {args.dataset_name}")
+                return -1  # ERROR
+
+        job: SnapshotMergeJob = SnapshotMergeJob(eco, dp.credentialStore, dp, store)
+
+        job.run()
+        print("Job completed successfully")
+        return 1  # DONE
+    else:
+        print(f"Unknown operation: {args.operation}")
+        return -1  # ERROR
 
 
 if __name__ == "__main__":
