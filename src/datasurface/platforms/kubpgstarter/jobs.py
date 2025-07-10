@@ -193,8 +193,9 @@ class SnapshotMergeJob:
 
         # Check if the current batch is committed
         result = connection.execute(text(f"SELECT batch_status FROM {self.getBatchMetricsTableName()} WHERE key = '{key}' AND batch_id = {currentBatch}"))
-        if result.fetchone() is not None:
-            batchStatus: str = result.fetchone()[0]
+        batchStatusRow: Optional[Row[Any]] = result.fetchone()
+        if batchStatusRow is not None:
+            batchStatus: str = batchStatusRow[0]
             if batchStatus != BatchStatus.COMMITTED.value:
                 raise Exception(f"Batch {currentBatch} is not committed")
 
@@ -551,6 +552,7 @@ def main():
     eco, tree = loadEcosystemFromEcoModule(args.git_repo_path)
     if tree.hasErrors():
         print("Ecosystem model has errors")
+        tree.printTree()
         return -1  # ERROR
 
     if args.operation == "snapshot-merge":
