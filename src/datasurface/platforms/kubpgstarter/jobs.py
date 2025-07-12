@@ -16,11 +16,12 @@ from datasurface.md.governance import EcosystemPipelineGraph, PlatformPipelineGr
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
-import hashlib
 import argparse
 import sys
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md import DataPlatform
+import json
+
 
 """
 This job runs to ingest/merge new data into a dataset. The data is ingested from a source in to a staging table named
@@ -39,6 +40,13 @@ stored in the batch_metrics table.
 The ingestion streams are named/keyed depending on whather the ingestion stream is for every dataset in a store or for just
 one dataset in a datastore. The key is either just {storeName} or '{storeName}#{datasetName}.
 
+The state of the ingestion has the following keys:
+
+- datasets_to_go: A list of outstanding datasets to ingest
+- current: tuple of dataset_name and offset. The offset is where ingestion of the dataset should restart.
+
+When the last dataset is ingested, the state is set to MERGING and all datasets are merged in a single tx.
+
 This job is designed to be run by Airflow as a KubernetesPodOperator. It returns:
 - Exit code 0: "KEEP_WORKING" - The batch is still in progress, reschedule the job
 - Exit code 1: "DONE" - The batch is committed or failed, stop rescheduling
@@ -48,10 +56,36 @@ This job is designed to be run by Airflow as a KubernetesPodOperator. It returns
 class BatchStatus(Enum):
     """This is the status of a batch"""
     STARTED = "started"
-    INGESTED = "ingested"
+    INGESTING = "ingesting"
+    MERGING = "merging"
     MERGED = "merged"
     COMMITTED = "committed"
     FAILED = "failed"
+
+
+class JobStatus(Enum):
+    """This is the status of a job"""
+    KEEP_WORKING = 1  # The job is still in progress, put on queue and continue ASAP
+    DONE = 0  # The job is complete, wait for trigger to run batch again
+    ERROR = -1  # The job failed, stop the job and don't run again
+
+
+class BatchState:
+    """This is the state of a batch being processed. It provides a list of datasets which need to be
+    ingested still and for the dataset currently being ingested, where to start ingestion from in terms
+    of an offset in the source table."""
+
+    def __init__(self, datasets_to_go: List[str], current_dataset: str, current_offset: int) -> None:
+        self.datasets_to_go: List[str] = datasets_to_go
+        self.current_dataset: Optional[str] = current_dataset
+        self.current_offset: int = current_offset
+
+    @staticmethod
+    def from_json(json_str: str) -> "BatchState":
+        return BatchState(**json.loads(json_str))
+
+    def to_json(self) -> str:
+        return json.dumps(self, default=lambda o: o.__dict__)
 
 
 class SnapshotMergeJob:
@@ -165,7 +199,8 @@ class SnapshotMergeJob:
                          Column("records_inserted", Integer(), nullable=True),
                          Column("records_updated", Integer(), nullable=True),
                          Column("records_deleted", Integer(), nullable=True),
-                         Column("total_records", Integer(), nullable=True))
+                         Column("total_records", Integer(), nullable=True),
+                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
         return t
 
     def createBatchCounterTable(self, mergeEngine: Engine) -> None:
@@ -178,7 +213,7 @@ class SnapshotMergeJob:
         t: Table = self.getBatchMetricsTable()
         createOrUpdateTable(mergeEngine, t)
 
-    def createBatchCommon(self, connection: Connection, key: str) -> int:
+    def createBatchCommon(self, connection: Connection, key: str, state: BatchState) -> int:
         """This creates a batch and returns the batch id. The transaction is managed by the caller.
         This current batch must be commited before a new batch can be created.
         Get the current batch for the store. The first time, there will be no record in the batch counter table.
@@ -206,8 +241,8 @@ class SnapshotMergeJob:
         # Insert a new batch event record with started status
         connection.execute(text(
             f"INSERT INTO {self.getBatchMetricsTableName()} "
-            f"(key, batch_id, batch_start_time, batch_status) "
-            f"VALUES ('{key}', {newBatch}, NOW(), '{BatchStatus.STARTED.value}')"
+            f"(key, batch_id, batch_start_time, batch_status, state) "
+            f"VALUES ('{key}', {newBatch}, NOW(), '{BatchStatus.STARTED.value}', '{state.to_json()}')"
         ))
 
         return newBatch
@@ -215,7 +250,8 @@ class SnapshotMergeJob:
     def createSingleBatch(self, store: Datastore, dataset: Dataset, connection: Connection) -> int:
         """This creates a single-dataset batch and returns the batch id. The transaction is managed by the caller."""
         key: str = f"{self.store.name}#{dataset.name}"
-        return self.createBatchCommon(connection, key)
+        state: BatchState = BatchState([], dataset.name, 0)  # Just one dataset to ingest, start at offset 0
+        return self.createBatchCommon(connection, key, state)
 
     def createMultiBatch(self, store: Datastore, connection: Connection) -> int:
         """This create a multi-dataset batch and returns the batch id. The transaction is managed by the caller.
@@ -224,7 +260,11 @@ class SnapshotMergeJob:
         In this case, the current batch is 0.
         """
         key: str = self.store.name
-        return self.createBatchCommon(connection, key)
+        allDatasets: List[str] = list(store.datasets.keys())
+
+        # Start with the first dataset and the rest of the datasets to go
+        state: BatchState = BatchState(allDatasets[1:], allDatasets[0], 0)  # Start with the first dataset
+        return self.createBatchCommon(connection, key, state)
 
     def startBatch(self, mergeEngine: Engine, store: Datastore, dataset: Optional[Dataset]) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""
@@ -240,10 +280,12 @@ class SnapshotMergeJob:
                 newBatchId = self.createMultiBatch(store, connection)
         return newBatchId
 
-    def updateBatchStatus(self, mergeEngine: Engine, key: str, batchId: int, status: BatchStatus,
-                          recordsInserted: Optional[int] = None, recordsUpdated: Optional[int] = None,
-                          recordsDeleted: Optional[int] = None, totalRecords: Optional[int] = None) -> None:
-        """Update the batch status and metrics"""
+    def updateBatchStatusInTx(
+            self, mergeEngine: Engine, key: str, batchId: int, status: BatchStatus,
+            recordsInserted: Optional[int] = None, recordsUpdated: Optional[int] = None,
+            recordsDeleted: Optional[int] = None, totalRecords: Optional[int] = None,
+            state: Optional[BatchState] = None) -> None:
+        """Update the batch status and metrics in a transaction"""
         with mergeEngine.begin() as connection:
             update_parts = [f"batch_status = '{status.value}'"]
             if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
@@ -256,6 +298,8 @@ class SnapshotMergeJob:
                 update_parts.append(f"records_deleted = {recordsDeleted}")
             if totalRecords is not None:
                 update_parts.append(f"total_records = {totalRecords}")
+            if state is not None:
+                update_parts.append(f"state = '{state.to_json()}'")
 
             update_sql = f"UPDATE {self.getBatchMetricsTableName()} SET {', '.join(update_parts)} WHERE key = '{key}' AND batch_id = {batchId}"
             connection.execute(text(update_sql))
@@ -279,88 +323,139 @@ class SnapshotMergeJob:
         update_sql = f"UPDATE {self.getBatchMetricsTableName()} SET {', '.join(update_parts)} WHERE key = '{key}' AND batch_id = {batchId}"
         connection.execute(text(update_sql))
 
-    def ingestDatasetToStaging(self, sourceEngine: Engine, mergeEngine: Engine, dataset: Dataset,
-                               batchId: int, cmd: SQLSnapshotIngestion) -> tuple[int, int, int]:
-        # Get source table name, Map the dataset name if necessary
-        tableName: str = dataset.name if dataset.name not in cmd.tableForDataset else cmd.tableForDataset[dataset.name]
-        sourceTableName: str = tableName
-        # Get destination staging table name
-        stagingTableName: str = self.getStagingTableNameForDataset(dataset)
+    def ingestNextBatchToStaging(
+            self, sourceEngine: Engine, mergeEngine: Engine, key: str,
+            batchId: int, cmd: SQLSnapshotIngestion) -> tuple[int, int, int]:
 
-        # Get primary key columns
-        pkColumns: List[str] = [col.name for col in dataset.schema.columns if col.isPrimaryKey]
-        if not pkColumns:
-            # If no primary key, use all columns
-            pkColumns = [col.name for col in dataset.schema.columns]
+        state: Optional[BatchState] = None
+        # Fetch restart state from batch metrics table
+        with mergeEngine.begin() as connection:
+            result = connection.execute(text(f"SELECT state FROM {self.getBatchMetricsTableName()} WHERE key = '{key}' AND batch_id = {batchId}"))
+            restartState: Optional[Row[Any]] = result.fetchone()
+            if restartState is not None:
+                restartState: str = restartState[0]
+                state = BatchState.from_json(restartState)
+            else:
+                raise Exception(f"No state found for batch {batchId} for key {key}")
 
-        # Get all column names
-        allColumns: List[str] = [col.name for col in dataset.schema.columns]
-
-        # Build hash expressions for PostgreSQL MD5 function
-        # For all columns hash: concatenate all column values
-        allColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in allColumns])
-
-        # For key columns hash: concatenate only primary key column values
-        keyColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in pkColumns])
-
-        # Read from source table
+        # Ingest the source records in a single transaction
         with sourceEngine.connect() as sourceConn:
-            # Get total count for metrics
-            countResult = sourceConn.execute(text(f"SELECT COUNT(*) FROM {sourceTableName}"))
-            totalRecords = countResult.fetchone()[0]
+            while state.current_dataset is not None:  # While there is a dataset to ingest
+                # Get source table name, Map the dataset name if necessary
+                datasetToIngestName: str = state.current_dataset
+                dataset: Dataset = self.store.datasets[datasetToIngestName]
 
-            # Read data in batches to avoid memory issues
-            batchSize = 1000
-            offset = 0
-            recordsInserted = 0
+                # Get source table name using mapping if necessary
+                tableName: str = datasetToIngestName if datasetToIngestName not in cmd.tableForDataset else cmd.tableForDataset[datasetToIngestName]
+                sourceTableName: str = tableName
 
-            while True:
-                # Read batch from source with hash calculation in SQL
-                selectSql = f"""
-                SELECT {', '.join(allColumns)},
-                       MD5({allColumnsHashExpr}) as ds_surf_all_hash,
-                       MD5({keyColumnsHashExpr}) as ds_surf_key_hash
-                FROM {sourceTableName}
-                LIMIT {batchSize} OFFSET {offset}
-                """
-                result = sourceConn.execute(text(selectSql))
-                rows = result.fetchall()
+                # Get destination staging table name
+                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
 
-                if not rows:
-                    break
+                # Get primary key columns
+                pkColumns: List[str] = [col.name for col in dataset.schema.columns if col.isPrimaryKey]
+                if not pkColumns:
+                    # If no primary key, use all columns
+                    pkColumns = [col.name for col in dataset.schema.columns]
 
-                # Process batch and insert into staging
-                with mergeEngine.begin() as mergeConn:
-                    # Prepare batch data - now includes pre-calculated hashes
-                    batchValues: List[List[Any]] = []
-                    for row in rows:
-                        # Extract data columns (excluding the hash columns we added)
-                        dataValues = list(row)[:len(allColumns)]
-                        # Extract hash values (last two columns from our SELECT)
-                        allHash = row[-2]  # ds_surf_all_hash
-                        keyHash = row[-1]  # ds_surf_key_hash
-                        # Add batch metadata
-                        insertValues = dataValues + [batchId, allHash, keyHash]
-                        batchValues.append(insertValues)
+                # Get all column names
+                allColumns: List[str] = [col.name for col in dataset.schema.columns]
 
-                    # Build insert statement with proper PostgreSQL placeholders
-                    columns = allColumns + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
-                    placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
-                    insertSql = f"INSERT INTO {stagingTableName} ({', '.join(columns)}) VALUES ({placeholders})"
+                # Build hash expressions for PostgreSQL MD5 function
+                # For all columns hash: concatenate all column values
+                allColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in allColumns])
 
-                    # Execute batch insert using proper SQLAlchemy batch execution
-                    # Use executemany from the underlying DBAPI for true batch efficiency
-                    # This is the most efficient way to do batch inserts
-                    mergeConn.executemany(text(insertSql), batchValues)
-                    recordsInserted += len(batchValues)
+                # For key columns hash: concatenate only primary key column values
+                keyColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in pkColumns])
 
-                offset += batchSize
+                # This job will for a new batch, initialize the state with all the datasets in the store and then
+                # remove one with an offset of 0 to start. The job will read a "chunk" from that source table and
+                # write it to the staging table, updating the offset in the state as it goes. When all data is
+                # written to the staging table for that dataset, the job will set the state to the next dataset.
+                # When all datasets are done then the job will set the batch status to ingested. The transistion is start
+                # means we're ingesting the data for all datasets.
+
+                # Read from source table
+                # Get total count for metrics
+                countResult = sourceConn.execute(text(f"SELECT COUNT(*) FROM {sourceTableName}"))
+                totalRecords = countResult.fetchone()[0]
+
+                # Read data in batches to avoid memory issues
+                batchSize = 1000
+                offset: int = state.current_offset
+                recordsInserted = 0
+
+                while True:
+                    # Read batch from source with hash calculation in SQL
+                    selectSql = f"""
+                    SELECT {', '.join(allColumns)},
+                        MD5({allColumnsHashExpr}) as ds_surf_all_hash,
+                        MD5({keyColumnsHashExpr}) as ds_surf_key_hash
+                    FROM {sourceTableName}
+                    LIMIT {batchSize} OFFSET {offset}
+                    """
+                    result = sourceConn.execute(text(selectSql))
+                    rows = result.fetchall()
+
+                    if not rows:
+                        break
+
+                    # Process batch and insert into staging
+                    # Each batch is delimited from others because each record in staging has the batch id which
+                    # ingested it. This lets us delete the ingested records when resetting the batch and filter for
+                    # the records in a batch when merging them in to the merge table.
+                    with mergeEngine.begin() as mergeConn:
+                        # Prepare batch data - now includes pre-calculated hashes
+                        batchValues: List[List[Any]] = []
+                        for row in rows:
+                            # Extract data columns (excluding the hash columns we added)
+                            dataValues = list(row)[:len(allColumns)]
+                            # Extract hash values (last two columns from our SELECT)
+                            allHash = row[-2]  # ds_surf_all_hash
+                            keyHash = row[-1]  # ds_surf_key_hash
+                            # Add batch metadata
+                            insertValues = dataValues + [batchId, allHash, keyHash]
+                            batchValues.append(insertValues)
+
+                        # Build insert statement with proper PostgreSQL placeholders
+                        columns = allColumns + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
+                        placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
+                        insertSql = f"INSERT INTO {stagingTableName} ({', '.join(columns)}) VALUES ({placeholders})"
+
+                        # Execute batch insert using proper SQLAlchemy batch execution
+                        # Use executemany from the underlying DBAPI for true batch efficiency
+                        # This is the most efficient way to do batch inserts
+                        mergeConn.executemany(text(insertSql), batchValues)
+                        numRowsInserted: int = len(batchValues)
+                        recordsInserted += numRowsInserted
+                        # Write the offset to the state
+                        state.current_offset = offset + numRowsInserted
+                        # Update the state in the batch metrics table
+                        mergeConn.execute(text(
+                            f"UPDATE {self.getBatchMetricsTableName()} SET state = '{json.dumps(state)}' WHERE key = '{key}' AND batch_id = {batchId}"))
+
+                    offset = state.current_offset
+
+            # All rows for this dataset have been ingested, move to next dataset.
+            if len(state.datasets_to_go) > 0:
+                # There are more datasets to ingest, set the state to the next dataset
+                state.current_dataset = state.datasets_to_go[0]
+                state.current_offset = 0
+                state.datasets_to_go = state.datasets_to_go[1:]
+                self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTING, state=state)
+            else:
+                # No more datasets to ingest, set the state to merging
+                state.current_dataset = None
+                self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.MERGING, state=state)
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
 
     def mergeStagingToMerge(self, mergeEngine: Engine, dataset: Dataset, batchId: int,
                             cmd: SQLSnapshotIngestion, key: str) -> tuple[int, int, int]:
-        """Merge staging data into merge table using PostgreSQL MERGE command and ds_surf_key_hash as join key, including deletions."""
+        """Merge staging data into merge table using PostgreSQL MERGE command and ds_surf_key_hash as join key, including deletions. This
+        really has to be done in a single transaction no matter what as otherwise, the consumers would see inconsistent data. A milestoned
+        version of this job can avoid this issue by used a view which filters for live records in the last committed batch, not the
+        current one."""
         # Map the dataset name if necessary
         stagingTableName: str = self.getStagingTableNameForDataset(dataset)
         mergeTableName: str = self.getMergeTableNameForDataset(dataset)
@@ -432,12 +527,7 @@ class SnapshotMergeJob:
             row = result.fetchone()
             return row[0] if row else None
 
-    def run(self) -> int:
-        """
-        Run the snapshot merge job. Returns:
-        - 0: "KEEP_WORKING" - The batch is still in progress, reschedule the job
-        - 1: "DONE" - The batch is committed or failed, stop rescheduling
-        """
+    def run(self) -> JobStatus:
         # First, get a connection to the source database
         cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, self.store.cmd)
         assert cmd.credential is not None
@@ -465,36 +555,36 @@ class SnapshotMergeJob:
                     # No batch exists, start a new one
                     batchId = self.startBatch(mergeEngine, self.store, dataset)
                     print(f"Started new batch {batchId} for {key}")
-                    return 0  # KEEP_WORKING
+                    return JobStatus.KEEP_WORKING
 
                 elif currentStatus == BatchStatus.STARTED.value:
                     # Batch is started, continue with ingestion
                     batchId = self.getCurrentBatchId(mergeEngine, key)
                     print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
-                    return 0  # KEEP_WORKING
+                    return JobStatus.KEEP_WORKING
 
-                elif currentStatus == BatchStatus.INGESTED.value:
+                elif currentStatus == BatchStatus.INGESTING.value:
                     # Batch is ingested, continue with merge
                     batchId = self.getCurrentBatchId(mergeEngine, key)
                     print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
-                    return 0  # KEEP_WORKING
+                    return JobStatus.KEEP_WORKING
 
                 elif currentStatus == BatchStatus.MERGED.value:
                     # Batch is merged, mark as committed
                     batchId = self.getCurrentBatchId(mergeEngine, key)
-                    self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.COMMITTED)
+                    self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.COMMITTED)
                     print(f"Committed batch {batchId} for {key}")
-                    return 1  # DONE
+                    return JobStatus.DONE
 
                 elif currentStatus == BatchStatus.COMMITTED.value:
                     # Batch is already committed, we're done
                     print(f"Batch for {key} is already committed")
-                    return 1  # DONE
+                    return JobStatus.DONE
 
                 elif currentStatus == BatchStatus.FAILED.value:
                     # Batch failed, we're done
                     print(f"Batch for {key} failed")
-                    return 1  # DONE
+                    return JobStatus.DONE
         else:
             # For multi-dataset ingestion, process all datasets in a single batch
             key = self.store.name
@@ -504,36 +594,36 @@ class SnapshotMergeJob:
                 # No batch exists, start a new one
                 batchId = self.startBatch(mergeEngine, self.store, None)
                 print(f"Started new multi-dataset batch {batchId} for {key}")
-                return 0  # KEEP_WORKING
+                return JobStatus.KEEP_WORKING
 
             elif currentStatus == BatchStatus.STARTED.value:
                 # Batch is started, continue with ingestion
                 batchId = self.getCurrentBatchId(mergeEngine, key)
                 print(f"Continuing multi-dataset batch {batchId} for {key} (status: {currentStatus})")
-                return 0  # KEEP_WORKING
+                return JobStatus.KEEP_WORKING
 
             elif currentStatus == BatchStatus.INGESTED.value:
                 # Batch is ingested, continue with merge
                 batchId = self.getCurrentBatchId(mergeEngine, key)
                 print(f"Continuing multi-dataset batch {batchId} for {key} (status: {currentStatus})")
-                return 0  # KEEP_WORKING
+                return JobStatus.KEEP_WORKING
 
             elif currentStatus == BatchStatus.MERGED.value:
                 # Batch is merged, mark as committed
                 batchId = self.getCurrentBatchId(mergeEngine, key)
-                self.updateBatchStatus(mergeEngine, key, batchId, BatchStatus.COMMITTED)
+                self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.COMMITTED)
                 print(f"Committed multi-dataset batch {batchId} for {key}")
-                return 1  # DONE
+                return JobStatus.DONE
 
             elif currentStatus == BatchStatus.COMMITTED.value:
                 # Batch is already committed, we're done
                 print(f"Multi-dataset batch for {key} is already committed")
-                return 1  # DONE
+                return JobStatus.DONE
 
             elif currentStatus == BatchStatus.FAILED.value:
                 # Batch failed, we're done
                 print(f"Multi-dataset batch for {key} failed")
-                return 1  # DONE
+                return JobStatus.DONE
 
     def getCurrentBatchId(self, mergeEngine: Engine, key: str) -> int:
         """Get the current batch ID for a given key."""
@@ -613,9 +703,16 @@ def main():
 
         job: SnapshotMergeJob = SnapshotMergeJob(eco, dp.credentialStore, dp, store)
 
-        job.run()
-        print("Job completed successfully")
-        return 1  # DONE
+        jobStatus: JobStatus = job.run()
+        if jobStatus == JobStatus.DONE:
+            print("Job completed successfully")
+            return 0  # DONE
+        elif jobStatus == JobStatus.KEEP_WORKING:
+            print("Job is still in progress")
+            return 1  # KEEP_WORKING
+        else:
+            print("Job failed")
+            return -1  # ERROR
     else:
         print(f"Unknown operation: {args.operation}")
         return -1  # ERROR
