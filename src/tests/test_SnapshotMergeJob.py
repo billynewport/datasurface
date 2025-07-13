@@ -24,10 +24,6 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test environment before each test"""
-        self.setupDatabases()
-
-        # Clean up any existing batch tables to ensure clean state
-        self.cleanupBatchTables()
 
         # Create ecosystem using existing eco.py
         self.eco: Optional[Ecosystem] = None
@@ -65,6 +61,8 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
         # Override the credential store to return local credentials
         self.overrideCredentialStore()
+
+        self.setupDatabases()
 
     def tearDown(self) -> None:
         """Clean up test environment"""
@@ -137,6 +135,8 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
         # Create merge database if it doesn't exist
         self.createMergeDatabase()
+        self.job.createBatchCounterTable(self.merge_engine)
+        self.job.createBatchMetricsTable(self.merge_engine)
 
     def createSourceTable(self) -> None:
         """Create the source table with test data"""
@@ -254,6 +254,11 @@ class TestSnapshotMergeJob(unittest.TestCase):
             row = result.fetchone()
             batch_status = row[0] if row else "None"
             self.assertEqual(batch_status, expected_status.value)
+
+    def test_first_batch_started(self) -> None:
+        """Test that the first batch is started"""
+        self.job.startBatch(self.merge_engine)
+        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED)
 
     def test_full_batch_lifecycle(self) -> None:
         """Test the complete batch processing lifecycle"""
