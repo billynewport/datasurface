@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, Table, MetaData, text
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.schema import Column
 from datasurface.md.schema import DDLTable
-from sqlalchemy.types import Integer, String, DateTime
+from sqlalchemy.types import Integer, String, TIMESTAMP
 from sqlalchemy.engine.row import Row
 from enum import Enum
 from typing import cast, List, Any, Optional
@@ -143,7 +143,7 @@ class SnapshotMergeJob:
         """Generate a hash of the dataset schema"""
         schema: DDLTable = cast(DDLTable, dataset.originalSchema)
         schema_data = {
-            'columns': {name: {'type': str(col.type), 'nullable': col.nullable}
+            'columns': {name: {'type': str(col.type), 'nullable': str(col.nullable)}
                         for name, col in schema.columns.items()},
             'primaryKey': schema.primaryKeyColumns.colNames if schema.primaryKeyColumns else []
         }
@@ -179,7 +179,7 @@ class SnapshotMergeJob:
 
     def getTableForPlatform(self, tableName: str) -> str:
         """This returns the table name for the platform"""
-        return f"{self.dp.name}_{tableName}"
+        return f"{self.dp.name}_{tableName}".lower()
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
         """This returns the staging schema for a dataset"""
@@ -253,8 +253,8 @@ class SnapshotMergeJob:
         t: Table = Table(self.getBatchMetricsTableName(), MetaData(),
                          Column("key", String(length=255), primary_key=True),
                          Column("batch_id", Integer(), primary_key=True),
-                         Column("batch_start_time", DateTime()),
-                         Column("batch_end_time", DateTime(), nullable=True),
+                         Column("batch_start_time", TIMESTAMP()),
+                         Column("batch_end_time", TIMESTAMP(), nullable=True),
                          Column("batch_status", String(length=32)),
                          Column("records_inserted", Integer(), nullable=True),
                          Column("records_updated", Integer(), nullable=True),
@@ -291,7 +291,7 @@ class SnapshotMergeJob:
 
         # Increment the batch counter
         newBatch = currentBatchId + 1
-        connection.execute(text(f"UPDATE {self.getBatchCounterTableName()} SET currentBatch = {newBatch} WHERE key = '{key}'"))
+        connection.execute(text(f'UPDATE {self.getBatchCounterTableName()} SET "currentBatch" = {newBatch} WHERE key = \'{key}\''))
 
         # Insert a new batch event record with started status
         connection.execute(text(
@@ -419,8 +419,9 @@ class SnapshotMergeJob:
 
         # Check for schema changes before ingestion
         self.checkForSchemaChanges(state)
-        
+
         # Ingest the source records in a single transaction
+        print(f"DEBUG: Starting ingestion for batch {batchId}, hasMoreDatasets: {state.hasMoreDatasets()}")
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():  # While there is a dataset to ingest
                 # Get source table name, Map the dataset name if necessary
@@ -446,10 +447,10 @@ class SnapshotMergeJob:
 
                 # Build hash expressions for PostgreSQL MD5 function
                 # For all columns hash: concatenate all column values
-                allColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in allColumns])
+                allColumnsHashExpr = " || ".join([f'COALESCE("{col}"::text, \'\')' for col in allColumns])
 
                 # For key columns hash: concatenate only primary key column values
-                keyColumnsHashExpr = " || ".join([f"COALESCE({col}::text, '')" for col in pkColumns])
+                keyColumnsHashExpr = " || ".join([f'COALESCE("{col}"::text, \'\')' for col in pkColumns])
 
                 # This job will for a new batch, initialize the state with all the datasets in the store and then
                 # remove one with an offset of 0 to start. The job will read a "chunk" from that source table and
@@ -470,17 +471,21 @@ class SnapshotMergeJob:
 
                 while True:
                     # Read batch from source with hash calculation in SQL
+                    quoted_columns = [f'"{col}"' for col in allColumns]
                     selectSql = f"""
-                    SELECT {', '.join(allColumns)},
+                    SELECT {', '.join(quoted_columns)},
                         MD5({allColumnsHashExpr}) as ds_surf_all_hash,
                         MD5({keyColumnsHashExpr}) as ds_surf_key_hash
                     FROM {sourceTableName}
                     LIMIT {batchSize} OFFSET {offset}
                     """
+                    print(f"DEBUG: Executing SQL: {selectSql}")
                     result = sourceConn.execute(text(selectSql))
                     rows = result.fetchall()
+                    print(f"DEBUG: Got {len(rows)} rows from source table")
 
                     if not rows:
+                        print("DEBUG: No rows returned, breaking out of ingestion loop")
                         break
 
                     # Process batch and insert into staging
@@ -501,9 +506,9 @@ class SnapshotMergeJob:
                             batchValues.append(insertValues)
 
                         # Build insert statement with proper PostgreSQL placeholders
-                        columns = allColumns + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
-                        placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
-                        insertSql = f"INSERT INTO {stagingTableName} ({', '.join(columns)}) VALUES ({placeholders})"
+                        quoted_columns = [f'"{col}"' for col in allColumns] + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
+                        placeholders = ", ".join([f"${i+1}" for i in range(len(quoted_columns))])
+                        insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
                         # Execute batch insert using proper SQLAlchemy batch execution
                         # Use executemany from the underlying DBAPI for true batch efficiency
@@ -520,13 +525,27 @@ class SnapshotMergeJob:
 
                     offset = state.current_offset
 
+            print(f"DEBUG: Exited ingestion loop for dataset {datasetToIngestName}")
             # All rows for this dataset have been ingested, move to next dataset.
-            if state.hasMoreDatasets():
-                # There are more datasets to ingest, set the state to the next dataset
+            print(f"DEBUG: Finished ingesting dataset {datasetToIngestName}, hasMoreDatasets: {state.hasMoreDatasets()}")
+            
+            # Check if there are more datasets after the current one
+            if state.current_dataset_index < len(state.all_datasets) - 1:
+                # Move to next dataset
                 state.moveToNextDataset()
+                print(f"DEBUG: Moving to next dataset: {state.getCurrentDataset()}")
                 self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.STARTED, state=state)
             else:
                 # No more datasets to ingest, set the state to merging
+                print("DEBUG: No more datasets to ingest, setting status to INGESTED")
+                self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
+
+        # If we get here, all datasets have been processed (even if they had no data)
+        # Make sure the batch status is set to INGESTED
+        with mergeEngine.begin() as connection:
+            currentStatus = self.checkBatchStatus(connection, key, batchId)
+            if currentStatus == BatchStatus.STARTED.value:
+                print("DEBUG: Ensuring batch status is set to INGESTED after processing all datasets")
                 self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
@@ -538,7 +557,7 @@ class SnapshotMergeJob:
         current one."""
         with mergeEngine.begin() as connection:
             state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
-            
+
             # Check for schema changes before merging
             self.checkForSchemaChanges(state)
 
@@ -690,11 +709,26 @@ class SnapshotMergeJob:
 
     def getCurrentBatchId(self, connection: Connection, key: str) -> int:
         """Get the current batch ID for a given key, create a new batch counter if one doesn't exist."""
-        result = connection.execute(text(f"SELECT currentBatch FROM {self.getBatchCounterTableName()} WHERE key = '{key}'"))
+        # First check if the table exists
+        from sqlalchemy import inspect
+        inspector = inspect(connection.engine)
+        table_name = self.getBatchCounterTableName()
+        print(f"DEBUG: Checking if table {table_name} exists")
+        if not inspector.has_table(table_name):
+            print(f"DEBUG: Table {table_name} does not exist, creating it")
+            # Create the table
+            t = self.getBatchCounterTable()
+            t.create(connection.engine)
+            print(f"DEBUG: Table {table_name} created")
+        else:
+            print(f"DEBUG: Table {table_name} already exists")
+        
+        # Now query the table
+        result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getBatchCounterTableName()} WHERE key = \'{key}\''))
         row = result.fetchone()
         if row is None:
             # Insert a new batch counter
-            connection.execute(text(f"INSERT INTO {self.getBatchCounterTableName()} (key, currentBatch) VALUES ('{key}', 1)"))
+            connection.execute(text(f'INSERT INTO {self.getBatchCounterTableName()} (key, "currentBatch") VALUES (\'{key}\', 1)'))
             return 1
         else:
             return row[0]

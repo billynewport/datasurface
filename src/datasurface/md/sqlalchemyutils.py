@@ -27,46 +27,46 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
 
     t: Any = None
 
-    if isinstance(dataType, Boolean):
+    if isinstance(dataType.type, Boolean):
         t = SQLBoolean()
-    elif isinstance(dataType, SmallInt):
+    elif isinstance(dataType.type, SmallInt):
         t = SmallInteger()
-    elif isinstance(dataType, Integer):
+    elif isinstance(dataType.type, Integer):
         t = SQLInteger()
-    elif isinstance(dataType, BigInt):
+    elif isinstance(dataType.type, BigInt):
         t = BigInteger()
-    elif isinstance(dataType, IEEE32):
+    elif isinstance(dataType.type, IEEE32):
         t = Float()
-    elif isinstance(dataType, IEEE64):
+    elif isinstance(dataType.type, IEEE64):
         t = Float()  # SQLAlchemy 1.4 doesn't have Double, use Float for IEEE64
-    elif isinstance(dataType, Decimal):
-        dec: Decimal = dataType
+    elif isinstance(dataType.type, Decimal):
+        dec: Decimal = dataType.type
         t = DECIMAL(dec.maxSize, dec.precision)
-    elif isinstance(dataType, Date):
+    elif isinstance(dataType.type, Date):
         t = SQLDate()
-    elif isinstance(dataType, Timestamp):
+    elif isinstance(dataType.type, Timestamp):
         t = TIMESTAMP()
-    elif isinstance(dataType, Interval):
+    elif isinstance(dataType.type, Interval):
         t = SQLInterval()
-    elif isinstance(dataType, Variant):
-        var: Variant = dataType
+    elif isinstance(dataType.type, Variant):
+        var: Variant = dataType.type
         t = LargeBinary(var.maxSize)  # SQLAlchemy 1.4 uses LargeBinary instead of VARBINARY
-    elif isinstance(dataType, Char):
-        ch: Char = dataType
+    elif isinstance(dataType.type, Char):
+        ch: Char = dataType.type
         t = CHAR(ch.maxSize, ch.collationString)
-    elif isinstance(dataType, NChar):
-        nch: NChar = dataType
+    elif isinstance(dataType.type, NChar):
+        nch: NChar = dataType.type
         # SQLAlchemy 1.4 doesn't have NCHAR, use CHAR with Unicode support
         t = CHAR(nch.maxSize, collation=nch.collationString)
-    elif isinstance(dataType, VarChar):
-        vc: VarChar = dataType
+    elif isinstance(dataType.type, VarChar):
+        vc: VarChar = dataType.type
         t = VARCHAR(vc.maxSize, vc.collationString)
-    elif isinstance(dataType, NVarChar):
-        nvc: NVarChar = dataType
+    elif isinstance(dataType.type, NVarChar):
+        nvc: NVarChar = dataType.type
         # SQLAlchemy 1.4 doesn't have NVARCHAR, use VARCHAR with Unicode support
         t = VARCHAR(nvc.maxSize, collation=nvc.collationString)
     else:
-        raise Exception(f"Unknown data type {dataType.name}")
+        raise Exception(f"Unknown data type {dataType.name}: {type(dataType.type)}")
 
     c: Column[Any] = Column(dataType.name, t, nullable=(dataType.nullable == NullableStatus.NULLABLE))
     return c
