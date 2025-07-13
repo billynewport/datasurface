@@ -89,11 +89,10 @@ class BatchState:
         """This returns the current dataset"""
         return self.all_datasets[self.current_dataset_index]
 
-    def moveToNextDataset(self) -> str:
+    def moveToNextDataset(self) -> None:
         """This moves to the next dataset"""
         self.current_dataset_index += 1
         self.current_offset = 0
-        return self.all_datasets[self.current_dataset_index]
 
     def hasMoreDatasets(self) -> bool:
         """This returns True if there are more datasets to ingest"""
@@ -172,7 +171,8 @@ class SnapshotMergeJob:
                     hostName=container.connection.hostName,
                     port=container.connection.port,
                     databaseName=container.databaseName
-                )
+                ),
+                isolation_level="READ COMMITTED"
             )
         else:
             raise Exception(f"Unsupported container type {type(container)}")
@@ -282,7 +282,9 @@ class SnapshotMergeJob:
         currentBatchId: int = self.getCurrentBatchId(connection, key)
 
         # Check if the current batch is committed
-        result = connection.execute(text(f"SELECT batch_status FROM {self.getBatchMetricsTableName()} WHERE key = '{key}' AND batch_id = {currentBatchId}"))
+        result = connection.execute(text(
+            f'SELECT "batch_status" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {currentBatchId}'
+        ))
         batchStatusRow: Optional[Row[Any]] = result.fetchone()
         if batchStatusRow is not None:
             batchStatus: str = batchStatusRow[0]
@@ -296,7 +298,7 @@ class SnapshotMergeJob:
         # Insert a new batch event record with started status
         connection.execute(text(
             f"INSERT INTO {self.getBatchMetricsTableName()} "
-            f"(key, batch_id, batch_start_time, batch_status, state) "
+            f'("key", "batch_id", "batch_start_time", "batch_status", "state") '
             f"VALUES ('{key}', {newBatch}, NOW(), '{BatchStatus.STARTED.value}', '{state.to_json()}')"
         ))
 
@@ -376,7 +378,7 @@ class SnapshotMergeJob:
             if state is not None:
                 update_parts.append(f"state = '{state.to_json()}'")
 
-            update_sql = f"UPDATE {self.getBatchMetricsTableName()} SET {', '.join(update_parts)} WHERE key = '{key}' AND batch_id = {batchId}"
+            update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
             connection.execute(text(update_sql))
 
     def markBatchMerged(self, connection: Connection, key: str, batchId: int, status: BatchStatus,
@@ -395,12 +397,12 @@ class SnapshotMergeJob:
         if totalRecords is not None:
             update_parts.append(f"total_records = {totalRecords}")
 
-        update_sql = f"UPDATE {self.getBatchMetricsTableName()} SET {', '.join(update_parts)} WHERE key = '{key}' AND batch_id = {batchId}"
+        update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
         connection.execute(text(update_sql))
 
     def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
         """Get the batch status for a given key and batch id"""
-        result = connection.execute(text(f"SELECT state FROM {self.getBatchMetricsTableName()} WHERE key = '{key}' AND batch_id = {batchId}"))
+        result = connection.execute(text(f'SELECT "state" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
         row = result.fetchone()
 
         return BatchState.from_json(row[0]) if row else BatchState([])
@@ -521,24 +523,27 @@ class SnapshotMergeJob:
                         state.current_offset = offset + numRowsInserted
                         # Update the state in the batch metrics table
                         mergeConn.execute(text(
-                            f"UPDATE {self.getBatchMetricsTableName()} SET state = '{state.to_json()}' WHERE key = '{key}' AND batch_id = {batchId}"))
+                            f'UPDATE {self.getBatchMetricsTableName()} SET "state" = \'{state.to_json()}\' WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
 
                     offset = state.current_offset
 
-            print(f"DEBUG: Exited ingestion loop for dataset {datasetToIngestName}")
-            # All rows for this dataset have been ingested, move to next dataset.
-            print(f"DEBUG: Finished ingesting dataset {datasetToIngestName}, hasMoreDatasets: {state.hasMoreDatasets()}")
-            
-            # Check if there are more datasets after the current one
-            if state.current_dataset_index < len(state.all_datasets) - 1:
-                # Move to next dataset
+                print(f"DEBUG: Exited ingestion loop for dataset {datasetToIngestName}")
+                # All rows for this dataset have been ingested, move to next dataset.
+                print(f"DEBUG: Finished ingesting dataset {datasetToIngestName}, hasMoreDatasets: {state.hasMoreDatasets()}")
+
+                # Move to next dataset if any
                 state.moveToNextDataset()
-                print(f"DEBUG: Moving to next dataset: {state.getCurrentDataset()}")
-                self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.STARTED, state=state)
-            else:
-                # No more datasets to ingest, set the state to merging
-                print("DEBUG: No more datasets to ingest, setting status to INGESTED")
-                self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
+                # If there are more datasets then we stay in STARTED and the next dataset will be ingested
+                # on the next iteration. If there are no more datasets then we set the status to INGESTED and
+                # the job finishes and waits for the next trigger for MERGE to start.
+                if state.hasMoreDatasets():
+                    # Move to next dataset
+                    print(f"DEBUG: Moving to next dataset: {state.getCurrentDataset()}")
+                    self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.STARTED, state=state)
+                else:
+                    # No more datasets to ingest, set the state to merging
+                    print("DEBUG: No more datasets to ingest, setting status to INGESTED")
+                    self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         # If we get here, all datasets have been processed (even if they had no data)
         # Make sure the batch status is set to INGESTED
@@ -576,26 +581,44 @@ class SnapshotMergeJob:
                 countResult = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
                 totalRecords = countResult.fetchone()[0]
 
+                # Initialize metrics variables
+                recordsInserted = 0
+                recordsUpdated = 0
+                recordsDeleted = 0
+
                 # Use ds_surf_key_hash as the join key
                 join_key = "ds_surf_key_hash"
-                all_columns_list = ", ".join(allColumns)
-                all_columns_with_prefix = ", ".join([f"s.{col}" for col in allColumns])
+                # Quote all column names to handle case sensitivity consistently
+                quoted_all_columns = [f'"{col}"' for col in allColumns]
+                all_columns_list = ", ".join(quoted_all_columns)
+                all_columns_with_prefix = ", ".join([f's."{col}"' for col in allColumns])
 
+                # For PostgreSQL, we need to handle the merge differently since it doesn't support WHEN NOT MATCHED BY SOURCE
+                # First, delete records that exist in merge but not in staging (for this batch)
+                delete_sql = f"""
+                DELETE FROM {mergeTableName} m
+                WHERE m.ds_surf_key_hash NOT IN (
+                    SELECT s.ds_surf_key_hash
+                    FROM {stagingTableName} s
+                    WHERE s.ds_surf_batch_id = {batchId}
+                )
+                """
+                connection.execute(text(delete_sql))
+
+                # Now use MERGE for updates and inserts
                 merge_sql = f"""
                 MERGE INTO {mergeTableName} m
                 USING {stagingTableName} s
                 ON s.{join_key} = m.{join_key}
                 WHEN MATCHED AND s.ds_surf_all_hash != m.ds_surf_all_hash THEN
                     UPDATE SET
-                        {', '.join([f"{col} = s.{col}" for col in allColumns])},
+                        {', '.join([f'"{col}" = s."{col}"' for col in allColumns])},
                         ds_surf_batch_id = {batchId},
                         ds_surf_all_hash = s.ds_surf_all_hash,
                         ds_surf_key_hash = s.ds_surf_key_hash
                 WHEN NOT MATCHED THEN
                     INSERT ({all_columns_list}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
                     VALUES ({all_columns_with_prefix}, {batchId}, s.ds_surf_all_hash, s.ds_surf_key_hash)
-                WHEN NOT MATCHED BY SOURCE THEN
-                    DELETE
                 """
 
                 # Execute the MERGE
@@ -617,19 +640,32 @@ class SnapshotMergeJob:
                 """))
                 recordsUpdated = updated_result.fetchone()[0]
 
+                # For deleted records, we need to count records that were in merge but not in staging
+                # This is the count of records that were deleted by our DELETE statement
+                deleted_result = connection.execute(text(f"""
+                    SELECT COUNT(*) FROM {mergeTableName} m
+                    WHERE m.ds_surf_key_hash NOT IN (
+                        SELECT s.ds_surf_key_hash
+                        FROM {stagingTableName} s
+                        WHERE s.ds_surf_batch_id = {batchId}
+                    )
+                    AND m.ds_surf_batch_id != {batchId}
+                """))
+                recordsDeleted = deleted_result.fetchone()[0]
+
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
-                recordsInserted, recordsUpdated, 0, totalRecords)
+                recordsInserted, recordsUpdated, recordsDeleted, totalRecords)
 
-        return recordsInserted, recordsUpdated, 0  # recordsDeleted is 0 for snapshot
+        return recordsInserted, recordsUpdated, recordsDeleted
 
     def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""
         result = connection.execute(text(f"""
-            SELECT bm.batch_status
+            SELECT bm."batch_status"
             FROM {self.getBatchMetricsTableName()} bm
-            WHERE bm.key = '{key}' AND bm.batch_id = {batchId}
+            WHERE bm."key" = '{key}' AND bm."batch_id" = {batchId}
         """))
         row = result.fetchone()
         return row[0] if row else None
@@ -722,7 +758,7 @@ class SnapshotMergeJob:
             print(f"DEBUG: Table {table_name} created")
         else:
             print(f"DEBUG: Table {table_name} already exists")
-        
+
         # Now query the table
         result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getBatchCounterTableName()} WHERE key = \'{key}\''))
         row = result.fetchone()

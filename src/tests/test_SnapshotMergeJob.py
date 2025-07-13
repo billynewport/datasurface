@@ -7,7 +7,7 @@ import unittest
 from typing import Optional
 from sqlalchemy import create_engine, text, Table, MetaData, Column, String, Date
 from sqlalchemy.engine import Engine
-from datasurface.platforms.kubpgstarter.jobs import SnapshotMergeJob, JobStatus
+from datasurface.platforms.kubpgstarter.jobs import SnapshotMergeJob, JobStatus, BatchState
 from datasurface.md import Ecosystem
 from datasurface.md import Datastore, DataContainer
 from datasurface.md.governance import DatastoreCacheEntry
@@ -23,8 +23,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
     """Test the SnapshotMergeJob with a simple ecosystem"""
 
     def setUp(self) -> None:
-        """Set up test environment with databases"""
-        # Set up database connections
+        """Set up test environment before each test"""
         self.setupDatabases()
 
         # Create ecosystem using existing eco.py
@@ -60,15 +59,25 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
         # Override the job's database connections to use localhost for testing
         self.overrideJobConnections()
-        
+
         # Override the credential store to return local credentials
         self.overrideCredentialStore()
 
     def tearDown(self) -> None:
         """Clean up test environment"""
+        # Drop source table
         if hasattr(self, 'source_engine'):
+            with self.source_engine.connect() as conn:
+                conn.execute(text('DROP TABLE IF EXISTS people CASCADE'))
+                conn.commit()
             self.source_engine.dispose()
+        # Drop merge and batch tables
         if hasattr(self, 'merge_engine'):
+            with self.merge_engine.connect() as conn:
+                conn.execute(text('DROP TABLE IF EXISTS "Test_DP_Store1_people_merge" CASCADE'))
+                conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
+                conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
+                conn.commit()
             self.merge_engine.dispose()
 
     def overrideJobConnections(self) -> None:
@@ -92,23 +101,23 @@ class TestSnapshotMergeJob(unittest.TestCase):
         class MockCredentialStore(CredentialStore):
             def __init__(self):
                 super().__init__("MockCredentialStore", set())
-            
+
             def checkCredentialIsAvailable(self, cred: Credential, tree) -> None:
                 pass
-            
+
             def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
                 # Return local PostgreSQL credentials
                 return "postgres", "postgres"
-            
+
             def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
                 raise NotImplementedError("MockCredentialStore does not support certificates")
-            
+
             def getAsToken(self, cred: Credential) -> str:
                 raise NotImplementedError("MockCredentialStore does not support tokens")
-            
+
             def lintCredential(self, cred: Credential, tree) -> None:
                 pass
-        
+
         # Replace the job's credential store
         self.job.credStore = MockCredentialStore()
 
@@ -160,7 +169,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         with self.source_engine.connect() as conn:
             for row in data:
                 conn.execute(text("""
-                    INSERT INTO people (id, firstName, lastName, dob, employer, dod)
+                    INSERT INTO people ("id", "firstName", "lastName", "dob", "employer", "dod")
                     VALUES (:id, :firstName, :lastName, :dob, :employer, :dod)
                 """), row)
             conn.commit()
@@ -168,8 +177,8 @@ class TestSnapshotMergeJob(unittest.TestCase):
     def updateTestData(self, id_val: str, updates: dict) -> None:
         """Update test data in source table"""
         with self.source_engine.connect() as conn:
-            set_clause = ", ".join([f"{k} = :{k}" for k in updates.keys()])
-            query = f"UPDATE people SET {set_clause} WHERE id = :id"
+            set_clause = ", ".join([f'"{k}" = :{k}' for k in updates.keys()])
+            query = f'UPDATE people SET {set_clause} WHERE "id" = :id'
             params = updates.copy()
             params['id'] = id_val
             conn.execute(text(query), params)
@@ -178,17 +187,17 @@ class TestSnapshotMergeJob(unittest.TestCase):
     def deleteTestData(self, id_val: str) -> None:
         """Delete test data from source table"""
         with self.source_engine.connect() as conn:
-            conn.execute(text("DELETE FROM people WHERE id = :id"), {"id": id_val})
+            conn.execute(text('DELETE FROM people WHERE "id" = :id'), {"id": id_val})
             conn.commit()
 
     def getMergeTableData(self) -> list:
         """Get data from merge table"""
         with self.merge_engine.connect() as conn:
             result = conn.execute(text("""
-                SELECT id, firstName, lastName, dob, employer, dod,
+                SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                        ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
                 FROM Test_DP_Store1_people_merge
-                ORDER BY id
+                ORDER BY "id"
             """))
             return [dict(row) for row in result.fetchall()]
 
@@ -213,6 +222,19 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
         raise Exception(f"Job did not complete after {max_iterations} iterations")
 
+    def test_BatchState(self) -> None:
+        """Test the BatchState class"""
+        state = BatchState([self.store.datasets["people"].name])
+        self.assertEqual(state.all_datasets, ["people"])
+        self.assertEqual(state.current_dataset_index, 0)
+        self.assertEqual(state.current_offset, 0)
+
+        self.assertTrue(state.hasMoreDatasets())
+
+        # Move to next dataset
+        state.moveToNextDataset()
+        self.assertFalse(state.hasMoreDatasets())
+
     def test_full_batch_lifecycle(self) -> None:
         """Test the complete batch processing lifecycle"""
 
@@ -235,6 +257,24 @@ class TestSnapshotMergeJob(unittest.TestCase):
             {"id": "5", "firstName": "Charlie", "lastName": "Wilson", "dob": "1982-05-25", "employer": "Company E", "dod": None}
         ]
         self.insertTestData(test_data)
+
+        # Debug: Verify data was inserted
+        with self.source_engine.connect() as conn:
+            result = conn.execute(text('SELECT COUNT(*) FROM people'))
+            count = result.fetchone()[0]
+            print(f"DEBUG: After insert, people table has {count} rows")
+
+        # Debug: Check batch state before running job
+        with self.merge_engine.connect() as conn:
+            result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'Store1\''))
+            row = result.fetchone()
+            current_batch = row[0] if row else 0
+            print(f"DEBUG: Current batch before job run: {current_batch}")
+            
+            result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'Store1\' AND "batch_id" = ' + str(current_batch)))
+            row = result.fetchone()
+            batch_status = row[0] if row else "None"
+            print(f"DEBUG: Batch {current_batch} status: {batch_status}")
 
         status = self.runJob()
         self.assertEqual(status, JobStatus.DONE)
