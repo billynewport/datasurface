@@ -275,10 +275,14 @@ class SnapshotMergeJob:
 
         return newBatch
 
+    def getKey(self) -> str:
+        """This returns the key for the batch"""
+        return f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
+
     def createSingleBatch(self, store: Datastore, connection: Connection) -> int:
         """This creates a single-dataset batch and returns the batch id. The transaction is managed by the caller."""
         assert self.dataset is not None
-        key: str = f"{self.store.name}#{self.dataset.name}"
+        key: str = self.getKey()
         state: BatchState = BatchState([self.dataset.name])  # Just one dataset to ingest, start at offset 0
         return self.createBatchCommon(connection, key, state)
 
@@ -288,25 +292,32 @@ class SnapshotMergeJob:
         Get the current batch for the store. The first time, there will be no record in the batch counter table.
         In this case, the current batch is 0.
         """
-        key: str = self.store.name
+        key: str = self.getKey()
         allDatasets: List[str] = list(store.datasets.keys())
 
         # Start with the first dataset and the rest of the datasets to go
         state: BatchState = BatchState(allDatasets)  # Start with the first dataset
         return self.createBatchCommon(connection, key, state)
 
-    def startBatch(self, mergeEngine: Engine, store: Datastore) -> int:
+    def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""
         # Start a new transaction
         newBatchId: int
         with mergeEngine.begin() as connection:
             # Create a new batch
-            assert store.cmd is not None
-            if store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
+            assert self.cmd is not None
+            if self.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
                 assert self.dataset is not None
-                newBatchId = self.createSingleBatch(store, connection)
+                newBatchId = self.createSingleBatch(self.store, connection)
             else:
-                newBatchId = self.createMultiBatch(store, connection)
+                newBatchId = self.createMultiBatch(self.store, connection)
+            # Grab batch state from the batch metrics table
+            state: BatchState = self.getBatchState(mergeEngine, connection, self.getKey(), newBatchId)
+            # Truncate the staging table for each dataset in the batch state
+            for datasetName in state.all_datasets:
+                dataset: Dataset = self.store.datasets[datasetName]
+                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
+                connection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
         return newBatchId
 
     def updateBatchStatusInTx(
@@ -570,7 +581,7 @@ class SnapshotMergeJob:
 
         if currentStatus is None:
             # No batch exists, start a new one
-            batchId = self.startBatch(mergeEngine, self.store)
+            batchId = self.startBatch(mergeEngine)
             print(f"Started new batch {batchId} for {key}")
             # Batch is started, continue with ingestion
             with mergeEngine.begin() as connection:
