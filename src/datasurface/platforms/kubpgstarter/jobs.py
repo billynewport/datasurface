@@ -290,10 +290,10 @@ class SnapshotMergeJob:
             batchStatus: str = batchStatusRow[0]
             if batchStatus != BatchStatus.COMMITTED.value:
                 raise Exception(f"Batch {currentBatchId} is not committed")
-
-        # Increment the batch counter
-        newBatch = currentBatchId + 1
-        connection.execute(text(f'UPDATE {self.getBatchCounterTableName()} SET "currentBatch" = {newBatch} WHERE key = \'{key}\''))
+            newBatch = currentBatchId + 1
+            connection.execute(text(f'UPDATE {self.getBatchCounterTableName()} SET "currentBatch" = {newBatch} WHERE key = \'{key}\''))
+        else:
+            newBatch = 1
 
         # Insert a new batch event record with started status
         connection.execute(text(
@@ -612,7 +612,7 @@ class SnapshotMergeJob:
                 """
 
                 print(f"DEBUG: Executing MERGE SQL: {merge_sql}")
-                
+
                 # Execute the MERGE
                 connection.execute(text(merge_sql))
 
