@@ -21,6 +21,7 @@ import sys
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md import DataPlatform
 import json
+import hashlib
 
 
 """
@@ -73,10 +74,11 @@ class BatchState:
     ingested still and for the dataset currently being ingested, where to start ingestion from in terms
     of an offset in the source table."""
 
-    def __init__(self, datasetsToProcess: List[str]) -> None:
+    def __init__(self, datasetsToProcess: List[str], schema_versions: Optional[dict[str, str]] = None) -> None:
         self.all_datasets: List[str] = datasetsToProcess
         self.current_dataset_index: int = 0
         self.current_offset: int = 0
+        self.schema_versions: dict[str, str] = schema_versions or {}
 
     def reset(self) -> None:
         """This resets the state to the start of the batch"""
@@ -106,6 +108,7 @@ class BatchState:
         state.all_datasets = json_dict["all_datasets"]
         state.current_dataset_index = json_dict["current_dataset_index"]
         state.current_offset = json_dict["current_offset"]
+        state.schema_versions = json_dict.get("schema_versions", {})
         return state
 
     def to_json(self) -> str:
@@ -135,6 +138,30 @@ class SnapshotMergeJob:
         self.datasetName: Optional[str] = datasetName
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
         self.cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, store.cmd)  # type: ignore[attr-defined]
+
+    def getSchemaHash(self, dataset: Dataset) -> str:
+        """Generate a hash of the dataset schema"""
+        schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+        schema_data = {
+            'columns': {name: {'type': str(col.type), 'nullable': col.nullable}
+                        for name, col in schema.columns.items()},
+            'primaryKey': schema.primaryKeyColumns.colNames if schema.primaryKeyColumns else []
+        }
+        schema_str = json.dumps(schema_data, sort_keys=True)
+        return hashlib.md5(schema_str.encode()).hexdigest()
+
+    def validateSchemaUnchanged(self, dataset: Dataset, stored_hash: str) -> bool:
+        """Validate that the schema hasn't changed since batch start"""
+        current_hash = self.getSchemaHash(dataset)
+        return current_hash == stored_hash
+
+    def checkForSchemaChanges(self, state: BatchState) -> None:
+        """Check if any dataset schemas have changed since batch start"""
+        for dataset_name in state.all_datasets:
+            dataset = self.store.datasets[dataset_name]
+            stored_hash = state.schema_versions.get(dataset_name)
+            if stored_hash and not self.validateSchemaUnchanged(dataset, stored_hash):
+                raise Exception(f"Schema changed for dataset {dataset_name} during batch processing")
 
     def createEngine(self, container: DataContainer, userName: str, password: str) -> Engine:
         if isinstance(container, PostgresDatabase):
@@ -283,7 +310,9 @@ class SnapshotMergeJob:
         """This creates a single-dataset batch and returns the batch id. The transaction is managed by the caller."""
         assert self.dataset is not None
         key: str = self.getKey()
-        state: BatchState = BatchState([self.dataset.name])  # Just one dataset to ingest, start at offset 0
+        # Create schema hashes for the dataset
+        schema_versions = {self.dataset.name: self.getSchemaHash(self.dataset)}
+        state: BatchState = BatchState([self.dataset.name], schema_versions)  # Just one dataset to ingest, start at offset 0
         return self.createBatchCommon(connection, key, state)
 
     def createMultiBatch(self, store: Datastore, connection: Connection) -> int:
@@ -295,8 +324,14 @@ class SnapshotMergeJob:
         key: str = self.getKey()
         allDatasets: List[str] = list(store.datasets.keys())
 
+        # Create schema hashes for all datasets
+        schema_versions = {}
+        for dataset_name in allDatasets:
+            dataset = store.datasets[dataset_name]
+            schema_versions[dataset_name] = self.getSchemaHash(dataset)
+
         # Start with the first dataset and the rest of the datasets to go
-        state: BatchState = BatchState(allDatasets)  # Start with the first dataset
+        state: BatchState = BatchState(allDatasets, schema_versions)  # Start with the first dataset
         return self.createBatchCommon(connection, key, state)
 
     def startBatch(self, mergeEngine: Engine) -> int:
@@ -382,6 +417,9 @@ class SnapshotMergeJob:
             if state is None:
                 raise Exception(f"No state found for batch {batchId} for key {key}")
 
+        # Check for schema changes before ingestion
+        self.checkForSchemaChanges(state)
+        
         # Ingest the source records in a single transaction
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():  # While there is a dataset to ingest
@@ -500,6 +538,9 @@ class SnapshotMergeJob:
         current one."""
         with mergeEngine.begin() as connection:
             state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
+            
+            # Check for schema changes before merging
+            self.checkForSchemaChanges(state)
 
             for datasetToMergeName in state.all_datasets:
                 # Get the dataset
@@ -592,27 +633,15 @@ class SnapshotMergeJob:
 
         elif currentStatus == BatchStatus.STARTED.value:
             # Batch is started, continue with ingestion
-            with mergeEngine.begin() as connection:
-                batchId = self.getCurrentBatchId(connection, key)
             print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
             self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
             return JobStatus.KEEP_WORKING
 
         elif currentStatus == BatchStatus.INGESTED.value:
             # Batch is ingested, continue with merge
-            with mergeEngine.begin() as connection:
-                batchId = self.getCurrentBatchId(connection, key)
             print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
             self.mergeStagingToMerge(mergeEngine, batchId, key)
             return JobStatus.KEEP_WORKING
-
-        elif currentStatus == BatchStatus.COMMITTED.value:
-            # Batch is merged, mark as committed
-            with mergeEngine.begin() as connection:
-                batchId = self.getCurrentBatchId(connection, key)
-            self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.COMMITTED)
-            print(f"Committed batch {batchId} for {key}")
-            return JobStatus.DONE
 
         elif currentStatus == BatchStatus.COMMITTED.value:
             # Batch is already committed, we're done
