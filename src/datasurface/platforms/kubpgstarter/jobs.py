@@ -507,16 +507,17 @@ class SnapshotMergeJob:
                             insertValues = dataValues + [batchId, allHash, keyHash]
                             batchValues.append(insertValues)
 
-                        # Build insert statement with proper PostgreSQL placeholders
+                        # Build insert statement with SQLAlchemy named parameters
                         quoted_columns = [f'"{col}"' for col in allColumns] + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
-                        placeholders = ", ".join([f"${i+1}" for i in range(len(quoted_columns))])
+                        placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
                         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
                         # Execute batch insert using proper SQLAlchemy batch execution
                         # Use executemany from the underlying DBAPI for true batch efficiency
                         # This is the most efficient way to do batch inserts
                         for values in batchValues:
-                            mergeConn.execute(text(insertSql), values)
+                            params = {str(i): val for i, val in enumerate(values)}
+                            mergeConn.execute(text(insertSql), params)
                         numRowsInserted: int = len(batchValues)
                         recordsInserted += numRowsInserted
                         # Write the offset to the state
@@ -560,6 +561,12 @@ class SnapshotMergeJob:
         really has to be done in a single transaction no matter what as otherwise, the consumers would see inconsistent data. A milestoned
         version of this job can avoid this issue by used a view which filters for live records in the last committed batch, not the
         current one."""
+        # Initialize metrics variables
+        recordsInserted: int = 0
+        recordsUpdated: int = 0
+        recordsDeleted: int = 0
+        totalRecords: int = 0
+
         with mergeEngine.begin() as connection:
             state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
 
@@ -580,11 +587,6 @@ class SnapshotMergeJob:
                 # Get metrics before merge
                 countResult = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
                 totalRecords = countResult.fetchone()[0]
-
-                # Initialize metrics variables
-                recordsInserted = 0
-                recordsUpdated = 0
-                recordsDeleted = 0
 
                 # Use ds_surf_key_hash as the join key
                 join_key = "ds_surf_key_hash"
@@ -696,12 +698,15 @@ class SnapshotMergeJob:
             # Batch is ingested, continue with merge
             print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
             self.mergeStagingToMerge(mergeEngine, batchId, key)
-            return JobStatus.KEEP_WORKING
+            # Batch is committed, job is done for this run
+            return JobStatus.DONE
 
         elif currentStatus == BatchStatus.COMMITTED.value:
-            # Batch is already committed, we're done
-            print(f"Batch for {key} is already committed")
-            return JobStatus.DONE
+            # Batch is already committed, job is done for this run
+            print(f"Batch for {key} is already committed, start new batch")
+            self.startBatch(mergeEngine)
+            print(f"Started new batch {batchId} for {key}")
+            return JobStatus.KEEP_WORKING
 
         elif currentStatus == BatchStatus.FAILED.value:
             # Batch failed, we're done

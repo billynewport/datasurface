@@ -199,7 +199,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
                 FROM Test_DP_Store1_people_merge
                 ORDER BY "id"
             """))
-            return [dict(row) for row in result.fetchall()]
+            return [row._asdict() for row in result.fetchall()]
 
     def runJob(self) -> JobStatus:
         """Run the snapshot merge job until completion"""
@@ -270,7 +270,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
             row = result.fetchone()
             current_batch = row[0] if row else 0
             print(f"DEBUG: Current batch before job run: {current_batch}")
-            
+
             result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'Store1\' AND "batch_id" = ' + str(current_batch)))
             row = result.fetchone()
             batch_status = row[0] if row else "None"
@@ -279,11 +279,11 @@ class TestSnapshotMergeJob(unittest.TestCase):
         status = self.runJob()
         self.assertEqual(status, JobStatus.DONE)
 
-        # Verify all 5 rows are in merge table with batch_id = 2
+        # Verify all 5 rows are in merge table with batch_id = 3
         merge_data = self.getMergeTableData()
         self.assertEqual(len(merge_data), 5)
         for row in merge_data:
-            self.assertEqual(row['ds_surf_batch_id'], 2)
+            self.assertEqual(row['ds_surf_batch_id'], 3)
 
         # Step 3: Update a row and delete another, then run batch 3
         print("Step 3: Updating row 1 and deleting row 3, then running batch 3")
@@ -300,7 +300,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         # Check updated row
         updated_row = next((row for row in merge_data if row['id'] == '1'), None)
         self.assertIsNotNone(updated_row)
-        self.assertEqual(updated_row['ds_surf_batch_id'], 3)
+        self.assertEqual(updated_row['ds_surf_batch_id'], 4)
         self.assertEqual(updated_row['firstName'], 'Johnny')
         self.assertEqual(updated_row['employer'], 'Company X')
 
@@ -315,13 +315,13 @@ class TestSnapshotMergeJob(unittest.TestCase):
         status = self.runJob()
         self.assertEqual(status, JobStatus.DONE)
 
-        # Verify re-inserted row is present with batch_id = 4
+        # Verify re-inserted row is present with batch_id = 5
         merge_data = self.getMergeTableData()
         self.assertEqual(len(merge_data), 5)
 
         reinserted_row = next((row for row in merge_data if row['id'] == '3'), None)
         self.assertIsNotNone(reinserted_row)
-        self.assertEqual(reinserted_row['ds_surf_batch_id'], 4)
+        self.assertEqual(reinserted_row['ds_surf_batch_id'], 5)
 
         # Step 5: Run another batch with no changes
         print("Step 5: Running batch 5 with no changes")
@@ -335,11 +335,11 @@ class TestSnapshotMergeJob(unittest.TestCase):
         # All rows should still have their previous batch_ids
         for row in merge_data_after:
             if row['id'] == '1':
-                self.assertEqual(row['ds_surf_batch_id'], 3)  # Updated in batch 3
+                self.assertEqual(row['ds_surf_batch_id'], 4)  # Updated in batch 4
             elif row['id'] == '3':
-                self.assertEqual(row['ds_surf_batch_id'], 4)  # Re-inserted in batch 4
+                self.assertEqual(row['ds_surf_batch_id'], 5)  # Re-inserted in batch 5
             else:
-                self.assertEqual(row['ds_surf_batch_id'], 2)  # Original batch 2
+                self.assertEqual(row['ds_surf_batch_id'], 3)  # Original batch 3
 
         print("All batch lifecycle tests passed!")
 
