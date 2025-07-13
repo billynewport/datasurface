@@ -1659,6 +1659,11 @@ class Ecosystem(GitControlledObject, JSONable):
         w: Optional[WorkspaceCacheEntry] = self.workSpaceCache.get(work)
         return w
 
+    def cache_getDatastore(self, store: str) -> Optional[DatastoreCacheEntry]:
+        """This returns the named datastore if it exists"""
+        s: Optional[DatastoreCacheEntry] = self.datastoreCache.get(store)
+        return s
+
     def cache_getDatastoreOrThrow(self, store: str) -> DatastoreCacheEntry:
         s: Optional[DatastoreCacheEntry] = self.datastoreCache.get(store)
         if s is None:

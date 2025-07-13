@@ -1,18 +1,11 @@
-# TODO
+# Short termTODO
 
-## Purchased 128GB 8 core x86 box for docker/proxmox
+## Finish snapshot ingestion job
 
-Purchased for $1200 on May 8th.
+Write all the code, tests and then test it with kubernetes environment.
 
-### Switch Windows to Proxmox
+## Fix DataPlatform/Workspace linting
 
-Plan is to use proxmox as the hypervisor for the box. I will be added Docker containers for the following images:
+Refer to diary 2025/07/08
 
-* Microsoft SQL Server
-* Debezium for CDC
-* LocalStack for S3 emulation
-* pypi local server
-* GitLab CI/DC Git server
-* Runner for GitLab builds 
-* Kubernetes for running spark jobs
-* Hadoop cluster with Hive/Spark Runners
+## Finish a milestoned version of the batch processing job.
