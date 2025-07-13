@@ -595,18 +595,6 @@ class SnapshotMergeJob:
                 all_columns_list = ", ".join(quoted_all_columns)
                 all_columns_with_prefix = ", ".join([f's."{col}"' for col in allColumns])
 
-                # For PostgreSQL, we need to handle the merge differently since it doesn't support WHEN NOT MATCHED BY SOURCE
-                # First, delete records that exist in merge but not in staging (for this batch)
-                delete_sql = f"""
-                DELETE FROM {mergeTableName} m
-                WHERE m.ds_surf_key_hash NOT IN (
-                    SELECT s.ds_surf_key_hash
-                    FROM {stagingTableName} s
-                    WHERE s.ds_surf_batch_id = {batchId}
-                )
-                """
-                connection.execute(text(delete_sql))
-
                 # Now use MERGE for updates and inserts
                 merge_sql = f"""
                 MERGE INTO {mergeTableName} m
@@ -623,8 +611,22 @@ class SnapshotMergeJob:
                     VALUES ({all_columns_with_prefix}, {batchId}, s.ds_surf_all_hash, s.ds_surf_key_hash)
                 """
 
+                print(f"DEBUG: Executing MERGE SQL: {merge_sql}")
+                
                 # Execute the MERGE
                 connection.execute(text(merge_sql))
+
+                # Now, after the MERGE, delete records that exist in merge but not in staging (for this batch)
+                # Only delete rows in merge that are not present in the current staging batch (i.e., true deletions)
+                delete_sql = f"""
+                DELETE FROM {mergeTableName} m
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM {stagingTableName} s
+                    WHERE s.ds_surf_batch_id = {batchId}
+                    AND s.ds_surf_key_hash = m.ds_surf_key_hash
+                )
+                """
+                connection.execute(text(delete_sql))
 
                 # Get the number of rows affected
                 inserted_result = connection.execute(text(

@@ -7,7 +7,7 @@ import unittest
 from typing import Optional
 from sqlalchemy import create_engine, text, Table, MetaData, Column, String, Date
 from sqlalchemy.engine import Engine
-from datasurface.platforms.kubpgstarter.jobs import SnapshotMergeJob, JobStatus, BatchState
+from datasurface.platforms.kubpgstarter.jobs import SnapshotMergeJob, JobStatus, BatchState, BatchStatus
 from datasurface.md import Ecosystem
 from datasurface.md import Datastore, DataContainer
 from datasurface.md.governance import DatastoreCacheEntry
@@ -263,30 +263,34 @@ class TestSnapshotMergeJob(unittest.TestCase):
             result = conn.execute(text('SELECT COUNT(*) FROM people'))
             count = result.fetchone()[0]
             print(f"DEBUG: After insert, people table has {count} rows")
+            self.assertEqual(count, 5)
 
         # Debug: Check batch state before running job
         with self.merge_engine.connect() as conn:
             result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'Store1\''))
             row = result.fetchone()
             current_batch = row[0] if row else 0
+            self.assertEqual(current_batch, 2)
             print(f"DEBUG: Current batch before job run: {current_batch}")
 
             result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'Store1\' AND "batch_id" = ' + str(current_batch)))
             row = result.fetchone()
             batch_status = row[0] if row else "None"
+            self.assertEqual(batch_status, BatchStatus.COMMITTED.value)
             print(f"DEBUG: Batch {current_batch} status: {batch_status}")
 
         status = self.runJob()
         self.assertEqual(status, JobStatus.DONE)
 
         # Verify all 5 rows are in merge table with batch_id = 3
+        # The records were first ingested in batch 3 (batch 2 had empty source), so they should have batch_id = 3
         merge_data = self.getMergeTableData()
         self.assertEqual(len(merge_data), 5)
         for row in merge_data:
             self.assertEqual(row['ds_surf_batch_id'], 3)
 
-        # Step 3: Update a row and delete another, then run batch 3
-        print("Step 3: Updating row 1 and deleting row 3, then running batch 3")
+        # Step 3: Update a row and delete another, then run batch 4
+        print("Step 3: Updating row 1 and deleting row 3, then running batch 4")
         self.updateTestData("1", {"employer": "Company X", "firstName": "Johnny"})
         self.deleteTestData("3")
 
@@ -308,8 +312,8 @@ class TestSnapshotMergeJob(unittest.TestCase):
         deleted_row = next((row for row in merge_data if row['id'] == '3'), None)
         self.assertIsNone(deleted_row)
 
-        # Step 4: Re-insert the deleted row and run batch 4
-        print("Step 4: Re-inserting row 3 and running batch 4")
+        # Step 4: Re-insert the deleted row and run batch 5
+        print("Step 4: Re-inserting row 3 and running batch 5")
         self.insertTestData([{"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None}])
 
         status = self.runJob()
@@ -324,22 +328,22 @@ class TestSnapshotMergeJob(unittest.TestCase):
         self.assertEqual(reinserted_row['ds_surf_batch_id'], 5)
 
         # Step 5: Run another batch with no changes
-        print("Step 5: Running batch 5 with no changes")
+        print("Step 5: Running batch 6 with no changes")
         status = self.runJob()
         self.assertEqual(status, JobStatus.DONE)
 
-        # Verify no changes occurred
+        # Verify no changes occurred - unchanged rows should keep their previous batch_ids
         merge_data_after = self.getMergeTableData()
         self.assertEqual(len(merge_data_after), 5)
 
-        # All rows should still have their previous batch_ids
+        # All rows should still have their previous batch_ids (unchanged rows keep original batch_id)
         for row in merge_data_after:
             if row['id'] == '1':
                 self.assertEqual(row['ds_surf_batch_id'], 4)  # Updated in batch 4
             elif row['id'] == '3':
                 self.assertEqual(row['ds_surf_batch_id'], 5)  # Re-inserted in batch 5
             else:
-                self.assertEqual(row['ds_surf_batch_id'], 3)  # Original batch 3
+                self.assertEqual(row['ds_surf_batch_id'], 3)  # Original batch 3, unchanged
 
         print("All batch lifecycle tests passed!")
 
