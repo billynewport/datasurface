@@ -90,7 +90,7 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
             return
 
 
-class KubernetesPGStarterPlatformExecutor(DataPlatformExecutor):
+class YellowPlatformExecutor(DataPlatformExecutor):
     def __init__(self):
         super().__init__()
 
@@ -101,17 +101,17 @@ class KubernetesPGStarterPlatformExecutor(DataPlatformExecutor):
         pass
 
 
-class KPSGraphHandler(DataPlatformGraphHandler):
+class YellowGraphHandler(DataPlatformGraphHandler):
     """This takes the graph and then implements the data pipeline described in the graph using the technology stack
     pattern implemented by this platform. This platform supports ingesting data from Kafka confluence connectors. It
     takes the data from kafka topics and writes them to a postgres staging table. A seperate job scheduled by airflow
     then runs periodically and merges the staging data in to a MERGE table as a batch. Any workspaces can also query the
     data in the MERGE tables through Workspace specific views."""
-    def __init__(self, dp: 'KubernetesPGStarterDataPlatform', graph: PlatformPipelineGraph) -> None:
+    def __init__(self, dp: 'YellowDataPlatform', graph: PlatformPipelineGraph) -> None:
         super().__init__(graph)
-        self.dp: KubernetesPGStarterDataPlatform = dp
+        self.dp: YellowDataPlatform = dp
         self.env: Environment = Environment(
-            loader=PackageLoader('datasurface.platforms.kubpgstarter.templates', 'jinja'),
+            loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
         )
 
@@ -130,17 +130,17 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         Any errors during generation will just be added as ValidationProblems to the tree using the appropriate
         subtree so the user can see which object caused the errors. The caller method will check if the tree
         has errors and stop the generation process.
-        
+
         Note: SQL snapshot ingestion doesn't require Kafka infrastructure, so this method only handles Kafka ingestion."""
         template: Template = self.createJinjaTemplate('kafka_topic_to_staging.jinja2')
 
         # Ensure the platform is the correct type early on
-        if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
-            print("Error: Platform associated with the graph is not a KPSGraphHandler.")
-            tree.addRaw(ObjectWrongType(self.graph.platform, KubernetesPGStarterDataPlatform, ProblemSeverity.ERROR))
+        if not isinstance(self.graph.platform, YellowDataPlatform):
+            print("Error: Platform associated with the graph is not a YellowGraphHandler.")
+            tree.addRaw(ObjectWrongType(self.graph.platform, YellowDataPlatform, ProblemSeverity.ERROR))
             return ""
 
-        platform: KubernetesPGStarterDataPlatform = self.graph.platform
+        platform: YellowDataPlatform = self.graph.platform
 
         ingest_nodes: list[dict[str, Any]] = []
         for storeName in self.graph.storesToIngest:
@@ -269,8 +269,8 @@ class KPSGraphHandler(DataPlatformGraphHandler):
 
         As validation/linting errors are found then they are added as ValidationProblems to the tree."""
 
-        if not isinstance(self.graph.platform, KubernetesPGStarterDataPlatform):
-            tree.addRaw(ObjectWrongType(self.graph.platform, KubernetesPGStarterDataPlatform, ProblemSeverity.ERROR))
+        if not isinstance(self.graph.platform, YellowDataPlatform):
+            tree.addRaw(ObjectWrongType(self.graph.platform, YellowDataPlatform, ProblemSeverity.ERROR))
             return
 
         # Validate ingestion types for all stores
@@ -302,7 +302,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
 
         # Create Jinja2 environment
         env: Environment = Environment(
-            loader=PackageLoader('datasurface.platforms.kubpgstarter.templates', 'jinja'),
+            loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
         )
 
@@ -352,7 +352,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
 
         # Generate individual DAGs for each ingestion stream
         dag_files: dict[str, str] = {}
-        
+
         try:
             gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
@@ -410,7 +410,7 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         terraform_code: str = self.createTerraformForAllIngestedNodes(self.graph.eco, issueTree)
         # Then create the AirFlow DAGs
         airflow_dags: dict[str, str] = self.createAirflowDAGs(self.graph.eco, issueTree)
-        
+
         # Combine terraform and all DAG files
         result: dict[str, str] = {"terraform_code": terraform_code}
         result.update(airflow_dags)
@@ -457,7 +457,7 @@ class KafkaConnectCluster(DataContainer):
         return None
 
 
-class KubernetesPGStarterDataPlatform(DataPlatform):
+class YellowDataPlatform(DataPlatform):
     """This defines the kubernetes postgres starter data platform. It can consume data from sources and write them to a postgres based merge store.
       It has the use of a postgres database for staging and merge tables as well as Workspace views"""
     def __init__(
@@ -477,7 +477,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
             slackChannel: str = "datasurface-events",
             datasurfaceImage: str = "datasurface/datasurface:latest"
             ):
-        super().__init__(name, doc, KubernetesPGStarterPlatformExecutor())
+        super().__init__(name, doc, YellowPlatformExecutor())
         self.locs: set[LocationKey] = locs
         self.namespace: str = namespace
         self.connectCredentials: Credential = connectCredentials
@@ -581,7 +581,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
         """This is called to handle merge events on the revised graph."""
-        return KPSGraphHandler(self, graph)
+        return YellowGraphHandler(self, graph)
 
     def _getKafkaBootstrapServers(self) -> str:
         """Calculate the Kafka bootstrap servers from the created Kafka cluster."""
@@ -604,7 +604,7 @@ class KubernetesPGStarterDataPlatform(DataPlatform):
 
         # Create Jinja2 environment
         env: Environment = Environment(
-            loader=PackageLoader('datasurface.platforms.kubpgstarter.templates', 'jinja'),
+            loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
             autoescape=select_autoescape(['html', 'xml'])
         )
 

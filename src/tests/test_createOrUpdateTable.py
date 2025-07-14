@@ -9,7 +9,7 @@ from unittest.mock import patch
 from sqlalchemy import Table, MetaData, Column, Integer, String, Boolean, inspect
 from sqlalchemy.engine import Engine
 
-from datasurface.platforms.kubpgstarter.jobs import createOrUpdateTable
+from datasurface.platforms.yellow.jobs import createOrUpdateTable
 from datasurface.md.sqlalchemyutils import _types_are_compatible, _extract_length_from_type, _extract_decimal_params
 
 

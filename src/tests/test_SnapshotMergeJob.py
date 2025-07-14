@@ -7,12 +7,12 @@ import unittest
 from typing import Optional
 from sqlalchemy import create_engine, text, Table, MetaData, Column, String, Date
 from sqlalchemy.engine import Engine
-from datasurface.platforms.kubpgstarter.jobs import SnapshotMergeJob, JobStatus, BatchState, BatchStatus
+from datasurface.platforms.yellow.jobs import SnapshotMergeJob, JobStatus, BatchState, BatchStatus
 from datasurface.md import Ecosystem
 from datasurface.md import Datastore, DataContainer
 from datasurface.md.governance import DatastoreCacheEntry
 from datasurface.md import DataPlatform
-from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
 from datasurface.md.lint import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.credential import CredentialStore, Credential
@@ -28,7 +28,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         # Create ecosystem using existing eco.py
         self.eco: Optional[Ecosystem] = None
         self.tree: Optional[ValidationTree] = None
-        self.eco, self.tree = loadEcosystemFromEcoModule("src/tests/kubpgtests")
+        self.eco, self.tree = loadEcosystemFromEcoModule("src/tests/yellow_dp_tests")
 
         if self.eco is None or self.tree is None:
             raise Exception("Failed to load ecosystem")
@@ -52,7 +52,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         self.job: SnapshotMergeJob = SnapshotMergeJob(
             self.eco,
             self.dp.getCredentialStore(),
-            cast(KubernetesPGStarterDataPlatform, self.dp),
+            cast(YellowDataPlatform, self.dp),
             self.store
         )
 

@@ -9,7 +9,7 @@ from datasurface.md.repo import GitLabRepository
 from datasurface.md import GovernanceZoneDeclaration, HostPortPairList, HostPortPair, DDLTable, DDLColumn, VarChar, NullableStatus, PrimaryKeyStatus
 from datasurface.md import KafkaIngestion, CronTrigger, IngestionConsistencyType, KafkaServer
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
-from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.credential import Credential, CredentialType
 
@@ -34,7 +34,7 @@ def createEcosystem() -> Ecosystem:
             "Home",
             GitLabRepository(gitLabServer, "demo/kafka_example", "HomeMain")
             ),
-        KubernetesPGStarterDataPlatform(
+        YellowDataPlatform(
             "KafkaExample",
             {LocationKey("HomeLab:USA/Home")},
             PlainTextDocumentation("This is an example of a Kafka data platform"),

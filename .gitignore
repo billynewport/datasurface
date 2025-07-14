@@ -25,5 +25,5 @@ java/dmsingester/bin/**
 **/.vscode/*
 test_lint_performance.prof
 
-src/tests/kubpgtests/base/*
+src/tests/yellow_dp_tests/base/*
 

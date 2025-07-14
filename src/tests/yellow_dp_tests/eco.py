@@ -9,7 +9,7 @@ from datasurface.md import Ecosystem, LocationKey
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
-from datasurface.platforms.kubpgstarter import KubernetesPGStarterDataPlatform
+from datasurface.platforms.yellow import YellowDataPlatform
 from datasurface.md import CloudVendor, DefaultDataPlatform, \
         DataPlatformKey, WorkspaceFixedDataPlatform
 from datasurface.md import ValidationTree
@@ -22,12 +22,12 @@ from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabas
 
 def createEcosystem() -> Ecosystem:
     """This is a very simple test model with a single datastore and dataset.
-    It is used to test the KubernetesPGStarterDataPlatform."""
+    It is used to test the YellowDataPlatform."""
     ecosys: Ecosystem = Ecosystem(
         name="Test",
         repo=GitHubRepository("billynewport/repo", "ECOmain"),
         data_platforms=[
-            KubernetesPGStarterDataPlatform(
+            YellowDataPlatform(
                 "Test_DP",
                 {LocationKey("MyCorp:USA/NY_1")},
                 PlainTextDocumentation("Test"),

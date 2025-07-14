@@ -14,7 +14,7 @@ from enum import Enum
 from typing import cast, List, Any, Optional
 from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph
 from datasurface.md.lint import ValidationTree
-from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 import argparse
 import sys
@@ -128,11 +128,11 @@ class SnapshotMergeJob:
     The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
 
     def __init__(
-            self, eco: Ecosystem, credStore: CredentialStore, dp: KubernetesPGStarterDataPlatform,
+            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
             store: Datastore, datasetName: Optional[str] = None) -> None:
         self.eco: Ecosystem = eco
         self.credStore: CredentialStore = credStore
-        self.dp: KubernetesPGStarterDataPlatform = dp
+        self.dp: YellowDataPlatform = dp
         self.store: Datastore = store
         self.datasetName: Optional[str] = datasetName
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
@@ -847,7 +847,7 @@ def main():
                 print(f"Unknown dataset: {args.dataset_name}")
                 return -1  # ERROR
 
-        job: SnapshotMergeJob = SnapshotMergeJob(eco, dp.getCredentialStore(), cast(KubernetesPGStarterDataPlatform, dp), store, args.dataset_name)
+        job: SnapshotMergeJob = SnapshotMergeJob(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
 
         jobStatus: JobStatus = job.run()
         if jobStatus == JobStatus.DONE:
