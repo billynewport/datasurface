@@ -81,6 +81,9 @@ class PlainTextDocumentation(Documentation):
         rc.update({"_type": self.__class__.__name__})
         return rc
 
+    def __hash__(self) -> int:
+        return hash(self.description)
+
 
 class MarkdownDocumentation(Documentation):
     def __init__(self, description: str, markdown: str, tags: Optional[OrderedDict[str, str]] = None) -> None:
@@ -99,3 +102,6 @@ class MarkdownDocumentation(Documentation):
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__, "markdown": self.markdown})
         return rc
+
+    def __hash__(self) -> int:
+        return hash(self.description)

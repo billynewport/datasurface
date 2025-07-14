@@ -18,7 +18,7 @@ from datasurface.md.exceptions import AttributeAlreadySetException, ObjectAlread
 from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
         UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, UserDSLObject, \
-        InternalLintableObject, ANSI_SQL_NamedObject
+        InternalLintableObject, ANSI_SQL_NamedObject, UnexpectedExceptionProblem
 from datasurface.md.json import JSONable
 import hashlib
 from datasurface.md.utils import is_valid_sql_identifier, is_valid_hostname_or_ip, validate_cron_string
@@ -1431,6 +1431,41 @@ class Ecosystem(GitControlledObject, JSONable):
                     zone_declaration.key = GovernanceZoneKey(self.key, zone_declaration.name)
 
         self.resetKey()
+
+    def hydrateDSGDataPlatformMappings(self, jsonFile: str, tree: ValidationTree) -> None:
+        """This uses the file dsg_platform_mapping.json to hydrate the dsgPlatformMappings set"""
+        import json
+        from datasurface.md.documentation import PlainTextDocumentation
+
+        # If the file doesn't exist, there is no mapping.
+        if not os.path.exists(jsonFile):
+            return
+
+        # If there is an exception during the load then add a raw error to the tree
+        try:
+            with open(jsonFile, "r") as f:
+                mappings: list[dict[str, Any]] = json.load(f)
+                for dsg_mapping in mappings:
+                    # Extract required fields
+                    dsg_name: str = dsg_mapping["dsgName"]
+                    workspace: str = dsg_mapping.get("workspace", "default_workspace")
+
+                    # Create the assignment with correct parameter order
+                    self.dsgPlatformMappings.add(DatasetGroupDataPlatformAssignment(
+                        workspace=workspace,
+                        dsgName=dsg_name,
+                        dp=DataPlatformKey(dsg_mapping["dataPlatform"]),
+                        doc=PlainTextDocumentation(dsg_mapping["documentation"]),
+                        productionStatus=ProductionStatus[dsg_mapping["productionStatus"]],
+                        deprecationsAllowed=DeprecationsAllowed[dsg_mapping["deprecationsAllowed"]],
+                        status=DatasetGroupDataPlatformMappingStatus[dsg_mapping["status"]]
+                    ))
+            # Now lint the dsg platform mappings
+            for dsg_mapping in self.dsgPlatformMappings:
+                dsg_mapping.lint(self, tree.addSubTree(dsg_mapping))
+        except Exception as e:
+            tree.addRaw(UnexpectedExceptionProblem(e))
+            self.dsgPlatformMappings.clear()
 
     @classmethod
     def create_legacy(cls, name: str, repo: Repository,
@@ -2898,7 +2933,8 @@ class DatasetGroupDataPlatformMappingStatus(Enum):
 class DatasetGroupDataPlatformAssignment(UserDSLObject):
     """This is a reference to a DataPlatform which is assigned to a Workspace"""
     def __init__(self, workspace: str, dsgName: str, dp: DataPlatformKey, doc: Documentation, productionStatus: ProductionStatus = ProductionStatus.PRODUCTION,
-                 deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER) -> None:
+                 deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER,
+                 status: DatasetGroupDataPlatformMappingStatus = DatasetGroupDataPlatformMappingStatus.PROVISIONING) -> None:
         UserDSLObject.__init__(self)
         self.workspace: str = workspace
         self.dsgName: str = dsgName

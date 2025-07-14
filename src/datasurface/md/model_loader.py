@@ -9,6 +9,7 @@ import sys
 import copy
 import importlib
 from types import ModuleType
+import os
 
 
 def loadEcosystemFromEcoModule(path: str) -> tuple[Optional[Ecosystem], Optional[ValidationTree]]:
@@ -31,7 +32,11 @@ def loadEcosystemFromEcoModule(path: str) -> tuple[Optional[Ecosystem], Optional
         # This should now point to createEcosystem() -> Ecosystem in the eco.py file on the path specified
         eco: Ecosystem = function()
         # Flesh out
+
         tree: ValidationTree = eco.lintAndHydrateCaches()
+
+        # Now hydrate the dsg platform mappings
+        eco.hydrateDSGDataPlatformMappings(os.path.join(path, "dsg_platform_mapping.json"), tree)
 
         return eco, tree
     finally:
