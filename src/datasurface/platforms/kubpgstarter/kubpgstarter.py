@@ -295,9 +295,9 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         dt: DataTransformer = node.workspace.dataTransformer
                         dt.code.lint(eco, tree)
 
-    def createAirflowDAG(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
-        """This creates a single AirFlow DAG for the platform with one task per ingestion stream.
-        Each task runs the SnapshotMergeJob and handles the return code to decide whether to
+    def createAirflowDAGs(self, eco: Ecosystem, issueTree: ValidationTree) -> dict[str, str]:
+        """This creates individual AirFlow DAGs for each ingestion stream.
+        Each DAG runs the SnapshotMergeJob and handles the return code to decide whether to
         reschedule immediately, wait for next trigger, or fail."""
 
         # Create Jinja2 environment
@@ -306,8 +306,8 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             autoescape=select_autoescape(['html', 'xml'])
         )
 
-        # Load the platform DAG template
-        dag_template: Template = env.get_template('platform_dag.py.j2')
+        # Load the ingestion stream DAG template
+        dag_template: Template = env.get_template('ingestion_stream_dag.py.j2')
 
         # Build the ingestion_streams context from the graph
         ingestion_streams: list[dict[str, Any]] = []
@@ -350,11 +350,14 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                 issueTree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
                 continue
 
-        # Generate the platform DAG with all ingestion streams
+        # Generate individual DAGs for each ingestion stream
+        dag_files: dict[str, str] = {}
+        
         try:
             gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
-            context: dict[str, Any] = {
+            # Common context for all DAGs
+            common_context: dict[str, Any] = {
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
                 "postgres_hostname": self.dp.to_k8s_name(self.dp.postgresName),
@@ -366,11 +369,11 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                 "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
                 "git_repo_branch": gitRepo.branchName,
                 "git_repo_name": gitRepo.repositoryName,
-                "ingestion_streams": ingestion_streams
             }
 
-            # Add credential information for each stream
+            # Generate a DAG for each ingestion stream
             for stream in ingestion_streams:
+                # Add credential information for this stream
                 storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(stream["store_name"])
                 store: Datastore = storeEntry.datastore
 
@@ -381,29 +384,37 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                     if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
                         stream["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
 
-            # Render the platform DAG
-            dag_content: str = dag_template.render(context)
-            return dag_content
+                # Create context for this specific stream
+                stream_context = common_context.copy()
+                stream_context.update(stream)  # Add stream properties directly to context
+
+                # Render the DAG for this stream
+                dag_content: str = dag_template.render(stream_context)
+                dag_filename = f"{self.dp.to_k8s_name(self.dp.name)}__{stream['stream_key']}_ingestion.py"
+                dag_files[dag_filename] = dag_content
+
+            return dag_files
 
         except Exception as e:
             issueTree.addRaw(UnexpectedExceptionProblem(e))
-            return ""
+            return {}
 
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages. For this platform it returns a dictionary containing a terraform
         file which configures all the kafka connect sink connectors to copy datastores using
         kafka ingestion capture meta data to postgres staging tables. It also needs to create
-        an AirFlow DAG containing the MERGE task for every ingestion (store or dataset depending on whether
+        individual AirFlow DAGs for each ingestion stream (store or dataset depending on whether
         the model specifies single or multidataset)"""
         # First create the terraform file
         terraform_code: str = self.createTerraformForAllIngestedNodes(self.graph.eco, issueTree)
-        # Then create the AirFlow DAG
-        airflow_dag: str = self.createAirflowDAG(self.graph.eco, issueTree)
-        return {
-            "terraform_code": terraform_code,
-            "airflow_dag": airflow_dag
-        }
+        # Then create the AirFlow DAGs
+        airflow_dags: dict[str, str] = self.createAirflowDAGs(self.graph.eco, issueTree)
+        
+        # Combine terraform and all DAG files
+        result: dict[str, str] = {"terraform_code": terraform_code}
+        result.update(airflow_dags)
+        return result
 
 
 class KafkaConnectCluster(DataContainer):

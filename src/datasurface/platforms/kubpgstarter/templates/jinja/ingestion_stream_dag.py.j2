@@ -1,0 +1,161 @@
+"""
+Ingestion Stream DAG for {{ platform_name }}__{{ stream_key }}
+Generated automatically by DataSurface KubernetesPGStarter Platform
+
+This DAG handles a single ingestion stream. It runs the SnapshotMergeJob and handles
+the return code to decide whether to reschedule immediately, wait for next trigger, or fail.
+"""
+
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.utils.trigger_rule import TriggerRule
+
+# Default arguments for the DAG
+default_args = {
+    'owner': 'datasurface',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 0,  # No retries - the job handles its own retry logic
+    'retry_delay': timedelta(minutes=5),
+}
+
+# Create the DAG
+dag = DAG(
+    '{{ platform_name }}__{{ stream_key }}_ingestion',
+    default_args=default_args,
+    description='Ingestion Stream DAG for {{ platform_name }}__{{ stream_key }}',
+    schedule='@hourly',  # External trigger schedule
+    catchup=False,
+    tags=['datasurface', 'ingestion', '{{ platform_name }}', '{{ stream_key }}']
+)
+
+# Environment variables for the job
+env_vars = {
+    # Postgres credentials (for merge store)
+    '{{ postgres_credential_secret_name }}_USER': {
+        'secret_name': '{{ postgres_credential_secret_name }}',
+        'secret_key': 'username'
+    },
+    '{{ postgres_credential_secret_name }}_PASSWORD': {
+        'secret_name': '{{ postgres_credential_secret_name }}',
+        'secret_key': 'password'
+    },
+    # Git credentials
+    '{{ git_credential_secret_name }}_TOKEN': {
+        'secret_name': '{{ git_credential_secret_name }}',
+        'secret_key': 'token'
+    },
+    # Slack credentials
+    '{{ slack_credential_secret_name }}_TOKEN': {
+        'secret_name': '{{ slack_credential_secret_name }}',
+        'secret_key': 'token'
+    },
+    # Platform configuration
+    'DATASURFACE_PLATFORM_NAME': '{{ platform_name }}',
+    'DATASURFACE_NAMESPACE': '{{ namespace_name }}',
+    'DATASURFACE_SLACK_CHANNEL': '{{ slack_channel_name }}'
+}
+
+{% if ingestion_type == "sql_snapshot" and source_credential_secret_name %}
+    # Source database credentials for SQL snapshot ingestion
+    env_vars['{{ source_credential_secret_name }}_USER'] = {
+        'secret_name': '{{ source_credential_secret_name }}',
+        'secret_key': 'username'
+    }
+    env_vars['{{ source_credential_secret_name }}_PASSWORD'] = {
+        'secret_name': '{{ source_credential_secret_name }}',
+        'secret_key': 'password'
+    }
+{% endif %}
+
+{% if ingestion_type == "kafka" and kafka_connect_credential_secret_name %}
+    # Kafka Connect credentials for Kafka ingestion
+    env_vars['{{ kafka_connect_credential_secret_name }}_API_KEY'] = {
+        'secret_name': '{{ kafka_connect_credential_secret_name }}',
+        'secret_key': 'api_key'
+    }
+    env_vars['{{ kafka_connect_credential_secret_name }}_API_SECRET'] = {
+        'secret_name': '{{ kafka_connect_credential_secret_name }}',
+        'secret_key': 'api_secret'
+    }
+{% endif %}
+
+# Function to determine next action based on job return code
+def determine_next_action(**context):
+    """Determine the next action based on the job return code"""
+    task_instance = context['task_instance']
+    return_code = task_instance.xcom_pull(task_ids=context['task'].upstream_task_ids[0].task_id)
+    
+    if return_code == 1:  # KEEP_WORKING
+        return 'reschedule_immediately'
+    elif return_code == 0:  # DONE
+        return 'wait_for_trigger'
+    else:  # ERROR (-1)
+        # Let the job task fail directly instead of routing to a separate fail task
+        raise Exception("SnapshotMergeJob failed - manual intervention required")
+
+# Job task
+job = KubernetesPodOperator(
+    task_id='snapshot_merge_job',
+    name='{{ platform_name }}-{{ stream_key | replace("-", "_") }}-job',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.jobs'],
+    arguments=[
+        '--platform-name', '{{ platform_name }}',
+        '--store-name', '{{ store_name }}',
+        {% if dataset_name %}
+        '--dataset-name', '{{ dataset_name }}',
+        {% endif %}
+        '--operation', 'snapshot-merge',
+        '--git-repo-path', '/workspace/model'
+    ],
+    env_vars=env_vars,  # type: ignore
+    volumes=[  # type: ignore
+        {
+            'name': 'git-workspace',
+            'configMap': {'name': '{{ platform_name }}-git-config'}
+        }
+    ],
+    volume_mounts=[  # type: ignore
+        {
+            'name': 'git-workspace',
+            'mountPath': '/workspace/model',
+            'readOnly': True
+        }
+    ],
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# Branch operator
+branch = BranchPythonOperator(
+    task_id='check_result',
+    python_callable=determine_next_action,
+    dag=dag
+)
+
+# Reschedule immediately
+reschedule = TriggerDagRunOperator(
+    task_id='reschedule_immediately',
+    trigger_dag_id='{{ platform_name }}__{{ stream_key }}_ingestion',  # Trigger the SAME DAG
+    conf={'triggered_by': 'reschedule'},
+    dag=dag
+)
+
+# Wait for trigger
+wait = EmptyOperator(
+    task_id='wait_for_trigger',
+    dag=dag
+)
+
+# Set up dependencies
+job >> branch
+branch >> [reschedule, wait] 
