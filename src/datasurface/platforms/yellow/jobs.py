@@ -200,7 +200,8 @@ class SnapshotMergeJob:
         # The md5 hash of all the columns in the record
         t.append_column(Column(name="ds_surf_all_hash", type_=String(length=32)))  # type: ignore[attr-defined]
         # The md5 hash of the primary key columns or all the columns if there are no primary key columns
-        t.append_column(Column(name="ds_surf_key_hash", type_=String(length=32)))  # type: ignore[attr-defined]
+        # This needs to be unique for INSERT...ON CONFLICT to work
+        t.append_column(Column(name="ds_surf_key_hash", type_=String(length=32), unique=True))  # type: ignore[attr-defined]
         return t
 
     def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
@@ -232,6 +233,32 @@ class SnapshotMergeJob:
             tableName: str = self.getMergeTableNameForDataset(dataset)
             mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
             createOrUpdateTable(mergeEngine, mergeTable)
+            # Ensure the unique constraint exists for ds_surf_key_hash
+            self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
+
+    def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
+        """Ensure that a unique constraint exists on the specified column"""
+        with mergeEngine.begin() as connection:
+            # Check if the constraint already exists
+            check_sql = f"""
+            SELECT COUNT(*) FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            WHERE tc.table_name = '{tableName}'
+                AND tc.constraint_type = 'UNIQUE'
+                AND kcu.column_name = '{columnName}'
+            """
+            result = connection.execute(text(check_sql))
+            constraint_exists = result.fetchone()[0] > 0
+            
+            if not constraint_exists:
+                # Create the unique constraint
+                constraint_name = f"{tableName}_{columnName}_unique"
+                create_constraint_sql = f"ALTER TABLE {tableName} ADD CONSTRAINT {constraint_name} UNIQUE ({columnName})"
+                print(f"DEBUG: Creating unique constraint: {create_constraint_sql}")
+                connection.execute(text(create_constraint_sql))
+                print(f"DEBUG: Successfully created unique constraint on {tableName}.{columnName}")
 
     def getBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
@@ -557,15 +584,14 @@ class SnapshotMergeJob:
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
 
-    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str) -> tuple[int, int, int]:
-        """Merge staging data into merge table using PostgreSQL MERGE command and ds_surf_key_hash as join key, including deletions. This
-        really has to be done in a single transaction no matter what as otherwise, the consumers would see inconsistent data. A milestoned
-        version of this job can avoid this issue by used a view which filters for live records in the last committed batch, not the
-        current one."""
+    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+        """Merge staging data into merge table using INSERT...ON CONFLICT with batched processing for better performance on large datasets.
+        This processes merge operations in smaller batches to avoid memory issues while maintaining transactional consistency.
+        The entire operation is done in a single transaction to ensure consumers see consistent data."""
         # Initialize metrics variables
-        recordsInserted: int = 0
-        recordsUpdated: int = 0
-        recordsDeleted: int = 0
+        total_inserted: int = 0
+        total_updated: int = 0
+        total_deleted: int = 0
         totalRecords: int = 0
 
         with mergeEngine.begin() as connection:
@@ -584,41 +610,40 @@ class SnapshotMergeJob:
 
                 # Get all column names
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
-
-                # Get metrics before merge
-                countResult = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
-                totalRecords = countResult.fetchone()[0]
-
-                # Use ds_surf_key_hash as the join key
-                join_key = "ds_surf_key_hash"
-                # Quote all column names to handle case sensitivity consistently
                 quoted_all_columns = [f'"{col}"' for col in allColumns]
-                all_columns_list = ", ".join(quoted_all_columns)
-                all_columns_with_prefix = ", ".join([f's."{col}"' for col in allColumns])
 
-                # Now use MERGE for updates and inserts
-                merge_sql = f"""
-                MERGE INTO {mergeTableName} m
-                USING {stagingTableName} s
-                ON s.{join_key} = m.{join_key}
-                WHEN MATCHED AND s.ds_surf_all_hash != m.ds_surf_all_hash THEN
-                    UPDATE SET
-                        {', '.join([f'"{col}" = s."{col}"' for col in allColumns])},
-                        ds_surf_batch_id = {batchId},
-                        ds_surf_all_hash = s.ds_surf_all_hash,
-                        ds_surf_key_hash = s.ds_surf_key_hash
-                WHEN NOT MATCHED THEN
-                    INSERT ({all_columns_list}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
-                    VALUES ({all_columns_with_prefix}, {batchId}, s.ds_surf_all_hash, s.ds_surf_key_hash)
-                """
+                # Get total count for processing
+                count_result = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
+                total_records = count_result.fetchone()[0]
+                totalRecords += total_records
 
-                print(f"DEBUG: Executing MERGE SQL: {merge_sql}")
+                print(f"DEBUG: Processing {total_records} records for dataset {datasetToMergeName} in batches of {batch_size}")
 
-                # Execute the MERGE
-                connection.execute(text(merge_sql))
-
-                # Now, after the MERGE, delete records that exist in merge but not in staging (for this batch)
-                # Only delete rows in merge that are not present in the current staging batch (i.e., true deletions)
+                # Process in batches using INSERT...ON CONFLICT for better PostgreSQL compatibility
+                for offset in range(0, total_records, batch_size):
+                    batch_upsert_sql = f"""
+                    WITH batch_data AS (
+                        SELECT * FROM {stagingTableName} 
+                        WHERE ds_surf_batch_id = {batchId}
+                        ORDER BY ds_surf_key_hash
+                        LIMIT {batch_size} OFFSET {offset}
+                    )
+                    INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
+                    SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.ds_surf_all_hash, b.ds_surf_key_hash
+                    FROM batch_data b
+                    ON CONFLICT (ds_surf_key_hash) 
+                    DO UPDATE SET
+                        {', '.join([f'"{col}" = EXCLUDED."{col}"' for col in allColumns])},
+                        ds_surf_batch_id = EXCLUDED.ds_surf_batch_id,
+                        ds_surf_all_hash = EXCLUDED.ds_surf_all_hash,
+                        ds_surf_key_hash = EXCLUDED.ds_surf_key_hash
+                    WHERE {mergeTableName}.ds_surf_all_hash != EXCLUDED.ds_surf_all_hash
+                    """
+                    
+                    print(f"DEBUG: Executing batch upsert for offset {offset}")
+                    connection.execute(text(batch_upsert_sql))
+                
+                # Handle deletions once after all inserts/updates for this dataset
                 delete_sql = f"""
                 DELETE FROM {mergeTableName} m
                 WHERE NOT EXISTS (
@@ -627,43 +652,41 @@ class SnapshotMergeJob:
                     AND s.ds_surf_key_hash = m.ds_surf_key_hash
                 )
                 """
-                connection.execute(text(delete_sql))
+                print(f"DEBUG: Executing deletion query for dataset {datasetToMergeName}")
+                delete_result = connection.execute(text(delete_sql))
+                dataset_deleted = delete_result.rowcount
+                total_deleted += dataset_deleted
 
-                # Get the number of rows affected
-                inserted_result = connection.execute(text(
-                    f"SELECT COUNT(*) FROM {mergeTableName} WHERE ds_surf_batch_id = {batchId}"
-                ))
-                recordsInserted = inserted_result.fetchone()[0]
+                # Get final metrics for this dataset more efficiently
+                metrics_sql = f"""
+                SELECT 
+                    COUNT(*) FILTER (WHERE ds_surf_batch_id = {batchId}) as inserted_count,
+                    COUNT(*) FILTER (WHERE ds_surf_batch_id != {batchId} AND ds_surf_key_hash IN (
+                        SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                    )) as updated_count
+                FROM {mergeTableName}
+                WHERE ds_surf_key_hash IN (
+                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                )
+                """
+                
+                metrics_result = connection.execute(text(metrics_sql))
+                metrics_row = metrics_result.fetchone()
+                dataset_inserted = metrics_row[0] if metrics_row[0] else 0
+                dataset_updated = metrics_row[1] if metrics_row[1] else 0
+                
+                total_inserted += dataset_inserted
+                total_updated += dataset_updated
 
-                # For updated records, we need to check records that have the same key but different hash
-                updated_result = connection.execute(text(f"""
-                    SELECT COUNT(*) FROM {mergeTableName} m
-                    INNER JOIN {stagingTableName} s ON s.{join_key} = m.{join_key}
-                    WHERE s.ds_surf_batch_id = {batchId}
-                    AND s.ds_surf_all_hash != m.ds_surf_all_hash
-                    AND m.ds_surf_batch_id != {batchId}
-                """))
-                recordsUpdated = updated_result.fetchone()[0]
-
-                # For deleted records, we need to count records that were in merge but not in staging
-                # This is the count of records that were deleted by our DELETE statement
-                deleted_result = connection.execute(text(f"""
-                    SELECT COUNT(*) FROM {mergeTableName} m
-                    WHERE m.ds_surf_key_hash NOT IN (
-                        SELECT s.ds_surf_key_hash
-                        FROM {stagingTableName} s
-                        WHERE s.ds_surf_batch_id = {batchId}
-                    )
-                    AND m.ds_surf_batch_id != {batchId}
-                """))
-                recordsDeleted = deleted_result.fetchone()[0]
+                print(f"DEBUG: Dataset {datasetToMergeName} - Inserted: {dataset_inserted}, Updated: {dataset_updated}, Deleted: {dataset_deleted}")
 
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
-                recordsInserted, recordsUpdated, recordsDeleted, totalRecords)
+                total_inserted, total_updated, total_deleted, totalRecords)
 
-        return recordsInserted, recordsUpdated, recordsDeleted
+        print(f"DEBUG: Total merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
+        return total_inserted, total_updated, total_deleted
 
     def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""
