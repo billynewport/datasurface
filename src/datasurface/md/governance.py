@@ -21,7 +21,7 @@ from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransf
         InternalLintableObject, ANSI_SQL_NamedObject
 from datasurface.md.json import JSONable
 import hashlib
-from datasurface.md.utils import is_valid_sql_identifier, cyclic_safe_eq, is_valid_hostname_or_ip, validate_cron_string
+from datasurface.md.utils import is_valid_sql_identifier, is_valid_hostname_or_ip, validate_cron_string
 from datasurface.md.documentation import Documentation, Documentable
 from datasurface.md.repo import Repository, GitControlledObject
 from datasurface.md.policy import Policy, AllowDisallowPolicy, DataClassification, DataClassificationPolicy, Literal
@@ -174,7 +174,8 @@ class EncryptionSystem(JSONable):
         self.hasThirdPartySuperUser: bool = False
 
     def __eq__(self, __value: object) -> bool:
-        return cyclic_safe_eq(self, __value, set())
+        return super().__eq__(__value) and isinstance(__value, EncryptionSystem) and self.name == __value.name and \
+            self.keyContainer == __value.keyContainer and self.hasThirdPartySuperUser == __value.hasThirdPartySuperUser
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -1294,7 +1295,7 @@ class DependentWorkspaces(JSONable):
 
     def __eq__(self, __value: object) -> bool:
         if (isinstance(__value, DependentWorkspaces)):
-            return self.workspace.name == __value.workspace.name
+            return super().__eq__(__value) and self.workspace.name == __value.workspace.name and self.dependencies == __value.dependencies
         else:
             return False
 
@@ -1394,6 +1395,7 @@ class Ecosystem(GitControlledObject, JSONable):
         self.dataPlatforms: dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
         self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
         self.platformServicesProvider: Optional[PlatformServicesProvider] = None
+        self.dsgPlatformMappings: set[DatasetGroupDataPlatformAssignment] = set[DatasetGroupDataPlatformAssignment]()
         self.resetCaches()
 
         # Handle backward compatibility: if *args are provided, parse them the old way
@@ -1781,6 +1783,7 @@ class Ecosystem(GitControlledObject, JSONable):
             rc = rc and self.dataPlatforms == proposed.dataPlatforms
             rc = rc and self.defaultDataPlatform == proposed.defaultDataPlatform
             rc = rc and self.platformServicesProvider == proposed.platformServicesProvider
+            rc = rc and self.dsgPlatformMappings == proposed.dsgPlatformMappings
             return rc
         else:
             return False
@@ -1908,7 +1911,7 @@ class VendorKey(UserDSLObject):
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, VendorKey)):
-            return self.vendorString == other.vendorString
+            return self.vendorString == other.vendorString and self.vendor == other.vendor
         return False
 
     def getAsInfraVendor(self, eco: Ecosystem) -> Optional[InfrastructureVendor]:
@@ -2189,7 +2192,7 @@ class AuthorizedObjectManager(GitControlledObject, Generic[G, N]):
             rc = rc and self.name == a.name
             rc = rc and self.authorizedObjects == a.authorizedObjects
             # Cannot test factory for equality
-            # rc = rc and self.factory == a.factory
+            # rc = rc and self.factory is a.factory
             return rc
         else:
             return False
@@ -2712,7 +2715,10 @@ class ConsumerRetentionRequirements(UserDSLObject):
         self.regulator: Optional[str] = regulator
 
     def __eq__(self, other: object) -> bool:
-        return cyclic_safe_eq(self, other, set())
+        if (isinstance(other, ConsumerRetentionRequirements)):
+            return super().__eq__(other) and self.policy == other.policy and self.latency == other.latency and \
+                self.minRetentionTime == other.minRetentionTime and self.regulator == other.regulator
+        return False
 
     def __hash__(self) -> int:
         return hash((self.policy, self.latency, self.minRetentionTime, self.regulator))
@@ -2749,7 +2755,9 @@ class WorkspacePlatformConfig(DataPlatformChooser):
         self.retention: ConsumerRetentionRequirements = hist
 
     def __eq__(self, other: object) -> bool:
-        return cyclic_safe_eq(self, other, set())
+        if (isinstance(other, WorkspacePlatformConfig)):
+            return super().__eq__(other) and self.retention == other.retention
+        return False
 
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         """For now, just return default"""
@@ -2822,7 +2830,8 @@ class DatasetSink(UserDSLObject):
 
     def __eq__(self, other: object) -> bool:
         if (type(other) is DatasetSink):
-            return self.key == other.key and self.storeName == other.storeName and self.datasetName == other.datasetName
+            return super().__eq__(other) and self.key == other.key and self.storeName == other.storeName and self.datasetName == other.datasetName and \
+                self.deprecationsAllowed == other.deprecationsAllowed
         else:
             return False
 
@@ -2874,6 +2883,18 @@ class DatasetSink(UserDSLObject):
         return f"DatasetSink({self.storeName}:{self.datasetName})"
 
 
+class DatasetGroupDataPlatformMappingStatus(Enum):
+    """This indicates the status of a DataPlatform assignment to a DatasetGroup"""
+    PROVISIONING = 0
+    """The DataPlatform is being provisioned"""
+    PROVISIONED = 1
+    """The DataPlatform is provisioned and ready to use"""
+    DECOMMISSIONING = 2
+    """The DataPlatform is being decommissioned"""
+    DECOMMISSIONED = 3
+    """The DataPlatform is decommissioned and no longer used"""
+
+
 class DatasetGroupDataPlatformAssignment(UserDSLObject):
     """This is a reference to a DataPlatform which is assigned to a Workspace"""
     def __init__(self, workspace: str, dsgName: str, dp: DataPlatformKey, doc: Documentation, productionStatus: ProductionStatus = ProductionStatus.PRODUCTION,
@@ -2885,20 +2906,22 @@ class DatasetGroupDataPlatformAssignment(UserDSLObject):
         self.documentation: Documentation = doc
         self.productionStatus: ProductionStatus = productionStatus
         self.deprecationsAllowed: DeprecationsAllowed = deprecationsAllowed
+        self.status: DatasetGroupDataPlatformMappingStatus = DatasetGroupDataPlatformMappingStatus.PROVISIONING
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__, "dataPlatform": self.dataPlatform.name, "documentation": self.documentation.to_json(),
-                   "productionStatus": self.productionStatus.name, "deprecationsAllowed": self.deprecationsAllowed.name})
+                   "productionStatus": self.productionStatus.name, "deprecationsAllowed": self.deprecationsAllowed.name, "status": self.status.name})
         return rc
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, DatasetGroupDataPlatformAssignment) and self.dataPlatform == other.dataPlatform and \
             self.documentation == other.documentation and self.productionStatus == other.productionStatus and \
-            self.deprecationsAllowed == other.deprecationsAllowed
+            self.deprecationsAllowed == other.deprecationsAllowed and self.status == other.status and \
+            self.workspace == other.workspace and self.dsgName == other.dsgName
 
     def __hash__(self) -> int:
-        return hash((self.dataPlatform, self.documentation, self.productionStatus, self.deprecationsAllowed))
+        return hash((self.dataPlatform, self.documentation, self.productionStatus, self.deprecationsAllowed, self.status))
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         # Make sure the workspace and dsg exist
@@ -3318,7 +3341,12 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
         return hash(self.name)
 
     def __eq__(self, other: object) -> bool:
-        return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and cyclic_safe_eq(self, other, set())
+        return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and \
+            isinstance(other, Workspace) and \
+            self.priority == other.priority and self.dsgs == other.dsgs and self.dataContainer == other.dataContainer and \
+            self.productionStatus == other.productionStatus and self.deprecationStatus == other.deprecationStatus and \
+            self.dataTransformer == other.dataTransformer and self.classificationVerifier == other.classificationVerifier and \
+            self.key == other.key
 
     def isDatastoreUsed(self, store: Datastore) -> bool:
         """Returns true if the specified datastore is used by this workspace"""
@@ -3380,7 +3408,9 @@ class PipelineNode(InternalLintableObject, JSONable):
         return f"{self.__class__.__name__}/{self.name}"
 
     def __eq__(self, o: object) -> bool:
-        return isinstance(o, PipelineNode) and self.name == o.name and self.leftHandNodes == o.leftHandNodes and self.rightHandNodes == o.rightHandNodes
+        return InternalLintableObject.__eq__(self, o) and JSONable.__eq__(self, o) and isinstance(o, PipelineNode) and \
+            self.name == o.name and self.leftHandNodes == o.leftHandNodes and \
+            self.rightHandNodes == o.rightHandNodes and self.priority == o.priority and self.platform == o.platform
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = dict()
@@ -3969,7 +3999,8 @@ class FileBasedFragmentManager(IaCFragmentManager):
         return f"{self.__class__.__name__}({self.name}, rootDir={self.rootDir})"
 
     def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and isinstance(other, FileBasedFragmentManager) and self.rootDir == other.rootDir
+        return super().__eq__(other) and isinstance(other, FileBasedFragmentManager) and self.rootDir == other.rootDir and \
+            self.fnGetFileNameForNode == other.fnGetFileNameForNode
 
     def __hash__(self) -> int:
         return hash(self.name)

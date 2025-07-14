@@ -32,6 +32,12 @@ def get_instance_attributes(cls: Type[Any]) -> Set[str]:
                                 isinstance(target.value, ast.Name) and
                                 target.value.id == 'self'):
                             attributes.add(target.attr)
+                elif isinstance(node, ast.AnnAssign):
+                    # Handle annotated assignments: self.attr: type = value
+                    if (isinstance(node.target, ast.Attribute) and
+                            isinstance(node.target.value, ast.Name) and
+                            node.target.value.id == 'self'):
+                        attributes.add(node.target.attr)
         except (OSError, TypeError, SyntaxError):
             # Could not get or parse source code, skip this method
             pass
@@ -314,6 +320,13 @@ class EqualityCompletenessTestMixin:
         return check_eq_completeness_with_inheritance(cls, excluded_attributes, ignore_private)
 
 
+# Manual exclusions for special cases (attributes to ignore in equality completeness checks)
+MANUAL_EXCLUSIONS = {
+    'Ecosystem': {'datastoreCache', 'workSpaceCache', 'teamCache'},
+    'AuthorizedObjectManager': {'factory'},
+}
+
+
 class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin):
     """Example test class showing how to use the equality completeness checker."""
 
@@ -351,7 +364,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
         for cls in all_lintable_classes:
             with self.subTest(class_name=cls.__name__):
                 try:
-                    is_complete, missing, extra, auto_excluded = check_eq_completeness_with_inheritance(cls)
+                    manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                    is_complete, missing, extra, auto_excluded = check_eq_completeness_with_inheritance(cls, manual_excluded_attrs)
 
                     total_tested += 1
                     total_auto_excluded += len(auto_excluded)
@@ -504,7 +518,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in schema_classes:
             with self.subTest(class_name=cls.__name__):
-                is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, _, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
                 tested_classes.append(cls.__name__)
                 print(f"{cls.__name__} auto-excluded attributes: {auto_excluded}")
@@ -522,7 +537,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in datatype_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -541,7 +557,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in ansi_sql_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -561,7 +578,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in documentable_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -581,7 +599,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in datacontainer_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -601,7 +620,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in capture_metadata_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -621,7 +641,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in internal_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -641,7 +662,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in other_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")
@@ -746,7 +768,8 @@ class TestEqualityCompleteness(unittest.TestCase, EqualityCompletenessTestMixin)
 
         for cls in policy_subclasses:
             with self.subTest(class_name=cls.__name__):
-                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls)
+                manual_excluded_attrs = MANUAL_EXCLUSIONS.get(cls.__name__, set())
+                is_complete, missing, _, auto_excluded = self.assert_eq_complete_with_details(cls, manual_excluded_attrs)
                 if not is_complete:
                     print(f"{cls.__name__} missing: {missing}, auto-excluded: {auto_excluded}")
                 self.assertTrue(is_complete, f"{cls.__name__} should have complete __eq__ method")

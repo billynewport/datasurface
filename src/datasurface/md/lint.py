@@ -448,7 +448,7 @@ class ANSI_SQL_NamedObject(UserDSLObject):
         UserDSLObject.__init__(self, filename, linenumber)
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
+        return UserDSLObject.__eq__(self, other) and isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
 
     def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         if (not isinstance(other, ANSI_SQL_NamedObject)):
