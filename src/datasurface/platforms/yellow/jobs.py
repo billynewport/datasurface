@@ -5,6 +5,7 @@
 
 from datasurface.md import Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, DataContainer, PostgresDatabase, Dataset, IngestionConsistencyType
 from sqlalchemy import create_engine, Table, MetaData, text
+import sqlalchemy
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.schema import Column
 from datasurface.md.schema import DDLTable
@@ -183,7 +184,7 @@ class SnapshotMergeJob:
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
         """This returns the staging schema for a dataset"""
-        t: Table = datasetToSQLAlchemyTable(dataset, tableName)
+        t: Table = datasetToSQLAlchemyTable(dataset, tableName, sqlalchemy.MetaData())
         # Add the platform specific columns
         t.append_column(Column(name="ds_surf_batch_id", type_=Integer()))  # type: ignore[attr-defined]
         t.append_column(Column(name="ds_surf_all_hash", type_=String(length=32)))  # type: ignore[attr-defined]
@@ -192,7 +193,7 @@ class SnapshotMergeJob:
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
         """This returns the merge schema for a dataset"""
-        t: Table = datasetToSQLAlchemyTable(dataset, tableName)
+        t: Table = datasetToSQLAlchemyTable(dataset, tableName, sqlalchemy.MetaData())
         # Add the platform specific columns
         # batch_id here represents the batch a record was inserted in to the merge table
         t.append_column(Column(name="ds_surf_batch_id", type_=Integer()))  # type: ignore[attr-defined]
