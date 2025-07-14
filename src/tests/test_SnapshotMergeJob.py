@@ -158,7 +158,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         """Create the merge database"""
         # Connect to postgres to create database
         postgres_engine = create_engine('postgresql://postgres:postgres@localhost:5432/postgres')
-        with postgres_engine.connect() as conn:
+        with postgres_engine.begin() as conn:
             conn.execute(text("COMMIT"))  # Close any open transaction
             try:
                 conn.execute(text("CREATE DATABASE test_merge_db"))
@@ -169,33 +169,30 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
     def insertTestData(self, data: list) -> None:
         """Insert test data into source table"""
-        with self.source_engine.connect() as conn:
+        with self.source_engine.begin() as conn:
             for row in data:
                 conn.execute(text("""
                     INSERT INTO people ("id", "firstName", "lastName", "dob", "employer", "dod")
                     VALUES (:id, :firstName, :lastName, :dob, :employer, :dod)
                 """), row)
-            conn.commit()
 
     def updateTestData(self, id_val: str, updates: dict) -> None:
         """Update test data in source table"""
-        with self.source_engine.connect() as conn:
+        with self.source_engine.begin() as conn:
             set_clause = ", ".join([f'"{k}" = :{k}' for k in updates.keys()])
             query = f'UPDATE people SET {set_clause} WHERE "id" = :id'
             params = updates.copy()
             params['id'] = id_val
             conn.execute(text(query), params)
-            conn.commit()
 
     def deleteTestData(self, id_val: str) -> None:
         """Delete test data from source table"""
-        with self.source_engine.connect() as conn:
+        with self.source_engine.begin() as conn:
             conn.execute(text('DELETE FROM people WHERE "id" = :id'), {"id": id_val})
-            conn.commit()
 
     def getMergeTableData(self) -> list:
         """Get data from merge table"""
-        with self.merge_engine.connect() as conn:
+        with self.merge_engine.begin() as conn:
             result = conn.execute(text("""
                 SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                        ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
@@ -240,7 +237,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
     def checkCurrentBatchIs(self, key: str, expected_batch: int) -> None:
         """Check the batch status for a given key"""
-        with self.merge_engine.connect() as conn:
+        with self.merge_engine.begin() as conn:
             result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'' + key + '\''))
             row = result.fetchone()
             current_batch = row[0] if row else 0
@@ -248,7 +245,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
     def checkSpecificBatchStatus(self, key: str, batch_id: int, expected_status: BatchStatus) -> None:
         """Check the batch status for a given batch id"""
-        with self.merge_engine.connect() as conn:
+        with self.merge_engine.begin() as conn:
             # Get batch status
             result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
             row = result.fetchone()
@@ -288,7 +285,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         self.insertTestData(test_data)
 
         # Debug: Verify data was inserted
-        with self.source_engine.connect() as conn:
+        with self.source_engine.begin() as conn:
             result = conn.execute(text('SELECT COUNT(*) FROM people'))
             count = result.fetchone()[0]
             print(f"DEBUG: After insert, people table has {count} rows")
@@ -385,10 +382,9 @@ class TestSnapshotMergeJob(unittest.TestCase):
         if not hasattr(self, 'merge_engine'):
             self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
 
-        with self.merge_engine.connect() as conn:
+        with self.merge_engine.begin() as conn:
             conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
             conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
-            conn.commit()
 
 
 if __name__ == "__main__":

@@ -113,6 +113,12 @@ def createEcosystem() -> Ecosystem:
         ),
         Workspace(
             "Consumer1",
+            PostgresDatabase(
+                "Consumer_DB",  # Model name for consumer database
+                HostPortPair("localhost", 5432),  # Host and port for database
+                {LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                "consumer_db"  # Database name
+            ),
             DatasetGroup(
                 "TestDSG",
                 sinks=[

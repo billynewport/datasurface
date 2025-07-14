@@ -44,7 +44,49 @@ class Test_KubPGStarter(unittest.TestCase):
             dag_content = f.read()
 
         # Should contain individual DAGs for each ingestion stream
-        # Since Store1 has multi-dataset ingestion, there should be one DAG for the store
-#        self.assertIn("test_dp_Store1_ingestion", dag_content)
-#        self.assertIn("snapshot_merge_job", dag_content)
-#        self.assertIn("trigger_self", dag_content)
+        # Since Store1 has multi-dataset ingestion, there should be one DAG for the platform
+        self.assertIn("test-dp_ingestion", dag_content)
+        self.assertIn("Store1_job", dag_content)
+        self.assertIn("Store1_branch", dag_content)
+        self.assertIn("Store1_reschedule", dag_content)
+        self.assertIn("Store1_wait", dag_content)
+        self.assertIn("Store1_fail", dag_content)
+        
+        # Check for SQL snapshot ingestion specific elements
+        self.assertIn("--operation', 'snapshot-merge'", dag_content)
+        self.assertIn("--store-name', 'Store1'", dag_content)
+        
+        # Check for source database credentials (SQL snapshot ingestion)
+        self.assertIn("postgres_USER", dag_content)  # Source database credential
+        self.assertIn("postgres_PASSWORD", dag_content)  # Source database credential
+        
+        # Check for merge store credentials (should use the same postgres_USER/PASSWORD for now)
+        # Already checked above
+        
+        # Check for git and slack credentials
+        self.assertIn("git_TOKEN", dag_content)
+        self.assertIn("slack_TOKEN", dag_content)
+        
+        # Check for proper task dependencies
+        self.assertIn("start_task >> [", dag_content)
+        self.assertIn("Store1_job >> Store1_branch", dag_content)
+        self.assertIn("Store1_branch >> [Store1_reschedule, Store1_wait, Store1_fail]", dag_content)
+        
+        # Check for proper DAG configuration
+        self.assertIn("schedule='@hourly'", dag_content)
+        self.assertIn("catchup=False", dag_content)
+        self.assertIn("tags=['datasurface', 'ingestion', 'test-dp']", dag_content)
+        
+        # Check for Kubernetes pod operator configuration
+        self.assertIn("KubernetesPodOperator", dag_content)
+        self.assertIn("datasurface/datasurface:latest", dag_content)
+        self.assertIn("python', '-m', 'datasurface.platforms.kubpgstarter.jobs", dag_content)
+        
+        # Check for return code handling logic
+        self.assertIn("determine_next_action", dag_content)
+        self.assertIn("BranchPythonOperator", dag_content)
+        self.assertIn("TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS", dag_content)
+        
+        # Verify no Kafka-specific elements (since this is SQL snapshot ingestion)
+        self.assertNotIn("kafka_connect_credential_secret_name", dag_content)
+        self.assertNotIn("kafka_topic", dag_content)

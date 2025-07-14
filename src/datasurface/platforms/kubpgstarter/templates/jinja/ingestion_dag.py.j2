@@ -41,7 +41,7 @@ start_task = EmptyOperator(
 
 # Environment variables for all tasks
 common_env_vars = {
-    # Postgres credentials
+    # Postgres credentials (for merge store)
     '{{ postgres_credential_secret_name }}_USER': {
         'secret_name': '{{ postgres_credential_secret_name }}',
         'secret_key': 'username'
@@ -49,11 +49,6 @@ common_env_vars = {
     '{{ postgres_credential_secret_name }}_PASSWORD': {
         'secret_name': '{{ postgres_credential_secret_name }}',
         'secret_key': 'password'
-    },
-    # Kafka Connect credentials
-    '{{ kafka_connect_credential_secret_name }}_TOKEN': {
-        'secret_name': '{{ kafka_connect_credential_secret_name }}',
-        'secret_key': 'token'
     },
     # Git credentials
     '{{ git_credential_secret_name }}_TOKEN': {
@@ -70,6 +65,31 @@ common_env_vars = {
     'DATASURFACE_NAMESPACE': '{{ namespace_name }}',
     'DATASURFACE_SLACK_CHANNEL': '{{ slack_channel_name }}'
 }
+
+# Add source database credentials for SQL snapshot ingestion
+# These will be dynamically set based on the store's credential and data container
+{% if source_credential_secret_name %}
+common_env_vars.update({
+    '{{ source_credential_secret_name }}_USER': {
+        'secret_name': '{{ source_credential_secret_name }}',
+        'secret_key': 'username'
+    },
+    '{{ source_credential_secret_name }}_PASSWORD': {
+        'secret_name': '{{ source_credential_secret_name }}',
+        'secret_key': 'password'
+    }
+})
+{% endif %}
+
+# Add Kafka Connect credentials for Kafka ingestion
+{% if kafka_connect_credential_secret_name %}
+common_env_vars.update({
+    '{{ kafka_connect_credential_secret_name }}_TOKEN': {
+        'secret_name': '{{ kafka_connect_credential_secret_name }}',
+        'secret_key': 'token'
+    }
+})
+{% endif %}
 
 # Ingestion Task - Runs the SnapshotMergeJob
 ingestion_task = KubernetesPodOperator(

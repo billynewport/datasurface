@@ -124,12 +124,14 @@ class KPSGraphHandler(DataPlatformGraphHandler):
         return template
 
     def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> str:
-        """This creates a terraform file for all the ingested nodes in the graph using jinja templates which are found
+        """This creates a terraform file for all the Kafka ingested nodes in the graph using jinja templates which are found
         in the templates directory. It creates a sink connector to copy from the topics to a postgres
         staging file and a cluster link resource if required to recreate the topics on this cluster.
         Any errors during generation will just be added as ValidationProblems to the tree using the appropriate
         subtree so the user can see which object caused the errors. The caller method will check if the tree
-        has errors and stop the generation process."""
+        has errors and stop the generation process.
+        
+        Note: SQL snapshot ingestion doesn't require Kafka infrastructure, so this method only handles Kafka ingestion."""
         template: Template = self.createJinjaTemplate('kafka_topic_to_staging.jinja2')
 
         # Ensure the platform is the correct type early on
@@ -175,13 +177,21 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         }
                         ingest_nodes.append(node_data)
 
+                elif isinstance(store.cmd, SQLSnapshotIngestion):
+                    # SQL snapshot ingestion doesn't need Kafka infrastructure
+                    # The SnapshotMergeJob will handle the ingestion directly from source database
+                    continue
                 else:
-                    tree.addRaw(ObjectMissing(store, "cmd is none or is not KafkaIngestion", ProblemSeverity.ERROR))
+                    tree.addRaw(ObjectMissing(store, "cmd is none or is not supported ingestion type", ProblemSeverity.ERROR))
                     continue
 
             except ObjectDoesntExistException:
                 tree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
                 return ""
+
+        # If no Kafka ingestion nodes, return empty terraform
+        if not ingest_nodes:
+            return "# No Kafka ingestion nodes found - SQL snapshot ingestion doesn't require Kafka infrastructure"
 
         # Prepare the global context for the template
         try:
@@ -227,12 +237,28 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             if store.cmd.singleOrMultiDatasetIngestion is None:
                 cmdTree.addRaw(ObjectMissing(store, IngestionConsistencyType, ProblemSeverity.ERROR))
             elif store.cmd.singleOrMultiDatasetIngestion != IngestionConsistencyType.SINGLE_DATASET:
-                cmdTree.addRaw(DatasetConsistencyNotSupported(store, store.cmd.singleOrMultiDatasetIngestion, self.graph.platform, ProblemSeverity.ERROR))
+                storeTree.addRaw(DatasetConsistencyNotSupported(store, store.cmd.singleOrMultiDatasetIngestion, self.graph.platform, ProblemSeverity.ERROR))
+
+    def lintSQLSnapshotIngestion(self, store: Datastore, storeTree: ValidationTree):
+        """SQL snapshot ingestions can be single or multi dataset. Each dataset is ingested from a source table."""
+        if not isinstance(store.cmd, SQLSnapshotIngestion):
+            storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+        else:
+            cmdTree: ValidationTree = storeTree.addSubTree(store.cmd)
+            if store.cmd.singleOrMultiDatasetIngestion is None:
+                cmdTree.addRaw(ObjectMissing(store, IngestionConsistencyType, ProblemSeverity.ERROR))
+            # Both single and multi dataset are supported for SQL snapshot ingestion
+            if store.cmd.credential is None:
+                cmdTree.addRaw(ObjectMissing(store.cmd, "credential", ProblemSeverity.ERROR))
+            if store.cmd.dataContainer is None:
+                cmdTree.addRaw(ObjectMissing(store.cmd, "dataContainer", ProblemSeverity.ERROR))
+            elif not isinstance(store.cmd.dataContainer, PostgresDatabase):
+                cmdTree.addRaw(ObjectNotSupportedByDataPlatform(store.cmd.dataContainer, [PostgresDatabase], ProblemSeverity.ERROR))
 
     def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree) -> None:
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
         no issues then the graph is executed. Executed here means
-        1. Terraform file which creates kafka connect connectors to ingest topics to postgres tables.
+        1. Terraform file which creates kafka connect connectors to ingest topics to postgres tables (for Kafka ingestion).
         2. Airflow DAG which has all the needed MERGE jobs. The Jobs in Airflow should be parameterized and the parameters
         would have enough information such as DataStore name, Datasets names. The Ecosystem git clone should be on the local file
         system and the path provided to the DAG. It can then get everything it needs from that.
@@ -247,17 +273,19 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             tree.addRaw(ObjectWrongType(self.graph.platform, KubernetesPGStarterDataPlatform, ProblemSeverity.ERROR))
             return
 
-        # Lets make sure only kafa ingestions are used.
+        # Validate ingestion types for all stores
         for storeName in self.graph.storesToIngest:
             store: Datastore = eco.cache_getDatastoreOrThrow(storeName).datastore
             storeTree: ValidationTree = tree.addSubTree(store)
             if store.cmd is None:
-                storeTree.addRaw(ObjectMissing(store, KafkaIngestion, ProblemSeverity.ERROR))
+                storeTree.addRaw(ObjectMissing(store, "cmd", ProblemSeverity.ERROR))
                 return
-            elif not isinstance(store.cmd, KafkaIngestion):
-                storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion], ProblemSeverity.ERROR))
-            else:
+            elif isinstance(store.cmd, KafkaIngestion):
                 self.lintKafkaIngestion(store, storeTree)
+            elif isinstance(store.cmd, SQLSnapshotIngestion):
+                self.lintSQLSnapshotIngestion(store, storeTree)
+            else:
+                storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
 
         # Check CodeArtifacts on DataTransformer nodes are compatible with the PSP on the Ecosystem
         if eco.platformServicesProvider is not None:
@@ -268,8 +296,9 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         dt.code.lint(eco, tree)
 
     def createAirflowDAG(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
-        """This creates individual AirFlow DAGs for each ingestion stream. Each DAG runs the SnapshotMergeJob
-        until the batch is committed or failed, then waits for the next external trigger."""
+        """This creates a single AirFlow DAG for the platform with one task per ingestion stream.
+        Each task runs the SnapshotMergeJob and handles the return code to decide whether to
+        reschedule immediately, wait for next trigger, or fail."""
 
         # Create Jinja2 environment
         env: Environment = Environment(
@@ -277,11 +306,11 @@ class KPSGraphHandler(DataPlatformGraphHandler):
             autoescape=select_autoescape(['html', 'xml'])
         )
 
-        # Load the ingestion stream DAG template
-        dag_template: Template = env.get_template('ingestion_dag.py.j2')
+        # Load the platform DAG template
+        dag_template: Template = env.get_template('platform_dag.py.j2')
 
         # Build the ingestion_streams context from the graph
-        ingestion_streams: dict[str, dict[str, Any]] = {}
+        ingestion_streams: list[dict[str, Any]] = []
 
         for storeName in self.graph.storesToIngest:
             try:
@@ -296,19 +325,23 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                         # For single dataset, create a separate entry for each dataset
                         for dataset in store.datasets.values():
                             stream_key = f"{storeName}_{dataset.name}"
-                            ingestion_streams[stream_key] = {
+                            ingestion_streams.append({
+                                "stream_key": stream_key,
                                 "single_dataset": True,
                                 "datasets": [dataset.name],
                                 "store_name": storeName,
-                                "dataset_name": dataset.name
-                            }
+                                "dataset_name": dataset.name,
+                                "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
+                            })
                     else:
                         # For multi dataset, create one entry for the entire store
-                        ingestion_streams[storeName] = {
+                        ingestion_streams.append({
+                            "stream_key": storeName,
                             "single_dataset": False,
                             "datasets": [dataset.name for dataset in store.datasets.values()],
-                            "store_name": storeName
-                        }
+                            "store_name": storeName,
+                            "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
+                        })
                 else:
                     issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
                     continue
@@ -317,41 +350,44 @@ class KPSGraphHandler(DataPlatformGraphHandler):
                 issueTree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
                 continue
 
-        # Generate individual DAGs for each ingestion stream
-        all_dags: list[str] = []
+        # Generate the platform DAG with all ingestion streams
+        try:
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
-        for stream_key, stream_data in ingestion_streams.items():
-            try:
-                gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+            context: dict[str, Any] = {
+                "namespace_name": self.dp.namespace,
+                "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "postgres_hostname": self.dp.to_k8s_name(self.dp.postgresName),
+                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
+                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
+                "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
+                "slack_channel_name": self.dp.slackChannel,
+                "datasurface_docker_image": self.dp.datasurfaceImage,
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "ingestion_streams": ingestion_streams
+            }
 
-                context: dict[str, Any] = {
-                    "namespace_name": self.dp.namespace,
-                    "platform_name": self.dp.to_k8s_name(self.dp.name),
-                    "postgres_hostname": self.dp.to_k8s_name(self.dp.postgresName),
-                    "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
-                    "kafka_connect_credential_secret_name": self.dp.to_k8s_name(self.dp.connectCredentials.name),
-                    "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
-                    "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
-                    "slack_channel_name": self.dp.slackChannel,
-                    "datasurface_docker_image": self.dp.datasurfaceImage,
-                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                    "git_repo_branch": gitRepo.branchName,
-                    "git_repo_name": gitRepo.repositoryName,
-                    "stream_key": stream_key,
-                    "store_name": stream_data["store_name"],
-                    "dataset_name": stream_data.get("dataset_name")  # None for multi-dataset
-                }
+            # Add credential information for each stream
+            for stream in ingestion_streams:
+                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(stream["store_name"])
+                store: Datastore = storeEntry.datastore
 
-                # Render the individual DAG
-                dag_content: str = dag_template.render(context)
-                all_dags.append(dag_content)
+                if stream["ingestion_type"] == "kafka":
+                    stream["kafka_connect_credential_secret_name"] = self.dp.to_k8s_name(self.dp.connectCredentials.name)
+                elif stream["ingestion_type"] == "sql_snapshot":
+                    # For SQL snapshot ingestion, we need the source database credentials
+                    if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
+                        stream["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
 
-            except Exception as e:
-                issueTree.addRaw(UnexpectedExceptionProblem(e))
-                continue
+            # Render the platform DAG
+            dag_content: str = dag_template.render(context)
+            return dag_content
 
-        # Return all DAGs concatenated with separators
-        return "\n\n# " + "="*80 + "\n\n".join(all_dags)
+        except Exception as e:
+            issueTree.addRaw(UnexpectedExceptionProblem(e))
+            return ""
 
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
