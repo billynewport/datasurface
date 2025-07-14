@@ -251,7 +251,7 @@ class SnapshotMergeJob:
             """
             result = connection.execute(text(check_sql))
             constraint_exists = result.fetchone()[0] > 0
-            
+
             if not constraint_exists:
                 # Create the unique constraint
                 constraint_name = f"{tableName}_{columnName}_unique"
@@ -584,7 +584,22 @@ class SnapshotMergeJob:
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
 
-    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000, use_merge: bool = False) -> tuple[int, int, int]:
+        """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
+
+        Args:
+            mergeEngine: Database engine for merge operations
+            batchId: Current batch ID
+            key: Batch key identifier
+            batch_size: Number of records to process per batch (default: 10000)
+            use_merge: If True, use PostgreSQL MERGE with DELETE support (requires PostgreSQL 15+)
+        """
+        if use_merge:
+            return self._mergeStagingToMergeWithMerge(mergeEngine, batchId, key, batch_size)
+        else:
+            return self._mergeStagingToMergeWithUpsert(mergeEngine, batchId, key, batch_size)
+
+    def _mergeStagingToMergeWithUpsert(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using INSERT...ON CONFLICT with batched processing for better performance on large datasets.
         This processes merge operations in smaller batches to avoid memory issues while maintaining transactional consistency.
         The entire operation is done in a single transaction to ensure consumers see consistent data."""
@@ -623,7 +638,7 @@ class SnapshotMergeJob:
                 for offset in range(0, total_records, batch_size):
                     batch_upsert_sql = f"""
                     WITH batch_data AS (
-                        SELECT * FROM {stagingTableName} 
+                        SELECT * FROM {stagingTableName}
                         WHERE ds_surf_batch_id = {batchId}
                         ORDER BY ds_surf_key_hash
                         LIMIT {batch_size} OFFSET {offset}
@@ -631,7 +646,7 @@ class SnapshotMergeJob:
                     INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
                     SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.ds_surf_all_hash, b.ds_surf_key_hash
                     FROM batch_data b
-                    ON CONFLICT (ds_surf_key_hash) 
+                    ON CONFLICT (ds_surf_key_hash)
                     DO UPDATE SET
                         {', '.join([f'"{col}" = EXCLUDED."{col}"' for col in allColumns])},
                         ds_surf_batch_id = EXCLUDED.ds_surf_batch_id,
@@ -639,10 +654,10 @@ class SnapshotMergeJob:
                         ds_surf_key_hash = EXCLUDED.ds_surf_key_hash
                     WHERE {mergeTableName}.ds_surf_all_hash != EXCLUDED.ds_surf_all_hash
                     """
-                    
+
                     print(f"DEBUG: Executing batch upsert for offset {offset}")
                     connection.execute(text(batch_upsert_sql))
-                
+
                 # Handle deletions once after all inserts/updates for this dataset
                 delete_sql = f"""
                 DELETE FROM {mergeTableName} m
@@ -659,7 +674,7 @@ class SnapshotMergeJob:
 
                 # Get final metrics for this dataset more efficiently
                 metrics_sql = f"""
-                SELECT 
+                SELECT
                     COUNT(*) FILTER (WHERE ds_surf_batch_id = {batchId}) as inserted_count,
                     COUNT(*) FILTER (WHERE ds_surf_batch_id != {batchId} AND ds_surf_key_hash IN (
                         SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
@@ -669,14 +684,148 @@ class SnapshotMergeJob:
                     SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
                 )
                 """
-                
+
                 metrics_result = connection.execute(text(metrics_sql))
                 metrics_row = metrics_result.fetchone()
                 dataset_inserted = metrics_row[0] if metrics_row[0] else 0
                 dataset_updated = metrics_row[1] if metrics_row[1] else 0
-                
+
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
+
+                print(f"DEBUG: Dataset {datasetToMergeName} - Inserted: {dataset_inserted}, Updated: {dataset_updated}, Deleted: {dataset_deleted}")
+
+            # Now update the batch status to merged within the existing transaction
+            self.markBatchMerged(
+                connection, key, batchId, BatchStatus.COMMITTED,
+                total_inserted, total_updated, total_deleted, totalRecords)
+
+        print(f"DEBUG: Total merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
+        return total_inserted, total_updated, total_deleted
+
+    def _mergeStagingToMergeWithMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+        """Merge staging data into merge table using PostgreSQL MERGE with DELETE support (PostgreSQL 15+).
+        This approach handles INSERT, UPDATE, and DELETE operations in a single MERGE statement."""
+        # Initialize metrics variables
+        total_inserted: int = 0
+        total_updated: int = 0
+        total_deleted: int = 0
+        totalRecords: int = 0
+
+        with mergeEngine.begin() as connection:
+            state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
+
+            # Check for schema changes before merging
+            self.checkForSchemaChanges(state)
+
+            for datasetToMergeName in state.all_datasets:
+                # Get the dataset
+                dataset: Dataset = self.store.datasets[datasetToMergeName]
+                # Map the dataset name if necessary
+                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
+                mergeTableName: str = self.getMergeTableNameForDataset(dataset)
+                schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+
+                # Get all column names
+                allColumns: List[str] = [col.name for col in schema.columns.values()]
+                quoted_all_columns = [f'"{col}"' for col in allColumns]
+
+                # Get total count for processing
+                count_result = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
+                total_records = count_result.fetchone()[0]
+                totalRecords += total_records
+
+                print(f"DEBUG: Processing {total_records} records for dataset {datasetToMergeName} using MERGE with DELETE")
+
+                # Create a staging view that includes records to be deleted
+                # We need to identify records that exist in merge but not in staging (deletions)
+                staging_with_deletes_sql = f"""
+                WITH staging_records AS (
+                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                ),
+                merge_records AS (
+                    SELECT ds_surf_key_hash FROM {mergeTableName}
+                ),
+                records_to_delete AS (
+                    SELECT m.ds_surf_key_hash
+                    FROM merge_records m
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM staging_records s WHERE s.ds_surf_key_hash = m.ds_surf_key_hash
+                    )
+                )
+                SELECT
+                    s.*,
+                    'INSERT' as operation
+                FROM {stagingTableName} s
+                WHERE s.ds_surf_batch_id = {batchId}
+                UNION ALL
+                SELECT
+                    m.*,
+                    'DELETE' as operation
+                FROM {mergeTableName} m
+                INNER JOIN records_to_delete d ON m.ds_surf_key_hash = d.ds_surf_key_hash
+                """
+
+                # Create temporary staging table with operation column
+                temp_staging_table = f"temp_staging_{batchId}_{datasetToMergeName.replace('-', '_')}"
+                create_temp_sql = f"""
+                CREATE TEMP TABLE {temp_staging_table} AS {staging_with_deletes_sql}
+                """
+                connection.execute(text(create_temp_sql))
+
+                # Now use MERGE with DELETE support
+                merge_sql = f"""
+                MERGE INTO {mergeTableName} m
+                USING {temp_staging_table} s
+                ON m.ds_surf_key_hash = s.ds_surf_key_hash
+                WHEN MATCHED AND s.operation = 'DELETE' THEN DELETE
+                WHEN MATCHED AND s.operation = 'INSERT' AND m.ds_surf_all_hash != s.ds_surf_all_hash THEN
+                    UPDATE SET
+                        {', '.join([f'"{col}" = s."{col}"' for col in allColumns])},
+                        ds_surf_batch_id = {batchId},
+                        ds_surf_all_hash = s.ds_surf_all_hash,
+                        ds_surf_key_hash = s.ds_surf_key_hash
+                WHEN NOT MATCHED AND s.operation = 'INSERT' THEN
+                    INSERT ({', '.join(quoted_all_columns)}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
+                    VALUES ({', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.ds_surf_all_hash, s.ds_surf_key_hash)
+                """
+
+                print(f"DEBUG: Executing MERGE with DELETE for dataset {datasetToMergeName}")
+                connection.execute(text(merge_sql))
+
+                # Get metrics from the MERGE operation
+                # Note: PostgreSQL doesn't return row counts from MERGE, so we need to calculate them
+                metrics_sql = f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE ds_surf_batch_id = {batchId}) as inserted_count,
+                    COUNT(*) FILTER (WHERE ds_surf_batch_id != {batchId} AND ds_surf_key_hash IN (
+                        SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                    )) as updated_count
+                FROM {mergeTableName}
+                WHERE ds_surf_key_hash IN (
+                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                )
+                """
+
+                metrics_result = connection.execute(text(metrics_sql))
+                metrics_row = metrics_result.fetchone()
+                dataset_inserted = metrics_row[0] if metrics_row[0] else 0
+                dataset_updated = metrics_row[1] if metrics_row[1] else 0
+
+                # For deletions, count records that were in merge but not in staging
+                deleted_count_sql = f"""
+                SELECT COUNT(*) FROM {mergeTableName} m
+                WHERE m.ds_surf_key_hash NOT IN (
+                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                )
+                AND m.ds_surf_batch_id != {batchId}
+                """
+                deleted_result = connection.execute(text(deleted_count_sql))
+                dataset_deleted = deleted_result.fetchone()[0]
+
+                total_inserted += dataset_inserted
+                total_updated += dataset_updated
+                total_deleted += dataset_deleted
 
                 print(f"DEBUG: Dataset {datasetToMergeName} - Inserted: {dataset_inserted}, Updated: {dataset_updated}, Deleted: {dataset_deleted}")
 
