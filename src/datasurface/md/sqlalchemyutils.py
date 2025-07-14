@@ -72,7 +72,7 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
     return c
 
 
-def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str) -> Table:
+def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str, metadata: MetaData) -> Table:
     """Converts a DDLTable to a SQLAlchemy Table"""
     if (isinstance(dataset.originalSchema, DDLTable)):
         table: DDLTable = dataset.originalSchema
@@ -81,10 +81,10 @@ def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str) -> Table:
             columns.append(ddlColumnToSQLAlchemyType(col))
         if (table.primaryKeyColumns is not None):
             pk: PrimaryKeyConstraint = PrimaryKeyConstraint(*table.primaryKeyColumns.colNames)
-            sqTable: Table = Table(tableName, sqlalchemy.MetaData(), *columns, pk)
+            sqTable: Table = Table(tableName, metadata, *columns, pk)
             return sqTable
         else:
-            sqTable: Table = Table(tableName, sqlalchemy.MetaData(), *columns)
+            sqTable: Table = Table(tableName, metadata, *columns)
             return sqTable
     else:
         raise Exception("Unknown schema type")

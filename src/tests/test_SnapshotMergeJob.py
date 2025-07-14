@@ -5,11 +5,12 @@
 
 import unittest
 from typing import Optional
-from sqlalchemy import create_engine, text, Table, MetaData, Column, String, Date
+from sqlalchemy import create_engine, text, MetaData
 from sqlalchemy.engine import Engine
+from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.platforms.kubpgstarter.jobs import SnapshotMergeJob, JobStatus, BatchState, BatchStatus
 from datasurface.md import Ecosystem
-from datasurface.md import Datastore, DataContainer
+from datasurface.md import Datastore, DataContainer, Dataset
 from datasurface.md.governance import DatastoreCacheEntry
 from datasurface.md import DataPlatform
 from datasurface.platforms.kubpgstarter.kubpgstarter import KubernetesPGStarterDataPlatform
@@ -140,16 +141,12 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
     def createSourceTable(self) -> None:
         """Create the source table with test data"""
+        # Get the dataset for store 1/people
         metadata = MetaData()
-        Table(
-            'people', metadata,
-            Column('id', String(20), primary_key=True),
-            Column('firstName', String(100), nullable=False),
-            Column('lastName', String(100), nullable=False),
-            Column('dob', Date(), nullable=False),
-            Column('employer', String(100), nullable=True),
-            Column('dod', Date(), nullable=True)
-        )
+        people_dataset: Dataset = self.store.datasets["people"]
+
+        # Create the table and store it in the metadata
+        datasetToSQLAlchemyTable(people_dataset, "people", metadata)
 
         # Create table
         metadata.create_all(self.source_engine)
