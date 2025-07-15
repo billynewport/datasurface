@@ -71,7 +71,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
         # Stop the engine patcher if it was started
         if hasattr(self, '_engine_patcher'):
             self._engine_patcher.stop()
-            
+
         # Clean up batch tables
         self.cleanupBatchTables()
 

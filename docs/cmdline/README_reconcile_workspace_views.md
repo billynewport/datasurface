@@ -48,7 +48,8 @@ When using the default environment variable credential store, set these variable
 ## View Naming Convention
 
 Views are named using the pattern:
-```
+
+```text
 {dataplatform}_{workspace}_{dsg}_{dataset}_view
 ```
 
@@ -57,7 +58,8 @@ Example: `yellowdp_analytics_workspace_customer_data_customers_view`
 ## Merge Table Naming Convention
 
 Merge tables are expected to be named:
-```
+
+```text
 {store}_{dataset}_merge
 ```
 
@@ -66,11 +68,13 @@ Example: `customers_customer_data_merge`
 ## View Content
 
 Views include only the original dataset columns, excluding merge table columns like:
+
 - `ds_surf_batch_id`
 - `ds_surf_all_hash`
 - `ds_surf_key_hash`
 
 Example view SQL:
+
 ```sql
 CREATE OR REPLACE VIEW yellowdp_analytics_workspace_customer_data_customers_view AS
 SELECT id, name, email, created_date
@@ -112,7 +116,7 @@ This utility is designed to be integrated into:
 
 ## Example Output
 
-```
+```text
 Loading ecosystem model from module: my_ecosystem
 Validating ecosystem...
 Reconciling workspace view schemas for platform: yellow-dp
@@ -169,4 +173,4 @@ For debugging, you can add print statements to the utility or run with verbose l
 - `test_reconcile_workspace_views.py`: Test suite
 - `examples/reconcile_workspace_views_example.py`: Usage example
 - `yellow_dp.py`: YellowDataPlatform implementation
-- `sqlalchemyutils.py`: Database utility functions 
+- `sqlalchemyutils.py`: Database utility functions
