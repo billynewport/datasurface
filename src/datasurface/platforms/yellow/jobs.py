@@ -26,6 +26,7 @@ from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md import DataPlatform
 import json
 import hashlib
+from abc import ABC, abstractmethod
 
 
 """
@@ -120,8 +121,9 @@ class BatchState:
         return json.dumps(json_dict)
 
 
-class Job:
-    """This is the base class for all jobs"""
+class Job(ABC):
+    """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
+    step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         self.eco: Ecosystem = eco
         self.credStore: CredentialStore = credStore
@@ -475,22 +477,57 @@ class Job:
         update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
         connection.execute(text(update_sql))
 
+    @abstractmethod
+    def ingestNextBatchToStaging(self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int) -> tuple[int, int, int]:
+        """This will ingest the next batch to staging"""
+        pass
 
-class SnapshotMergeJob(Job):
-    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
-    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
-    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
-    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
-    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
-    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
-    the transaction reading the source table is different than the one writing to the staging table, they are different connections to different
-    databases.
-    The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
+    @abstractmethod
+    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+        """This will merge the staging table to the merge table"""
+        pass
 
-    def __init__(
-            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
-            store: Datastore, datasetName: Optional[str] = None) -> None:
-        super().__init__(eco, credStore, dp, store, datasetName)
+    def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        with mergeEngine.begin() as connection:
+            batchId: int = self.getCurrentBatchId(connection, key)
+            currentStatus = self.checkBatchStatus(connection, key, batchId)
+
+        if currentStatus is None:
+            # No batch exists, start a new one
+            batchId = self.startBatch(mergeEngine)
+            print(f"Started new batch {batchId} for {key}")
+            # Batch is started, continue with ingestion
+            with mergeEngine.begin() as connection:
+                batchId = self.getCurrentBatchId(connection, key)
+            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
+            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+            return JobStatus.KEEP_WORKING
+
+        elif currentStatus == BatchStatus.STARTED.value:
+            # Batch is started, continue with ingestion
+            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
+            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+            return JobStatus.KEEP_WORKING
+
+        elif currentStatus == BatchStatus.INGESTED.value:
+            # Batch is ingested, continue with merge
+            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
+            self.mergeStagingToMerge(mergeEngine, batchId, key)
+            # Batch is committed, job is done for this run
+            return JobStatus.DONE
+
+        elif currentStatus == BatchStatus.COMMITTED.value:
+            # Batch is already committed, job is done for this run
+            print(f"Batch for {key} is already committed, start new batch")
+            self.startBatch(mergeEngine)
+            print(f"Started new batch {batchId} for {key}")
+            return JobStatus.KEEP_WORKING
+
+        elif currentStatus == BatchStatus.FAILED.value:
+            # Batch failed, we're done
+            print(f"Batch for {key} failed")
+            return JobStatus.DONE
+        return JobStatus.ERROR
 
     def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
         """This will make sure the staging table exists and has the current schema for each dataset"""
@@ -509,6 +546,57 @@ class SnapshotMergeJob(Job):
             createOrUpdateTable(mergeEngine, mergeTable)
             # Ensure the unique constraint exists for ds_surf_key_hash
             self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
+
+    def run(self) -> JobStatus:
+        # First, get a connection to the source database
+        cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, self.store.cmd)
+        assert cmd.credential is not None
+
+        # Now, get a connection to the merge database
+        mergeUser, mergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
+        mergeEngine: Engine = self.createEngine(self.dp.mergeStore, mergeUser, mergePassword)
+
+        # Now, get an Engine for the source database
+        sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
+        assert self.store.cmd.dataContainer is not None
+        sourceEngine: Engine = self.createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
+
+        # Make sure the staging and merge tables exist and have the current schema for each dataset
+        self.reconcileStagingTableSchemas(mergeEngine, self.store, cmd)
+        self.reconcileMergeTableSchemas(mergeEngine, self.store, cmd)
+
+        # Create batch counter and metrics tables if they don't exist
+        self.createBatchCounterTable(mergeEngine)
+        self.createBatchMetricsTable(mergeEngine)
+
+        # Check current batch status to determine what to do
+        if cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
+            # For single dataset ingestion, process each dataset separately
+            for dataset in self.store.datasets.values():
+                key = f"{self.store.name}#{dataset.name}"
+                currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
+        else:
+            # For multi-dataset ingestion, process all datasets in a single batch
+            key = self.store.name
+            currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
+        return currentStatus
+
+
+class SnapshotMergeJob(Job):
+    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
+    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
+    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
+    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
+    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
+    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
+    the transaction reading the source table is different than the one writing to the staging table, they are different connections to different
+    databases.
+    The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
+
+    def __init__(
+            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
+            store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp, store, datasetName)
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
@@ -663,7 +751,7 @@ class SnapshotMergeJob(Job):
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
 
-    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000, use_merge: bool = False) -> tuple[int, int, int]:
+    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
 
         Args:
@@ -673,6 +761,7 @@ class SnapshotMergeJob(Job):
             batch_size: Number of records to process per batch (default: 10000)
             use_merge: If True, use PostgreSQL MERGE with DELETE support (requires PostgreSQL 15+)
         """
+        use_merge: bool = True
         if use_merge:
             return self._mergeStagingToMergeWithMerge(mergeEngine, batchId, key, batch_size)
         else:
@@ -919,82 +1008,6 @@ class SnapshotMergeJob(Job):
 
         print(f"DEBUG: Total merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
         return total_inserted, total_updated, total_deleted
-
-    def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
-        with mergeEngine.begin() as connection:
-            batchId: int = self.getCurrentBatchId(connection, key)
-            currentStatus = self.checkBatchStatus(connection, key, batchId)
-
-        if currentStatus is None:
-            # No batch exists, start a new one
-            batchId = self.startBatch(mergeEngine)
-            print(f"Started new batch {batchId} for {key}")
-            # Batch is started, continue with ingestion
-            with mergeEngine.begin() as connection:
-                batchId = self.getCurrentBatchId(connection, key)
-            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
-            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
-            return JobStatus.KEEP_WORKING
-
-        elif currentStatus == BatchStatus.STARTED.value:
-            # Batch is started, continue with ingestion
-            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
-            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
-            return JobStatus.KEEP_WORKING
-
-        elif currentStatus == BatchStatus.INGESTED.value:
-            # Batch is ingested, continue with merge
-            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
-            self.mergeStagingToMerge(mergeEngine, batchId, key)
-            # Batch is committed, job is done for this run
-            return JobStatus.DONE
-
-        elif currentStatus == BatchStatus.COMMITTED.value:
-            # Batch is already committed, job is done for this run
-            print(f"Batch for {key} is already committed, start new batch")
-            self.startBatch(mergeEngine)
-            print(f"Started new batch {batchId} for {key}")
-            return JobStatus.KEEP_WORKING
-
-        elif currentStatus == BatchStatus.FAILED.value:
-            # Batch failed, we're done
-            print(f"Batch for {key} failed")
-            return JobStatus.DONE
-        return JobStatus.ERROR
-
-    def run(self) -> JobStatus:
-        # First, get a connection to the source database
-        cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, self.store.cmd)
-        assert cmd.credential is not None
-
-        # Now, get a connection to the merge database
-        mergeUser, mergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
-        mergeEngine: Engine = self.createEngine(self.dp.mergeStore, mergeUser, mergePassword)
-
-        # Now, get an Engine for the source database
-        sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
-        assert self.store.cmd.dataContainer is not None
-        sourceEngine: Engine = self.createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
-
-        # Make sure the staging and merge tables exist and have the current schema for each dataset
-        self.reconcileStagingTableSchemas(mergeEngine, self.store, cmd)
-        self.reconcileMergeTableSchemas(mergeEngine, self.store, cmd)
-
-        # Create batch counter and metrics tables if they don't exist
-        self.createBatchCounterTable(mergeEngine)
-        self.createBatchMetricsTable(mergeEngine)
-
-        # Check current batch status to determine what to do
-        if cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
-            # For single dataset ingestion, process each dataset separately
-            for dataset in self.store.datasets.values():
-                key = f"{self.store.name}#{dataset.name}"
-                currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
-        else:
-            # For multi-dataset ingestion, process all datasets in a single batch
-            key = self.store.name
-            currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
-        return currentStatus
 
 
 def main():
