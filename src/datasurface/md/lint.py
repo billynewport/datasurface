@@ -207,6 +207,18 @@ class ObjectWrongType(ValidationProblem):
         return hash(self.description)
 
 
+class AttributeValueNotSupported(ValidationProblem):
+    """This indicates an value isn't supported"""
+    def __init__(self, obj: object, supportedValues: list[str], sev: ProblemSeverity) -> None:
+        super().__init__(f"Value {obj} is unsupported value, allowed values: {supportedValues}", sev)
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, AttributeValueNotSupported)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
 class ObjectNotSupportedByDataPlatform(ValidationProblem):
     """This indicates an object is not supported by a data platform"""
     def __init__(self, obj: object, supportedTypes: list[type], sev: ProblemSeverity) -> None:

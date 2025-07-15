@@ -188,30 +188,22 @@ class EncryptionSystem(JSONable):
 
 class SchemaProjector(ABC):
     """This class takes a Schema and projects it to a Schema compatible with an underlying DataContainer"""
-    def __init__(self, dataset: 'Dataset'):
-        self.dataset: Dataset = dataset
+    def __init__(self, eco: 'Ecosystem', dp: 'DataPlatform'):
+        self.eco: 'Ecosystem' = eco
+        self.dp: 'DataPlatform' = dp
 
     def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, SchemaProjector) and self.dataset == __value.dataset
+        return isinstance(__value, SchemaProjector) and self.eco == __value.eco and self.dp == __value.dp
+
+    def getSchemaTypes(self) -> set[str]:
+        """This returns the types of schemas that this projector can project. Examples could be MERGE or STAGING."""
+        return set()
 
     @abstractmethod
-    def computeSchema(self) -> Optional[Schema]:
+    def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
+        """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform.
+        The schemaType is used to determine the type of schema to project."""
         pass
-
-
-class DefaultSchemaProjector(SchemaProjector):
-    """This is a default schema projector which projects the dataset schema to the original schema of the dataset. This is used when
-    the data container doesn't have a specific schema projector. However, its likely that most data containers will require a specific
-    projector to be written"""
-    def __init__(self, dataset: 'Dataset'):
-        super().__init__(dataset)
-
-    def __eq__(self, __value: object) -> bool:
-        return super().__eq__(__value) and isinstance(__value, DefaultSchemaProjector)
-
-    def computeSchema(self) -> Optional[Schema]:
-        """This returns the original schema for this implementation"""
-        return self.dataset.originalSchema
 
 
 class CaseSensitiveEnum(Enum):
@@ -575,11 +567,6 @@ class DataContainer(Documentable, JSONable):
         return True
 
     @abstractmethod
-    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
-        """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
-        return DefaultSchemaProjector(dataset)
-
-    @abstractmethod
     def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
         return None
@@ -603,9 +590,6 @@ class SQLDatabase(DataContainer):
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
-
-    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
-        return super().projectDatasetSchema(dataset)
 
     def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         return DefaultDataContainerNamingMapper()
@@ -820,9 +804,6 @@ class ObjectStorage(DataContainer):
         rc.update({"_type": self.__class__.__name__, "endPointURI": self.endPointURI, "bucketName": self.bucketName, "prefix": self.prefix})
         return rc
 
-    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
-        return super().projectDatasetSchema(dataset)
-
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, ObjectStorage)):
             return super().__eq__(other) and self.endPointURI == other.endPointURI and self.bucketName == other.bucketName and self.prefix == other.prefix
@@ -856,9 +837,6 @@ class PyOdbcSourceInfo(SQLDatabase):
 
     def __str__(self) -> str:
         return f"PyOdbcSourceInfo({self.serverHost})"
-
-    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
-        return super().projectDatasetSchema(dataset)
 
 
 class CaptureMetaData(UserDSLObject):
@@ -1137,10 +1115,6 @@ class KafkaServer(DataContainer):
 
     def __str__(self) -> str:
         return f"KafkaServer({self.bootstrapServers})"
-
-    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional[SchemaProjector]:
-        """This takes a Dataset and returns the schema used when encoding it to a Kafka message"""
-        return None
 
     def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
         """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
@@ -2785,6 +2759,11 @@ class DataPlatform(Documentable, JSONable):
         """This generates the bootstrap artifacts from the data platform. The ecosystem is needed to get the eco reposistory among other things"""
         pass
 
+    @abstractmethod
+    def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
+        """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
+        raise NotImplementedError("createSchemaProjector not implemented")
+
 
 class UnsupportedIngestionType(ValidationProblem):
     """This indicates an ingestion type is not supported by a data platform"""
@@ -2931,12 +2910,17 @@ class DeprecationsAllowed(Enum):
 
 
 class DatasetSink(UserDSLObject):
+
+    @staticmethod
+    def calculateKey(storeName: str, datasetName: str) -> str:
+        return f"{storeName}:{datasetName}"
+
     """This is a reference to a dataset in a Workspace"""
     def __init__(self, storeName: str, datasetName: str, deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER) -> None:
         UserDSLObject.__init__(self)
         self.storeName: str = storeName
         self.datasetName: str = datasetName
-        self.key = f"{self.storeName}:{self.datasetName}"
+        self.key = DatasetSink.calculateKey(self.storeName, self.datasetName)
         self.deprecationsAllowed: DeprecationsAllowed = deprecationsAllowed
 
     def to_json(self) -> dict[str, Any]:

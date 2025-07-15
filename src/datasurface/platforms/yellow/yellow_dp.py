@@ -9,16 +9,20 @@ from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
-from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, ObjectNotSupportedByDataPlatform
+from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
+    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
-from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset
+from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataRetentionPolicy
+from datasurface.md.schema import DDLTable, DDLColumn
+from datasurface.md.types import Integer, String
 import os
 import re
 from datasurface.md.repo import GitHubRepository
 from typing import cast
+import copy
 
 
 class KubernetesEnvVarsCredentialStore(CredentialStore):
@@ -291,6 +295,20 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             else:
                 storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
 
+        # Check all Workspace requirements are supported by the platform
+        for workspace in self.graph.workspaces.values():
+            for dsg in workspace.dsgs.values():
+                dsgTree: ValidationTree = tree.addSubTree(dsg)
+                pc: Optional[DataPlatformChooser] = dsg.platformMD
+                if pc is not None:
+                    if isinstance(pc, WorkspacePlatformConfig):
+                        if pc.retention.policy != DataRetentionPolicy.LIVE_ONLY:
+                            dsgTree.addRaw(AttributeValueNotSupported(pc, [DataRetentionPolicy.LIVE_ONLY.name], ProblemSeverity.ERROR))
+                    else:
+                        dsgTree.addRaw(ObjectWrongType(pc, WorkspacePlatformConfig, ProblemSeverity.ERROR))
+                else:
+                    dsgTree.addRaw(AttributeNotSet("platformMD"))
+
         # Check CodeArtifacts on DataTransformer nodes are compatible with the PSP on the Ecosystem
         if eco.platformServicesProvider is not None:
             for node in self.graph.nodes.values():
@@ -451,10 +469,6 @@ class KafkaConnectCluster(DataContainer):
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
         self.kafkaServer.lint(eco, tree.addSubTree(self.kafkaServer))
-
-    def projectDatasetSchema(self, dataset: 'Dataset') -> Optional['SchemaProjector']:
-        """Returns None as this is handled by the underlying Kafka server."""
-        return None
 
     def getNamingAdapter(self) -> Optional['DataContainerNamingMapper']:
         """Returns None as naming is handled by the platform."""
@@ -651,3 +665,42 @@ class YellowDataPlatform(DataPlatform):
             "kubernetes-bootstrap.yaml": rendered_yaml,
             f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_dag
         }
+
+    def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
+        return YellowSchemaProjector(eco, self)
+
+
+class YellowSchemaProjector(SchemaProjector):
+    """This is a schema projector for the YellowDataPlatform. It projects the dataset schema to the original schema of the dataset."""
+
+    BATCH_ID_COLUMN_NAME: str = "ds_surf_batch_id"
+    ALL_HASH_COLUMN_NAME: str = "ds_surf_all_hash"
+    KEY_HASH_COLUMN_NAME: str = "ds_surf_key_hash"
+
+    SCHEMA_TYPE_MERGE: str = "MERGE"
+    SCHEMA_TYPE_STAGING: str = "STAGING"
+
+    def __init__(self, eco: Ecosystem, dp: 'YellowDataPlatform'):
+        super().__init__(eco, dp)
+
+    def getSchemaTypes(self) -> set[str]:
+        return {self.SCHEMA_TYPE_MERGE, self.SCHEMA_TYPE_STAGING}
+
+    def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
+        """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform."""
+        if schemaType == self.SCHEMA_TYPE_MERGE:
+            pds: Dataset = copy.deepcopy(dataset)
+            ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
+            ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
+            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            return pds
+        elif schemaType == self.SCHEMA_TYPE_STAGING:
+            pds: Dataset = copy.deepcopy(dataset)
+            ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
+            ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
+            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            return pds
+        else:
+            raise ValueError(f"Invalid schema type: {schemaType}")

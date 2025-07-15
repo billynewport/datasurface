@@ -18,7 +18,7 @@ from enum import Enum
 from typing import cast, List, Any, Optional
 from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph
 from datasurface.md.lint import ValidationTree
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 import argparse
 import sys
@@ -141,6 +141,7 @@ class SnapshotMergeJob:
         self.datasetName: Optional[str] = datasetName
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
         self.cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, store.cmd)  # type: ignore[attr-defined]
+        self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
 
     def getSchemaHash(self, dataset: Dataset) -> str:
         """Generate a hash of the dataset schema"""
@@ -226,24 +227,14 @@ class SnapshotMergeJob:
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
         """This returns the staging schema for a dataset"""
-        t: Table = datasetToSQLAlchemyTable(dataset, tableName, sqlalchemy.MetaData())
-        # Add the platform specific columns
-        t.append_column(Column(name="ds_surf_batch_id", type_=Integer()))  # type: ignore[attr-defined]
-        t.append_column(Column(name="ds_surf_all_hash", type_=String(length=32)))  # type: ignore[attr-defined]
-        t.append_column(Column(name="ds_surf_key_hash", type_=String(length=32)))  # type: ignore[attr-defined]
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
         return t
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
         """This returns the merge schema for a dataset"""
-        t: Table = datasetToSQLAlchemyTable(dataset, tableName, sqlalchemy.MetaData())
-        # Add the platform specific columns
-        # batch_id here represents the batch a record was inserted in to the merge table
-        t.append_column(Column(name="ds_surf_batch_id", type_=Integer()))  # type: ignore[attr-defined]
-        # The md5 hash of all the columns in the record
-        t.append_column(Column(name="ds_surf_all_hash", type_=String(length=32)))  # type: ignore[attr-defined]
-        # The md5 hash of the primary key columns or all the columns if there are no primary key columns
-        # This needs to be unique for INSERT...ON CONFLICT to work
-        t.append_column(Column(name="ds_surf_key_hash", type_=String(length=32), unique=True))  # type: ignore[attr-defined]
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
         return t
 
     def getBaseTableNameForDataset(self, dataset: Dataset) -> str:

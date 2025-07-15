@@ -6,7 +6,7 @@
 from datasurface.md import DataPlatform, Ecosystem, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
-    CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore
+    CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore, SchemaProjector
 from datasurface.md.credential import NoopCredentialStore
 
 from typing import Optional, Any
@@ -115,6 +115,10 @@ class LegacyDataPlatform(DataPlatform):
         """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
         platform and then create a file named after the key and write the value to the file."""
         return {}
+
+    def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
+        """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
+        raise NotImplementedError("createSchemaProjector not implemented")
 
 
 class LegacyDataPlatformChooser(DataPlatformChooser):
