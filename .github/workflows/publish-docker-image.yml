@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 env:
   DOCKER_USERNAME: datasurface
   DOCKER_IMAGE_NAME: datasurface
