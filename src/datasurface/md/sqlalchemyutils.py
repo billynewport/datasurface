@@ -90,6 +90,26 @@ def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str, metadata: MetaDat
         raise Exception("Unknown schema type")
 
 
+def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: str, metadata: MetaData) -> str:
+    """Converts a Dataset to a SQL CREATE OR REPLACE VIEW statement that maps to an underlying table.
+
+    The view will have a one-to-one mapping to columns in the underlying table that have the same names.
+    Returns the SQL CREATE OR REPLACE VIEW statement as a string.
+    """
+    if (isinstance(dataset.originalSchema, DDLTable)):
+        table: DDLTable = dataset.originalSchema
+        columnNames: List[str] = []
+        for col in table.columns.values():
+            columnNames.append(col.name)
+
+        # Create the view SQL statement using CREATE OR REPLACE VIEW
+        columnsClause: str = ", ".join(columnNames)
+        viewSql: str = f"CREATE OR REPLACE VIEW {viewName} AS SELECT {columnsClause} FROM {underlyingTable}"
+        return viewSql
+    else:
+        raise Exception("Unknown schema type")
+
+
 _T = TypeVar('_T')
 
 
@@ -364,58 +384,135 @@ def _extract_decimal_params(type_str: str) -> tuple[int, int]:
         return -1, -1  # Invalid format
 
 
-def createOrUpdateTable(engine: Engine, table: Table) -> None:
-    """This will create the table if it doesn't exist or update it if it does"""
-    # If the table doesn't exist, create it
+def createOrUpdateTable(engine: Engine, table: Table) -> bool:
+    """This will create the table if it doesn't exist or update it if it does. Returns True if created or altered, False if no changes were needed."""
     inspector = inspect(engine)  # type: ignore[attr-defined]
     if not inspector.has_table(table.name):  # type: ignore[attr-defined]
         table.create(engine)
-    # If the table exists, check if it has the correct schema
+        print(f"Created table {table.name}")
+        return True
     else:
-        # Get the current schema of the table
         currentSchema: Table = Table(table.name, MetaData(), autoload_with=engine)
-        # Find new columns to add
         newColumns: List[Column[Any]] = []
         for column in table.columns:
             col_typed: Column[Any] = column  # Type annotation for clarity
             if col_typed.name not in currentSchema.columns:  # type: ignore[attr-defined]
                 newColumns.append(col_typed)
-
-        # Find columns that need type changes
         columnsToAlter: List[Column[Any]] = []
         for column in currentSchema.columns:
             col_typed: Column[Any] = column  # Type annotation for clarity
             if col_typed.name not in table.columns:  # type: ignore[attr-defined]
                 continue
-            # Compare column types more carefully - convert both to string representation
             current_type_str = str(col_typed.type).upper()  # type: ignore[attr-defined]
             desired_type_str = str(table.columns[col_typed.name].type).upper()  # type: ignore[attr-defined]
-            # Only consider it a change if the types are meaningfully different
             if current_type_str != desired_type_str and not _types_are_compatible(current_type_str, desired_type_str):
                 columnsToAlter.append(table.columns[col_typed.name])  # type: ignore[attr-defined]
-
-        # Execute all schema changes in a single transaction
         if newColumns or columnsToAlter:
             with engine.begin() as connection:
-                # Add new columns (these need to be individual statements)
                 for column in newColumns:
                     column_type = str(column.type)  # type: ignore[attr-defined]
                     alter_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"  # type: ignore[attr-defined]
                     if column.nullable is False:
                         alter_sql += " NOT NULL"
                     connection.execute(text(alter_sql))
-
-                # Alter existing columns (batch multiple alterations into a single statement)
                 if columnsToAlter:
                     alter_parts = []
                     for column in columnsToAlter:
                         alter_parts.append(f"ALTER COLUMN {column.name} TYPE {str(column.type)}")  # type: ignore[attr-defined]
-
-                    # Combine all alterations into a single ALTER TABLE statement
                     alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
                     connection.execute(text(alter_sql))
-
             if newColumns:
                 print(f"Added columns to table {table.name}: {[col.name for col in newColumns]}")  # type: ignore[attr-defined]
             if columnsToAlter:
                 print(f"Altered columns in table {table.name}: {[col.name for col in columnsToAlter]}")  # type: ignore[attr-defined]
+            return True
+        else:
+            return False
+
+
+def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyingTable: str) -> bool:
+    """This will create the view if it doesn't exist or update it if it does to match the current dataset schema
+    
+    Returns:
+        bool: True if the view was created or modified, False if no changes were needed
+    """
+    inspector = inspect(engine)  # type: ignore[attr-defined]
+    
+    # Generate the new view SQL using CREATE OR REPLACE VIEW
+    newViewSql: str = datasetToSQLAlchemyView(dataset, viewName, underlyingTable, MetaData())
+    
+    # Check if view exists
+    if inspector.has_table(viewName):  # type: ignore[attr-defined]
+        # View exists, check if it needs to be updated
+        try:
+            # Get the current view definition
+            with engine.connect() as connection:
+                result = connection.execute(text(f"SELECT pg_get_viewdef('{viewName}', true) as view_def"))
+                currentViewDef = result.fetchone()[0]
+                
+                # Normalize the view definitions for comparison
+                # Remove whitespace, newlines, and convert to uppercase for comparison
+                normalizedCurrent = ' '.join(currentViewDef.replace('\n', ' ').replace(';', '').split()).upper().strip()
+                
+                # Extract just the SELECT part from the new view SQL (after CREATE OR REPLACE VIEW ... AS)
+                selectStart = newViewSql.upper().find('SELECT')
+                if selectStart != -1:
+                    normalizedNewSelect = ' '.join(newViewSql[selectStart:].replace('\n', ' ').split()).upper().strip()
+                else:
+                    normalizedNewSelect = ' '.join(newViewSql.replace('\n', ' ').split()).upper().strip()
+                
+                # Debug output for troubleshooting
+                print(f"DEBUG: Current view def: {repr(normalizedCurrent)}")
+                print(f"DEBUG: New view def: {repr(normalizedNewSelect)}")
+                
+                # Check if the SELECT part matches
+                if normalizedCurrent == normalizedNewSelect:
+                    # No changes needed
+                    print(f"View {viewName} already matches current schema")
+                    return False
+                else:
+                    # View needs to be updated
+                    with engine.begin() as connection:
+                        connection.execute(text(newViewSql))
+                    print(f"Updated view {viewName} to match current schema")
+                    return True
+                    
+        except Exception as e:
+            # If we can't get the current view definition, assume it needs updating
+            print(f"Could not compare view definitions for {viewName}, updating anyway: {e}")
+            with engine.begin() as connection:
+                connection.execute(text(newViewSql))
+            print(f"Updated view {viewName} to match current schema")
+            return True
+    else:
+        # View doesn't exist, create it
+        with engine.begin() as connection:
+            connection.execute(text(newViewSql))
+        print(f"Created view {viewName} with current schema")
+        return True
+
+
+def reconcileViewSchemas(engine: Engine, store: Datastore, viewNameMapper, underlyingTableMapper) -> dict[str, bool]:
+    """This will make sure the views exist and have the current schema for each dataset
+    
+    Args:
+        engine: SQLAlchemy engine for the database
+        store: Datastore containing the datasets
+        viewNameMapper: Function that takes a dataset and returns the view name
+        underlyingTableMapper: Function that takes a dataset and returns the underlying table name
+    
+    Returns:
+        dict[str, bool]: Dictionary mapping view names to whether they were changed (True) or not (False)
+    """
+    changedViews: dict[str, bool] = {}
+    
+    for dataset in store.datasets.values():
+        # Map the dataset to view name and underlying table name
+        viewName: str = viewNameMapper(dataset)
+        underlyingTable: str = underlyingTableMapper(dataset)
+        
+        # Create or update the view
+        wasChanged: bool = createOrUpdateView(engine, dataset, viewName, underlyingTable)
+        changedViews[viewName] = wasChanged
+    
+    return changedViews

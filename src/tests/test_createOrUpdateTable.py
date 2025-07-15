@@ -131,11 +131,12 @@ class TestCreateOrUpdateTable:
             test_table.drop(test_db)
 
         # Call the function
-        createOrUpdateTable(test_db, test_table)
+        wasChanged = createOrUpdateTable(test_db, test_table)
 
         # Verify table was created
         inspector = inspect(test_db)  # type: ignore[attr-defined]
         assert inspector.has_table('test_new_table')  # type: ignore[attr-defined]
+        assert wasChanged is True
 
         # Verify table structure
         created_table = Table('test_new_table', MetaData(), autoload_with=test_db)
@@ -178,13 +179,14 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('builtins.print') as mock_print:
-            createOrUpdateTable(test_db, updated_table)
+            wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify new columns were added
         current_table = Table('test_add_columns', MetaData(), autoload_with=test_db)
         column_names = [col.name for col in current_table.columns]  # type: ignore[attr-defined]
         assert 'email' in column_names
         assert 'created_at' in column_names
+        assert wasChanged is True
 
         # Verify print was called with correct message
         mock_print.assert_called()
@@ -225,13 +227,14 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('builtins.print') as mock_print:
-            createOrUpdateTable(test_db, updated_table)
+            wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify column type was altered
         # Note: Exact type verification depends on database dialect
         current_table = Table('test_alter_types', MetaData(), autoload_with=test_db)
         # Column type verification depends on database dialect, so we just check it exists
         assert 'description' in [col.name for col in current_table.columns]  # type: ignore[attr-defined]
+        assert wasChanged is True
 
         # Verify print was called with correct message
         mock_print.assert_called()
@@ -273,7 +276,7 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('builtins.print') as mock_print:
-            createOrUpdateTable(test_db, updated_table)
+            wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify changes were made
         current_table = Table('test_combined_changes', MetaData(), autoload_with=test_db)
@@ -282,6 +285,7 @@ class TestCreateOrUpdateTable:
         # Check new columns exist
         assert 'email' in column_names
         assert 'status' in column_names
+        assert wasChanged is True
 
         # Verify both print statements were called
         assert mock_print.call_count == 2
@@ -326,10 +330,11 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('builtins.print') as mock_print:
-            createOrUpdateTable(test_db, identical_table)
+            wasChanged = createOrUpdateTable(test_db, identical_table)
 
         # Verify no print statements were called (no changes made)
         mock_print.assert_not_called()
+        assert wasChanged is False
 
         # Clean up
         test_table.drop(test_db)
@@ -363,13 +368,14 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('builtins.print'):
-            createOrUpdateTable(test_db, updated_table)
+            wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify columns were added
         current_table = Table('test_nullable', MetaData(), autoload_with=test_db)
         column_names = [col.name for col in current_table.columns]  # type: ignore[attr-defined]
         assert 'optional_field' in column_names
         assert 'required_field' in column_names
+        assert wasChanged is True
 
         # Clean up
         initial_table.drop(test_db)
@@ -423,7 +429,7 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('builtins.print') as mock_print:
-            createOrUpdateTable(test_db, updated_table)
+            wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify print was called with correct message indicating all columns were altered
         mock_print.assert_called()
@@ -432,6 +438,7 @@ class TestCreateOrUpdateTable:
         assert 'name' in print_args
         assert 'description' in print_args
         assert 'email' in print_args
+        assert wasChanged is True
 
         # Verify the table was actually altered by checking the current schema
         current_table = Table('test_batch_alterations', MetaData(), autoload_with=test_db)
