@@ -6,10 +6,14 @@
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import HostPortSQLDatabase
 from datasurface.md.credential import Credential, CredentialType
-from datasurface.md import CDCCaptureIngestion, CronTrigger, DataContainer, LocationKey, \
-        DataTransformer, Dataset, DatasetGroup, DatasetSink, Datastore, Ecosystem, GovernanceZone, \
-        IngestionConsistencyType, PythonCodeArtifact, Team, TimedTransformerTrigger, \
-        Workspace, HostPortPair, DataPlatformChooser
+from datasurface.md import CDCCaptureIngestion, CronTrigger, LocationKey, \
+        Dataset, DatasetGroup, Datastore, Ecosystem, GovernanceZone, \
+        IngestionConsistencyType, Team, \
+        Workspace, HostPortPair, DataPlatform, DataPlatformKey, DataPlatformChooser, DatasetSink, DataTransformer, TimedTransformerTrigger, PythonCodeArtifact
+from datasurface.md.governance import DSGDataPlatformAssignment, DatasetGroupDataPlatformAssignments, DatasetGroupDataPlatformMappingStatus, ProductionStatus
+from datasurface.md.governance import DeprecationsAllowed
+from datasurface.md import DataContainer
+from typing import Optional
 
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md.schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus
@@ -238,6 +242,36 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     )
 
 
+def addDSGPlatformMappingForWorkspace(eco: Ecosystem, workspace: Workspace, dsg: DatasetGroup):
+    """Add a DSG platform mapping for a workspace/dsg pair, gets set to the current chooser for the dsg"""
+    dp: Optional[DataPlatform] = dsg.platformMD.choooseDataPlatform(eco)
+    if dp is None:
+        raise Exception(f"No data platform found for {dsg.name}")
+    if eco.dsgPlatformMappings.get(f"{workspace.name}#{dsg.name}") is None:
+        eco.dsgPlatformMappings[f"{workspace.name}#{dsg.name}"] = DatasetGroupDataPlatformAssignments(
+            workspace=workspace.name,
+            dsgName=dsg.name,
+            assignments=[
+                DSGDataPlatformAssignment(
+                    workspace=workspace.name,
+                    dsgName=dsg.name,
+                    dp=DataPlatformKey(dp.name),
+                    doc=PlainTextDocumentation("Test docs"),
+                    productionStatus=ProductionStatus.PRODUCTION,
+                    deprecationsAllowed=DeprecationsAllowed.NEVER,
+                    status=DatasetGroupDataPlatformMappingStatus.PROVISIONED)]
+        )
+    else:
+        eco.dsgPlatformMappings[f"{workspace.name}#{dsg.name}"].assignments.append(
+            DSGDataPlatformAssignment(
+                workspace=workspace.name,
+                dsgName=dsg.name,
+                dp=DataPlatformKey(dp.name),
+                doc=PlainTextDocumentation("Test docs"),
+                productionStatus=ProductionStatus.PRODUCTION,
+                deprecationsAllowed=DeprecationsAllowed.NEVER, status=DatasetGroupDataPlatformMappingStatus.PROVISIONED))
+
+
 def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], chooser: DataPlatformChooser):
     """Create a Workspace and an asset if a location is provided"""
 
@@ -257,6 +291,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
             ]
         ))
     t.add(w)
+    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["LiveProducts"])
 
     # Define Workspace with Refiner to mask customer table
     # This is a DataTransformer that uses NW_Data#customers as its input and produces
@@ -297,6 +332,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
             )
         )
     t.add(w)
+    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["MaskCustomers"])
 
     w = Workspace(
         "WorkspaceUsingTransformerOutput",
@@ -309,3 +345,4 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
             ]
         ))
     t.add(w)
+    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["UseMaskedCustomers"])

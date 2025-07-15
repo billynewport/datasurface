@@ -1395,7 +1395,7 @@ class Ecosystem(GitControlledObject, JSONable):
         self.dataPlatforms: dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
         self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
         self.platformServicesProvider: Optional[PlatformServicesProvider] = None
-        self.dsgPlatformMappings: set[DatasetGroupDataPlatformAssignment] = set[DatasetGroupDataPlatformAssignment]()
+        self.dsgPlatformMappings: dict[str, DatasetGroupDataPlatformAssignments] = dict[str, DatasetGroupDataPlatformAssignments]()
         self.resetCaches()
 
         # Handle backward compatibility: if *args are provided, parse them the old way
@@ -1449,23 +1449,37 @@ class Ecosystem(GitControlledObject, JSONable):
                     # Extract required fields
                     dsg_name: str = dsg_mapping["dsgName"]
                     workspace: str = dsg_mapping.get("workspace", "default_workspace")
+                    assignments: list[Any] = dsg_mapping.get("assignments", [])
+                    dsg_assignments: list[DSGDataPlatformAssignment] = []
+                    for assignment in assignments:
+                        dsg_assignment = DSGDataPlatformAssignment(
+                            workspace=workspace,
+                            dsgName=dsg_name,
+                            dp=DataPlatformKey(assignment["dataPlatform"]),
+                            doc=PlainTextDocumentation(assignment["documentation"]),
+                            productionStatus=ProductionStatus[assignment["productionStatus"]],
+                            deprecationsAllowed=DeprecationsAllowed[assignment["deprecationsAllowed"]],
+                            status=DatasetGroupDataPlatformMappingStatus[assignment["status"]]
+                        )
+                        dsg_assignments.append(dsg_assignment)
 
-                    # Create the assignment with correct parameter order
-                    self.dsgPlatformMappings.add(DatasetGroupDataPlatformAssignment(
+                    # Create the assignments container
+
+                    self.dsgPlatformMappings[f"{workspace}#{dsg_name}"] = DatasetGroupDataPlatformAssignments(
                         workspace=workspace,
                         dsgName=dsg_name,
-                        dp=DataPlatformKey(dsg_mapping["dataPlatform"]),
-                        doc=PlainTextDocumentation(dsg_mapping["documentation"]),
-                        productionStatus=ProductionStatus[dsg_mapping["productionStatus"]],
-                        deprecationsAllowed=DeprecationsAllowed[dsg_mapping["deprecationsAllowed"]],
-                        status=DatasetGroupDataPlatformMappingStatus[dsg_mapping["status"]]
-                    ))
+                        assignments=dsg_assignments
+                    )
             # Now lint the dsg platform mappings
-            for dsg_mapping in self.dsgPlatformMappings:
-                dsg_mapping.lint(self, tree.addSubTree(dsg_mapping))
+            if self.dsgPlatformMappings:
+                for dsg_mapping in self.dsgPlatformMappings.values():
+                    dsg_mapping.lint(self, tree.addSubTree(dsg_mapping))
         except Exception as e:
             tree.addRaw(UnexpectedExceptionProblem(e))
             self.dsgPlatformMappings.clear()
+
+    def getDSGPlatformMapping(self, workspaceName: str, dsgName: str) -> Optional['DatasetGroupDataPlatformAssignments']:
+        return self.dsgPlatformMappings.get(f"{workspaceName}#{dsgName}")
 
     @classmethod
     def create_legacy(cls, name: str, repo: Repository,
@@ -2930,8 +2944,8 @@ class DatasetGroupDataPlatformMappingStatus(Enum):
     """The DataPlatform is decommissioned and no longer used"""
 
 
-class DatasetGroupDataPlatformAssignment(UserDSLObject):
-    """This is a reference to a DataPlatform which is assigned to a Workspace"""
+class DSGDataPlatformAssignment(UserDSLObject):
+    """This is a reference to a DataPlatform which is assigned to a DatasetGroup"""
     def __init__(self, workspace: str, dsgName: str, dp: DataPlatformKey, doc: Documentation, productionStatus: ProductionStatus = ProductionStatus.PRODUCTION,
                  deprecationsAllowed: DeprecationsAllowed = DeprecationsAllowed.NEVER,
                  status: DatasetGroupDataPlatformMappingStatus = DatasetGroupDataPlatformMappingStatus.PROVISIONING) -> None:
@@ -2946,18 +2960,53 @@ class DatasetGroupDataPlatformAssignment(UserDSLObject):
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "dataPlatform": self.dataPlatform.name, "documentation": self.documentation.to_json(),
-                   "productionStatus": self.productionStatus.name, "deprecationsAllowed": self.deprecationsAllowed.name, "status": self.status.name})
+        rc.update({
+            "_type": self.__class__.__name__,
+            "workspace": self.workspace,
+            "dsgName": self.dsgName,
+            "dataPlatform": self.dataPlatform.name,
+            "documentation": self.documentation.to_json(),
+            "productionStatus": self.productionStatus.name,
+            "deprecationsAllowed": self.deprecationsAllowed.name,
+            "status": self.status.name
+        })
         return rc
 
     def __eq__(self, other: object) -> bool:
-        return super().__eq__(other) and isinstance(other, DatasetGroupDataPlatformAssignment) and self.dataPlatform == other.dataPlatform and \
-            self.documentation == other.documentation and self.productionStatus == other.productionStatus and \
-            self.deprecationsAllowed == other.deprecationsAllowed and self.status == other.status and \
+        return super().__eq__(other) and isinstance(other, DSGDataPlatformAssignment) and self.workspace == other.workspace and \
+            self.dsgName == other.dsgName and self.dataPlatform == other.dataPlatform and self.documentation == other.documentation and \
+            self.productionStatus == other.productionStatus and self.deprecationsAllowed == other.deprecationsAllowed and \
+            self.status == other.status
+
+    def __hash__(self) -> int:
+        return hash((self.workspace, self.dsgName, self.dataPlatform, self.documentation, self.productionStatus, self.deprecationsAllowed, self.status))
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        # Make sure the workspace and dsg exist
+        w: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(self.workspace)
+        if w is None:
+            tree.addRaw(UnknownObjectReference(f"Unknown workspace {self.workspace}", ProblemSeverity.ERROR))
+
+
+class DatasetGroupDataPlatformAssignments(UserDSLObject):
+    """This is a reference to a DataPlatform which is assigned to a Workspace"""
+    def __init__(self, workspace: str, dsgName: str, assignments: list[DSGDataPlatformAssignment]) -> None:
+        UserDSLObject.__init__(self)
+        self.workspace: str = workspace
+        self.dsgName: str = dsgName
+        self.assignments: list[DSGDataPlatformAssignment] = assignments
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "assignments": [assignment.to_json() for assignment in self.assignments]})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, DatasetGroupDataPlatformAssignments) and self.assignments == other.assignments and \
             self.workspace == other.workspace and self.dsgName == other.dsgName
 
     def __hash__(self) -> int:
-        return hash((self.dataPlatform, self.documentation, self.productionStatus, self.deprecationsAllowed, self.status))
+        return hash((self.workspace, self.dsgName, tuple(self.assignments)))
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         # Make sure the workspace and dsg exist
@@ -2969,10 +3018,8 @@ class DatasetGroupDataPlatformAssignment(UserDSLObject):
             dsg: Optional[DatasetGroup] = w.workspace.dsgs.get(self.dsgName)
             if dsg is None:
                 tree.addRaw(UnknownObjectReference(f"Unknown dataset group {self.workspace}:{self.dsgName}", ProblemSeverity.ERROR))
-        # Make sure the data platform exists
-        dp: Optional[DataPlatform] = eco.getDataPlatform(self.dataPlatform.name)
-        if dp is None:
-            tree.addRaw(UnknownObjectReference(f"Unknown data platform {self.dataPlatform.name}", ProblemSeverity.ERROR))
+        for assignment in self.assignments:
+            assignment.lint(eco, tree.addSubTree(assignment))
 
 
 class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
@@ -3921,16 +3968,21 @@ class EcosystemPipelineGraph(InternalLintableObject):
         # Scan workspaces/dsg pairs, split by DataPlatform
         for w in eco.workSpaceCache.values():
             for dsg in w.workspace.dsgs.values():
-                if dsg.platformMD:
-                    p: Optional[DataPlatform] = dsg.platformMD.choooseDataPlatform(self.eco)
-                    if p:
-                        root: DSGRootNode = DSGRootNode(w.workspace, dsg)
-                        if self.roots.get(p) is None:
-                            self.roots[p] = PlatformPipelineGraph(eco, p)
-                        self.roots[p].roots.add(root)
-                        # Collect Workspaces using the platform
-                        if (self.roots[p].workspaces.get(w.workspace.name) is None):
-                            self.roots[p].workspaces[w.workspace.name] = w.workspace
+                assignment: Optional[DatasetGroupDataPlatformAssignments] = eco.getDSGPlatformMapping(w.workspace.name, dsg.name)
+                dpList: list[DataPlatform] = []
+                if assignment is not None:
+                    for assignee in assignment.assignments:
+                        if assignee.status != DatasetGroupDataPlatformMappingStatus.DECOMMISSIONED:
+                            dpList.append(eco.getDataPlatformOrThrow(assignee.dataPlatform.name))
+
+                for p in dpList:
+                    root: DSGRootNode = DSGRootNode(w.workspace, dsg)
+                    if self.roots.get(p) is None:
+                        self.roots[p] = PlatformPipelineGraph(eco, p)
+                    self.roots[p].roots.add(root)
+                    # Collect Workspaces using the platform
+                    if (self.roots[p].workspaces.get(w.workspace.name) is None):
+                        self.roots[p].workspaces[w.workspace.name] = w.workspace
 
         # Now track DSGs per dataContainer
         # For each platform what DSGs need to be exported to a given dataContainer

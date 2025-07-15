@@ -2,10 +2,14 @@
     {
       "dsgName": "TestDSG",
       "workspace": "Consumer1",
-      "dataPlatform": "Test_DP",
-      "documentation": "Test docs",
-      "productionStatus": "PRODUCTION",
-      "deprecationsAllowed": "NEVER",
-      "status": "PROVISIONED"
+      "assignments": [
+        {
+          "dataPlatform": "Test_DP",
+          "documentation": "Test docs",
+          "productionStatus": "PRODUCTION",
+          "deprecationsAllowed": "NEVER",
+          "status": "PROVISIONED"
+        }
+      ]
     }
   ]
