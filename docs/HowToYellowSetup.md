@@ -1,6 +1,8 @@
-# Kubernetes PG Starter Setup Guide
+# YellowDataPlatform Setup Guide
 
-This guide walks you through setting up a complete Kubernetes PG Starter environment for DataSurface, including all required services and configurations.
+This guide walks you through setting up a complete YellowDataPlatform environment for DataSurface, including all required services and configurations.
+
+This is a work in progress, the guide is not complete and may lag the implementation for now.
 
 ## Prerequisites
 
@@ -66,13 +68,13 @@ Create `src/tests/my-ecosystem/eco.py`:
 from datasurface.md import Ecosystem, GitHubRepository, Documentation, PlainTextDocumentation
 from datasurface.md import LocationKey, Credential, CredentialType
 from datasurface.md import CloudVendor, InfrastructureLocation, InfrastructureVendor
-from datasurface.platforms.kubpgstarter import KubernetesPGStarterDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
 
 def createEcosystem() -> Ecosystem:
-    """Create the ecosystem for the Kubernetes PG Starter platform."""
+    """Create the ecosystem for the YellowDataPlatform."""
     
     # Define documentation
-    doc: Documentation = PlainTextDocumentation("Kubernetes PG Starter Ecosystem")
+    doc: Documentation = PlainTextDocumentation("YellowDataPlatform Ecosystem")
     
     # Define locations
     us_location: LocationKey = LocationKey(
@@ -130,10 +132,10 @@ def createEcosystem() -> Ecosystem:
     eco.addCredential(connect_credential)
     
     # Create the data platform
-    platform: KubernetesPGStarterDataPlatform = KubernetesPGStarterDataPlatform(
+    platform: YellowDataPlatform = YellowDataPlatform(
         name="my-kub-platform",
         locs={us_location},
-        doc=PlainTextDocumentation("Kubernetes PG Starter Platform"),
+        doc=PlainTextDocumentation("YellowDataPlatform"),
         namespace="my-kub-namespace",
         connectCredentials=connect_credential,
         postgresCredential=postgres_credential,
@@ -444,4 +446,4 @@ For issues and questions:
 - Check the DataSurface documentation
 - Review Kubernetes and Airflow logs
 - Consult the troubleshooting section above
-- Open an issue in the DataSurface repository 
+- Open an issue in the DataSurface repository

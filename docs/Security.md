@@ -22,7 +22,6 @@ The security system will then run multiple times a day to make sure the permissi
 
 TODO, once ZeroDataPlatform is working then we'll do security next.
 
-
 ## Security auditing
 
 It may be important for security implementations to log when they run and what they did when they ran. Regulated firms may require permissions on read controlled objects to be updated within a maximum time period. For example, if someone leaves or changed department then those changes must be reflected on read permissions within some maximum time period. If these maximum times are exceeded then what is the impact? Do you turn off the DataContainer hosting Workspaces that may be out of date? Is there another documented procedure in this state to manage granting access to new people or removing old people. It all depends on the security policy of the firm.
