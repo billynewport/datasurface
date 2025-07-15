@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
-    PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase
+    PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase, MySQLDatabase, OracleDatabase, SQLServerDatabase
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
@@ -252,8 +252,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 cmdTree.addRaw(ObjectMissing(store.cmd, "credential", ProblemSeverity.ERROR))
             if store.cmd.dataContainer is None:
                 cmdTree.addRaw(ObjectMissing(store.cmd, "dataContainer", ProblemSeverity.ERROR))
-            elif not isinstance(store.cmd.dataContainer, PostgresDatabase):
-                cmdTree.addRaw(ObjectNotSupportedByDataPlatform(store.cmd.dataContainer, [PostgresDatabase], ProblemSeverity.ERROR))
+            elif not isinstance(store.cmd.dataContainer, (PostgresDatabase, MySQLDatabase, OracleDatabase, SQLServerDatabase)):
+                cmdTree.addRaw(ObjectNotSupportedByDataPlatform(
+                    store.cmd.dataContainer,
+                    [PostgresDatabase, MySQLDatabase, OracleDatabase, SQLServerDatabase],
+                    ProblemSeverity.ERROR
+                ))
 
     def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree) -> None:
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
