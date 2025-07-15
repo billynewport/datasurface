@@ -4,6 +4,7 @@
 """
 
 import unittest
+from unittest.mock import patch
 from typing import Optional
 from sqlalchemy import create_engine, text, MetaData
 from sqlalchemy.engine import Engine
@@ -66,16 +67,24 @@ class TestSnapshotMergeJob(unittest.TestCase):
         self.setupDatabases()
 
     def tearDown(self) -> None:
-        """Clean up test environment"""
-        # Drop source table
+        """Clean up after each test"""
+        # Stop the engine patcher if it was started
+        if hasattr(self, '_engine_patcher'):
+            self._engine_patcher.stop()
+            
+        # Clean up batch tables
+        self.cleanupBatchTables()
+
+        # Clean up source table
         if hasattr(self, 'source_engine'):
-            with self.source_engine.connect() as conn:
+            with self.source_engine.begin() as conn:
                 conn.execute(text('DROP TABLE IF EXISTS people CASCADE'))
                 conn.commit()
             self.source_engine.dispose()
-        # Drop merge and batch tables
+
+        # Clean up merge database
         if hasattr(self, 'merge_engine'):
-            with self.merge_engine.connect() as conn:
+            with self.merge_engine.begin() as conn:
                 conn.execute(text('DROP TABLE IF EXISTS "Test_DP_Store1_people_merge" CASCADE'))
                 conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
                 conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
@@ -84,7 +93,7 @@ class TestSnapshotMergeJob(unittest.TestCase):
 
     def overrideJobConnections(self) -> None:
         """Override the job's database connections to use localhost for testing"""
-        # Monkey patch the job's createEngine method to use localhost
+        # Patch the global createEngine function to use localhost
         def local_create_engine(container: DataContainer, userName: str, password: str) -> Engine:
             # Check if this is the merge store (PostgresDatabase with specific name)
             from datasurface.md import PostgresDatabase
@@ -95,7 +104,10 @@ class TestSnapshotMergeJob(unittest.TestCase):
                 # Use local source database
                 return create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
 
-        self.job.createEngine = local_create_engine
+        # Patch the global createEngine function in the jobs module
+        patcher = patch('datasurface.platforms.yellow.jobs.createEngine', new=local_create_engine)
+        self._engine_patcher = patcher
+        patcher.start()
 
     def overrideCredentialStore(self) -> None:
         """Override the credential store to return local credentials for testing"""

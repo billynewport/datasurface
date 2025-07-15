@@ -432,15 +432,15 @@ def createOrUpdateTable(engine: Engine, table: Table) -> bool:
 
 def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyingTable: str) -> bool:
     """This will create the view if it doesn't exist or update it if it does to match the current dataset schema
-    
+
     Returns:
         bool: True if the view was created or modified, False if no changes were needed
     """
     inspector = inspect(engine)  # type: ignore[attr-defined]
-    
+
     # Generate the new view SQL using CREATE OR REPLACE VIEW
     newViewSql: str = datasetToSQLAlchemyView(dataset, viewName, underlyingTable, MetaData())
-    
+
     # Check if view exists
     if inspector.has_table(viewName):  # type: ignore[attr-defined]
         # View exists, check if it needs to be updated
@@ -449,22 +449,22 @@ def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyi
             with engine.connect() as connection:
                 result = connection.execute(text(f"SELECT pg_get_viewdef('{viewName}', true) as view_def"))
                 currentViewDef = result.fetchone()[0]
-                
+
                 # Normalize the view definitions for comparison
                 # Remove whitespace, newlines, and convert to uppercase for comparison
                 normalizedCurrent = ' '.join(currentViewDef.replace('\n', ' ').replace(';', '').split()).upper().strip()
-                
+
                 # Extract just the SELECT part from the new view SQL (after CREATE OR REPLACE VIEW ... AS)
                 selectStart = newViewSql.upper().find('SELECT')
                 if selectStart != -1:
                     normalizedNewSelect = ' '.join(newViewSql[selectStart:].replace('\n', ' ').split()).upper().strip()
                 else:
                     normalizedNewSelect = ' '.join(newViewSql.replace('\n', ' ').split()).upper().strip()
-                
+
                 # Debug output for troubleshooting
                 print(f"DEBUG: Current view def: {repr(normalizedCurrent)}")
                 print(f"DEBUG: New view def: {repr(normalizedNewSelect)}")
-                
+
                 # Check if the SELECT part matches
                 if normalizedCurrent == normalizedNewSelect:
                     # No changes needed
@@ -476,7 +476,7 @@ def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyi
                         connection.execute(text(newViewSql))
                     print(f"Updated view {viewName} to match current schema")
                     return True
-                    
+
         except Exception as e:
             # If we can't get the current view definition, assume it needs updating
             print(f"Could not compare view definitions for {viewName}, updating anyway: {e}")
@@ -494,25 +494,25 @@ def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyi
 
 def reconcileViewSchemas(engine: Engine, store: Datastore, viewNameMapper, underlyingTableMapper) -> dict[str, bool]:
     """This will make sure the views exist and have the current schema for each dataset
-    
+
     Args:
         engine: SQLAlchemy engine for the database
         store: Datastore containing the datasets
         viewNameMapper: Function that takes a dataset and returns the view name
         underlyingTableMapper: Function that takes a dataset and returns the underlying table name
-    
+
     Returns:
         dict[str, bool]: Dictionary mapping view names to whether they were changed (True) or not (False)
     """
     changedViews: dict[str, bool] = {}
-    
+
     for dataset in store.datasets.values():
         # Map the dataset to view name and underlying table name
         viewName: str = viewNameMapper(dataset)
         underlyingTable: str = underlyingTableMapper(dataset)
-        
+
         # Create or update the view
         wasChanged: bool = createOrUpdateView(engine, dataset, viewName, underlyingTable)
         changedViews[viewName] = wasChanged
-    
+
     return changedViews

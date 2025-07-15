@@ -121,6 +121,62 @@ class BatchState:
         return json.dumps(json_dict)
 
 
+def createEngine(container: DataContainer, userName: str, password: str) -> Engine:
+    """This creates a SQLAlchemy engine for a given data container."""
+    if isinstance(container, PostgresDatabase):
+        return create_engine(  # type: ignore[attr-defined]
+            'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
+                username=userName,
+                password=password,
+                hostName=container.hostPortPair.hostName,
+                port=container.hostPortPair.port,
+                databaseName=container.databaseName
+            ),
+            isolation_level="READ COMMITTED"
+        )
+    elif isinstance(container, MySQLDatabase):
+        return create_engine(
+            'mysql+pymysql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
+                username=userName,
+                password=password,
+                hostName=container.hostPortPair.hostName,
+                port=container.hostPortPair.port,
+                databaseName=container.databaseName
+            ),
+            isolation_level="READ COMMITTED"
+        )
+    elif isinstance(container, OracleDatabase):
+        return create_engine(
+            'oracle+cx_oracle://{username}:{password}@{hostName}:{port}/?service_name={databaseName}'.format(
+                username=userName,
+                password=password,
+                hostName=container.hostPortPair.hostName,
+                port=container.hostPortPair.port,
+                databaseName=container.databaseName
+            ),
+            isolation_level="READ COMMITTED"
+        )
+    elif isinstance(container, SQLServerDatabase):
+        return create_engine(
+            'mssql+pyodbc://{username}:{password}@{hostName}:{port}/{databaseName}?driver=ODBC+Driver+17+for+SQL+Server'.format(
+                username=userName,
+                password=password,
+                hostName=container.hostPortPair.hostName,
+                port=container.hostPortPair.port,
+                databaseName=container.databaseName
+            ),
+            isolation_level="READ COMMITTED"
+        )
+    elif isinstance(container, DB2Database):
+        raise Exception(
+            "DB2 database support is not available on this platform. "
+            "IBM does not provide ARM64-compatible drivers for DB2. "
+            "Please use PostgreSQL, MySQL, Oracle, or SQL Server instead."
+        )
+    else:
+        raise Exception(f"Unsupported container type {type(container)}")
+
+
 class Job(ABC):
     """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
     step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
@@ -157,60 +213,6 @@ class Job(ABC):
             stored_hash = state.schema_versions.get(dataset_name)
             if stored_hash and not self.validateSchemaUnchanged(dataset, stored_hash):
                 raise Exception(f"Schema changed for dataset {dataset_name} during batch processing")
-
-    def createEngine(self, container: DataContainer, userName: str, password: str) -> Engine:
-        if isinstance(container, PostgresDatabase):
-            return create_engine(  # type: ignore[attr-defined]
-                'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                    username=userName,
-                    password=password,
-                    hostName=container.hostPortPair.hostName,
-                    port=container.hostPortPair.port,
-                    databaseName=container.databaseName
-                ),
-                isolation_level="READ COMMITTED"
-            )
-        elif isinstance(container, MySQLDatabase):
-            return create_engine(
-                'mysql+pymysql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                    username=userName,
-                    password=password,
-                    hostName=container.hostPortPair.hostName,
-                    port=container.hostPortPair.port,
-                    databaseName=container.databaseName
-                ),
-                isolation_level="READ COMMITTED"
-            )
-        elif isinstance(container, OracleDatabase):
-            return create_engine(
-                'oracle+cx_oracle://{username}:{password}@{hostName}:{port}/?service_name={databaseName}'.format(
-                    username=userName,
-                    password=password,
-                    hostName=container.hostPortPair.hostName,
-                    port=container.hostPortPair.port,
-                    databaseName=container.databaseName
-                ),
-                isolation_level="READ COMMITTED"
-            )
-        elif isinstance(container, SQLServerDatabase):
-            return create_engine(
-                'mssql+pyodbc://{username}:{password}@{hostName}:{port}/{databaseName}?driver=ODBC+Driver+17+for+SQL+Server'.format(
-                    username=userName,
-                    password=password,
-                    hostName=container.hostPortPair.hostName,
-                    port=container.hostPortPair.port,
-                    databaseName=container.databaseName
-                ),
-                isolation_level="READ COMMITTED"
-            )
-        elif isinstance(container, DB2Database):
-            raise Exception(
-                "DB2 database support is not available on this platform. "
-                "IBM does not provide ARM64-compatible drivers for DB2. "
-                "Please use PostgreSQL, MySQL, Oracle, or SQL Server instead."
-            )
-        else:
-            raise Exception(f"Unsupported container type {type(container)}")
 
     def getTableForPlatform(self, tableName: str) -> str:
         """This returns the table name for the platform"""
@@ -554,12 +556,12 @@ class Job(ABC):
 
         # Now, get a connection to the merge database
         mergeUser, mergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
-        mergeEngine: Engine = self.createEngine(self.dp.mergeStore, mergeUser, mergePassword)
+        mergeEngine: Engine = createEngine(self.dp.mergeStore, mergeUser, mergePassword)
 
         # Now, get an Engine for the source database
         sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
         assert self.store.cmd.dataContainer is not None
-        sourceEngine: Engine = self.createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
+        sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
 
         # Make sure the staging and merge tables exist and have the current schema for each dataset
         self.reconcileStagingTableSchemas(mergeEngine, self.store, cmd)

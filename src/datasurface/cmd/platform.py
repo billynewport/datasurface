@@ -81,3 +81,29 @@ def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames:
                 f.write(content)
 
     return eco
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Platform utilities for DataSurface")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Subcommand: generatePlatformBootstrap
+    parser_bootstrap = subparsers.add_parser("generatePlatformBootstrap", help="Generate platform bootstrap files")
+    parser_bootstrap.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
+    parser_bootstrap.add_argument("--output", required=True, help="Base output directory for platform files")
+    parser_bootstrap.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
+
+    # Subcommand: handleModelMerge
+    parser_merge = subparsers.add_parser("handleModelMerge", help="Generate pipeline artifacts for platforms")
+    parser_merge.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
+    parser_merge.add_argument("--output", required=True, help="Base output directory for platform files")
+    parser_merge.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
+
+    args = parser.parse_args()
+    if args.command == "generatePlatformBootstrap":
+        generatePlatformBootstrap(args.model, args.output, *args.platform)
+    elif args.command == "handleModelMerge":
+        handleModelMerge(args.model, args.output, *args.platform)
+    else:
+        parser.print_help()
