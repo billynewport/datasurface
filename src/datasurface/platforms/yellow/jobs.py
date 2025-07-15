@@ -16,7 +16,7 @@ from sqlalchemy.types import Integer, String, TIMESTAMP
 from sqlalchemy.engine.row import Row
 from enum import Enum
 from typing import cast, List, Any, Optional
-from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph
+from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
@@ -120,28 +120,17 @@ class BatchState:
         return json.dumps(json_dict)
 
 
-class SnapshotMergeJob:
-    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
-    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
-    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
-    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
-    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
-    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
-    the transaction reading the source table is different than the one writing to the staging table, they are different connections to different
-    databases.
-    The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
-
-    def __init__(
-            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
-            store: Datastore, datasetName: Optional[str] = None) -> None:
+class Job:
+    """This is the base class for all jobs"""
+    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         self.eco: Ecosystem = eco
         self.credStore: CredentialStore = credStore
         self.dp: YellowDataPlatform = dp
         self.store: Datastore = store
         self.datasetName: Optional[str] = datasetName
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
-        self.cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, store.cmd)  # type: ignore[attr-defined]
         self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
+        self.cmd: SQLIngestion = cast(SQLIngestion, store.cmd)  # type: ignore[attr-defined]
 
     def getSchemaHash(self, dataset: Dataset) -> str:
         """Generate a hash of the dataset schema"""
@@ -225,74 +214,6 @@ class SnapshotMergeJob:
         """This returns the table name for the platform"""
         return f"{self.dp.name}_{tableName}".lower()
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
-        """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
-        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
-        return t
-
-    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
-        """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
-        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
-        return t
-
-    def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
-        """This returns the base table name for a dataset"""
-        return f"{self.store.name}_{dataset.name if dataset.name not in self.cmd.tableForDataset else self.cmd.tableForDataset[dataset.name]}"
-
-    def getStagingTableNameForDataset(self, dataset: Dataset) -> str:
-        """This returns the staging table name for a dataset"""
-        tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.getTableForPlatform(tableName + "_staging")
-
-    def getMergeTableNameForDataset(self, dataset: Dataset) -> str:
-        """This returns the merge table name for a dataset"""
-        tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.getTableForPlatform(tableName + "_merge")
-
-    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
-        """This will make sure the staging table exists and has the current schema for each dataset"""
-        for dataset in store.datasets.values():
-            # Map the dataset name if necessary
-            tableName: str = self.getStagingTableNameForDataset(dataset)
-            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
-            createOrUpdateTable(mergeEngine, stagingTable)
-
-    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
-        """This will make sure the merge table exists and has the current schema for each dataset"""
-        for dataset in store.datasets.values():
-            # Map the dataset name if necessary
-            tableName: str = self.getMergeTableNameForDataset(dataset)
-            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
-            createOrUpdateTable(mergeEngine, mergeTable)
-            # Ensure the unique constraint exists for ds_surf_key_hash
-            self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
-
-    def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
-        """Ensure that a unique constraint exists on the specified column"""
-        with mergeEngine.begin() as connection:
-            # Check if the constraint already exists
-            check_sql = f"""
-            SELECT COUNT(*) FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.table_name = '{tableName}'
-                AND tc.constraint_type = 'UNIQUE'
-                AND kcu.column_name = '{columnName}'
-            """
-            result = connection.execute(text(check_sql))
-            constraint_exists = result.fetchone()[0] > 0
-
-            if not constraint_exists:
-                # Create the unique constraint
-                constraint_name = f"{tableName}_{columnName}_unique"
-                create_constraint_sql = f"ALTER TABLE {tableName} ADD CONSTRAINT {constraint_name} UNIQUE ({columnName})"
-                print(f"DEBUG: Creating unique constraint: {create_constraint_sql}")
-                connection.execute(text(create_constraint_sql))
-                print(f"DEBUG: Successfully created unique constraint on {tableName}.{columnName}")
-
     def getBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
         return self.getTableForPlatform("batch_counter")
@@ -334,6 +255,60 @@ class SnapshotMergeJob:
         t: Table = self.getBatchMetricsTable()
         createOrUpdateTable(mergeEngine, t)
 
+    def getKey(self) -> str:
+        """This returns the key for the batch"""
+        return f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
+
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the staging schema for a dataset"""
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
+        return t
+
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the merge schema for a dataset"""
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
+        return t
+
+    def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
+        """This returns the base table name for a dataset"""
+        return f"{self.store.name}_{dataset.name if dataset.name not in self.cmd.tableForDataset else self.cmd.tableForDataset[dataset.name]}"
+
+    def getStagingTableNameForDataset(self, dataset: Dataset) -> str:
+        """This returns the staging table name for a dataset"""
+        tableName: str = self.getBaseTableNameForDataset(dataset)
+        return self.getTableForPlatform(tableName + "_staging")
+
+    def getMergeTableNameForDataset(self, dataset: Dataset) -> str:
+        """This returns the merge table name for a dataset"""
+        tableName: str = self.getBaseTableNameForDataset(dataset)
+        return self.getTableForPlatform(tableName + "_merge")
+
+    def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
+        """Ensure that a unique constraint exists on the specified column"""
+        with mergeEngine.begin() as connection:
+            # Check if the constraint already exists
+            check_sql = f"""
+            SELECT COUNT(*) FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            WHERE tc.table_name = '{tableName}'
+                AND tc.constraint_type = 'UNIQUE'
+                AND kcu.column_name = '{columnName}'
+            """
+            result = connection.execute(text(check_sql))
+            constraint_exists = result.fetchone()[0] > 0
+
+            if not constraint_exists:
+                # Create the unique constraint
+                constraint_name = f"{tableName}_{columnName}_unique"
+                create_constraint_sql = f"ALTER TABLE {tableName} ADD CONSTRAINT {constraint_name} UNIQUE ({columnName})"
+                print(f"DEBUG: Creating unique constraint: {create_constraint_sql}")
+                connection.execute(text(create_constraint_sql))
+                print(f"DEBUG: Successfully created unique constraint on {tableName}.{columnName}")
+
     def createBatchCommon(self, connection: Connection, key: str, state: BatchState) -> int:
         """This creates a batch and returns the batch id. The transaction is managed by the caller.
         This current batch must be commited before a new batch can be created.
@@ -364,10 +339,6 @@ class SnapshotMergeJob:
         ))
 
         return newBatch
-
-    def getKey(self) -> str:
-        """This returns the key for the batch"""
-        return f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
 
     def createSingleBatch(self, store: Datastore, connection: Connection) -> int:
         """This creates a single-dataset batch and returns the batch id. The transaction is managed by the caller."""
@@ -418,6 +389,49 @@ class SnapshotMergeJob:
                 connection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
         return newBatchId
 
+    def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
+        """Get the batch status for a given key and batch id"""
+        result = connection.execute(text(f'SELECT "state" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
+        row = result.fetchone()
+
+        return BatchState.from_json(row[0]) if row else BatchState([])
+
+    def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
+        """Check the current batch status for a given key. Returns the status or None if no batch exists."""
+        result = connection.execute(text(f"""
+            SELECT bm."batch_status"
+            FROM {self.getBatchMetricsTableName()} bm
+            WHERE bm."key" = '{key}' AND bm."batch_id" = {batchId}
+        """))
+        row = result.fetchone()
+        return row[0] if row else None
+
+    def getCurrentBatchId(self, connection: Connection, key: str) -> int:
+        """Get the current batch ID for a given key, create a new batch counter if one doesn't exist."""
+        # First check if the table exists
+        from sqlalchemy import inspect
+        inspector = inspect(connection.engine)
+        table_name = self.getBatchCounterTableName()
+        print(f"DEBUG: Checking if table {table_name} exists")
+        if not inspector.has_table(table_name):
+            print(f"DEBUG: Table {table_name} does not exist, creating it")
+            # Create the table
+            t = self.getBatchCounterTable()
+            t.create(connection.engine)
+            print(f"DEBUG: Table {table_name} created")
+        else:
+            print(f"DEBUG: Table {table_name} already exists")
+
+        # Now query the table
+        result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getBatchCounterTableName()} WHERE key = \'{key}\''))
+        row = result.fetchone()
+        if row is None:
+            # Insert a new batch counter
+            connection.execute(text(f'INSERT INTO {self.getBatchCounterTableName()} (key, "currentBatch") VALUES (\'{key}\', 1)'))
+            return 1
+        else:
+            return row[0]
+
     def updateBatchStatusInTx(
             self, mergeEngine: Engine, key: str, batchId: int, status: BatchStatus,
             recordsInserted: Optional[int] = None, recordsUpdated: Optional[int] = None,
@@ -461,12 +475,40 @@ class SnapshotMergeJob:
         update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
         connection.execute(text(update_sql))
 
-    def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
-        """Get the batch status for a given key and batch id"""
-        result = connection.execute(text(f'SELECT "state" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
-        row = result.fetchone()
 
-        return BatchState.from_json(row[0]) if row else BatchState([])
+class SnapshotMergeJob(Job):
+    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
+    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
+    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
+    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
+    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
+    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
+    the transaction reading the source table is different than the one writing to the staging table, they are different connections to different
+    databases.
+    The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
+
+    def __init__(
+            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
+            store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp, store, datasetName)
+
+    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
+        """This will make sure the staging table exists and has the current schema for each dataset"""
+        for dataset in store.datasets.values():
+            # Map the dataset name if necessary
+            tableName: str = self.getStagingTableNameForDataset(dataset)
+            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
+            createOrUpdateTable(mergeEngine, stagingTable)
+
+    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
+        """This will make sure the merge table exists and has the current schema for each dataset"""
+        for dataset in store.datasets.values():
+            # Map the dataset name if necessary
+            tableName: str = self.getMergeTableNameForDataset(dataset)
+            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
+            createOrUpdateTable(mergeEngine, mergeTable)
+            # Ensure the unique constraint exists for ds_surf_key_hash
+            self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
@@ -878,16 +920,6 @@ class SnapshotMergeJob:
         print(f"DEBUG: Total merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
         return total_inserted, total_updated, total_deleted
 
-    def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
-        """Check the current batch status for a given key. Returns the status or None if no batch exists."""
-        result = connection.execute(text(f"""
-            SELECT bm."batch_status"
-            FROM {self.getBatchMetricsTableName()} bm
-            WHERE bm."key" = '{key}' AND bm."batch_id" = {batchId}
-        """))
-        row = result.fetchone()
-        return row[0] if row else None
-
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         with mergeEngine.begin() as connection:
             batchId: int = self.getCurrentBatchId(connection, key)
@@ -963,32 +995,6 @@ class SnapshotMergeJob:
             key = self.store.name
             currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus
-
-    def getCurrentBatchId(self, connection: Connection, key: str) -> int:
-        """Get the current batch ID for a given key, create a new batch counter if one doesn't exist."""
-        # First check if the table exists
-        from sqlalchemy import inspect
-        inspector = inspect(connection.engine)
-        table_name = self.getBatchCounterTableName()
-        print(f"DEBUG: Checking if table {table_name} exists")
-        if not inspector.has_table(table_name):
-            print(f"DEBUG: Table {table_name} does not exist, creating it")
-            # Create the table
-            t = self.getBatchCounterTable()
-            t.create(connection.engine)
-            print(f"DEBUG: Table {table_name} created")
-        else:
-            print(f"DEBUG: Table {table_name} already exists")
-
-        # Now query the table
-        result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getBatchCounterTableName()} WHERE key = \'{key}\''))
-        row = result.fetchone()
-        if row is None:
-            # Insert a new batch counter
-            connection.execute(text(f'INSERT INTO {self.getBatchCounterTableName()} (key, "currentBatch") VALUES (\'{key}\', 1)'))
-            return 1
-        else:
-            return row[0]
 
 
 def main():
