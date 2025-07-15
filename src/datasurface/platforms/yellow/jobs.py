@@ -212,15 +212,10 @@ class SnapshotMergeJob:
                 isolation_level="READ COMMITTED"
             )
         elif isinstance(container, DB2Database):
-            return create_engine(
-                'ibm_db_sa://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                    username=userName,
-                    password=password,
-                    hostName=container.hostPortPair.hostName,
-                    port=container.hostPortPair.port,
-                    databaseName=container.databaseName
-                ),
-                isolation_level="READ COMMITTED"
+            raise Exception(
+                "DB2 database support is not available on this platform. "
+                "IBM does not provide ARM64-compatible drivers for DB2. "
+                "Please use PostgreSQL, MySQL, Oracle, or SQL Server instead."
             )
         else:
             raise Exception(f"Unsupported container type {type(container)}")
