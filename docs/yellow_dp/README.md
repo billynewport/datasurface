@@ -2,6 +2,15 @@
 
 This is a builtin Yellow, a powerful DataPlatform that can be used with DataSurface. It uses a Postgres instance to store its data. The data consists of staging data and merge tables. Consumers directly query the merge tables through Workspace specific views. Workspaces should use the LogicalDataContainer as their DataContainer.
 
+The technical components of the YellowDataPlatform are:
+
+- Kubernetes for container orchestration
+- Airflow for job scheduling
+- Postgres for staging and merge data storage. Consumers query the data in their Workspaces from this postgres database.
+- Ingestion from SQL databases and Kafka Connect.
+
+The YellowDataPlatform is designed to be a lightweight, easy to start DataPlatform that will work for many projects.
+
 ## Staging Data
 
 Staging data is captured from a source system and stored in a staging table. The data stays there and is processed by a job to augment the data in the merge table. For example, staging data might be grouped by a batch id and each record might have a enum column indicating whether the record represents an insert, update or a delete. The job will then process the data and insert it into the merge table. Staging data tables are used by the DataPlatform and not typically used by consumers of Workspace data. They are internal tables.
@@ -20,10 +29,12 @@ I'm using postgres because for the vast majority of use cases, it's good enough 
 
 So, we will start YellowDataPlatform with Postgres and Airflow as the job scheduler running in kubernetes. This is a simple system and with Postgres servers with terabytes of storage, lots of memory and lots of cores, it can scale well. It also supports indexes which makes performance tuning relatively easy compared with native columnar storage databases.
 
+Airflow also has limits when used in this fashion. Each ingestion stream is implemented as its own DAG in airflow. Airflow is limited to maybe 500 DAGs total. This is not going to be an issue for many users. But, the good news with DataSurface is that there will be better DataPlatforms and moving to them will be transparent to the user. YellowDataPlatform is intended to be a lightweight, easy to start DataPlatform that will work for many projects.
+
 ## Columnar future
 
 Once we have a working system then we can look at refactoring it in to a portable layer which is common across SQL based engines and then implement a (hopefully) thin layer for each SQL data container: Postgres, Athena, Azure SQL, Snowflake
 
 ## Container Orchestration
 
-The YellowDataPlatform will be designed alongside the Kubernetes engine. Once this is working then we can look at other container orchestration engines.
+The YellowDataPlatform will be designed to run on the Kubernetes engine. Once this is working then we can look at other container orchestration engines.
