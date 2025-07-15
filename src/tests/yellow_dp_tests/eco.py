@@ -75,9 +75,9 @@ def createEcosystem() -> Ecosystem:
             capture_metadata=SQLSnapshotIngestion(
                 PostgresDatabase(
                     "Test_DB",  # Model name for database
-                    HostPortPair("localhost", 5432),  # Host and port for database
-                    {LocationKey("MyCorp:USA/NY_1")},  # Locations for database
-                    "test_db"  # Database name
+                    hostPort=HostPortPair("localhost", 5432),  # Host and port for database
+                    locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                    databaseName="test_db"  # Database name
                 ),
                 CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
                 IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
@@ -115,9 +115,9 @@ def createEcosystem() -> Ecosystem:
             "Consumer1",
             PostgresDatabase(
                 "Consumer_DB",  # Model name for consumer database
-                HostPortPair("localhost", 5432),  # Host and port for database
-                {LocationKey("MyCorp:USA/NY_1")},  # Locations for database
-                "consumer_db"  # Database name
+                hostPort=HostPortPair("localhost", 5432),  # Host and port for database
+                locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                databaseName="consumer_db"  # Database name
             ),
             DatasetGroup(
                 "TestDSG",

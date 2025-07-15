@@ -240,8 +240,8 @@ class SQLAlchemyDataContainerReconciler:
                 'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
                     username=userName,
                     password=password,
-                    hostName=container.connection.hostName,
-                    port=container.connection.port,
+                    hostName=container.hostPortPair.hostName,
+                    port=container.hostPortPair.port,
                     databaseName=container.databaseName
                     )
             )

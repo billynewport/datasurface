@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, DataContainer, PostgresDatabase, Dataset, IngestionConsistencyType
+from datasurface.md import (
+    Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, DataContainer, PostgresDatabase,
+    MySQLDatabase, OracleDatabase, SQLServerDatabase, DB2Database, Dataset, IngestionConsistencyType
+)
 from sqlalchemy import create_engine, Table, MetaData, text
 import sqlalchemy
 from sqlalchemy.engine import Engine, Connection
@@ -169,8 +172,52 @@ class SnapshotMergeJob:
                 'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
                     username=userName,
                     password=password,
-                    hostName=container.connection.hostName,
-                    port=container.connection.port,
+                    hostName=container.hostPortPair.hostName,
+                    port=container.hostPortPair.port,
+                    databaseName=container.databaseName
+                ),
+                isolation_level="READ COMMITTED"
+            )
+        elif isinstance(container, MySQLDatabase):
+            return create_engine(
+                'mysql+pymysql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
+                    username=userName,
+                    password=password,
+                    hostName=container.hostPortPair.hostName,
+                    port=container.hostPortPair.port,
+                    databaseName=container.databaseName
+                ),
+                isolation_level="READ COMMITTED"
+            )
+        elif isinstance(container, OracleDatabase):
+            return create_engine(
+                'oracle+cx_oracle://{username}:{password}@{hostName}:{port}/?service_name={databaseName}'.format(
+                    username=userName,
+                    password=password,
+                    hostName=container.hostPortPair.hostName,
+                    port=container.hostPortPair.port,
+                    databaseName=container.databaseName
+                ),
+                isolation_level="READ COMMITTED"
+            )
+        elif isinstance(container, SQLServerDatabase):
+            return create_engine(
+                'mssql+pyodbc://{username}:{password}@{hostName}:{port}/{databaseName}?driver=ODBC+Driver+17+for+SQL+Server'.format(
+                    username=userName,
+                    password=password,
+                    hostName=container.hostPortPair.hostName,
+                    port=container.hostPortPair.port,
+                    databaseName=container.databaseName
+                ),
+                isolation_level="READ COMMITTED"
+            )
+        elif isinstance(container, DB2Database):
+            return create_engine(
+                'ibm_db_sa://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
+                    username=userName,
+                    password=password,
+                    hostName=container.hostPortPair.hostName,
+                    port=container.hostPortPair.port,
                     databaseName=container.databaseName
                 ),
                 isolation_level="READ COMMITTED"

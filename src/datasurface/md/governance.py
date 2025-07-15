@@ -712,28 +712,99 @@ class HostPortSQLDatabase(SQLDatabase):
         self.hostPortPair.lint(tree.addSubTree(self.hostPortPair))
 
 
-class PostgresDatabase(SQLDatabase):
+class PostgresDatabase(HostPortSQLDatabase):
     """This is a Postgres database"""
-    def __init__(self, name: str, connection: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, databaseName)
-        self.connection: HostPortPair = connection
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
+        super().__init__(name, locations, hostPort, databaseName)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "connection": self.connection.to_json()})
+        rc.update({"_type": self.__class__.__name__})
         return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, PostgresDatabase)):
-            return super().__eq__(other) and self.connection == other.connection
+            return super().__eq__(other)
         return False
 
     def __hash__(self) -> int:
         return hash(self.name)
 
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        super().lint(eco, tree)
-        self.connection.lint(tree.addSubTree(self.connection))
+
+class MySQLDatabase(HostPortSQLDatabase):
+    """This is a MySQL database"""
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
+        super().__init__(name, locations, hostPort, databaseName)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, MySQLDatabase)):
+            return super().__eq__(other)
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class OracleDatabase(HostPortSQLDatabase):
+    """This is an Oracle database"""
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
+        super().__init__(name, locations, hostPort, databaseName)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, OracleDatabase)):
+            return super().__eq__(other)
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class SQLServerDatabase(HostPortSQLDatabase):
+    """This is a SQL Server database"""
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
+        super().__init__(name, locations, hostPort, databaseName)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, SQLServerDatabase)):
+            return super().__eq__(other)
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class DB2Database(HostPortSQLDatabase):
+    """This is a DB2 database"""
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
+        super().__init__(name, locations, hostPort, databaseName)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, DB2Database)):
+            return super().__eq__(other)
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
 
 class ObjectStorage(DataContainer):

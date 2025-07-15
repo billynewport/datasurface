@@ -204,8 +204,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
             context: dict[str, Any] = {
                 "ingest_nodes": ingest_nodes,
-                "database_host": platform.mergeStore.connection.hostName,
-                "database_port": platform.mergeStore.connection.port,
+                "database_host": platform.mergeStore.hostPortPair.hostName,
+                "database_port": platform.mergeStore.hostPortPair.port,
                 "database_name": platform.mergeStore.databaseName,
                 "database_user": pg_user,
                 "database_password": pg_password,
@@ -505,7 +505,7 @@ class YellowDataPlatform(DataPlatform):
 
         self.mergeStore = PostgresDatabase(
             name=f"{postgresName}-db",
-            connection=HostPortPair(f"{postgresName}.{namespace}.svc.cluster.local", 5432),
+            hostPort=HostPortPair(f"{postgresName}.{namespace}.svc.cluster.local", 5432),
             locations=self.locs,
             databaseName="datasurface_merge"
         )
