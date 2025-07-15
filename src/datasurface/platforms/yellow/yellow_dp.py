@@ -548,7 +548,7 @@ class YellowDataPlatform(DataPlatform):
     def getSupportedVendors(self, eco: Ecosystem) -> set[CloudVendor]:
         return {CloudVendor.PRIVATE}
 
-    def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
+    def isWorkspaceDataContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         return True
 
     def isLegalKubernetesNamespaceName(self, name: str) -> bool:

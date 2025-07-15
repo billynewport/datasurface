@@ -2761,7 +2761,8 @@ class DataPlatform(Documentable, JSONable):
         pass
 
     @abstractmethod
-    def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
+    def isWorkspaceDataContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
+        # This is called to check if a DataContainer specified by a Workspace is supported by the DataPlatform assigned to it.
         pass
 
     @abstractmethod
@@ -3180,7 +3181,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                 # Now check the platform is happy with the containers for the Workspace
                 if (ws.dataContainer):
                     ws.dataContainer.lint(eco, tree)
-                    if (not platform.isContainerSupported(eco, ws.dataContainer)):
+                    if (not platform.isWorkspaceDataContainerSupported(eco, ws.dataContainer)):
                         tree.addProblem(f"DataPlatform {platform.name} does not support the Workspace data container {ws.dataContainer.name}",
                                         ProblemSeverity.ERROR)
         else:

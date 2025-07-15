@@ -100,7 +100,7 @@ class LegacyDataPlatform(DataPlatform):
     def getCredentialStore(self) -> CredentialStore:
         return NoopCredentialStore()
 
-    def isContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
+    def isWorkspaceDataContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
         # For a Legacy platform, we assume if its configured then its supported. This data platform
         # doesn't implement anything, it just exposes existing data flows to the governance code.
         return True
