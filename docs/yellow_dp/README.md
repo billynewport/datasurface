@@ -1,10 +1,10 @@
 # Yellow Data Platform
 
-This is a builtin Yellow but powerful DataPlatform that can be used with DataSurface. It uses a Postgres instance to store its data. The data consists of staging data and merge tables. Consumers directly query the merge tables through Workspace specific views. Workspaces should use the LogicalDataContainer as their DataContainer.
+This is a builtin Yellow, a powerful DataPlatform that can be used with DataSurface. It uses a Postgres instance to store its data. The data consists of staging data and merge tables. Consumers directly query the merge tables through Workspace specific views. Workspaces should use the LogicalDataContainer as their DataContainer.
 
 ## Staging Data
 
-Staging data is captured from a source system and stored in a table. The data stays there and is processed by a job to augment the data in the merge table. For example, staging data might be grouped by a batch id and each record might have a enum column indicating whether the record represents an insert, update or a delete. The job will then process the data and insert it into the merge table. Staging data tables are used by the DataPlatform and not typically used by consumers of Workspace data. They are internal tables.
+Staging data is captured from a source system and stored in a staging table. The data stays there and is processed by a job to augment the data in the merge table. For example, staging data might be grouped by a batch id and each record might have a enum column indicating whether the record represents an insert, update or a delete. The job will then process the data and insert it into the merge table. Staging data tables are used by the DataPlatform and not typically used by consumers of Workspace data. They are internal tables.
 
 ## Merge Tables
 
@@ -16,9 +16,9 @@ For a milestoned MERGE, the MERGE table will contain two extra columns per recor
 
 ## Why use Postgres?
 
-I'm using postgres because for the vast majority of use cases, it's good enough for the job. It's also a SQL based platform. SQL based is important because SQL is standard. We can imagine replacing postgres with a columnar storage database such as Snowflake or Athena or Azure SQL or similar without much work. These columnar storage databases are getting better everyday and all are focused on efficiently executing SQL. Thus, it makes sense to bet on using SQL rather than Spark as the SQL execution is getting better everyday, portable, and lets face it, after 40 years of SQL, it's not going anyway anytime soon. A user could use a postgres database hosted on AWS for example. AWS features servers which can scale up to 192 vCores with 768GB of RAM. I'm not saying postgres can run on 192 vCores, I'm sure there are critical section bottlenecks but a m7i.8xlarge box with 32 vCores and 128GB of RAM would be a very large postgres instance and be capable of a surprising amount of work. Remember, the fastest distributed database is a single node database large enough to execute the workload. Distribution has a cost and a single node system will outperform a distributed system up to a certain point.There are also managed AWS RDS instances which could be used.
+I'm using postgres because for the vast majority of use cases, it's good enough for the job. It's also a SQL based platform. SQL based is important because SQL is standard. We can imagine replacing postgres with a columnar storage database such as Snowflake or Athena or Azure SQL or similar without much work. These columnar storage databases are getting better everyday and all are focused on efficiently executing SQL. Thus, it makes sense to bet on using SQL rather than Spark as the SQL execution is getting better everyday, portable, and lets face it, after 40 years of SQL, it's not going anyway anytime soon. A user could use a postgres database hosted on AWS for example. AWS features servers which can scale up to 192 vCores with 768GB of RAM. I'm not saying postgres can run on 192 vCores, I'm sure there are critical section bottlenecks but a m7i.8xlarge box with 32 vCores and 128GB of RAM would be a very large postgres instance and be capable of a surprising amount of work. Remember, the fastest distributed database is a single node database large enough to execute the workload. Distribution has a cost and a single node system will outperform a distributed system up to a certain point. There are also managed AWS RDS instances which could be used.
 
-So, we will start YellowDataPlatform with Postgres and Airflow as the job scheduler. This is a simple system and with Postgres servers with terabytes of storage, lots of memory and lots of cores, it can scale well. It also supports indexes which makes performance tuning relatively easy compared with native columnar storage databases.
+So, we will start YellowDataPlatform with Postgres and Airflow as the job scheduler running in kubernetes. This is a simple system and with Postgres servers with terabytes of storage, lots of memory and lots of cores, it can scale well. It also supports indexes which makes performance tuning relatively easy compared with native columnar storage databases.
 
 ## Columnar future
 
@@ -26,4 +26,4 @@ Once we have a working system then we can look at refactoring it in to a portabl
 
 ## Container Orchestration
 
-The YellowDataPlatform will be designed alongside the Docker Swarm RenderEngine. Once this is working then we can look at other container orchestration engines. An obvious next step is Kubernetes.
+The YellowDataPlatform will be designed alongside the Kubernetes engine. Once this is working then we can look at other container orchestration engines.

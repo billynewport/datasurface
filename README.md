@@ -9,20 +9,15 @@
 |-- docs                        # Contains documentation for the project
 |-- Diary                       # Contains the diary of the project, this is a stream of consciousness type of writing about whats happening or the thinking at a given point in time
     |-- BillyN                  # Contains the diary of BillyN with a file per month.
-|-- java                        # Contains the Java code for the DataSurface
-    |-- dmsingestor             # Contains the DataSurface Ingestor Spark Job code
-        |-- build.gradle        # Gradle build file for the DataSurface Ingestor Spark Job
-        |-- src                 # Source code
 |-- src
     |-- datasurface             # Contains the DataSurface Catalog Python code
+        |-- cmd                 # Contains the command line utilities for container images   
         |-- codegen             # Contains code to generate python model code representing SQL table schemas
         |-- handler             # Contains the code to validate model changes and verify that pull requests are valid
         |-- md                  # Contains the model metadata code itself. This is the model of the data ecosystem
         |-- platforms           # Contains the DataSurface DataPlatform Python code
             |-- legacy          # Contains the legacy DataPlatform Python code
-            |-- simpledp        # Contains the SimpleDataPlatform Python code
-        |renderengine
-            |-- swarm           # A Docker swarm based render engine
+            |-- yellow_dp       # Contains the YellowDataPlatform Python code
     |-- tests                   # Contains the tests for the DataSurface Catalog Python code
 ```
 

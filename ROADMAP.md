@@ -1,6 +1,6 @@
 # Data surface ROAD MAP
 
-The plan is to have the model working and a suite of DataPlatforms written for it to use. Initially, it was planned to have cloud platforms supported initially but the cost of developing these and testing them is high. So, we pivoted to a private DataPlatform as the initial delivery. This will use Kafka Connect with Minio for storage and typical local databases such as Oracle/DB2/Postgres and so on. It will use Debezium for CDC with Kafka connect.
+The plan is to have the model working and a suite of DataPlatforms written for it to use. Initially, it was planned to have cloud platforms supported initially but the cost of developing these and testing them is high. So, we pivoted to a private DataPlatform, YellowDataPlatform, as the initial delivery. This will use Kafka Connect with Minio for storage and typical local databases such as Oracle/DB2/Postgres and so on. It will use Debezium for CDC with Kafka connect. Why Yellow? Why not? We'll be calling the first set of DataPlatforms after the primary colors.
 
 Once thats working then we will revisit cloud. Confluent should be an easy one given it's basically managed Kafka connect on AWS/GCP or Azure. Ideally, we'd like these to be a portable as possible, built around Kubernetes/Kafka Connect and so on. This will allow the DataPlatform to be run on any cloud or on prem.
 
@@ -14,11 +14,11 @@ We're building a REST API to the datasurface models. This is being packaged as a
 
 The way this would be used is as a sidekick container in a Kubernetes job for example. The sidekick or init container runs with a copy of the model checked out of the repository. Then it runs on a localhost and the job can query the model easily. If the job is written in python then it can be consumed directly.
 
-## Phase 3: ZeroDataPlatform Batch/Streaming Support using Postgres,Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
+## Phase 3: YellowDataPlatform Batch/Streaming Support using Postgres,Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
 
-This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support Kafka connect to import data from a variety of sources and support live and milestoned data. This is the ZeroDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources. It is designed around Docker Swarm for the container orchestration.
+This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support direct SQL ingestion as well asKafka connect to import data from a variety of sources and support live and milestoned data. This is the YellowDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources. It is designed around Docker Swarm for the container orchestration.
 
-You can read about it [here](docs/simpledp/README.md).
+You can read about it [here in the design docs](docs/yellow_dp/README.md).
 
 ## Phase 4: SecurityModule implementation
 

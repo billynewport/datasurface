@@ -56,7 +56,7 @@ A data platform is a mechanism to handle the follow chores:
 
 ## Example DataPlatform implementations
 
-DataSurface is provided with a SimpleDataPlatform. You can read about it [here](simpledp/README.md).
+DataSurface is provided with a YellowDataPlatform. [You can read about it here](yellow_dp/README.md).
 
 ## Packaging DataPlatforms as Docker containers
 
@@ -79,8 +79,8 @@ Now, even a simple cron job can be used to run DataSurface to:
 
 If all aspects of a DataPlatform are written in Python then it's likely easiest just to check out the primary model from github and then load it. If the DataPlatform is written in languages other than Python then it will need a way to read model artifacts such as Datastores, ingestion metadata, schemas and so on. DataSurface provides a REST API to the model for this purpose. It can be easily started as a docker container and then used to query the model. The REST API is read only. It's documented [here](REST_API.md).
 
-## The BrokerRenderEngine
+## How DataPlatforms are assigned to Workspaces
 
-This is responsible for handling new model revisions. It is the top level component which is responsible for handling a model change and distributing that event to DataPlatforms. It will calculate the intention graphs and then invoke each DataPlatform to handle it's intention graph subset. It provides an computational and credential environment within which DataPlatforms can operate. This is documented in the [SwarmRenderer.md](SwarmRenderer.md) file.
+Workspaces represent a collection of DatasetGroups for a consumer, an application. Consumers can describe the their requirements for how they want the data on a per DatasetGroup basis. We expect more consumers will have a single DatasetGroup.
 
-DataPlatforms themselves can be written in a portable manner and wrapped with the Credential infrastructure for them to execute.
+The actual DataPlatform used for a DatasetGroup is assigned by a central team. The assignment is semi-permanent. That DataPlatform will then start ingesting the data from the various data producers which have data required by the consumer and flow it continously to the DataContainer the consumer is using to query the data. Datasurface expects that over time, a consumers requirements will be better served using newer more efficient DataPlatforms which will inevitably come along over time. A newer DataPlatform can be assigned concurrently with the original one and both can serve the consumer until the consumer decides to move to the newer DataPlatform at which time the original DataPlatform will be decommissioned.
