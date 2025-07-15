@@ -537,8 +537,8 @@ class SnapshotMergeJob:
                     quoted_columns = [f'"{col}"' for col in allColumns]
                     selectSql = f"""
                     SELECT {', '.join(quoted_columns)},
-                        MD5({allColumnsHashExpr}) as ds_surf_all_hash,
-                        MD5({keyColumnsHashExpr}) as ds_surf_key_hash
+                        MD5({allColumnsHashExpr}) as {self.schemaProjector.ALL_HASH_COLUMN_NAME},
+                        MD5({keyColumnsHashExpr}) as {self.schemaProjector.KEY_HASH_COLUMN_NAME}
                     FROM {sourceTableName}
                     LIMIT {batchSize} OFFSET {offset}
                     """
@@ -569,7 +569,11 @@ class SnapshotMergeJob:
                             batchValues.append(insertValues)
 
                         # Build insert statement with SQLAlchemy named parameters
-                        quoted_columns = [f'"{col}"' for col in allColumns] + ["ds_surf_batch_id", "ds_surf_all_hash", "ds_surf_key_hash"]
+                        quoted_columns = [f'"{col}"' for col in allColumns] + \
+                            [
+                                f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
+                                f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
+                                f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"']
                         placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
                         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
@@ -661,7 +665,8 @@ class SnapshotMergeJob:
                 quoted_all_columns = [f'"{col}"' for col in allColumns]
 
                 # Get total count for processing
-                count_result = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
+                count_result = connection.execute(
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
@@ -672,20 +677,20 @@ class SnapshotMergeJob:
                     batch_upsert_sql = f"""
                     WITH batch_data AS (
                         SELECT * FROM {stagingTableName}
-                        WHERE ds_surf_batch_id = {batchId}
-                        ORDER BY ds_surf_key_hash
+                        WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
+                        ORDER BY {self.schemaProjector.KEY_HASH_COLUMN_NAME}
                         LIMIT {batch_size} OFFSET {offset}
                     )
-                    INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
-                    SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.ds_surf_all_hash, b.ds_surf_key_hash
+                    INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {self.schemaProjector.BATCH_ID_COLUMN_NAME}, {self.schemaProjector.ALL_HASH_COLUMN_NAME}, {self.schemaProjector.KEY_HASH_COLUMN_NAME})
+                    SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.{self.schemaProjector.ALL_HASH_COLUMN_NAME}, b.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
                     FROM batch_data b
-                    ON CONFLICT (ds_surf_key_hash)
+                    ON CONFLICT ({self.schemaProjector.KEY_HASH_COLUMN_NAME})
                     DO UPDATE SET
                         {', '.join([f'"{col}" = EXCLUDED."{col}"' for col in allColumns])},
-                        ds_surf_batch_id = EXCLUDED.ds_surf_batch_id,
-                        ds_surf_all_hash = EXCLUDED.ds_surf_all_hash,
-                        ds_surf_key_hash = EXCLUDED.ds_surf_key_hash
-                    WHERE {mergeTableName}.ds_surf_all_hash != EXCLUDED.ds_surf_all_hash
+                        {self.schemaProjector.BATCH_ID_COLUMN_NAME} = EXCLUDED.{self.schemaProjector.BATCH_ID_COLUMN_NAME},
+                        {self.schemaProjector.ALL_HASH_COLUMN_NAME} = EXCLUDED.{self.schemaProjector.ALL_HASH_COLUMN_NAME},
+                        {self.schemaProjector.KEY_HASH_COLUMN_NAME} = EXCLUDED.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
+                    WHERE {mergeTableName}.{self.schemaProjector.ALL_HASH_COLUMN_NAME} != EXCLUDED.{self.schemaProjector.ALL_HASH_COLUMN_NAME}
                     """
 
                     print(f"DEBUG: Executing batch upsert for offset {offset}")
@@ -696,8 +701,8 @@ class SnapshotMergeJob:
                 DELETE FROM {mergeTableName} m
                 WHERE NOT EXISTS (
                     SELECT 1 FROM {stagingTableName} s
-                    WHERE s.ds_surf_batch_id = {batchId}
-                    AND s.ds_surf_key_hash = m.ds_surf_key_hash
+                    WHERE s.{self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
+                    AND s.{self.schemaProjector.KEY_HASH_COLUMN_NAME} = m.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
                 )
                 """
                 print(f"DEBUG: Executing deletion query for dataset {datasetToMergeName}")
@@ -708,13 +713,13 @@ class SnapshotMergeJob:
                 # Get final metrics for this dataset more efficiently
                 metrics_sql = f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE ds_surf_batch_id = {batchId}) as inserted_count,
-                    COUNT(*) FILTER (WHERE ds_surf_batch_id != {batchId} AND ds_surf_key_hash IN (
-                        SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                    COUNT(*) FILTER (WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}) as inserted_count,
+                    COUNT(*) FILTER (WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} != {batchId} AND {self.schemaProjector.KEY_HASH_COLUMN_NAME} IN (
+                        SELECT {self.schemaProjector.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
                     )) as updated_count
                 FROM {mergeTableName}
-                WHERE ds_surf_key_hash IN (
-                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                WHERE {self.schemaProjector.KEY_HASH_COLUMN_NAME} IN (
+                    SELECT {self.schemaProjector.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
                 )
                 """
 
@@ -744,6 +749,8 @@ class SnapshotMergeJob:
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
+        assert self.schemaProjector is not None
+        sp: YellowSchemaProjector = self.schemaProjector
 
         with mergeEngine.begin() as connection:
             state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
@@ -764,7 +771,8 @@ class SnapshotMergeJob:
                 quoted_all_columns = [f'"{col}"' for col in allColumns]
 
                 # Get total count for processing
-                count_result = connection.execute(text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}"))
+                count_result = connection.execute(
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
@@ -774,29 +782,29 @@ class SnapshotMergeJob:
                 # We need to identify records that exist in merge but not in staging (deletions)
                 staging_with_deletes_sql = f"""
                 WITH staging_records AS (
-                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 ),
                 merge_records AS (
-                    SELECT ds_surf_key_hash FROM {mergeTableName}
+                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {mergeTableName}
                 ),
                 records_to_delete AS (
-                    SELECT m.ds_surf_key_hash
+                    SELECT m.{sp.KEY_HASH_COLUMN_NAME}
                     FROM merge_records m
                     WHERE NOT EXISTS (
-                        SELECT 1 FROM staging_records s WHERE s.ds_surf_key_hash = m.ds_surf_key_hash
+                        SELECT 1 FROM staging_records s WHERE s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
                     )
                 )
                 SELECT
                     s.*,
                     'INSERT' as operation
                 FROM {stagingTableName} s
-                WHERE s.ds_surf_batch_id = {batchId}
+                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 UNION ALL
                 SELECT
                     m.*,
                     'DELETE' as operation
                 FROM {mergeTableName} m
-                INNER JOIN records_to_delete d ON m.ds_surf_key_hash = d.ds_surf_key_hash
+                INNER JOIN records_to_delete d ON m.{sp.KEY_HASH_COLUMN_NAME} = d.{sp.KEY_HASH_COLUMN_NAME}
                 """
 
                 # Create temporary staging table with operation column
@@ -810,17 +818,17 @@ class SnapshotMergeJob:
                 merge_sql = f"""
                 MERGE INTO {mergeTableName} m
                 USING {temp_staging_table} s
-                ON m.ds_surf_key_hash = s.ds_surf_key_hash
+                ON m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
                 WHEN MATCHED AND s.operation = 'DELETE' THEN DELETE
-                WHEN MATCHED AND s.operation = 'INSERT' AND m.ds_surf_all_hash != s.ds_surf_all_hash THEN
+                WHEN MATCHED AND s.operation = 'INSERT' AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME} THEN
                     UPDATE SET
                         {', '.join([f'"{col}" = s."{col}"' for col in allColumns])},
-                        ds_surf_batch_id = {batchId},
-                        ds_surf_all_hash = s.ds_surf_all_hash,
-                        ds_surf_key_hash = s.ds_surf_key_hash
+                        {sp.BATCH_ID_COLUMN_NAME} = {batchId},
+                        {sp.ALL_HASH_COLUMN_NAME} = s.{sp.ALL_HASH_COLUMN_NAME},
+                        {sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
                 WHEN NOT MATCHED AND s.operation = 'INSERT' THEN
-                    INSERT ({', '.join(quoted_all_columns)}, ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash)
-                    VALUES ({', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.ds_surf_all_hash, s.ds_surf_key_hash)
+                    INSERT ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
+                    VALUES ({', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME}, s.{sp.KEY_HASH_COLUMN_NAME})
                 """
 
                 print(f"DEBUG: Executing MERGE with DELETE for dataset {datasetToMergeName}")
@@ -830,13 +838,13 @@ class SnapshotMergeJob:
                 # Note: PostgreSQL doesn't return row counts from MERGE, so we need to calculate them
                 metrics_sql = f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE ds_surf_batch_id = {batchId}) as inserted_count,
-                    COUNT(*) FILTER (WHERE ds_surf_batch_id != {batchId} AND ds_surf_key_hash IN (
-                        SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                    COUNT(*) FILTER (WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}) as inserted_count,
+                    COUNT(*) FILTER (WHERE {sp.BATCH_ID_COLUMN_NAME} != {batchId} AND {sp.KEY_HASH_COLUMN_NAME} IN (
+                        SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
                     )) as updated_count
                 FROM {mergeTableName}
-                WHERE ds_surf_key_hash IN (
-                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                WHERE {sp.KEY_HASH_COLUMN_NAME} IN (
+                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 )
                 """
 
@@ -848,10 +856,10 @@ class SnapshotMergeJob:
                 # For deletions, count records that were in merge but not in staging
                 deleted_count_sql = f"""
                 SELECT COUNT(*) FROM {mergeTableName} m
-                WHERE m.ds_surf_key_hash NOT IN (
-                    SELECT ds_surf_key_hash FROM {stagingTableName} WHERE ds_surf_batch_id = {batchId}
+                WHERE m.{sp.KEY_HASH_COLUMN_NAME} NOT IN (
+                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 )
-                AND m.ds_surf_batch_id != {batchId}
+                AND m.{sp.BATCH_ID_COLUMN_NAME} != {batchId}
                 """
                 deleted_result = connection.execute(text(deleted_count_sql))
                 dataset_deleted = deleted_result.fetchone()[0]
