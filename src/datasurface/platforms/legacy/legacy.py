@@ -120,6 +120,10 @@ class LegacyDataPlatform(DataPlatform):
         """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
         raise NotImplementedError("createSchemaProjector not implemented")
 
+    def lintWorkspace(self, eco: Ecosystem, tree: ValidationTree, ws: 'Workspace', dsgName: str):
+        # Allow all basically.
+        pass
+
 
 class LegacyDataPlatformChooser(DataPlatformChooser):
     """This chooses the legacy DataPlatform and allows the specifics of the particular

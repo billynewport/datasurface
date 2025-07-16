@@ -9,11 +9,12 @@ from datasurface.md import Ecosystem, LocationKey
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
-from datasurface.platforms.yellow import YellowDataPlatform
+from datasurface.platforms.yellow import YellowDataPlatform, YellowMilestoneStrategy
 from datasurface.md import CloudVendor, DefaultDataPlatform, \
-        DataPlatformKey, WorkspaceFixedDataPlatform
+        DataPlatformKey, WorkspacePlatformConfig
 from datasurface.md import ValidationTree
-from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType
+from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType, \
+    ConsumerRetentionRequirements, DataRetentionPolicy, DataLatency
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import VarChar, Date
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
@@ -36,7 +37,8 @@ def createEcosystem() -> Ecosystem:
                 Credential("postgres", CredentialType.USER_PASSWORD),
                 Credential("git", CredentialType.API_TOKEN),
                 Credential("slack", CredentialType.API_TOKEN),
-                "airflow")
+                "airflow",
+                milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY)
         ],
         default_data_platform=DefaultDataPlatform(DataPlatformKey("Test_DP")),
         governance_zone_declarations=[
@@ -124,7 +126,13 @@ def createEcosystem() -> Ecosystem:
                 sinks=[
                     DatasetSink("Store1", "people")
                 ],
-                platform_chooser=WorkspaceFixedDataPlatform(DataPlatformKey("Test_DP"))
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataRetentionPolicy.LIVE_ONLY,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
             )
         )
     )

@@ -8,10 +8,11 @@ from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ec
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
-    DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList
+    DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace
+from datasurface.md.governance import DatasetGroup
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
     ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
-from datasurface.md.exceptions import ObjectDoesntExistException
+from datasurface.md.exceptions import DatastoreDoesntExistException, ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
@@ -677,6 +678,24 @@ class YellowDataPlatform(DataPlatform):
 
     def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
         return YellowSchemaProjector(eco, self)
+
+    def lintWorkspace(self, eco: Ecosystem, tree: ValidationTree, ws: 'Workspace', dsgName: str):
+        # Here, we want to make sure this Platform is configured to support the intended milestone strategy.
+        dsg: Optional[DatasetGroup] = ws.dsgs[dsgName]
+        if dsg is None:
+            tree.addRaw(UnknownObjectReference(f"Unknown dataset group {dsgName}", ProblemSeverity.ERROR))
+        else:
+            chooser: Optional[DataPlatformChooser] = dsg.platformMD
+            if chooser is not None:
+                if isinstance(chooser, WorkspacePlatformConfig):
+                    if self.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                        if chooser.retention.policy != DataRetentionPolicy.FORENSIC:
+                            tree.addRaw(AttributeValueNotSupported(chooser.retention.policy, [DataRetentionPolicy.FORENSIC.name], ProblemSeverity.ERROR))
+                    elif self.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                        if chooser.retention.policy != DataRetentionPolicy.LIVE_ONLY:
+                            tree.addRaw(AttributeValueNotSupported(chooser.retention.policy, [DataRetentionPolicy.LIVE_ONLY.name], ProblemSeverity.ERROR))
+                else:
+                    tree.addRaw(ObjectWrongType(chooser, WorkspacePlatformConfig, ProblemSeverity.ERROR))
 
 
 class YellowSchemaProjector(SchemaProjector):

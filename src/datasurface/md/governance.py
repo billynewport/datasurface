@@ -2772,6 +2772,10 @@ class DataPlatform(Documentable, JSONable):
         """This returns a schema projector which can be used to project the dataset schema to a schema compatible with the container"""
         raise NotImplementedError("createSchemaProjector not implemented")
 
+    @abstractmethod
+    def lintWorkspace(self, eco: Ecosystem, tree: ValidationTree, ws: 'Workspace', dsgName: str):
+        raise NotImplementedError("lintWorkspace not implemented")
+
 
 class UnsupportedIngestionType(ValidationProblem):
     """This indicates an ingestion type is not supported by a data platform"""
@@ -3050,6 +3054,12 @@ class DSGDataPlatformAssignment(UserDSLObject):
         w: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(self.workspace)
         if w is None:
             tree.addRaw(UnknownObjectReference(f"Unknown workspace {self.workspace}", ProblemSeverity.ERROR))
+        else:
+            dp: Optional[DataPlatform] = eco.getDataPlatform(self.dataPlatform.name)
+            if dp is None:
+                tree.addRaw(UnknownObjectReference(f"Unknown data platform {self.dataPlatform.name}", ProblemSeverity.ERROR))
+            else:
+                dp.lintWorkspace(eco, tree.addSubTree(dp), w.workspace, self.dsgName)
 
 
 class DatasetGroupDataPlatformAssignments(UserDSLObject):
