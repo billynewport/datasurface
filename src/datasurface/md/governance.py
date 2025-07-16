@@ -572,6 +572,36 @@ class DataContainer(Documentable, JSONable):
         return None
 
 
+class DataPlatformManagedDataContainer(DataContainer):
+    """This is a data container that is managed by a data platform. This is used on Workspaces to specify a DataContainer that is provided by the DataPlatform
+    assigned to the Workspace. Some DataPlatforms may only support this type of container if they do not support pushing data to different explicit data containers for
+    Workspaces, for example, a consumer wants the data pushed to an existing database where they want the data along with other data they have in that database."""
+    def __init__(self, name: str) -> None:
+        super().__init__(name, set())
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, DataPlatformManagedDataContainer)):
+            return super().__eq__(other)
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def __str__(self) -> str:
+        return f"DataPlatformManagedDataContainer({self.name})"
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        return
+
+    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
+        return None
+
+
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
     def __init__(self, name: str, locations: set['LocationKey'], databaseName: str) -> None:

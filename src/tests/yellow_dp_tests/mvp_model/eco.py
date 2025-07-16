@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
-from datasurface.md import Ecosystem, LocationKey
+from datasurface.md import Ecosystem, LocationKey, DataPlatformManagedDataContainer
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
@@ -134,8 +134,7 @@ def createEcosystem() -> Ecosystem:
         ),
         Workspace(
             "Consumer1",
-            # No DataContainer here, it's provided by the DataPlatform
-            # In this example, it would be the merge postgres database configured for the DataPlatform
+            DataPlatformManagedDataContainer("Consumer1 container"),
             DatasetGroup(
                 "LiveDSG",
                 sinks=[

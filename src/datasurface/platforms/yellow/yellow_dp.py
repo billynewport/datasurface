@@ -17,6 +17,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataMilestoningStrategy
+from datasurface.md import DataPlatformManagedDataContainer
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer, String
 import os
@@ -573,7 +574,7 @@ class YellowDataPlatform(DataPlatform):
         return {CloudVendor.PRIVATE}
 
     def isWorkspaceDataContainerSupported(self, eco: Ecosystem, dc: DataContainer) -> bool:
-        return True
+        return isinstance(dc, DataPlatformManagedDataContainer)
 
     def isLegalKubernetesNamespaceName(self, name: str) -> bool:
         """Check if the name is a valid Kubernetes namespace (RFC 1123 label)."""
@@ -685,6 +686,9 @@ class YellowDataPlatform(DataPlatform):
         if dsg is None:
             tree.addRaw(UnknownObjectReference(f"Unknown dataset group {dsgName}", ProblemSeverity.ERROR))
         else:
+            # Yellow only supports DataPlatformManagedDataContainer for workspaces
+            if not isinstance(ws.dataContainer, DataPlatformManagedDataContainer):
+                tree.addRaw(ObjectWrongType(ws.dataContainer, DataPlatformManagedDataContainer, ProblemSeverity.ERROR))
             chooser: Optional[DataPlatformChooser] = dsg.platformMD
             if chooser is not None:
                 if isinstance(chooser, WorkspacePlatformConfig):
