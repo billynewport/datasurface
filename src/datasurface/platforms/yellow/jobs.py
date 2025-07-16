@@ -288,6 +288,72 @@ class Job(ABC):
         tableName: str = self.getBaseTableNameForDataset(dataset)
         return self.getTableForPlatform(tableName + "_merge")
 
+    def createStagingTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
+        """Create performance indexes for staging tables"""
+        assert self.schemaProjector is not None
+        sp: YellowSchemaProjector = self.schemaProjector
+        
+        indexes = [
+            # Primary: batch filtering (used in every query)
+            f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_id ON {tableName} ({sp.BATCH_ID_COLUMN_NAME})",
+            
+            # Secondary: join performance
+            f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})",
+            
+            # Composite: optimal for most queries that filter by batch AND join by key
+            f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_key ON {tableName} ({sp.BATCH_ID_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})"
+        ]
+        
+        with mergeEngine.begin() as connection:
+            for index_sql in indexes:
+                try:
+                    connection.execute(text(index_sql))
+                    print(f"DEBUG: Created index: {index_sql}")
+                except Exception as e:
+                    # Index might already exist or other non-critical error
+                    print(f"DEBUG: Index creation note (non-critical): {e}")
+
+    def createMergeTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
+        """Create performance indexes for merge tables"""
+        assert self.schemaProjector is not None
+        sp: YellowSchemaProjector = self.schemaProjector
+        
+        indexes = [
+            # Critical: join performance (exists in all modes)
+            f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})"
+        ]
+        
+        # Add forensic-specific indexes for batch milestoned tables
+        if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            indexes.extend([
+                # Critical: live record filtering (batch_out = 2147483647)
+                f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_out ON {tableName} ({sp.BATCH_OUT_COLUMN_NAME})",
+                
+                # Composite: optimal for live record joins (most common pattern)
+                f"CREATE INDEX IF NOT EXISTS idx_{tableName}_live_records ON {tableName} ({sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})",
+                
+                # For forensic queries: finding recently closed records
+                f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_in ON {tableName} ({sp.BATCH_IN_COLUMN_NAME})",
+                
+                # For forensic history queries
+                f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_range ON {tableName} ({sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})"
+            ])
+        else:
+            # For live-only mode, we can create an index on ds_surf_all_hash for change detection
+            indexes.extend([
+                # For live-only mode: change detection performance
+                f"CREATE INDEX IF NOT EXISTS idx_{tableName}_all_hash ON {tableName} ({sp.ALL_HASH_COLUMN_NAME})"
+            ])
+        
+        with mergeEngine.begin() as connection:
+            for index_sql in indexes:
+                try:
+                    connection.execute(text(index_sql))
+                    print(f"DEBUG: Created index: {index_sql}")
+                except Exception as e:
+                    # Index might already exist or other non-critical error
+                    print(f"DEBUG: Index creation note (non-critical): {e}")
+
     def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
         """Ensure that a unique constraint exists on the specified column"""
         with mergeEngine.begin() as connection:
@@ -582,6 +648,8 @@ class Job(ABC):
             tableName: str = self.getStagingTableNameForDataset(dataset)
             stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
             createOrUpdateTable(mergeEngine, stagingTable)
+            # Create performance indexes for staging table
+            self.createStagingTableIndexes(mergeEngine, tableName)
 
     def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
         """This will make sure the merge table exists and has the current schema for each dataset"""
@@ -598,6 +666,9 @@ class Job(ABC):
                 # Only add unique constraint on key_hash for live-only mode
                 # In forensic mode, multiple records can have the same key_hash (different versions)
                 self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
+            
+            # Create performance indexes for merge table
+            self.createMergeTableIndexes(mergeEngine, tableName)
 
     def run(self) -> JobStatus:
         # First, get a connection to the source database
@@ -845,37 +916,63 @@ class SnapshotMergeJobForensic(Job):
                 allColumns: list[str] = [col.name for col in schema.columns.values()]
                 quoted_all_columns = [f'"{col}"' for col in allColumns]
 
-                # Single MERGE statement for all operations
-                merge_sql = f"""
-                MERGE INTO {mergeTableName} m
-                USING {stagingTableName} s
-                ON m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
+                # PostgreSQL 16 compatible forensic merge operations - split into multiple statements
+                # Step 1: Close changed records (equivalent to WHEN MATCHED AND hash differs)
+                close_changed_sql = f"""
+                UPDATE {mergeTableName} m
+                SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                FROM {stagingTableName} s
+                WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
                     AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
+                    AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME}
                     AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                WHEN MATCHED AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME} THEN
-                    UPDATE SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
-                WHEN NOT MATCHED BY TARGET THEN
-                    INSERT (
-                        {', '.join(quoted_all_columns)},
-                        {sp.BATCH_ID_COLUMN_NAME},
-                        {sp.ALL_HASH_COLUMN_NAME},
-                        {sp.KEY_HASH_COLUMN_NAME},
-                        {sp.BATCH_IN_COLUMN_NAME},
-                        {sp.BATCH_OUT_COLUMN_NAME}
-                    )
-                    VALUES (
-                        {', '.join([f's."{col}"' for col in allColumns])},
-                        {batchId},
-                        s.{sp.ALL_HASH_COLUMN_NAME},
-                        s.{sp.KEY_HASH_COLUMN_NAME},
-                        {batchId},
-                        {sp.LIVE_RECORD_ID}
-                    )
-                WHEN NOT MATCHED BY SOURCE THEN
-                    UPDATE SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1};
                 """
-                print(f"DEBUG: Executing single forensic MERGE for dataset {datasetToMergeName}")
-                connection.execute(text(merge_sql))
+                
+                # Step 2: Close records not in source (equivalent to WHEN NOT MATCHED BY SOURCE)
+                close_deleted_sql = f"""
+                UPDATE {mergeTableName} m
+                SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                WHERE m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
+                AND NOT EXISTS (
+                    SELECT 1 FROM {stagingTableName} s
+                    WHERE s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
+                    AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                )
+                """
+                
+                # Step 3: Insert new records (equivalent to WHEN NOT MATCHED BY TARGET)
+                insert_new_sql = f"""
+                INSERT INTO {mergeTableName} (
+                    {', '.join(quoted_all_columns)},
+                    {sp.BATCH_ID_COLUMN_NAME},
+                    {sp.ALL_HASH_COLUMN_NAME},
+                    {sp.KEY_HASH_COLUMN_NAME},
+                    {sp.BATCH_IN_COLUMN_NAME},
+                    {sp.BATCH_OUT_COLUMN_NAME}
+                )
+                SELECT 
+                    {', '.join([f's."{col}"' for col in allColumns])},
+                    {batchId},
+                    s.{sp.ALL_HASH_COLUMN_NAME},
+                    s.{sp.KEY_HASH_COLUMN_NAME},
+                    {batchId},
+                    {sp.LIVE_RECORD_ID}
+                FROM {stagingTableName} s
+                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                AND NOT EXISTS (
+                    SELECT 1 FROM {mergeTableName} m
+                    WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
+                    AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
+                )
+                """
+                
+                print(f"DEBUG: Executing PostgreSQL 16 compatible forensic merge for dataset {datasetToMergeName}")
+                print("DEBUG: Step 1 - Closing changed records")
+                connection.execute(text(close_changed_sql))
+                print("DEBUG: Step 2 - Closing deleted records")
+                connection.execute(text(close_deleted_sql))
+                print("DEBUG: Step 3 - Inserting new records")
+                connection.execute(text(insert_new_sql))
 
                 # Insert new versions for changed records (where the old record was just closed)
                 insert_changed_sql = f"""
@@ -896,7 +993,7 @@ class SnapshotMergeJobForensic(Job):
                     AND m2.{sp.BATCH_IN_COLUMN_NAME} = {batchId}
                 )
                 """
-                print(f"DEBUG: Inserting new versions for changed records for dataset {datasetToMergeName}")
+                print("DEBUG: Step 4 - Inserting new versions for changed records")
                 connection.execute(text(insert_changed_sql))
 
                 # Metrics (optional, can be improved for accuracy)
