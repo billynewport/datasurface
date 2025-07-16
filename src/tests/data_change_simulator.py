@@ -18,6 +18,7 @@ Options:
     --max-interval MAX   Maximum seconds between changes (default: 30)
     --max-changes MAX    Maximum number of changes before stopping (default: unlimited)
     --verbose           Enable verbose logging
+    --create-tables     Create tables if they don't exist
     --help              Show this help message
 
 The simulator performs these operations:
@@ -47,7 +48,7 @@ class DataChangeSimulator:
     """Simulates realistic customer data changes in the producer database."""
 
     def __init__(self, host: str, port: int, database: str, user: str, password: str,
-                 min_interval: int, max_interval: int, max_changes: Optional[int] = None, verbose: bool = False):
+                 min_interval: int, max_interval: int, max_changes: Optional[int] = None, verbose: bool = False, create_tables: bool = False):
         self.host = host
         self.port = port
         self.database = database
@@ -57,6 +58,7 @@ class DataChangeSimulator:
         self.max_interval = max_interval
         self.max_changes = max_changes
         self.verbose = verbose
+        self.create_tables = create_tables
         self.running = True
         self.changes_made = 0
         self.connection: Optional[psycopg2.extensions.connection] = None
@@ -115,8 +117,69 @@ class DataChangeSimulator:
             )
             self.connection.autocommit = True
             self.logger.info(f"Connected to database {self.database} at {self.host}:{self.port}")
+            
+            # Create tables if requested
+            if self.create_tables:
+                self.create_tables_if_needed()
+                
         except psycopg2.Error as e:
             self.logger.error(f"Failed to connect to database: {e}")
+            sys.exit(1)
+
+    def create_tables_if_needed(self) -> None:
+        """Create customers and addresses tables if they don't exist."""
+        try:
+            with self.connection.cursor() as cursor:
+                self.logger.info("🗄️ Creating tables if they don't exist...")
+                
+                # Create customers table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS customers (
+                        id VARCHAR(20) PRIMARY KEY,
+                        firstName VARCHAR(100) NOT NULL,
+                        lastName VARCHAR(100) NOT NULL,
+                        dob DATE NOT NULL,
+                        email VARCHAR(100),
+                        phone VARCHAR(100),
+                        primaryAddressId VARCHAR(20),
+                        billingAddressId VARCHAR(20)
+                    );
+                """)
+                
+                # Create addresses table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS addresses (
+                        id VARCHAR(20) PRIMARY KEY,
+                        customerId VARCHAR(20) NOT NULL,
+                        streetName VARCHAR(100) NOT NULL,
+                        city VARCHAR(100) NOT NULL,
+                        state VARCHAR(100) NOT NULL,
+                        zipCode VARCHAR(30) NOT NULL
+                    );
+                """)
+                
+                # Insert initial test data if tables are empty
+                cursor.execute("SELECT COUNT(*) as count FROM customers")
+                customer_count = cursor.fetchone()['count']
+                
+                if customer_count == 0:
+                    self.logger.info("📊 Inserting initial test data...")
+                    cursor.execute("""
+                        INSERT INTO customers (id, firstName, lastName, dob, email, phone) 
+                        VALUES ('CUST001', 'John', 'Doe', '1990-01-15', 'john.doe@email.com', '555-1234')
+                    """)
+                    
+                    cursor.execute("""
+                        INSERT INTO addresses (id, customerId, streetName, city, state, zipCode)
+                        VALUES ('ADDR001', 'CUST001', '123 Main St', 'New York', 'NY', '10001')
+                    """)
+                    
+                    self.logger.info("✅ Initial test data inserted")
+                
+                self.logger.info("✅ Tables are ready!")
+                
+        except psycopg2.Error as e:
+            self.logger.error(f"Failed to create tables: {e}")
             sys.exit(1)
 
     def close_connection(self) -> None:
@@ -504,6 +567,7 @@ def main():
     parser.add_argument('--max-interval', type=int, default=30, help='Maximum seconds between changes (default: 30)')
     parser.add_argument('--max-changes', type=int, help='Maximum number of changes before stopping (default: unlimited)')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+    parser.add_argument('--create-tables', action='store_true', help='Create tables if they don\'t exist')
     
     args = parser.parse_args()
     
@@ -525,7 +589,8 @@ def main():
         min_interval=args.min_interval,
         max_interval=args.max_interval,
         max_changes=args.max_changes,
-        verbose=args.verbose
+        verbose=args.verbose,
+        create_tables=getattr(args, 'create_tables', False)
     )
     
     simulator.run()
