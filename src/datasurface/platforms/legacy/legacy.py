@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.md import DataPlatform, Ecosystem, \
+from datasurface.md import DataPlatform, Ecosystem, Workspace, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
     CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore, SchemaProjector

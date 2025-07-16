@@ -17,7 +17,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataMilestoningStrategy
-from datasurface.md.schema import DDLTable, DDLColumn
+from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer, String
 import os
 import re
@@ -700,12 +700,25 @@ class YellowDataPlatform(DataPlatform):
                     tree.addRaw(ObjectWrongType(chooser, WorkspacePlatformConfig, ProblemSeverity.ERROR))
 
 
+class IUDValues(Enum):
+    INSERT = "I"
+    UPDATE = "U"
+    DELETE = "D"
+
+
 class YellowSchemaProjector(SchemaProjector):
     """This is a schema projector for the YellowDataPlatform. It projects the dataset schema to the original schema of the dataset."""
 
     BATCH_ID_COLUMN_NAME: str = "ds_surf_batch_id"
     ALL_HASH_COLUMN_NAME: str = "ds_surf_all_hash"
     KEY_HASH_COLUMN_NAME: str = "ds_surf_key_hash"
+
+    BATCH_IN_COLUMN_NAME: str = "ds_surf_batch_in"
+    BATCH_OUT_COLUMN_NAME: str = "ds_surf_batch_out"
+    IUD_COLUMN_NAME: str = "ds_surf_iud"
+
+    # The batch out value for a live record
+    LIVE_RECORD_ID: int = 0x7FFFFFFF  # MaxInt32
 
     SCHEMA_TYPE_MERGE: str = "MERGE"
     SCHEMA_TYPE_STAGING: str = "STAGING"
@@ -718,12 +731,21 @@ class YellowSchemaProjector(SchemaProjector):
 
     def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
         """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform."""
+        assert isinstance(self.dp, YellowDataPlatform)
         if schemaType == self.SCHEMA_TYPE_MERGE:
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
             ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
             ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
             ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                ddlSchema.add(DDLColumn(name=self.BATCH_IN_COLUMN_NAME, data_type=Integer()))
+                ddlSchema.add(DDLColumn(name=self.BATCH_OUT_COLUMN_NAME, data_type=Integer()))
+                # For forensic mode, modify the primary key to include batch_in
+                if ddlSchema.primaryKeyColumns:
+                    # Create new primary key with original columns plus batch_in
+                    new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [self.BATCH_IN_COLUMN_NAME]
+                    ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
             return pds
         elif schemaType == self.SCHEMA_TYPE_STAGING:
             pds: Dataset = copy.deepcopy(dataset)

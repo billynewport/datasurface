@@ -18,12 +18,11 @@ from enum import Enum
 from typing import cast, List, Any, Optional
 from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
 from datasurface.md.lint import ValidationTree
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 import argparse
 import sys
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
-from datasurface.md import DataPlatform
 import json
 import hashlib
 from abc import ABC, abstractmethod
@@ -313,6 +312,51 @@ class Job(ABC):
                 connection.execute(text(create_constraint_sql))
                 print(f"DEBUG: Successfully created unique constraint on {tableName}.{columnName}")
 
+    def createOrUpdateForensicTable(self, mergeEngine: Engine, mergeTable: Table, tableName: str) -> None:
+        """Create or update a forensic table, handling primary key changes by dropping and recreating if needed"""
+        from sqlalchemy import inspect
+        inspector = inspect(mergeEngine)
+
+        if not inspector.has_table(tableName):
+            # Table doesn't exist, create it
+            mergeTable.create(mergeEngine)
+            print(f"Created forensic table {tableName}")
+            return
+
+        # Table exists, check if primary key needs to be updated
+        current_table = Table(tableName, MetaData(), autoload_with=mergeEngine)
+
+        # Get current primary key columns
+        current_pk_columns = []
+        for col in current_table.columns:
+            if col.primary_key:
+                current_pk_columns.append(col.name)
+
+        # Get desired primary key columns from the merge table
+        desired_pk_columns = []
+        for col in mergeTable.columns:
+            if col.primary_key:
+                desired_pk_columns.append(col.name)
+
+        # Check if primary key needs to be changed
+        if set(current_pk_columns) != set(desired_pk_columns):
+            print(f"DEBUG: Primary key change detected for {tableName}")
+            print(f"DEBUG: Current PK: {current_pk_columns}")
+            print(f"DEBUG: Desired PK: {desired_pk_columns}")
+
+            # Drop and recreate the table with new primary key
+            with mergeEngine.begin() as connection:
+                # Drop the existing table
+                connection.execute(text(f"DROP TABLE {tableName} CASCADE"))
+                print(f"DEBUG: Dropped table {tableName}")
+
+            # Create the new table
+            mergeTable.create(mergeEngine)
+            print(f"DEBUG: Recreated table {tableName} with new primary key")
+        else:
+            # Primary key is the same, use normal update
+            createOrUpdateTable(mergeEngine, mergeTable)
+
     def createBatchCommon(self, connection: Connection, key: str, state: BatchState) -> int:
         """This creates a batch and returns the batch id. The transaction is managed by the caller.
         This current batch must be commited before a new batch can be created.
@@ -545,9 +589,15 @@ class Job(ABC):
             # Map the dataset name if necessary
             tableName: str = self.getMergeTableNameForDataset(dataset)
             mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
-            createOrUpdateTable(mergeEngine, mergeTable)
-            # Ensure the unique constraint exists for ds_surf_key_hash
-            self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
+
+            # For forensic mode, we need to handle primary key changes
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                self.createOrUpdateForensicTable(mergeEngine, mergeTable, tableName)
+            else:
+                createOrUpdateTable(mergeEngine, mergeTable)
+                # Only add unique constraint on key_hash for live-only mode
+                # In forensic mode, multiple records can have the same key_hash (different versions)
+                self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
 
     def run(self) -> JobStatus:
         # First, get a connection to the source database
@@ -583,24 +633,7 @@ class Job(ABC):
             currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus
 
-
-class SnapshotMergeJob(Job):
-    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
-    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
-    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
-    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
-    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
-    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
-    the transaction reading the source table is different than the one writing to the staging table, they are different connections to different
-    databases.
-    The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
-
-    def __init__(
-            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
-            store: Datastore, datasetName: Optional[str] = None) -> None:
-        super().__init__(eco, credStore, dp, store, datasetName)
-
-    def ingestNextBatchToStaging(
+    def baseIngestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
             batchId: int) -> tuple[int, int, int]:
 
@@ -752,6 +785,155 @@ class SnapshotMergeJob(Job):
                 self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
+
+
+class SnapshotMergeJobForensic(Job):
+    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
+    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
+    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
+    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
+    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
+    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
+    """
+    def __init__(
+            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
+            store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp, store, datasetName)
+
+    def ingestNextBatchToStaging(
+            self, sourceEngine: Engine, mergeEngine: Engine, key: str,
+            batchId: int) -> tuple[int, int, int]:
+        """This is the same copy a snapshot from the source table to the staging table as the live only job."""
+        return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+
+    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+        """
+        Perform a forensic merge using a single MERGE statement. All operations (insert, update, delete) are handled in one statement.
+        Here is an example showing the correct behavior ingesting some batches of records.
+        Batch 1:
+            staging: <id1, billy, newport>
+            merge: <id1, billy, newport, 1, MaxInt>
+        Batch 2:
+            staging: <id1, billy, newport>, <id2, laura, diaz>
+            merge: {<id1, billy, newport, 1, MaxInt>,<id2,laura,diaz,1, MaxInt>}
+        Batch 3:
+            staging: <id1, william, newport>, <id2, laura, diaz>
+            merge: [<id1, billy, newport, 1, 2><id1,william,newport,3,MaxInt><id3,laura,diaz,2,MaxInt>]
+        Batch 4:
+            staging: <id2, laura, diaz>
+            merge: [<id1, billy, newport, 1, 2><id1,william,newport,3,3><id3,laura,diaz,2,MaxInt>]
+        Batch 5:
+            staging: <id1, billy, newport><id2,laura,diaz>
+            merge: [<id1, billy, newport, 1, 2><id1,william,newport,3,3><id3,laura,diaz,2,MaxInt><id1,billy,newport,5,MaxInt>]
+        """
+        total_inserted: int = 0
+        total_updated: int = 0
+        total_deleted: int = 0
+        totalRecords: int = 0
+        assert self.schemaProjector is not None
+        sp: YellowSchemaProjector = self.schemaProjector
+
+        with mergeEngine.begin() as connection:
+            state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
+            self.checkForSchemaChanges(state)
+
+            for datasetToMergeName in state.all_datasets:
+                dataset: Dataset = self.store.datasets[datasetToMergeName]
+                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
+                mergeTableName: str = self.getMergeTableNameForDataset(dataset)
+                schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+                allColumns: list[str] = [col.name for col in schema.columns.values()]
+                quoted_all_columns = [f'"{col}"' for col in allColumns]
+
+                # Single MERGE statement for all operations
+                merge_sql = f"""
+                MERGE INTO {mergeTableName} m
+                USING {stagingTableName} s
+                ON m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
+                    AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
+                    AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                WHEN MATCHED AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME} THEN
+                    UPDATE SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                WHEN NOT MATCHED BY TARGET THEN
+                    INSERT (
+                        {', '.join(quoted_all_columns)},
+                        {sp.BATCH_ID_COLUMN_NAME},
+                        {sp.ALL_HASH_COLUMN_NAME},
+                        {sp.KEY_HASH_COLUMN_NAME},
+                        {sp.BATCH_IN_COLUMN_NAME},
+                        {sp.BATCH_OUT_COLUMN_NAME}
+                    )
+                    VALUES (
+                        {', '.join([f's."{col}"' for col in allColumns])},
+                        {batchId},
+                        s.{sp.ALL_HASH_COLUMN_NAME},
+                        s.{sp.KEY_HASH_COLUMN_NAME},
+                        {batchId},
+                        {sp.LIVE_RECORD_ID}
+                    )
+                WHEN NOT MATCHED BY SOURCE THEN
+                    UPDATE SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1};
+                """
+                print(f"DEBUG: Executing single forensic MERGE for dataset {datasetToMergeName}")
+                connection.execute(text(merge_sql))
+
+                # Insert new versions for changed records (where the old record was just closed)
+                insert_changed_sql = f"""
+                INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME},
+                    {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})
+                SELECT {', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME},
+                    s.{sp.KEY_HASH_COLUMN_NAME}, {batchId}, {sp.LIVE_RECORD_ID}
+                FROM {stagingTableName} s
+                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                AND EXISTS (
+                    SELECT 1 FROM {mergeTableName} m
+                    WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
+                    AND m.{sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM {mergeTableName} m2
+                    WHERE m2.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
+                    AND m2.{sp.BATCH_IN_COLUMN_NAME} = {batchId}
+                )
+                """
+                print(f"DEBUG: Inserting new versions for changed records for dataset {datasetToMergeName}")
+                connection.execute(text(insert_changed_sql))
+
+                # Metrics (optional, can be improved for accuracy)
+                count_result = connection.execute(
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
+                total_records = count_result.fetchone()[0]
+                totalRecords += total_records
+
+            # Now update the batch status to merged within the existing transaction
+            self.markBatchMerged(
+                connection, key, batchId, BatchStatus.COMMITTED,
+                total_inserted, total_updated, total_deleted, totalRecords)
+
+        print(f"DEBUG: Total forensic merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
+        return total_inserted, total_updated, total_deleted
+
+
+class SnapshotMergeJobLiveOnly(Job):
+    """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
+    and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
+    it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
+    the all columns hash column called ds_surf_all_hash which is the md5 hash of every column in the record and a ds_surf_key_hash which is the hash of just
+    the primary key columns or every column if there are no primary key columns. The operation either does every table in a single transaction
+    or loops over each table in its own transaction. This depends on the ingestion mode, single_dataset or multi_dataset. It's understood that
+    the transaction reading the source table is different than the one writing to the staging table, they are different connections to different
+    databases.
+    The select * from table statements can use a mapping of dataset to table name in the SQLIngestion object on the capture metadata of the store.  """
+
+    def __init__(
+            self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
+            store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp, store, datasetName)
+
+    def ingestNextBatchToStaging(
+            self, sourceEngine: Engine, mergeEngine: Engine, key: str,
+            batchId: int) -> tuple[int, int, int]:
+        return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
 
     def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
@@ -1039,7 +1221,7 @@ def main():
         if args.dataset_name:
             print(f"Dataset: {args.dataset_name}")
 
-        dp: Optional[DataPlatform] = eco.getDataPlatform(args.platform_name)
+        dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
         if dp is None:
             print(f"Unknown platform: {args.platform_name}")
             return -1  # ERROR
@@ -1082,7 +1264,14 @@ def main():
                 print(f"Unknown dataset: {args.dataset_name}")
                 return -1  # ERROR
 
-        job: SnapshotMergeJob = SnapshotMergeJob(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+        job: Job
+        if dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+            job = SnapshotMergeJobLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+        elif dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            job = SnapshotMergeJobForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+        else:
+            print(f"Unknown milestone strategy: {dp.milestoneStrategy}")
+            return -1  # ERROR
 
         jobStatus: JobStatus = job.run()
         if jobStatus == JobStatus.DONE:

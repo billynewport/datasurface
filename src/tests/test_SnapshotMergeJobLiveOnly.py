@@ -9,82 +9,78 @@ from typing import Optional
 from sqlalchemy import create_engine, text, MetaData
 from sqlalchemy.engine import Engine
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
-from datasurface.platforms.yellow.jobs import SnapshotMergeJob, JobStatus, BatchState, BatchStatus
+from datasurface.platforms.yellow.jobs import Job, JobStatus, BatchState, BatchStatus
 from datasurface.md import Ecosystem
 from datasurface.md import Datastore, DataContainer, Dataset
-from datasurface.md.governance import DatastoreCacheEntry
+from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, WorkspacePlatformConfig
 from datasurface.md import DataPlatform
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
 from datasurface.md.lint import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.credential import CredentialStore, Credential
 from typing import cast
+from abc import ABC, abstractmethod
 
 
-class TestSnapshotMergeJob(unittest.TestCase):
-    """Test the SnapshotMergeJob with a simple ecosystem"""
+class BaseSnapshotMergeJobTest(ABC):
+    """Base class for SnapshotMergeJob tests (live-only and forensic)"""
+    eco: Optional[Ecosystem]
+    tree: Optional[ValidationTree]
+    dp: Optional[YellowDataPlatform]
+    store_entry: Optional[DatastoreCacheEntry]
+    store: Optional[Datastore]
+    job: Optional[Job]
+    source_engine: Optional[Engine]
+    merge_engine: Optional[Engine]
+
+    @abstractmethod
+    def preprocessEcosystemModel(self) -> None:
+        pass
 
     def setUp(self) -> None:
-        """Set up test environment before each test"""
-
-        # Create ecosystem using existing eco.py
-        self.eco: Optional[Ecosystem] = None
-        self.tree: Optional[ValidationTree] = None
+        self.eco = None
+        self.tree = None
+        self.dp = None
+        self.store_entry = None
+        self.store = None
+        self.job = None
+        self.source_engine = None
+        self.merge_engine = None
         self.eco, self.tree = loadEcosystemFromEcoModule("src/tests/yellow_dp_tests")
-
         if self.eco is None or self.tree is None:
             raise Exception("Failed to load ecosystem")
         if self.tree.hasErrors():
             self.tree.printTree()
             raise Exception("Ecosystem validation failed")
-
-        # Get platform and store
         dp: Optional[DataPlatform] = self.eco.getDataPlatform("Test_DP")
         if dp is None:
             raise Exception("Platform not found")
-        self.dp = dp
-
+        self.dp = cast(YellowDataPlatform, dp)
         store_entry: Optional[DatastoreCacheEntry] = self.eco.cache_getDatastore("Store1")
         if store_entry is None:
             raise Exception("Store not found")
         self.store_entry = store_entry
-        self.store: Datastore = self.store_entry.datastore
+        self.store = self.store_entry.datastore
 
-        # Create job instance
-        self.job: SnapshotMergeJob = SnapshotMergeJob(
-            self.eco,
-            self.dp.getCredentialStore(),
-            cast(YellowDataPlatform, self.dp),
-            self.store
-        )
+        # Allow subclasses to postprocess the ecosystem model
+        self.preprocessEcosystemModel()
 
-        # Override the job's database connections to use localhost for testing
         self.overrideJobConnections()
-
-        # Override the credential store to return local credentials
         self.overrideCredentialStore()
-
         self.setupDatabases()
 
     def tearDown(self) -> None:
-        """Clean up after each test"""
-        # Stop the engine patcher if it was started
         if hasattr(self, '_engine_patcher'):
             self._engine_patcher.stop()
-
-        # Clean up batch tables
         self.cleanupBatchTables()
-
-        # Clean up source table
-        if hasattr(self, 'source_engine'):
+        if hasattr(self, 'source_engine') and self.source_engine is not None:
             with self.source_engine.begin() as conn:
                 conn.execute(text('DROP TABLE IF EXISTS people CASCADE'))
                 conn.commit()
             self.source_engine.dispose()
-
-        # Clean up merge database
-        if hasattr(self, 'merge_engine'):
+        if hasattr(self, 'merge_engine') and self.merge_engine is not None:
             with self.merge_engine.begin() as conn:
+                conn.execute(text('DROP TABLE IF EXISTS "test_dp_store1_people_merge" CASCADE'))
                 conn.execute(text('DROP TABLE IF EXISTS "Test_DP_Store1_people_merge" CASCADE'))
                 conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
                 conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
@@ -92,35 +88,26 @@ class TestSnapshotMergeJob(unittest.TestCase):
             self.merge_engine.dispose()
 
     def overrideJobConnections(self) -> None:
-        """Override the job's database connections to use localhost for testing"""
-        # Patch the global createEngine function to use localhost
         def local_create_engine(container: DataContainer, userName: str, password: str) -> Engine:
-            # Check if this is the merge store (PostgresDatabase with specific name)
             from datasurface.md import PostgresDatabase
             if isinstance(container, PostgresDatabase) and hasattr(container, 'databaseName') and container.databaseName == 'datasurface_merge':
-                # Use local merge database
                 return create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
             else:
-                # Use local source database
                 return create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
-
-        # Patch the global createEngine function in the jobs module
         patcher = patch('datasurface.platforms.yellow.jobs.createEngine', new=local_create_engine)
         self._engine_patcher = patcher
         patcher.start()
 
     def overrideCredentialStore(self) -> None:
-        """Override the credential store to return local credentials for testing"""
-        # Create a mock credential store that returns local credentials
         class MockCredentialStore(CredentialStore):
-            def __init__(self):
+
+            def __init__(self) -> None:
                 super().__init__("MockCredentialStore", set())
 
             def checkCredentialIsAvailable(self, cred: Credential, tree) -> None:
                 pass
 
             def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-                # Return local PostgreSQL credentials
                 return "postgres", "postgres"
 
             def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
@@ -132,52 +119,38 @@ class TestSnapshotMergeJob(unittest.TestCase):
             def lintCredential(self, cred: Credential, tree) -> None:
                 pass
 
-        # Replace the job's credential store
-        self.job.credStore = MockCredentialStore()
+        if self.job is not None:
+            self.job.credStore = MockCredentialStore()  # type: ignore[attr-defined]
 
     def setupDatabases(self) -> None:
-        """Set up source and merge databases"""
-        # Create source database
         self.source_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
-
-        # Create merge database
         self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
-
-        # Create source table
         self.createSourceTable()
-
-        # Create merge database if it doesn't exist
         self.createMergeDatabase()
-        self.job.createBatchCounterTable(self.merge_engine)
-        self.job.createBatchMetricsTable(self.merge_engine)
+        if self.job is not None:
+            self.job.createBatchCounterTable(self.merge_engine)  # type: ignore[attr-defined]
+            self.job.createBatchMetricsTable(self.merge_engine)  # type: ignore[attr-defined]
 
     def createSourceTable(self) -> None:
-        """Create the source table with test data"""
-        # Get the dataset for store 1/people
         metadata = MetaData()
+        if self.store is None:
+            raise Exception("Store not set")
         people_dataset: Dataset = self.store.datasets["people"]
-
-        # Create the table and store it in the metadata
         datasetToSQLAlchemyTable(people_dataset, "people", metadata)
-
-        # Create table
-        metadata.create_all(self.source_engine)
+        if self.source_engine is not None:
+            metadata.create_all(self.source_engine)
 
     def createMergeDatabase(self) -> None:
-        """Create the merge database"""
-        # Connect to postgres to create database
         postgres_engine = create_engine('postgresql://postgres:postgres@localhost:5432/postgres')
         with postgres_engine.begin() as conn:
-            conn.execute(text("COMMIT"))  # Close any open transaction
+            conn.execute(text("COMMIT"))
             try:
                 conn.execute(text("CREATE DATABASE test_merge_db"))
             except Exception:
-                # Database might already exist, that's okay
                 pass
         postgres_engine.dispose()
 
-    def insertTestData(self, data: list) -> None:
-        """Insert test data into source table"""
+    def insertTestData(self, data: list[dict]) -> None:
         with self.source_engine.begin() as conn:
             for row in data:
                 conn.execute(text("""
@@ -186,7 +159,6 @@ class TestSnapshotMergeJob(unittest.TestCase):
                 """), row)
 
     def updateTestData(self, id_val: str, updates: dict) -> None:
-        """Update test data in source table"""
         with self.source_engine.begin() as conn:
             set_clause = ", ".join([f'"{k}" = :{k}' for k in updates.keys()])
             query = f'UPDATE people SET {set_clause} WHERE "id" = :id'
@@ -195,30 +167,57 @@ class TestSnapshotMergeJob(unittest.TestCase):
             conn.execute(text(query), params)
 
     def deleteTestData(self, id_val: str) -> None:
-        """Delete test data from source table"""
         with self.source_engine.begin() as conn:
             conn.execute(text('DELETE FROM people WHERE "id" = :id'), {"id": id_val})
 
     def getMergeTableData(self) -> list:
-        """Get data from merge table"""
         with self.merge_engine.begin() as conn:
-            result = conn.execute(text("""
-                SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                       ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                FROM Test_DP_Store1_people_merge
-                ORDER BY "id"
-            """))
+            # Try both possible table names
+            try:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
+                           ds_surf_batch_in, ds_surf_batch_out
+                    FROM test_dp_store1_people_merge
+                    ORDER BY "id", ds_surf_batch_in
+                """))
+            except Exception:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM Test_DP_Store1_people_merge
+                    ORDER BY "id"
+                """))
+            return [row._asdict() for row in result.fetchall()]
+
+    def getLiveRecords(self) -> list:
+        with self.merge_engine.begin() as conn:
+            try:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
+                           ds_surf_batch_in, ds_surf_batch_out
+                    FROM test_dp_store1_people_merge
+                    WHERE ds_surf_batch_out = 2147483647
+                    ORDER BY "id"
+                """))
+            except Exception:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM Test_DP_Store1_people_merge
+                    ORDER BY "id"
+                """))
             return [row._asdict() for row in result.fetchall()]
 
     def runJob(self) -> JobStatus:
-        """Run the snapshot merge job until completion"""
-        max_iterations = 10  # Prevent infinite loops
+        max_iterations = 10
         iteration = 0
-
         while iteration < max_iterations:
-            status = self.job.run()
+            if self.job is None:
+                raise Exception("Job not set")
+            status = self.job.run()  # type: ignore[attr-defined]
             print(f"Job iteration {iteration + 1} returned status: {status}")
-
             if status == JobStatus.DONE:
                 return status
             elif status == JobStatus.ERROR:
@@ -228,8 +227,95 @@ class TestSnapshotMergeJob(unittest.TestCase):
                 continue
             else:
                 raise Exception(f"Unknown job status: {status}")
-
         raise Exception(f"Job did not complete after {max_iterations} iterations")
+
+    def cleanupBatchTables(self) -> None:
+        if not hasattr(self, 'merge_engine'):
+            self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
+        with self.merge_engine.begin() as conn:
+            conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
+            conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
+
+
+class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
+    """Test the SnapshotMergeJob with a simple ecosystem (live-only)"""
+
+    def preprocessEcosystemModel(self) -> None:
+        # Set the dataplatform to live-only mode
+        self.dp.milestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
+
+        # Set the consumer to live-only mode
+        req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, self.eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
+        req.retention.milestoningStrategy = DataMilestoningStrategy.LIVE_ONLY
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Create job instance for live-only
+        from datasurface.platforms.yellow.jobs import SnapshotMergeJobLiveOnly
+        assert self.eco is not None
+        assert self.dp is not None
+        assert self.store is not None
+        self.job = SnapshotMergeJobLiveOnly(
+            self.eco,
+            self.dp.getCredentialStore(),
+            self.dp,
+            self.store
+        )
+        self.overrideCredentialStore()
+        self.setupDatabases()
+
+    def getMergeTableData(self) -> list:
+        """Override to only select live-only columns (no batch_in/batch_out)"""
+        with self.merge_engine.begin() as conn:
+            # Try both possible table names
+            try:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM test_dp_store1_people_merge
+                    ORDER BY "id"
+                """))
+            except Exception:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM Test_DP_Store1_people_merge
+                    ORDER BY "id"
+                """))
+            return [row._asdict() for row in result.fetchall()]
+
+    def getLiveRecords(self) -> list:
+        """Override to only select live-only columns (no batch_in/batch_out)"""
+        with self.merge_engine.begin() as conn:
+            try:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM test_dp_store1_people_merge
+                    ORDER BY "id"
+                """))
+            except Exception:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM Test_DP_Store1_people_merge
+                    ORDER BY "id"
+                """))
+            return [row._asdict() for row in result.fetchall()]
+
+    def checkCurrentBatchIs(self, key: str, expected_batch: int) -> None:
+        with self.merge_engine.begin() as conn:
+            result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'' + key + '\''))
+            row = result.fetchone()
+            current_batch = row[0] if row else 0
+            self.assertEqual(current_batch, expected_batch)
+
+    def checkSpecificBatchStatus(self, key: str, batch_id: int, expected_status: BatchStatus) -> None:
+        with self.merge_engine.begin() as conn:
+            result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
+            row = result.fetchone()
+            batch_status = row[0] if row else "None"
+            self.assertEqual(batch_status, expected_status.value)
 
     def test_BatchState(self) -> None:
         """Test the BatchState class"""
@@ -244,26 +330,11 @@ class TestSnapshotMergeJob(unittest.TestCase):
         state.moveToNextDataset()
         self.assertFalse(state.hasMoreDatasets())
 
-    def checkCurrentBatchIs(self, key: str, expected_batch: int) -> None:
-        """Check the batch status for a given key"""
-        with self.merge_engine.begin() as conn:
-            result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'' + key + '\''))
-            row = result.fetchone()
-            current_batch = row[0] if row else 0
-            self.assertEqual(current_batch, expected_batch)
-
-    def checkSpecificBatchStatus(self, key: str, batch_id: int, expected_status: BatchStatus) -> None:
-        """Check the batch status for a given batch id"""
-        with self.merge_engine.begin() as conn:
-            # Get batch status
-            result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
-            row = result.fetchone()
-            batch_status = row[0] if row else "None"
-            self.assertEqual(batch_status, expected_status.value)
-
     def test_first_batch_started(self) -> None:
         """Test that the first batch is started"""
-        self.job.startBatch(self.merge_engine)
+        if self.job is None:
+            raise Exception("Job not set")
+        self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
         self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED)
 
     def test_full_batch_lifecycle(self) -> None:
@@ -384,16 +455,6 @@ class TestSnapshotMergeJob(unittest.TestCase):
                 self.assertEqual(row['ds_surf_batch_id'], 2)  # Original batch 2, unchanged
 
         print("All batch lifecycle tests passed!")
-
-    def cleanupBatchTables(self) -> None:
-        """Clean up batch counter and metrics tables to ensure clean state"""
-        # Create merge database connection if it doesn't exist yet
-        if not hasattr(self, 'merge_engine'):
-            self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
-
-        with self.merge_engine.begin() as conn:
-            conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
-            conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
 
 
 if __name__ == "__main__":
