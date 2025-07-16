@@ -131,6 +131,43 @@ class BaseSnapshotMergeJobTest(ABC):
             self.job.createBatchCounterTable(self.merge_engine)  # type: ignore[attr-defined]
             self.job.createBatchMetricsTable(self.merge_engine)  # type: ignore[attr-defined]
 
+    def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
+        """Check the batch status for a given key"""
+        with self.merge_engine.begin() as conn:
+            result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'' + key + '\''))
+            row = result.fetchone()
+            current_batch = row[0] if row else 0
+            tc.assertEqual(current_batch, expected_batch)
+
+    def checkSpecificBatchStatus(self, key: str, batch_id: int, expected_status: BatchStatus, tc: unittest.TestCase) -> None:
+        """Check the batch status for a given batch id"""
+        with self.merge_engine.begin() as conn:
+            # Get batch status
+            result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
+            row = result.fetchone()
+            batch_status = row[0] if row else "None"
+            tc.assertEqual(batch_status, expected_status.value)
+
+    def common_test_first_batch_started(self, tc: unittest.TestCase) -> None:
+        """Test that the first batch is started"""
+        assert self.job is not None
+        assert self.merge_engine is not None
+        self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
+        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED, tc)
+
+    def common_test_BatchState(self, tc: unittest.TestCase) -> None:
+        """Test the BatchState class"""
+        state = BatchState([self.store.datasets["people"].name])
+        tc.assertEqual(state.all_datasets, ["people"])
+        tc.assertEqual(state.current_dataset_index, 0)
+        tc.assertEqual(state.current_offset, 0)
+
+        tc.assertTrue(state.hasMoreDatasets())
+
+        # Move to next dataset
+        state.moveToNextDataset()
+        tc.assertFalse(state.hasMoreDatasets())
+
     def createSourceTable(self) -> None:
         metadata = MetaData()
         if self.store is None:
@@ -236,6 +273,144 @@ class BaseSnapshotMergeJobTest(ABC):
             conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
             conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
 
+    def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
+        """Common job setup pattern"""
+        # Call the base class setUp to initialize eco, dp, store, etc.
+        BaseSnapshotMergeJobTest.setUp(self)
+        assert self.eco is not None
+        assert self.dp is not None
+        assert self.store is not None
+        self.job = job_class(
+            self.eco,
+            self.dp.getCredentialStore(),
+            self.dp,
+            self.store
+        )
+        self.overrideCredentialStore()
+        self.setupDatabases()
+
+    def common_verify_batch_completion(self, batch_id: int, tc: unittest.TestCase) -> None:
+        """Common pattern to verify a batch completed successfully"""
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", batch_id, tc)
+
+    def common_clear_and_insert_data(self, test_data: list, tc: unittest.TestCase) -> None:
+        """Common pattern to clear source and insert new test data"""
+        with self.source_engine.begin() as conn:
+            conn.execute(text('DELETE FROM people'))
+        self.insertTestData(test_data)
+
+    def common_verify_record_exists(self, records: list, record_id: str, expected_values: dict, tc: unittest.TestCase) -> None:
+        """Common pattern to verify a record exists with expected values"""
+        record = next((r for r in records if r['id'] == record_id), None)
+        tc.assertIsNotNone(record, f"Record {record_id} not found")
+        for key, value in expected_values.items():
+            tc.assertEqual(record[key], value, f"Record {record_id} {key} mismatch")
+
+    def common_verify_record_absent(self, records: list, record_id: str, tc: unittest.TestCase) -> None:
+        """Common pattern to verify a record is absent"""
+        record = next((r for r in records if r['id'] == record_id), None)
+        tc.assertIsNone(record, f"Record {record_id} should not exist")
+
+    def common_test_batch_lifecycle_steps(self, tc: unittest.TestCase) -> None:
+        """Common batch lifecycle test steps"""
+        # Step 1: Run batch 1 with empty source table
+        print("Step 1: Running batch 1 with empty source table")
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", 1, tc)
+
+        # Verify merge table is empty
+        merge_data = self.getMergeTableData()
+        tc.assertEqual(len(merge_data), 0)
+
+        # Step 2: Insert 5 rows and run batch 2
+        print("Step 2: Inserting 5 rows and running batch 2")
+        test_data = [
+            {"id": "1", "firstName": "John", "lastName": "Doe", "dob": "1980-01-01", "employer": "Company A", "dod": None},
+            {"id": "2", "firstName": "Jane", "lastName": "Smith", "dob": "1985-02-15", "employer": "Company B", "dod": None},
+            {"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None},
+            {"id": "4", "firstName": "Alice", "lastName": "Brown", "dob": "1990-04-10", "employer": "Company D", "dod": None},
+            {"id": "5", "firstName": "Charlie", "lastName": "Wilson", "dob": "1982-05-25", "employer": "Company E", "dod": None}
+        ]
+        self.insertTestData(test_data)
+
+        # Debug: Verify data was inserted
+        with self.source_engine.begin() as conn:
+            result = conn.execute(text('SELECT COUNT(*) FROM people'))
+            count = result.fetchone()[0]
+            print(f"DEBUG: After insert, people table has {count} rows")
+            tc.assertEqual(count, 5)
+
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", 2, tc)
+        self.checkSpecificBatchStatus("Store1", 2, BatchStatus.COMMITTED, tc)
+
+        # Verify all 5 rows are in merge table with batch_id = 2
+        merge_data = self.getMergeTableData()
+        tc.assertEqual(len(merge_data), 5)
+        for row in merge_data:
+            tc.assertEqual(row['ds_surf_batch_id'], 2)
+
+        # Step 3: Update a row and delete another, then run batch 3
+        print("Step 3: Updating row 1 and deleting row 3, then running batch 3")
+        self.updateTestData("1", {"employer": "Company X", "firstName": "Johnny"})
+        self.deleteTestData("3")
+
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", 3, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", 3, tc)
+
+        # Verify updated row has new batch_id and new data
+        merge_data = self.getMergeTableData()
+        tc.assertEqual(len(merge_data), 4)  # One row deleted
+
+        # Check updated row
+        self.common_verify_record_exists(merge_data, "1", {
+            'ds_surf_batch_id': 3,
+            'firstName': 'Johnny',
+            'employer': 'Company X'
+        }, tc)
+
+        # Verify deleted row is gone
+        self.common_verify_record_absent(merge_data, "3", tc)
+
+        # Step 4: Re-insert the deleted row and run batch 4
+        print("Step 4: Re-inserting row 3 and running batch 4")
+        self.insertTestData([{"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None}])
+
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", 4, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", 4, tc)
+
+        # Verify re-inserted row is present with batch_id = 4
+        merge_data = self.getMergeTableData()
+        tc.assertEqual(len(merge_data), 5)
+        self.common_verify_record_exists(merge_data, "3", {'ds_surf_batch_id': 4}, tc)
+
+        # Step 5: Run another batch with no changes
+        print("Step 5: Running batch 5 with no changes")
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", 5, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", 5, tc)
+
+        # Verify no changes occurred - unchanged rows should keep their previous batch_ids
+        merge_data_after = self.getMergeTableData()
+        tc.assertEqual(len(merge_data_after), 5)
+
+        # All rows should still have their previous batch_ids (unchanged rows keep original batch_id)
+        for row in merge_data_after:
+            if row['id'] == '1':
+                tc.assertEqual(row['ds_surf_batch_id'], 3)  # Updated in batch 3
+            elif row['id'] == '3':
+                tc.assertEqual(row['ds_surf_batch_id'], 4)  # Re-inserted in batch 4
+            else:
+                tc.assertEqual(row['ds_surf_batch_id'], 2)  # Original batch 2, unchanged
+
+        print("All batch lifecycle tests passed!")
+
 
 class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
     """Test the SnapshotMergeJob with a simple ecosystem (live-only)"""
@@ -249,20 +424,8 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         req.retention.milestoningStrategy = DataMilestoningStrategy.LIVE_ONLY
 
     def setUp(self) -> None:
-        super().setUp()
-        # Create job instance for live-only
         from datasurface.platforms.yellow.jobs import SnapshotMergeJobLiveOnly
-        assert self.eco is not None
-        assert self.dp is not None
-        assert self.store is not None
-        self.job = SnapshotMergeJobLiveOnly(
-            self.eco,
-            self.dp.getCredentialStore(),
-            self.dp,
-            self.store
-        )
-        self.overrideCredentialStore()
-        self.setupDatabases()
+        self.common_setup_job(SnapshotMergeJobLiveOnly, self)
 
     def getMergeTableData(self) -> list:
         """Override to only select live-only columns (no batch_in/batch_out)"""
@@ -303,158 +466,15 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
                 """))
             return [row._asdict() for row in result.fetchall()]
 
-    def checkCurrentBatchIs(self, key: str, expected_batch: int) -> None:
-        with self.merge_engine.begin() as conn:
-            result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'' + key + '\''))
-            row = result.fetchone()
-            current_batch = row[0] if row else 0
-            self.assertEqual(current_batch, expected_batch)
-
-    def checkSpecificBatchStatus(self, key: str, batch_id: int, expected_status: BatchStatus) -> None:
-        with self.merge_engine.begin() as conn:
-            result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
-            row = result.fetchone()
-            batch_status = row[0] if row else "None"
-            self.assertEqual(batch_status, expected_status.value)
-
     def test_BatchState(self) -> None:
-        """Test the BatchState class"""
-        state = BatchState([self.store.datasets["people"].name])
-        self.assertEqual(state.all_datasets, ["people"])
-        self.assertEqual(state.current_dataset_index, 0)
-        self.assertEqual(state.current_offset, 0)
-
-        self.assertTrue(state.hasMoreDatasets())
-
-        # Move to next dataset
-        state.moveToNextDataset()
-        self.assertFalse(state.hasMoreDatasets())
+        self.common_test_BatchState(self)
 
     def test_first_batch_started(self) -> None:
-        """Test that the first batch is started"""
-        if self.job is None:
-            raise Exception("Job not set")
-        self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
-        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED)
+        self.common_test_first_batch_started(self)
 
     def test_full_batch_lifecycle(self) -> None:
         """Test the complete batch processing lifecycle"""
-
-        # Step 1: Run batch 1 with empty source table
-        print("Step 1: Running batch 1 with empty source table")
-        status = self.runJob()
-        self.assertEqual(status, JobStatus.DONE)
-
-        # Check batch status - first actual batch is batch 1
-        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED)
-        self.checkCurrentBatchIs("Store1", 1)
-
-        # Verify merge table is empty
-        merge_data = self.getMergeTableData()
-        self.assertEqual(len(merge_data), 0)
-
-        # Step 2: Insert 5 rows and run batch 2
-        print("Step 2: Inserting 5 rows and running batch 2")
-        test_data = [
-            {"id": "1", "firstName": "John", "lastName": "Doe", "dob": "1980-01-01", "employer": "Company A", "dod": None},
-            {"id": "2", "firstName": "Jane", "lastName": "Smith", "dob": "1985-02-15", "employer": "Company B", "dod": None},
-            {"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None},
-            {"id": "4", "firstName": "Alice", "lastName": "Brown", "dob": "1990-04-10", "employer": "Company D", "dod": None},
-            {"id": "5", "firstName": "Charlie", "lastName": "Wilson", "dob": "1982-05-25", "employer": "Company E", "dod": None}
-        ]
-        self.insertTestData(test_data)
-
-        # Debug: Verify data was inserted
-        with self.source_engine.begin() as conn:
-            result = conn.execute(text('SELECT COUNT(*) FROM people'))
-            count = result.fetchone()[0]
-            print(f"DEBUG: After insert, people table has {count} rows")
-            self.assertEqual(count, 5)
-
-        status = self.runJob()
-        self.assertEqual(status, JobStatus.DONE)
-
-        # Check batch status
-        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED)
-        self.checkCurrentBatchIs("Store1", 2)
-        self.checkSpecificBatchStatus("Store1", 2, BatchStatus.COMMITTED)
-
-        # Verify all 5 rows are in merge table with batch_id = 2
-        # The records were first ingested in batch 2 (batch 1 had empty source), so they should have batch_id = 2
-        merge_data = self.getMergeTableData()
-        self.assertEqual(len(merge_data), 5)
-        for row in merge_data:
-            self.assertEqual(row['ds_surf_batch_id'], 2)
-
-        # Step 3: Update a row and delete another, then run batch 3
-        print("Step 3: Updating row 1 and deleting row 3, then running batch 3")
-        self.updateTestData("1", {"employer": "Company X", "firstName": "Johnny"})
-        self.deleteTestData("3")
-
-        status = self.runJob()
-        self.assertEqual(status, JobStatus.DONE)
-
-        # Check batch status
-        self.checkSpecificBatchStatus("Store1", 3, BatchStatus.COMMITTED)
-        self.checkCurrentBatchIs("Store1", 3)
-
-        # Verify updated row has new batch_id and new data
-        merge_data = self.getMergeTableData()
-        self.assertEqual(len(merge_data), 4)  # One row deleted
-
-        # Check updated row
-        updated_row = next((row for row in merge_data if row['id'] == '1'), None)
-        self.assertIsNotNone(updated_row)
-        self.assertEqual(updated_row['ds_surf_batch_id'], 3)
-        self.assertEqual(updated_row['firstName'], 'Johnny')
-        self.assertEqual(updated_row['employer'], 'Company X')
-
-        # Verify deleted row is gone
-        deleted_row = next((row for row in merge_data if row['id'] == '3'), None)
-        self.assertIsNone(deleted_row)
-
-        # Step 4: Re-insert the deleted row and run batch 4
-        print("Step 4: Re-inserting row 3 and running batch 4")
-        self.insertTestData([{"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None}])
-
-        status = self.runJob()
-        self.assertEqual(status, JobStatus.DONE)
-
-        # Check batch status
-        self.checkSpecificBatchStatus("Store1", 4, BatchStatus.COMMITTED)
-        self.checkCurrentBatchIs("Store1", 4)
-
-        # Verify re-inserted row is present with batch_id = 4
-        merge_data = self.getMergeTableData()
-        self.assertEqual(len(merge_data), 5)
-
-        reinserted_row = next((row for row in merge_data if row['id'] == '3'), None)
-        self.assertIsNotNone(reinserted_row)
-        self.assertEqual(reinserted_row['ds_surf_batch_id'], 4)
-
-        # Step 5: Run another batch with no changes
-        print("Step 5: Running batch 5 with no changes")
-        status = self.runJob()
-        self.assertEqual(status, JobStatus.DONE)
-
-        # Check batch status
-        self.checkSpecificBatchStatus("Store1", 5, BatchStatus.COMMITTED)
-        self.checkCurrentBatchIs("Store1", 5)
-
-        # Verify no changes occurred - unchanged rows should keep their previous batch_ids
-        merge_data_after = self.getMergeTableData()
-        self.assertEqual(len(merge_data_after), 5)
-
-        # All rows should still have their previous batch_ids (unchanged rows keep original batch_id)
-        for row in merge_data_after:
-            if row['id'] == '1':
-                self.assertEqual(row['ds_surf_batch_id'], 3)  # Updated in batch 3
-            elif row['id'] == '3':
-                self.assertEqual(row['ds_surf_batch_id'], 4)  # Re-inserted in batch 4
-            else:
-                self.assertEqual(row['ds_surf_batch_id'], 2)  # Original batch 2, unchanged
-
-        print("All batch lifecycle tests passed!")
+        self.common_test_batch_lifecycle_steps(self)
 
 
 if __name__ == "__main__":
