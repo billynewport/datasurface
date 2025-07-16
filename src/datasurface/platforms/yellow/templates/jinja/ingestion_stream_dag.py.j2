@@ -9,10 +9,11 @@ the return code to decide whether to reschedule immediately, wait for next trigg
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
-from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
+from kubernetes.client import models as k8s
 
 # Default arguments for the DAG
 default_args = {
@@ -63,15 +64,15 @@ env_vars = {
 }
 
 {% if ingestion_type == "sql_snapshot" and source_credential_secret_name %}
-    # Source database credentials for SQL snapshot ingestion
-    env_vars['{{ source_credential_secret_name }}_USER'] = {
-        'secret_name': '{{ source_credential_secret_name }}',
-        'secret_key': 'username'
-    }
-    env_vars['{{ source_credential_secret_name }}_PASSWORD'] = {
-        'secret_name': '{{ source_credential_secret_name }}',
-        'secret_key': 'password'
-    }
+# Source database credentials for SQL snapshot ingestion
+env_vars['{{ source_credential_secret_name }}_USER'] = {
+    'secret_name': '{{ source_credential_secret_name }}',
+    'secret_key': 'username'
+}
+env_vars['{{ source_credential_secret_name }}_PASSWORD'] = {
+    'secret_name': '{{ source_credential_secret_name }}',
+    'secret_key': 'password'
+}
 {% endif %}
 
 {% if ingestion_type == "kafka" and kafka_connect_credential_secret_name %}
@@ -117,18 +118,18 @@ job = KubernetesPodOperator(
         '--git-repo-path', '/workspace/model'
     ],
     env_vars=env_vars,  # type: ignore
-    volumes=[  # type: ignore
-        {
-            'name': 'git-workspace',
-            'configMap': {'name': '{{ platform_name }}-git-config'}
-        }
+    volumes=[
+        k8s.V1Volume(
+            name='git-workspace',
+            config_map=k8s.V1ConfigMapVolumeSource(name='{{ platform_name }}-git-config')
+        )
     ],
-    volume_mounts=[  # type: ignore
-        {
-            'name': 'git-workspace',
-            'mountPath': '/workspace/model',
-            'readOnly': True
-        }
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='git-workspace',
+            mount_path='/workspace/model',
+            read_only=True
+        )
     ],
     is_delete_operator_pod=True,
     get_logs=True,

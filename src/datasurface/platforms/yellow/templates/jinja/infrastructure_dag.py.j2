@@ -12,7 +12,8 @@ This DAG contains the core infrastructure tasks:
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
-from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.operators.empty import EmptyOperator
+from kubernetes.client import models as k8s
 
 # Default arguments for the DAG
 default_args = {
@@ -86,18 +87,18 @@ merge_task = KubernetesPodOperator(
         '--git-repo-path', '/workspace/model'
     ],
     env_vars=common_env_vars,  # type: ignore
-    volumes=[  # type: ignore
-        {
-            'name': 'git-workspace',
-            'configMap': {'name': '{{ platform_name }}-git-config'}
-        }
+    volumes=[
+        k8s.V1Volume(
+            name='git-workspace',
+            config_map=k8s.V1ConfigMapVolumeSource(name='{{ platform_name }}-git-config')
+        )
     ],
-    volume_mounts=[  # type: ignore
-        {
-            'name': 'git-workspace',
-            'mountPath': '/workspace/model',
-            'readOnly': True
-        }
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='git-workspace',
+            mount_path='/workspace/model',
+            read_only=True
+        )
     ],
     is_delete_operator_pod=True,
     get_logs=True,
@@ -160,18 +161,18 @@ table_removal_task = KubernetesPodOperator(
         '--git-repo-path', '/workspace/model'
     ],
     env_vars=common_env_vars,  # type: ignore
-    volumes=[  # type: ignore
-        {
-            'name': 'git-workspace',
-            'configMap': {'name': '{{ platform_name }}-git-config'}
-        }
+    volumes=[
+        k8s.V1Volume(
+            name='git-workspace',
+            config_map=k8s.V1ConfigMapVolumeSource(name='{{ platform_name }}-git-config')
+        )
     ],
-    volume_mounts=[  # type: ignore
-        {
-            'name': 'git-workspace',
-            'mountPath': '/workspace/model',
-            'readOnly': True
-        }
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='git-workspace',
+            mount_path='/workspace/model',
+            read_only=True
+        )
     ],
     is_delete_operator_pod=True,
     get_logs=True,
