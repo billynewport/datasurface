@@ -91,7 +91,7 @@ def determine_next_action(**context):
     name='{{ platform_name }}-{{ stream.stream_key | replace("-", "_") }}-job',
     namespace='{{ namespace_name }}',
     image='{{ datasurface_docker_image }}',
-    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.jobs'],
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
         '--platform-name', '{{ platform_name }}',
         '--store-name', '{{ stream.store_name }}',
