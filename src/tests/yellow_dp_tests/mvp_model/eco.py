@@ -90,12 +90,12 @@ def createEcosystem() -> Ecosystem:
             documentation=PlainTextDocumentation("Test datastore"),
             capture_metadata=SQLSnapshotIngestion(
                 PostgresDatabase(
-                    "Test_DB",  # Model name for database
+                    "CustomerDB",  # Model name for database
                     hostPort=HostPortPair("localhost", 5432),  # Host and port for database
                     locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
-                    databaseName="test_db"  # Database name
+                    databaseName="customer_db"  # Database name
                 ),
-                CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
+                CronTrigger("Every 1 minute", "* * * * *"),  # Cron trigger for ingestion
                 IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
                 Credential("postgres", CredentialType.USER_PASSWORD),  # Credential for platform to read from database
                 ),
@@ -104,57 +104,31 @@ def createEcosystem() -> Ecosystem:
                     "customers",
                     schema=DDLTable(
                         columns=[
-                            DDLColumn(
-                                "id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
-                            DDLColumn(
-                                "firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "First Name")]),
-                            DDLColumn(
-                                "lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Last Name")]),
-                            DDLColumn(
-                                "dob", Date(), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Birth")]),
-                            DDLColumn(
-                                "email", VarChar(100), nullable=NullableStatus.NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Email")]),
-                            DDLColumn(
-                                "phone", VarChar(100), nullable=NullableStatus.NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Phone")]),
-                            DDLColumn(
-                                "primaryAddressId", VarChar(20), nullable=NullableStatus.NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
-                            DDLColumn(
-                                "billingAddressId", VarChar(20), nullable=NullableStatus.NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")])
+                            DDLColumn("id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("dob", Date(), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("email", VarChar(100), nullable=NullableStatus.NULLABLE),
+                            DDLColumn("phone", VarChar(100), nullable=NullableStatus.NULLABLE),
+                            DDLColumn("primaryAddressId", VarChar(20), nullable=NullableStatus.NULLABLE),
+                            DDLColumn("billingAddressId", VarChar(20), nullable=NullableStatus.NULLABLE)
                         ]
-                    )
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.CPI, "Customer")]
                 ),
                 Dataset(
                     "addresses",
                     schema=DDLTable(
                         columns=[
-                            DDLColumn(
-                                "id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
-                            DDLColumn(
-                                "customerId", VarChar(20), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
-                            DDLColumn(
-                                "streetName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Address")]),
-                            DDLColumn(
-                                "city", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Address")]),
-                            DDLColumn(
-                                "state", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Address")]),
-                            DDLColumn(
-                                "zipCode", VarChar(30), nullable=NullableStatus.NOT_NULLABLE,
-                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Address")])
+                            DDLColumn("id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
+                            DDLColumn("customerId", VarChar(20), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("streetName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("city", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("state", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("zipCode", VarChar(30), nullable=NullableStatus.NOT_NULLABLE)
                         ]
-                    )
+                    ),
+                    classifications=[SimpleDC(SimpleDCTypes.CPI, "Address")]
                 )
             ]
         ),

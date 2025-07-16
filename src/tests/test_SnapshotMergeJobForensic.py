@@ -30,7 +30,7 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
         """Common pattern to verify forensic history"""
         all_records = self.getMergeTableData()
         tc.assertEqual(len(all_records), expected_total)
-        
+
         historical_records = [r for r in all_records if r['ds_surf_batch_out'] != 2147483647]
         tc.assertEqual(len(historical_records), expected_historical)
 
