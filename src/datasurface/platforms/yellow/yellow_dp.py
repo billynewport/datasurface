@@ -23,6 +23,7 @@ import re
 from datasurface.md.repo import GitHubRepository
 from typing import cast
 import copy
+from enum import Enum
 
 
 class KubernetesEnvVarsCredentialStore(CredentialStore):
@@ -475,6 +476,11 @@ class KafkaConnectCluster(DataContainer):
         return None
 
 
+class YellowMilestoneStrategy(Enum):
+    LIVE_ONLY = "live_only"
+    BATCH_MILESTONED = "batch_milestoned"
+
+
 class YellowDataPlatform(DataPlatform):
     """This defines the kubernetes postgres starter data platform. It can consume data from sources and write them to a postgres based merge store.
       It has the use of a postgres database for staging and merge tables as well as Workspace views"""
@@ -493,10 +499,12 @@ class YellowDataPlatform(DataPlatform):
             kafkaConnectName: str = "kafka-connect",
             kafkaClusterName: str = "kafka-cluster",
             slackChannel: str = "datasurface-events",
+            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY,
             datasurfaceImage: str = "datasurface/datasurface:latest"
             ):
         super().__init__(name, doc, YellowPlatformExecutor())
         self.locs: set[LocationKey] = locs
+        self.milestoneStrategy: YellowMilestoneStrategy = milestoneStrategy
         self.namespace: str = namespace
         self.connectCredentials: Credential = connectCredentials
         self.postgresCredential: Credential = postgresCredential
@@ -554,6 +562,7 @@ class YellowDataPlatform(DataPlatform):
                 "datasurfaceImage": self.datasurfaceImage,
                 "kafkaConnectCluster": self.kafkaConnectCluster.to_json(),
                 "mergeStore": self.mergeStore.to_json(),
+                "milestoneStrategy": self.milestoneStrategy.value,
                 "locs": [loc.to_json() for loc in self.locs]
             }
         )

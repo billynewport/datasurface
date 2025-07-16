@@ -1902,6 +1902,10 @@ class Ecosystem(GitControlledObject, JSONable):
                     rc = False
                 if self._check_dict_changes(self.dataPlatforms, proposed.dataPlatforms, tree, "DataPlatforms"):
                     rc = False
+                if self.dsgPlatformMappings != proposed.dsgPlatformMappings:
+                    tree.addRaw(UnauthorizedAttributeChange("dsgPlatformMappings", self.dsgPlatformMappings,
+                                                            proposed.dsgPlatformMappings, ProblemSeverity.ERROR))
+                    rc = False
                 if self.defaultDataPlatform != proposed.defaultDataPlatform:
                     tree.addRaw(UnauthorizedAttributeChange("defaultDataPlatformn", self.defaultDataPlatform,
                                                             proposed.defaultDataPlatform, ProblemSeverity.ERROR))
@@ -2500,6 +2504,10 @@ class GovernanceZone(GitControlledObject, JSONable):
         if self._check_dict_changes(self.dataplatformPolicies, proposed.dataplatformPolicies, tree, "DataPlatformPolicies"):
             return False
         if self._check_dict_changes(self.vendorPolicies, proposed.vendorPolicies, tree, "VendorPolicies"):
+            return False
+        if self._check_dict_changes(self.hardVendorPolicies, proposed.hardVendorPolicies, tree, "HardVendorPolicies"):
+            return False
+        if self._check_dict_changes(self.classificationPolicies, proposed.classificationPolicies, tree, "ClassificationPolicies"):
             return False
         if self._check_dict_changes(self.locationPolicies, proposed.locationPolicies, tree, "LocationPolicies"):
             return False
