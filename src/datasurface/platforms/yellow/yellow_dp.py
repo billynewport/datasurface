@@ -12,7 +12,7 @@ from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, Kafk
 from datasurface.md.governance import DatasetGroup
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
     ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
-from datasurface.md.exceptions import DatastoreDoesntExistException, ObjectDoesntExistException
+from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
