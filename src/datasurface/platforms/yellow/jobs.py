@@ -1302,6 +1302,35 @@ def main():
 
     args = parser.parse_args()
 
+    # Clone the git repository if the directory is empty
+    import os
+    import subprocess
+    
+    if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
+        print(f"Cloning git repository into {args.git_repo_path}")
+        git_token = os.environ.get('git_TOKEN')
+        if not git_token:
+            print("ERROR: git_TOKEN environment variable not found")
+            return -1
+        
+        # Ensure the directory exists
+        os.makedirs(args.git_repo_path, exist_ok=True)
+        
+        # Clone the repository (billynewport/mvpmodel)
+        git_url = f"https://{git_token}@github.com/billynewport/mvpmodel.git"
+        try:
+            result = subprocess.run(
+                ['git', 'clone', git_url, '.'],
+                cwd=args.git_repo_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print(f"Successfully cloned repository: {result.stdout}")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to clone repository: {e.stderr}")
+            return -1
+
     eco: Optional[Ecosystem] = None
     tree: Optional[ValidationTree] = None
     eco, tree = loadEcosystemFromEcoModule(args.git_repo_path)
@@ -1386,5 +1415,14 @@ def main():
 
 
 if __name__ == "__main__":
-    exit_code = main()
-    sys.exit(exit_code)
+    try:
+        exit_code = main()
+        print(f"DATASURFACE_RESULT_CODE={exit_code}")
+    except Exception as e:
+        print(f"Unhandled exception in main: {e}")
+        import traceback
+        traceback.print_exc()
+        print("DATASURFACE_RESULT_CODE=-1")
+        exit_code = -1
+    # Always exit with 0 (success) - Airflow will parse the result code from logs
+    sys.exit(0)

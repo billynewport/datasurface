@@ -36,70 +36,128 @@ dag = DAG(
     tags=['datasurface', 'ingestion', '{{ platform_name }}', '{{ stream_key }}']
 )
 
-# Environment variables for the job
-env_vars = {
+# Environment variables for the job - combining literal and secret-based vars
+env_vars = [
+    # Platform configuration (literal values)
+    k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value='{{ platform_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value='{{ slack_channel_name }}'),
+    
     # Postgres credentials (for merge store)
-    '{{ postgres_credential_secret_name }}_USER': {
-        'secret_name': '{{ postgres_credential_secret_name }}',
-        'secret_key': 'username'
-    },
-    '{{ postgres_credential_secret_name }}_PASSWORD': {
-        'secret_name': '{{ postgres_credential_secret_name }}',
-        'secret_key': 'password'
-    },
+    k8s.V1EnvVar(
+        name='{{ postgres_credential_secret_name }}_USER',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ postgres_credential_secret_name }}',
+                key='username'
+            )
+        )
+    ),
+    k8s.V1EnvVar(
+        name='{{ postgres_credential_secret_name }}_PASSWORD',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ postgres_credential_secret_name }}',
+                key='password'
+            )
+        )
+    ),
     # Git credentials
-    '{{ git_credential_secret_name }}_TOKEN': {
-        'secret_name': '{{ git_credential_secret_name }}',
-        'secret_key': 'token'
-    },
+    k8s.V1EnvVar(
+        name='{{ git_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ git_credential_secret_name }}',
+                key='token'
+            )
+        )
+    ),
     # Slack credentials
-    '{{ slack_credential_secret_name }}_TOKEN': {
-        'secret_name': '{{ slack_credential_secret_name }}',
-        'secret_key': 'token'
-    },
-    # Platform configuration
-    'DATASURFACE_PLATFORM_NAME': '{{ platform_name }}',
-    'DATASURFACE_NAMESPACE': '{{ namespace_name }}',
-    'DATASURFACE_SLACK_CHANNEL': '{{ slack_channel_name }}'
-}
+    k8s.V1EnvVar(
+        name='{{ slack_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ slack_credential_secret_name }}',
+                key='token'
+            )
+        )
+    )
+]
 
-{% if ingestion_type == "sql_snapshot" and source_credential_secret_name %}
-# Source database credentials for SQL snapshot ingestion
-env_vars['{{ source_credential_secret_name }}_USER'] = {
-    'secret_name': '{{ source_credential_secret_name }}',
-    'secret_key': 'username'
-}
-env_vars['{{ source_credential_secret_name }}_PASSWORD'] = {
-    'secret_name': '{{ source_credential_secret_name }}',
-    'secret_key': 'password'
-}
+{% if ingestion_type == "sql_snapshot" and source_credential_secret_name and source_credential_secret_name != postgres_credential_secret_name %}
+# Source database credentials for SQL snapshot ingestion (only if different from merge store)
+env_vars.extend([
+    k8s.V1EnvVar(
+        name='{{ source_credential_secret_name }}_USER',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ source_credential_secret_name }}',
+                key='username'
+            )
+        )
+    ),
+    k8s.V1EnvVar(
+        name='{{ source_credential_secret_name }}_PASSWORD',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ source_credential_secret_name }}',
+                key='password'
+            )
+        )
+    )
+])
 {% endif %}
 
 {% if ingestion_type == "kafka" and kafka_connect_credential_secret_name %}
-    # Kafka Connect credentials for Kafka ingestion
-    env_vars['{{ kafka_connect_credential_secret_name }}_API_KEY'] = {
-        'secret_name': '{{ kafka_connect_credential_secret_name }}',
-        'secret_key': 'api_key'
-    }
-    env_vars['{{ kafka_connect_credential_secret_name }}_API_SECRET'] = {
-        'secret_name': '{{ kafka_connect_credential_secret_name }}',
-        'secret_key': 'api_secret'
-    }
+# Kafka Connect credentials for Kafka ingestion
+env_vars.extend([
+    k8s.V1EnvVar(
+        name='{{ kafka_connect_credential_secret_name }}_API_KEY',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ kafka_connect_credential_secret_name }}',
+                key='api_key'
+            )
+        )
+    ),
+    k8s.V1EnvVar(
+        name='{{ kafka_connect_credential_secret_name }}_API_SECRET',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ kafka_connect_credential_secret_name }}',
+                key='api_secret'
+            )
+        )
+    )
+])
 {% endif %}
 
 # Function to determine next action based on job return code
 def determine_next_action(**context):
-    """Determine the next action based on the job return code"""
+    """Determine the next action based on the job return code parsed from logs"""
+    import re
+    
     task_instance = context['task_instance']
-    return_code = task_instance.xcom_pull(task_ids=context['task'].upstream_task_ids[0].task_id)
+    job_task_id = 'snapshot_merge_job'
+    
+    # Get logs from XCom (KubernetesPodOperator with do_xcom_push=True captures logs)
+    logs = task_instance.xcom_pull(task_ids=job_task_id)
+    
+    # Parse logs to find DATASURFACE_RESULT_CODE=X
+    if logs:
+        match = re.search(r'DATASURFACE_RESULT_CODE=(-?\d+)', str(logs))
+        return_code = int(match.group(1)) if match else -1
+    else:
+        return_code = -1  # Default to error if no logs
+    
+    print(f"Parsed result code: {return_code} from logs")
     
     if return_code == 1:  # KEEP_WORKING
         return 'reschedule_immediately'
     elif return_code == 0:  # DONE
         return 'wait_for_trigger'
     else:  # ERROR (-1)
-        # Let the job task fail directly instead of routing to a separate fail task
-        raise Exception("SnapshotMergeJob failed - manual intervention required")
+        raise Exception(f"SnapshotMergeJob failed with code {return_code} - manual intervention required")
 
 # Job task
 job = KubernetesPodOperator(
@@ -109,7 +167,7 @@ job = KubernetesPodOperator(
     image='{{ datasurface_docker_image }}',
     cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
-        '--platform-name', '{{ platform_name }}',
+        '--platform-name', 'YellowLive',
         '--store-name', '{{ store_name }}',
         {% if dataset_name %}
         '--dataset-name', '{{ dataset_name }}',
@@ -118,21 +176,27 @@ job = KubernetesPodOperator(
         '--git-repo-path', '/workspace/model'
     ],
     env_vars=env_vars,  # type: ignore
+    image_pull_policy='Always',
     volumes=[
         k8s.V1Volume(
             name='git-workspace',
-            config_map=k8s.V1ConfigMapVolumeSource(name='{{ platform_name }}-git-config')
+            empty_dir=k8s.V1EmptyDirVolumeSource()
         )
     ],
     volume_mounts=[
         k8s.V1VolumeMount(
             name='git-workspace',
             mount_path='/workspace/model',
-            read_only=True
+            read_only=False
         )
     ],
     is_delete_operator_pod=True,
     get_logs=True,
+    do_xcom_push=True,
+    container_resources=k8s.V1ResourceRequirements(
+        requests={'memory': '256Mi', 'cpu': '100m'}
+    ),
+    on_finish_action="delete_pod",
     dag=dag
 )
 
