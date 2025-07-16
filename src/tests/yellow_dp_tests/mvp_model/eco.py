@@ -108,10 +108,10 @@ def createEcosystem() -> Ecosystem:
                             DDLColumn("firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
                             DDLColumn("lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
                             DDLColumn("dob", Date(), nullable=NullableStatus.NOT_NULLABLE),
-                            DDLColumn("email", VarChar(100), nullable=NullableStatus.NULLABLE),
-                            DDLColumn("phone", VarChar(100), nullable=NullableStatus.NULLABLE),
-                            DDLColumn("primaryAddressId", VarChar(20), nullable=NullableStatus.NULLABLE),
-                            DDLColumn("billingAddressId", VarChar(20), nullable=NullableStatus.NULLABLE)
+                            DDLColumn("email", VarChar(100)),
+                            DDLColumn("phone", VarChar(100)),
+                            DDLColumn("primaryAddressId", VarChar(20)),
+                            DDLColumn("billingAddressId", VarChar(20))
                         ]
                     ),
                     classifications=[SimpleDC(SimpleDCTypes.CPI, "Customer")]

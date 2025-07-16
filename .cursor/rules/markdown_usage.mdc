@@ -1,0 +1,8 @@
+---
+description: This rule specifies rules for the markdown files in the project.
+globs: **/*.md
+---
+
+- Please make sure all bulleted lists are surrounded by a blank line on either side of the list.
+- Do not have any trailing spaces at the end of lines.
+- Make sure there is a single blank line at the end of the file.
