@@ -10,7 +10,7 @@ from datasurface.md import Ecosystem, TeamDeclaration, Workspace, Team, DatasetG
 from datasurface.md import Dataset, Datastore, DDLTable, DDLColumn, Integer, Date, GovernanceZone, LocationKey
 from datasurface.md.types import Decimal, Variant, TinyInt, SmallInt, BigInt, Float, Double, Vector, String
 from datasurface.md import GovernanceZoneDeclaration
-from datasurface.md import ConsumerRetentionRequirements, DataRetentionPolicy
+from datasurface.md import ConsumerRetentionRequirements, DataMilestoningStrategy
 from datetime import timedelta
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository, FakeRepository
@@ -136,7 +136,7 @@ class TestWorkspace(unittest.TestCase):
                 "WK_A",
                 DatasetGroup(
                     "FastStuff",
-                    platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                    platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataMilestoningStrategy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                     sinks=[
                         DatasetSink("Store1", "Dataset1"),
                         DatasetSink("Store2", "Dataset2")
@@ -145,7 +145,7 @@ class TestWorkspace(unittest.TestCase):
                 DatasetGroup(
                     "SlowESMAStuff",
                     platform_chooser=WorkspacePlatformConfig(
-                        ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))
+                        ConsumerRetentionRequirements(DataMilestoningStrategy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))
                     ),
                     sinks=[
                         DatasetSink("Store3", "Dataset4"),
@@ -155,7 +155,7 @@ class TestWorkspace(unittest.TestCase):
                 DatasetGroup(
                     "SlowSEC_Stuff",
                     platform_chooser=WorkspacePlatformConfig(
-                        ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))
+                        ConsumerRetentionRequirements(DataMilestoningStrategy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))
                     ),
                     sinks=[
                         DatasetSink("Store3", "Dataset4"),
@@ -605,7 +605,7 @@ class TestWorkspace(unittest.TestCase):
                 "WK_A",
                 DatasetGroup(
                     "FastStuff",
-                    platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                    platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataMilestoningStrategy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                     sinks=[
                         DatasetSink("Store1", "Dataset1"),
                         DatasetSink("Store1", "Dataset2")
@@ -691,7 +691,7 @@ class TestWorkspace(unittest.TestCase):
             "WK_A",
             DatasetGroup(
                 "FastStuff",
-                platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataRetentionPolicy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
+                platform_chooser=WorkspacePlatformConfig(ConsumerRetentionRequirements(DataMilestoningStrategy.LIVE_ONLY, DataLatency.SECONDS, None, None)),
                 sinks=[
                     DatasetSink("Store1", "Dataset1"),
                     DatasetSink("Store2", "Dataset2")
@@ -700,7 +700,7 @@ class TestWorkspace(unittest.TestCase):
             DatasetGroup(
                 "SlowESMA_Stuff",
                 platform_chooser=WorkspacePlatformConfig(
-                    ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))
+                    ConsumerRetentionRequirements(DataMilestoningStrategy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52))
                 ),
                 sinks=[
                     DatasetSink("Store3", "Dataset4"),
@@ -710,7 +710,7 @@ class TestWorkspace(unittest.TestCase):
             DatasetGroup(
                 "SlowSEC_Stuff",
                 platform_chooser=WorkspacePlatformConfig(
-                    ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))
+                    ConsumerRetentionRequirements(DataMilestoningStrategy.FORENSIC, DataLatency.MINUTES, "SEC", timedelta(weeks=7*52))
                 ),
                 sinks=[
                     DatasetSink("Store3", "Dataset4"),
@@ -752,7 +752,7 @@ class TestWorkspace(unittest.TestCase):
 
         # Force dsg3 to be equal to dsg2 and test it
         dsg3.platformMD = WorkspacePlatformConfig(
-            ConsumerRetentionRequirements(DataRetentionPolicy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52)))
+            ConsumerRetentionRequirements(DataMilestoningStrategy.FORENSIC, DataLatency.MINUTES, "ESMA", timedelta(weeks=5*52)))
         dsg3.name = dsg2.name
         self.assertEqual(dsg2, dsg3)
 

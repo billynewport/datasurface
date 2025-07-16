@@ -2804,7 +2804,7 @@ class DataLatency(Enum):
     """A day or more"""
 
 
-class DataRetentionPolicy(Enum):
+class DataMilestoningStrategy(Enum):
     """Client indicates whether the data is live or forensic"""
     LIVE_ONLY = 0
     """Only the latest version of each record should be retained"""
@@ -2819,25 +2819,25 @@ class DataRetentionPolicy(Enum):
 class ConsumerRetentionRequirements(UserDSLObject):
     """Consumers specify the retention requirements for the data they consume. Platforms use this to backtrack
     retention requirements for data in the full inferred pipeline to manage that consumer"""
-    def __init__(self, r: DataRetentionPolicy, latency: DataLatency, regulator: Optional[str],
+    def __init__(self, r: DataMilestoningStrategy, latency: DataLatency, regulator: Optional[str],
                  minRetentionDurationIfNeeded: Optional[timedelta] = None) -> None:
-        self.policy: DataRetentionPolicy = r
+        self.milestoningStrategy: DataMilestoningStrategy = r
         self.latency: DataLatency = latency
         self.minRetentionTime: Optional[timedelta] = minRetentionDurationIfNeeded
         self.regulator: Optional[str] = regulator
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, ConsumerRetentionRequirements)):
-            return super().__eq__(other) and self.policy == other.policy and self.latency == other.latency and \
+            return super().__eq__(other) and self.milestoningStrategy == other.milestoningStrategy and self.latency == other.latency and \
                 self.minRetentionTime == other.minRetentionTime and self.regulator == other.regulator
         return False
 
     def __hash__(self) -> int:
-        return hash((self.policy, self.latency, self.minRetentionTime, self.regulator))
+        return hash((self.milestoningStrategy, self.latency, self.minRetentionTime, self.regulator))
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "policy": self.policy.name, "latency": self.latency.name,
+        rc.update({"_type": self.__class__.__name__, "milestoningStrategy": self.milestoningStrategy.name, "latency": self.latency.name,
                    "minRetentionTime": self.minRetentionTime, "regulator": self.regulator})
         return rc
 

@@ -10,7 +10,7 @@ from sqlalchemy import text, inspect
 from sqlalchemy.engine import Engine
 
 from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, ExportNode, Workspace, DatasetGroup
-from datasurface.md import DataRetentionPolicy, WorkspacePlatformConfig
+from datasurface.md import DataMilestoningStrategy, WorkspacePlatformConfig
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.sqlalchemyutils import createOrUpdateView
 from datasurface.md.credential import CredentialStore
@@ -151,8 +151,8 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                 continue
 
             platform_config: WorkspacePlatformConfig = dataset_group.platformMD
-            if platform_config.retention.policy != DataRetentionPolicy.LIVE_ONLY:
-                print(f"Info: Skipping workspace {workspace.name} - not LIVE_ONLY (policy: {platform_config.retention.policy.name})")
+            if platform_config.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
+                print(f"Info: Skipping workspace {workspace.name} - not LIVE_ONLY (policy: {platform_config.retention.milestoningStrategy.name})")
                 continue
 
             # Generate view and table names

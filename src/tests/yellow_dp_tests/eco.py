@@ -14,7 +14,7 @@ from datasurface.md import CloudVendor, DefaultDataPlatform, \
         DataPlatformKey, WorkspacePlatformConfig
 from datasurface.md import ValidationTree
 from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType, \
-    ConsumerRetentionRequirements, DataRetentionPolicy, DataLatency
+    ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import VarChar, Date
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
@@ -128,7 +128,7 @@ def createEcosystem() -> Ecosystem:
                 ],
                 platform_chooser=WorkspacePlatformConfig(
                     hist=ConsumerRetentionRequirements(
-                        r=DataRetentionPolicy.LIVE_ONLY,
+                        r=DataMilestoningStrategy.LIVE_ONLY,
                         latency=DataLatency.MINUTES,
                         regulator=None
                     )

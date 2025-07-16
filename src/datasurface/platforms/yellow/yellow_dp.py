@@ -16,7 +16,7 @@ from datasurface.md.exceptions import DatastoreDoesntExistException, ObjectDoesn
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
-from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataRetentionPolicy
+from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataMilestoningStrategy
 from datasurface.md.schema import DDLTable, DDLColumn
 from datasurface.md.types import Integer, String
 import os
@@ -304,8 +304,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 pc: Optional[DataPlatformChooser] = dsg.platformMD
                 if pc is not None:
                     if isinstance(pc, WorkspacePlatformConfig):
-                        if pc.retention.policy != DataRetentionPolicy.LIVE_ONLY:
-                            dsgTree.addRaw(AttributeValueNotSupported(pc, [DataRetentionPolicy.LIVE_ONLY.name], ProblemSeverity.ERROR))
+                        if pc.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
+                            dsgTree.addRaw(AttributeValueNotSupported(pc, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
                     else:
                         dsgTree.addRaw(ObjectWrongType(pc, WorkspacePlatformConfig, ProblemSeverity.ERROR))
                 else:
@@ -689,11 +689,11 @@ class YellowDataPlatform(DataPlatform):
             if chooser is not None:
                 if isinstance(chooser, WorkspacePlatformConfig):
                     if self.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
-                        if chooser.retention.policy != DataRetentionPolicy.FORENSIC:
-                            tree.addRaw(AttributeValueNotSupported(chooser.retention.policy, [DataRetentionPolicy.FORENSIC.name], ProblemSeverity.ERROR))
+                        if chooser.retention.milestoningStrategy != DataMilestoningStrategy.FORENSIC:
+                            tree.addRaw(AttributeValueNotSupported(chooser.retention.milestoningStrategy, [DataMilestoningStrategy.FORENSIC.name], ProblemSeverity.ERROR))
                     elif self.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
-                        if chooser.retention.policy != DataRetentionPolicy.LIVE_ONLY:
-                            tree.addRaw(AttributeValueNotSupported(chooser.retention.policy, [DataRetentionPolicy.LIVE_ONLY.name], ProblemSeverity.ERROR))
+                        if chooser.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
+                            tree.addRaw(AttributeValueNotSupported(chooser.retention.milestoningStrategy, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
                 else:
                     tree.addRaw(ObjectWrongType(chooser, WorkspacePlatformConfig, ProblemSeverity.ERROR))
 
