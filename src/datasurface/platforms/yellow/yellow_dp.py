@@ -690,10 +690,12 @@ class YellowDataPlatform(DataPlatform):
                 if isinstance(chooser, WorkspacePlatformConfig):
                     if self.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
                         if chooser.retention.milestoningStrategy != DataMilestoningStrategy.FORENSIC:
-                            tree.addRaw(AttributeValueNotSupported(chooser.retention.milestoningStrategy, [DataMilestoningStrategy.FORENSIC.name], ProblemSeverity.ERROR))
+                            tree.addRaw(AttributeValueNotSupported(
+                                chooser.retention.milestoningStrategy, [DataMilestoningStrategy.FORENSIC.name], ProblemSeverity.ERROR))
                     elif self.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
                         if chooser.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
-                            tree.addRaw(AttributeValueNotSupported(chooser.retention.milestoningStrategy, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
+                            tree.addRaw(AttributeValueNotSupported(
+                                chooser.retention.milestoningStrategy, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
                 else:
                     tree.addRaw(ObjectWrongType(chooser, WorkspacePlatformConfig, ProblemSeverity.ERROR))
 
