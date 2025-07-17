@@ -33,7 +33,7 @@ def createEcosystem() -> Ecosystem:
 
     ecosys: Ecosystem = Ecosystem(
         name="Test",
-        repo=GitHubRepository("billynewport/repo", "ECOmain"),
+        repo=GitHubRepository("billynewport/mvpmodel", "main"),
         data_platforms=[
             YellowDataPlatform(
                 name="YellowLive",

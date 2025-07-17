@@ -78,7 +78,6 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
 
     # Clone the git repository if the directory is empty
     if not os.path.exists(tempFolder) or not os.listdir(tempFolder):
-        print(f"Cloning git repository into {tempFolder}")
         git_token = os.environ.get('git_TOKEN')
         if not git_token:
             print("ERROR: git_TOKEN environment variable not found")
@@ -107,6 +106,7 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
     # is being cloned.
     finalModelFolder = getNewModelFolder(gitRepoPath)
     os.rename(tempFolder, finalModelFolder)
+    print(f"Cloned git repository into {finalModelFolder}")
     return finalModelFolder
 
 

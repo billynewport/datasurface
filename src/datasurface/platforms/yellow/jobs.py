@@ -1273,7 +1273,6 @@ def main():
     # Clone the git repository if the directory is empty
 
     if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
-        print(f"Cloning git repository into {args.git_repo_path}")
         git_token = os.environ.get('git_TOKEN')
         if not git_token:
             print("ERROR: git_TOKEN environment variable not found")
@@ -1285,7 +1284,7 @@ def main():
     eco: Optional[Ecosystem] = None
     tree: Optional[ValidationTree] = None
     eco, tree = getLatestModelAtTimestampedFolder(
-        GitHubRepository(args.git_repo_owner, args.git_repo_name, args.git_repo_branch), args.git_repo_path, doClone=True)
+        GitHubRepository(f"{args.git_repo_owner}/{args.git_repo_name}", args.git_repo_branch), args.git_repo_path, doClone=True)
     if tree is not None and tree.hasErrors():
         print("Ecosystem model has errors")
         tree.printTree()
