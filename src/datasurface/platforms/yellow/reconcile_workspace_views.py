@@ -9,14 +9,13 @@ from typing import List, Optional, Tuple
 from sqlalchemy import text, inspect
 from sqlalchemy.engine import Engine
 
-from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, ExportNode, Workspace, DatasetGroup
-from datasurface.md import DataMilestoningStrategy, WorkspacePlatformConfig
+from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, EcosystemPipelineGraph
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.sqlalchemyutils import createOrUpdateView
 from datasurface.md.credential import CredentialStore
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
 from datasurface.md.schema import DDLTable
-from datasurface.platforms.yellow.jobs import createEngine
+from datasurface.platforms.yellow.jobs import createEngine, YellowDatasetUtilities
 
 
 def generate_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, dataset_name: str) -> str:
@@ -28,27 +27,6 @@ def generate_view_name(dataplatform_name: str, workspace_name: str, dsg_name: st
     dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
 
     return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view"
-
-
-def generate_merge_table_name(store_name: str, dataset_name: str) -> str:
-    """Generate the merge table name for a dataset"""
-    # Convert to lowercase and replace spaces/special chars with underscores
-    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
-    dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
-
-    return f"{store_name}_{dataset_name}_merge"
-
-
-def get_original_dataset_schema(dataset_name: str, store_name: str, eco: Ecosystem) -> Optional[DDLTable]:
-    """Get the original dataset schema (without merge table columns)"""
-    try:
-        store_entry = eco.cache_getDatastoreOrThrow(store_name)
-        dataset = store_entry.datastore.datasets.get(dataset_name)
-        if dataset and isinstance(dataset.originalSchema, DDLTable):
-            return dataset.originalSchema
-    except Exception:
-        pass
-    return None
 
 
 def check_merge_table_exists(engine: Engine, merge_table_name: str) -> bool:
@@ -98,14 +76,31 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
 
     yellow_dp: YellowDataPlatform = dataplatform
 
+    if yellow_dp.milestoneStrategy != YellowMilestoneStrategy.LIVE_ONLY:
+        print(f"WARNING: Skipping Data platform '{dataplatform_name}', live only supported for views at the moment")
+        return 1
+
+    print(f"Reconciling workspace view schemas for platform: {dataplatform_name}")
+
     # Generate the platform pipeline graph
-    pipeline_graph = PlatformPipelineGraph(eco, yellow_dp)
-    pipeline_graph.generateGraph()
+    ecoGraph = EcosystemPipelineGraph(eco)
+    print(f"DEBUG: ecoGraph.roots keys: {list(ecoGraph.roots.keys())}")
+    print(f"DEBUG: yellow_dp.name: {yellow_dp.name}")
+
+    pipeline_graph: Optional[PlatformPipelineGraph] = ecoGraph.roots[yellow_dp.name]
+
+    if pipeline_graph is None:
+        print(f"Error: No pipeline graph found for platform: {dataplatform_name}")
+        return 1
+
+    print(f"DEBUG: Found pipeline graph for platform: {dataplatform_name}")
+    print(f"DEBUG: pipeline_graph.workspaces keys: {list(pipeline_graph.workspaces.keys())}")
 
     # Get database connection using the comprehensive createEngine method
     try:
         db_user, db_password = cred_store.getAsUserPassword(yellow_dp.postgresCredential)
         engine = createEngine(yellow_dp.mergeStore, db_user, db_password)
+        print("Connected to the merge store database")
     except Exception as e:
         print(f"Error connecting to database: {e}")
         return 1
@@ -115,91 +110,86 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     views_updated = 0
     views_failed = 0
 
-    # Process all ExportNodes in the graph
+    # Process all DSG datasinks assigned to our dataplatform
+    print(f"DEBUG: eco.dsgPlatformMappings keys: {list(eco.dsgPlatformMappings.keys())}")
 
-    for node in pipeline_graph.nodes.values():
-        if isinstance(node, ExportNode):
-            export_node: ExportNode = node
+    for dsgAssignment in eco.dsgPlatformMappings.values():
+        print(f"DEBUG: Processing dsgAssignment: {dsgAssignment}")
+        for assigment in dsgAssignment.assignments:
+            print(f"DEBUG: Processing assignment: {assigment}")
+            print(f"DEBUG: assignment.dataPlatform.name: {assigment.dataPlatform.name}")
+            print(f"DEBUG: dataplatform_name: {dataplatform_name}")
+            if assigment.dataPlatform.name == dataplatform_name:
+                print(f"DEBUG: Found matching assignment for platform: {dataplatform_name}")
+                workspace = pipeline_graph.workspaces.get(assigment.workspace)
+                print(f"DEBUG: workspace: {workspace}")
+                if workspace is None:
+                    print(f"DEBUG: Workspace {assigment.workspace} not found in pipeline graph")
+                    continue
+                dataset_group = workspace.dsgs[assigment.dsgName]
+                print(f"DEBUG: dataset_group: {dataset_group}")
+                print(f"DEBUG: dataset_group.sinks: {list(dataset_group.sinks.keys())}")
+                for sink in dataset_group.sinks.values():
+                    print(f"DEBUG: Processing sink: {sink}")
+                    
+                    # Create utilities instance for this specific sink
+                    try:
+                        store_entry = eco.cache_getDatastoreOrThrow(sink.storeName)
+                        utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store_entry.datastore, sink.datasetName)
+                        
+                        if utils.dataset is None:
+                            print(f"Error: Dataset {sink.datasetName} not found in store {sink.storeName}")
+                            views_failed += 1
+                            continue
+                            
+                    except Exception as e:
+                        print(f"Error: Could not load datastore {sink.storeName}: {e}")
+                        views_failed += 1
+                        continue
+                    
+                    # Generate names using utilities and conventional methods
+                    view_name = generate_view_name(dataplatform_name, workspace.name, dataset_group.name, sink.datasetName)
+                    merge_table_name = utils.getMergeTableNameForDataset(utils.dataset)
+                    print(f"DEBUG: view_name: {view_name}")
+                    print(f"DEBUG: merge_table_name: {merge_table_name}")
 
-            # Find the workspace and dataset group for this export
-            workspace: Optional[Workspace] = None
-            dataset_group: Optional[DatasetGroup] = None
+                    # Get the original dataset schema - we already have it from utils.dataset
+                    original_schema = utils.dataset.originalSchema
+                    if not isinstance(original_schema, DDLTable):
+                        print(f"Error: Invalid schema type for dataset {sink.datasetName} in store {sink.storeName}")
+                        views_failed += 1
+                        continue
 
-            # Find the workspace that uses this export
-            for ws in pipeline_graph.workspaces.values():
-                if ws.dataContainer == export_node.dataContainer:
-                    for dsg in ws.dsgs.values():
-                        for sink in dsg.sinks.values():
-                            if sink.storeName == export_node.storeName and sink.datasetName == export_node.datasetName:
-                                workspace = ws
-                                dataset_group = dsg
-                                break
-                        if workspace:
-                            break
-                    if workspace:
-                        break
+                    # Check if merge table exists
+                    if not check_merge_table_exists(engine, merge_table_name):
+                        print(f"Error: Merge table '{merge_table_name}' does not exist for view '{view_name}'")
+                        views_failed += 1
+                        continue
 
-            if not workspace or not dataset_group:
-                print(f"Warning: Could not find workspace/dataset group for export {export_node.name}")
-                views_failed += 1
-                continue
+                    # Check if merge table has all required columns
+                    required_columns = list(original_schema.columns.keys())
+                    has_columns, missing_columns = check_merge_table_has_required_columns(engine, merge_table_name, required_columns)
 
-            # Check if this workspace uses LIVE_ONLY retention policy
-            if not isinstance(dataset_group.platformMD, WorkspacePlatformConfig):
-                print(f"Warning: Dataset group {dataset_group.name} in workspace {workspace.name} does not have WorkspacePlatformConfig")
-                views_failed += 1
-                continue
+                    if not has_columns:
+                        print(f"Error: Merge table '{merge_table_name}' missing columns for view '{view_name}': {missing_columns}")
+                        views_failed += 1
+                        continue
 
-            platform_config: WorkspacePlatformConfig = dataset_group.platformMD
-            if platform_config.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
-                print(f"Info: Skipping workspace {workspace.name} - not LIVE_ONLY (policy: {platform_config.retention.milestoningStrategy.name})")
-                continue
-
-            # Generate view and table names
-            view_name = generate_view_name(dataplatform_name, workspace.name, dataset_group.name, export_node.datasetName)
-            merge_table_name = generate_merge_table_name(export_node.storeName, export_node.datasetName)
-
-            # Get the original dataset schema (without merge table columns)
-            original_schema = get_original_dataset_schema(export_node.datasetName, export_node.storeName, eco)
-            if not original_schema:
-                print(f"Error: Could not find original schema for dataset {export_node.datasetName} in store {export_node.storeName}")
-                views_failed += 1
-                continue
-
-            # Check if merge table exists
-            if not check_merge_table_exists(engine, merge_table_name):
-                print(f"Error: Merge table '{merge_table_name}' does not exist for view '{view_name}'")
-                views_failed += 1
-                continue
-
-            # Check if merge table has all required columns
-            required_columns = list(original_schema.columns.keys())
-            has_columns, missing_columns = check_merge_table_has_required_columns(engine, merge_table_name, required_columns)
-
-            if not has_columns:
-                print(f"Error: Merge table '{merge_table_name}' missing columns for view '{view_name}': {missing_columns}")
-                views_failed += 1
-                continue
-
-            # Create a dataset object for the view creation
-            from datasurface.md import Dataset
-            dataset = Dataset(export_node.datasetName, original_schema)
-
-            # Create or update the view
-            try:
-                was_changed = createOrUpdateView(engine, dataset, view_name, merge_table_name)
-                if was_changed:
-                    if check_merge_table_exists(engine, view_name):
-                        views_updated += 1
-                        print(f"Updated view: {view_name}")
-                    else:
-                        views_created += 1
-                        print(f"Created view: {view_name}")
-                else:
-                    print(f"View already up to date: {view_name}")
-            except Exception as e:
-                print(f"Error creating/updating view '{view_name}': {e}")
-                views_failed += 1
+                    # Create or update the view using the dataset from utils
+                    try:
+                        was_changed = createOrUpdateView(engine, utils.dataset, view_name, merge_table_name)
+                        if was_changed:
+                            if check_merge_table_exists(engine, view_name):
+                                views_updated += 1
+                                print(f"Updated view: {view_name}")
+                            else:
+                                views_created += 1
+                                print(f"Created view: {view_name}")
+                        else:
+                            print(f"View already up to date: {view_name}")
+                    except Exception as e:
+                        print(f"Error creating/updating view '{view_name}': {e}")
+                        views_failed += 1
 
     # Print summary
     print("\nSummary:")
@@ -252,6 +242,11 @@ Examples:
         # Load the ecosystem model
         print(f"Loading ecosystem model from module: {args.model}")
         eco, validation_tree = loadEcosystemFromEcoModule(args.model)
+
+        if validation_tree and validation_tree.hasErrors():
+            print("Ecosystem validation failed:")
+            validation_tree.printTree()
+            return 1
 
         if eco is None:
             print(f"Error: Could not load ecosystem model from module '{args.model}'")

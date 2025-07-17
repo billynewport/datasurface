@@ -153,7 +153,7 @@ def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames:
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
 
         # Get the platform graph
-        platformGraph: PlatformPipelineGraph = graph.roots[dp]
+        platformGraph: PlatformPipelineGraph = graph.roots[dp.name]
         platformGraphHandler: DataPlatformGraphHandler = dp.createGraphHandler(platformGraph)
 
         # Create the platform directory if it doesn't exist

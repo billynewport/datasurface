@@ -4092,7 +4092,7 @@ class EcosystemPipelineGraph(InternalLintableObject):
         self.eco: Ecosystem = eco
 
         # Store for each DP, the set of DSGRootNodes
-        self.roots: dict[DataPlatform, PlatformPipelineGraph] = dict()
+        self.roots: dict[str, PlatformPipelineGraph] = dict()
 
         # Scan workspaces/dsg pairs, split by DataPlatform
         for w in eco.workSpaceCache.values():
@@ -4106,12 +4106,12 @@ class EcosystemPipelineGraph(InternalLintableObject):
 
                 for p in dpList:
                     root: DSGRootNode = DSGRootNode(w.workspace, dsg)
-                    if self.roots.get(p) is None:
-                        self.roots[p] = PlatformPipelineGraph(eco, p)
-                    self.roots[p].roots.add(root)
+                    if self.roots.get(p.name) is None:
+                        self.roots[p.name] = PlatformPipelineGraph(eco, p)
+                    self.roots[p.name].roots.add(root)
                     # Collect Workspaces using the platform
-                    if (self.roots[p].workspaces.get(w.workspace.name) is None):
-                        self.roots[p].workspaces[w.workspace.name] = w.workspace
+                    if (self.roots[p.name].workspaces.get(w.workspace.name) is None):
+                        self.roots[p.name].workspaces[w.workspace.name] = w.workspace
 
         # Now track DSGs per dataContainer
         # For each platform what DSGs need to be exported to a given dataContainer

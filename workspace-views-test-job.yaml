@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: workspace-views-test
+  namespace: ns-kub-pg-test
+spec:
+  template:
+    spec:
+      serviceAccountName: airflow
+      initContainers:
+      - name: clone-model
+        image: alpine/git:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          git clone https://$GIT_TOKEN@github.com/billynewport/mvpmodel.git /workspace/model
+        env:
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: git
+              key: token
+        volumeMounts:
+        - name: model-volume
+          mountPath: /workspace/model
+      containers:
+      - name: workspace-views-test
+        image: datasurface/datasurface:latest
+        imagePullPolicy: Always
+        workingDir: /workspace/model
+        command:
+        - /bin/bash
+        - -c
+        - |
+          python -m datasurface.platforms.yellow.reconcile_workspace_views --model /workspace/model --platform YellowLive
+        env:
+        - name: postgres_USER
+          value: "airflow"
+        - name: postgres_PASSWORD
+          value: "airflow"
+        - name: postgres_HOST
+          value: "pg-data.ns-kub-pg-test.svc.cluster.local"
+        - name: postgres_PORT
+          value: "5432"
+        - name: postgres_DB
+          value: "datasurface_merge"
+        volumeMounts:
+        - name: model-volume
+          mountPath: /workspace/model
+      restartPolicy: Never
+      volumes:
+      - name: model-volume
+        emptyDir: {}
+  backoffLimit: 1 

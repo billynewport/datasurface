@@ -23,9 +23,9 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
 
-        self.assertIsNotNone(graph.roots.get(legacyA))
+        self.assertIsNotNone(graph.roots.get(legacyA.name))
 
-        pi: PlatformPipelineGraph = graph.roots[legacyA]
+        pi: PlatformPipelineGraph = graph.roots[legacyA.name]
         self.assertEqual(len(pi.workspaces), 3)
 
         self.assertEqual(len(pi.dataContainerConsumers), 1)
@@ -92,7 +92,7 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         # Recalculate the graph priorities
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
-        pi: PlatformPipelineGraph = graph.roots[legacyA]
+        pi: PlatformPipelineGraph = graph.roots[legacyA.name]
         pi.propagateWorkspacePriorities()
 
         # Check every node has a priority
@@ -122,7 +122,7 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         # Recalculate the graph priorities
         graph = EcosystemPipelineGraph(eco)
-        pi = graph.roots[legacyA]
+        pi = graph.roots[legacyA.name]
         pi.propagateWorkspacePriorities()
 
         # Workspace A's left hand nodes should all be MEDIUM

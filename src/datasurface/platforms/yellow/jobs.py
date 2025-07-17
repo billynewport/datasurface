@@ -123,18 +123,17 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
         raise Exception(f"Unsupported container type {type(container)}")
 
 
-class Job(ABC):
-    """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
-    step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
+class YellowDatasetUtilities(ABC):
+    """This class provides utilities for working with datasets in the Yellow platform."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         self.eco: Ecosystem = eco
-        self.credStore: CredentialStore = credStore
         self.dp: YellowDataPlatform = dp
         self.store: Datastore = store
         self.datasetName: Optional[str] = datasetName
-        self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
         self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
-        self.cmd: SQLIngestion = cast(SQLIngestion, store.cmd)  # type: ignore[attr-defined]
+        self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
+        self.cmd: SQLIngestion = cast(SQLIngestion, store.cmd)
+        self.credStore: CredentialStore = credStore
 
     def getSchemaHash(self, dataset: Dataset) -> str:
         """Generate a hash of the dataset schema"""
@@ -195,16 +194,6 @@ class Job(ABC):
                          Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
         return t
 
-    def createBatchCounterTable(self, mergeEngine: Engine) -> None:
-        """This creates the batch counter table"""
-        t: Table = self.getBatchCounterTable()
-        createOrUpdateTable(mergeEngine, t)
-
-    def createBatchMetricsTable(self, mergeEngine: Engine) -> None:
-        """This creates the batch metrics table"""
-        t: Table = self.getBatchMetricsTable()
-        createOrUpdateTable(mergeEngine, t)
-
     def getKey(self) -> str:
         """This returns the key for the batch"""
         return f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
@@ -234,6 +223,58 @@ class Job(ABC):
         """This returns the merge table name for a dataset"""
         tableName: str = self.getBaseTableNameForDataset(dataset)
         return self.getTableForPlatform(tableName + "_merge")
+
+
+class Job(YellowDatasetUtilities):
+    """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
+    step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
+    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp, store, datasetName)
+
+    def getBatchCounterTable(self) -> Table:
+        """This constructs the sqlalchemy table for the batch counter table"""
+        t: Table = Table(self.getBatchCounterTableName(), MetaData(),
+                         Column("key", String(length=255), primary_key=True),
+                         Column("currentBatch", Integer()))
+        return t
+
+    def getBatchMetricsTable(self) -> Table:
+        """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
+        data store name and the dataset name."""
+        t: Table = Table(self.getBatchMetricsTableName(), MetaData(),
+                         Column("key", String(length=255), primary_key=True),
+                         Column("batch_id", Integer(), primary_key=True),
+                         Column("batch_start_time", TIMESTAMP()),
+                         Column("batch_end_time", TIMESTAMP(), nullable=True),
+                         Column("batch_status", String(length=32)),
+                         Column("records_inserted", Integer(), nullable=True),
+                         Column("records_updated", Integer(), nullable=True),
+                         Column("records_deleted", Integer(), nullable=True),
+                         Column("total_records", Integer(), nullable=True),
+                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
+        return t
+
+    def createBatchCounterTable(self, mergeEngine: Engine) -> None:
+        """This creates the batch counter table"""
+        t: Table = self.getBatchCounterTable()
+        createOrUpdateTable(mergeEngine, t)
+
+    def createBatchMetricsTable(self, mergeEngine: Engine) -> None:
+        """This creates the batch metrics table"""
+        t: Table = self.getBatchMetricsTable()
+        createOrUpdateTable(mergeEngine, t)
+
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the staging schema for a dataset"""
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
+        return t
+
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the merge schema for a dataset"""
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
+        return t
 
     def createStagingTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
         """Create performance indexes for staging tables"""
@@ -1302,7 +1343,7 @@ def main():
             print(f"Unknown platform: {args.platform_name}")
             return -1  # ERROR
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
-        root: Optional[PlatformPipelineGraph] = graph.roots.get(dp)
+        root: Optional[PlatformPipelineGraph] = graph.roots.get(dp.name)
         if root is None:
             print(f"Unknown graph for platform: {args.platform_name}")
             return -1  # ERROR
