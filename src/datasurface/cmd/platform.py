@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
+from datasurface.md.repo import GitHubRepository
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md import Ecosystem, DataPlatform, EcosystemPipelineGraph, PlatformPipelineGraph, DataPlatformGraphHandler
 from datasurface.md import ValidationTree
 from typing import Optional
 import os
+import time
+import subprocess
 
 
 def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
@@ -38,6 +41,93 @@ def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platf
                 f.write(content)
 
     return eco
+
+
+def getNewModelFolder(modelFolderName: str) -> str:
+    """This will return the new model folder name in the model folder. The model folder is expected to be a directory
+    with subdirectories named model-{timestamp_secs}."""
+
+    # Get the current time UTC in seconds and zero pad it to 10 digits
+    timestamp = int(time.time())
+    timestamp_str = f"{timestamp:010d}"
+
+    # Return the new model folder name
+    return f"{modelFolderName}/model-{timestamp_str}"
+
+
+def getLatestModelFolder(modelFolderName: str) -> str:
+    """This will return the latest model folder name in the model folder. The model folder is expected to be a directory
+    with subdirectories named model-{timestamp_secs}."""
+
+    # Get the list of model folders
+    modelFolders = os.listdir(modelFolderName)
+
+    # Find the latest model folder
+    latestModelFolder = max(modelFolders, key=lambda x: int(x.split("-")[1]))
+
+    return latestModelFolder
+
+
+def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
+    """This will clone the git repository into the given path. If the directory is empty, it will clone the repository.
+    If the directory is not empty, it will not clone the repository."""
+
+    # get as temporary folder in the folder gitRepoPath
+    # Cannot have a dash in it.
+    tempFolder = os.path.join(gitRepoPath, "modeltemp")
+
+    # Clone the git repository if the directory is empty
+    if not os.path.exists(tempFolder) or not os.listdir(tempFolder):
+        print(f"Cloning git repository into {tempFolder}")
+        git_token = os.environ.get('git_TOKEN')
+        if not git_token:
+            print("ERROR: git_TOKEN environment variable not found")
+            return ""
+
+        # Ensure the directory exists
+        os.makedirs(tempFolder, exist_ok=True)
+
+        # Clone the repository (billynewport/mvpmodel)
+        git_url = f"https://{git_token}@github.com/{repo.repositoryName}.git"
+        try:
+            result = subprocess.run(
+                ['git', 'clone', '--branch', repo.branchName, git_url, '.'],
+                cwd=tempFolder,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print(f"Successfully cloned repository: {result.stdout}")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to clone repository: {e.stderr}")
+            return ""
+
+    # Get latest timestamp model folder and rename the temp folder to it. This means
+    # jobs looking at a timestamp model folder never see a partial model while it
+    # is being cloned.
+    finalModelFolder = getNewModelFolder(gitRepoPath)
+    os.rename(tempFolder, finalModelFolder)
+    return finalModelFolder
+
+
+def getLatestModelAtTimestampedFolder(repo: GitHubRepository, modelFolderBaseName: str, doClone: bool = False) -> \
+            tuple[Optional[Ecosystem], Optional[ValidationTree]]:
+    """This will return the latest model at a timestamped folder. The model folder is expected to be a directory
+    with subdirectories named model-{timestamp_secs}."""
+
+    latestModelFolder: str
+    if doClone:
+        # Clone the git repository if the directory is empty
+        latestModelFolder = cloneGitRepository(repo, modelFolderBaseName)
+    else:
+        # Get latest model timestamped folder
+        latestModelFolder = getLatestModelFolder(modelFolderBaseName)
+
+    # Load the model
+    eco: Optional[Ecosystem]
+    ecoTree: Optional[ValidationTree]
+    eco, ecoTree = loadEcosystemFromEcoModule(os.path.join(modelFolderBaseName, latestModelFolder))
+    return eco, ecoTree
 
 
 def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:

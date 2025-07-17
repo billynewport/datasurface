@@ -20,12 +20,15 @@ from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGrap
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy, BatchStatus, BatchState
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
+from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
 import argparse
 import sys
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 import json
 import hashlib
 from abc import ABC, abstractmethod
+from datasurface.md.repo import GitHubRepository
+import os
 
 
 """
@@ -1261,12 +1264,13 @@ def main():
     parser.add_argument('--dataset-name', help='Name of the dataset (for single dataset ingestion)')
     parser.add_argument('--operation', default='snapshot-merge', help='Operation to perform')
     parser.add_argument('--git-repo-path', required=True, help='Path to the git repository')
+    parser.add_argument('--git-repo-owner', required=True, help='GitHub repository owner (e.g., billynewport)')
+    parser.add_argument('--git-repo-name', required=True, help='GitHub repository name (e.g., mvpmodel)')
+    parser.add_argument('--git-repo-branch', required=True, help='GitHub repository branch (e.g., main)')
 
     args = parser.parse_args()
 
     # Clone the git repository if the directory is empty
-    import os
-    import subprocess
 
     if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
         print(f"Cloning git repository into {args.git_repo_path}")
@@ -1275,27 +1279,13 @@ def main():
             print("ERROR: git_TOKEN environment variable not found")
             return -1
 
-        # Ensure the directory exists
-        os.makedirs(args.git_repo_path, exist_ok=True)
-
-        # Clone the repository (billynewport/mvpmodel)
-        git_url = f"https://{git_token}@github.com/billynewport/mvpmodel.git"
-        try:
-            result = subprocess.run(
-                ['git', 'clone', git_url, '.'],
-                cwd=args.git_repo_path,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            print(f"Successfully cloned repository: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to clone repository: {e.stderr}")
-            return -1
+    # Ensure the directory exists
+    os.makedirs(args.git_repo_path, exist_ok=True)
 
     eco: Optional[Ecosystem] = None
     tree: Optional[ValidationTree] = None
-    eco, tree = loadEcosystemFromEcoModule(args.git_repo_path)
+    eco, tree = getLatestModelAtTimestampedFolder(
+        GitHubRepository(args.git_repo_owner, args.git_repo_name, args.git_repo_branch), args.git_repo_path, doClone=True)
     if tree is not None and tree.hasErrors():
         print("Ecosystem model has errors")
         tree.printTree()

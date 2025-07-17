@@ -438,6 +438,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         try:
             gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
+
             # Common context for all DAGs
             common_context: dict[str, Any] = {
                 "namespace_name": self.dp.namespace,
@@ -454,6 +460,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
                 "git_repo_branch": gitRepo.branchName,
                 "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
             }
 
             # Generate a DAG for each ingestion stream
@@ -698,6 +706,12 @@ class YellowDataPlatform(DataPlatform):
 
         gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
+        # Extract git repository owner and name from the full repository name
+        git_repo_parts = gitRepo.repositoryName.split('/')
+        if len(git_repo_parts) != 2:
+            raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+        git_repo_owner, git_repo_name = git_repo_parts
+
         # Prepare template context with all required variables
         context: dict[str, Any] = {
             "namespace_name": self.namespace,
@@ -720,6 +734,8 @@ class YellowDataPlatform(DataPlatform):
             "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
             "git_repo_branch": gitRepo.branchName,
             "git_repo_name": gitRepo.repositoryName,
+            "git_repo_owner": git_repo_owner,
+            "git_repo_repo_name": git_repo_name,
             "ingestion_streams": {}  # Empty for bootstrap - no ingestion streams yet
         }
 
