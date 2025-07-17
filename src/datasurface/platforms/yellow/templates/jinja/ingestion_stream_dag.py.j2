@@ -10,9 +10,8 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.operators.python import BranchPythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
-from airflow.utils.trigger_rule import TriggerRule
 from kubernetes.client import models as k8s
 
 # Default arguments for the DAG
@@ -134,23 +133,46 @@ env_vars.extend([
 
 # Function to determine next action based on job return code
 def determine_next_action(**context):
-    """Determine the next action based on the job return code parsed from logs"""
+    """Determine the next action based on the job return code parsed from Airflow task logs"""
     import re
+    import os
     
-    task_instance = context['task_instance']
-    job_task_id = 'snapshot_merge_job'
+    dag_run = context['dag_run']
     
-    # Get logs from XCom (KubernetesPodOperator with do_xcom_push=True captures logs)
-    logs = task_instance.xcom_pull(task_ids=job_task_id)
+    # Build path to the snapshot_merge_job log file
+    log_dir = f"/opt/airflow/logs/dag_id={dag_run.dag_id}/run_id={dag_run.run_id}/task_id=snapshot_merge_job"
     
-    # Parse logs to find DATASURFACE_RESULT_CODE=X
-    if logs:
-        match = re.search(r'DATASURFACE_RESULT_CODE=(-?\d+)', str(logs))
-        return_code = int(match.group(1)) if match else -1
-    else:
-        return_code = -1  # Default to error if no logs
+    return_code = -1  # Default to error
     
-    print(f"Parsed result code: {return_code} from logs")
+    try:
+        # Find the latest attempt log file
+        if os.path.exists(log_dir):
+            attempt_files = [f for f in os.listdir(log_dir) if f.startswith('attempt=') and f.endswith('.log')]
+            if attempt_files:
+                latest_attempt = max(attempt_files)
+                log_file = os.path.join(log_dir, latest_attempt)
+                
+                if os.path.exists(log_file):
+                    with open(log_file, 'r') as f:
+                        logs = f.read()
+                    
+                    # Parse logs to find DATASURFACE_RESULT_CODE=X
+                    match = re.search(r'DATASURFACE_RESULT_CODE=(-?\d+)', logs)
+                    if match:
+                        return_code = int(match.group(1))
+                        print(f"Found result code: {return_code} in task logs")
+                    else:
+                        print("No DATASURFACE_RESULT_CODE found in logs")
+                else:
+                    print(f"Log file not found: {log_file}")
+            else:
+                print(f"No attempt log files found in {log_dir}")
+        else:
+            print(f"Log directory not found: {log_dir}")
+    except Exception as e:
+        print(f"Error reading task logs: {e}")
+    
+    print(f"Final result code: {return_code}")
     
     if return_code == 1:  # KEEP_WORKING
         return 'reschedule_immediately'
@@ -192,7 +214,7 @@ job = KubernetesPodOperator(
     ],
     is_delete_operator_pod=True,
     get_logs=True,
-    do_xcom_push=True,
+    do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
     container_resources=k8s.V1ResourceRequirements(
         requests={'memory': '256Mi', 'cpu': '100m'}
     ),

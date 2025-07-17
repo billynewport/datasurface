@@ -757,6 +757,42 @@ if __name__ == "__main__":
 
 **Files Modified**: `src/datasurface/platforms/yellow/jobs.py`
 
+### Fix 6: XCom vs Direct Log Parsing for Result Code Extraction
+**Problem**: XCom extraction requires `pods/exec` permissions and creates RBAC complexity
+```
+WebSocketBadStatusException: Handshake status 403 Forbidden
+"cannot get resource "pods/exec" in API group "" in the namespace"
+```
+
+**Root Cause**: KubernetesPodOperator with `do_xcom_push=True` creates sidecar containers that require `pods/exec` permissions for log extraction, leading to persistent RBAC permission issues even with proper role configuration.
+
+**Solution**: Abandon XCom entirely and parse result codes directly from Airflow task logs
+```python
+# ❌ XCom approach (requires pods/exec permissions)
+do_xcom_push=True
+logs = task_instance.xcom_pull(task_ids=job_task_id)
+
+# ✅ Direct log file parsing (no RBAC issues)
+do_xcom_push=False  # Disabled to avoid RBAC issues with pods/exec
+log_dir = f"/opt/airflow/logs/dag_id={dag_run.dag_id}/run_id={dag_run.run_id}/task_id=snapshot_merge_job"
+attempt_files = [f for f in os.listdir(log_dir) if f.startswith('attempt=') and f.endswith('.log')]
+with open(os.path.join(log_dir, max(attempt_files)), 'r') as f:
+    logs = f.read()
+match = re.search(r'DATASURFACE_RESULT_CODE=(-?\d+)', logs)
+```
+
+**Key Benefits**:
+- ✅ **No RBAC Complexity**: Eliminates need for `pods/exec` permissions entirely
+- ✅ **More Reliable**: Direct file access instead of XCom sidecar container complexity  
+- ✅ **Simpler Architecture**: Reduces moving parts and potential failure points
+- ✅ **Better Error Handling**: Logs remain accessible even if XCom extraction fails
+
+**Templates Updated**:
+- `src/datasurface/platforms/yellow/templates/jinja/ingestion_stream_dag.py.j2`
+- `src/datasurface/platforms/yellow/templates/jinja/platform_dag.py.j2`
+
+**Architectural Decision**: This approach should be used for all future KubernetesPodOperator implementations to avoid XCom-related RBAC issues.
+
 ### Result: Full Infrastructure Operational
 All fixes combined result in a fully operational end-to-end data pipeline:
 - ✅ **Environment Variables**: All secrets properly mounted
@@ -784,6 +820,13 @@ All fixes combined result in a fully operational end-to-end data pipeline:
 **Solution**: Documented complete Kubernetes RBAC setup for KubernetesPodOperator
 - **Benefit**: Reusable pattern for other Airflow + Kubernetes deployments
 - **Components**: ServiceAccount, Role, RoleBinding with proper pod management permissions
+
+### XCom-Free Architecture Pattern 🛡️
+**Discovery**: XCom extraction with KubernetesPodOperator creates inherent RBAC complexity
+- **Problem**: `do_xcom_push=True` requires `pods/exec` permissions for sidecar container log extraction
+- **Solution**: Direct Airflow log file parsing eliminates RBAC dependencies entirely
+- **Benefit**: Simpler, more reliable architecture without permission management overhead
+- **Reusability**: Template pattern applicable to all future KubernetesPodOperator implementations
 
 ## Success Criteria for Complete Phase
 
