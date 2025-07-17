@@ -18,7 +18,7 @@ from enum import Enum
 from typing import cast, List, Any, Optional
 from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
 from datasurface.md.lint import ValidationTree
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy, BatchStatus, BatchState
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 import argparse
 import sys
@@ -58,66 +58,11 @@ This job is designed to be run by Airflow as a KubernetesPodOperator. It returns
 """
 
 
-class BatchStatus(Enum):
-    """This is the status of a batch"""
-    STARTED = "started"  # The batch is started, ingestion is in progress
-    INGESTED = "ingested"  # The batch is ingested, merge is in progress
-    COMMITTED = "committed"  # The batch is committed, no more work to do
-    FAILED = "failed"  # The batch failed, reset batch to try again
-
-
 class JobStatus(Enum):
     """This is the status of a job"""
     KEEP_WORKING = 1  # The job is still in progress, put on queue and continue ASAP
     DONE = 0  # The job is complete, wait for trigger to run batch again
     ERROR = -1  # The job failed, stop the job and don't run again
-
-
-class BatchState:
-    """This is the state of a batch being processed. It provides a list of datasets which need to be
-    ingested still and for the dataset currently being ingested, where to start ingestion from in terms
-    of an offset in the source table."""
-
-    def __init__(self, datasetsToProcess: List[str], schema_versions: Optional[dict[str, str]] = None) -> None:
-        self.all_datasets: List[str] = datasetsToProcess
-        self.current_dataset_index: int = 0
-        self.current_offset: int = 0
-        self.schema_versions: dict[str, str] = schema_versions or {}
-
-    def reset(self) -> None:
-        """This resets the state to the start of the batch"""
-        self.current_dataset_index = 0
-        self.current_offset = 0
-
-    def getCurrentDataset(self) -> str:
-        """This returns the current dataset"""
-        return self.all_datasets[self.current_dataset_index]
-
-    def moveToNextDataset(self) -> None:
-        """This moves to the next dataset"""
-        self.current_dataset_index += 1
-        self.current_offset = 0
-
-    def hasMoreDatasets(self) -> bool:
-        """This returns True if there are more datasets to ingest"""
-        return self.current_dataset_index < len(self.all_datasets)
-
-    @staticmethod
-    def from_json(json_str: str) -> "BatchState":
-        # Inflate the json in to this class
-        state: BatchState = BatchState([])
-        # Load the json string in to a dictionary
-        json_dict: dict[str, Any] = json.loads(json_str)
-        state.all_datasets = json_dict["all_datasets"]
-        state.current_dataset_index = json_dict["current_dataset_index"]
-        state.current_offset = json_dict["current_offset"]
-        state.schema_versions = json_dict.get("schema_versions", {})
-        return state
-
-    def to_json(self) -> str:
-        # Convert the class in to a dictionary
-        json_dict: dict[str, Any] = self.__dict__
-        return json.dumps(json_dict)
 
 
 def createEngine(container: DataContainer, userName: str, password: str) -> Engine:
@@ -292,18 +237,18 @@ class Job(ABC):
         """Create performance indexes for staging tables"""
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
-        
+
         indexes = [
             # Primary: batch filtering (used in every query)
             f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_id ON {tableName} ({sp.BATCH_ID_COLUMN_NAME})",
-            
+
             # Secondary: join performance
             f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})",
-            
+
             # Composite: optimal for most queries that filter by batch AND join by key
             f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_key ON {tableName} ({sp.BATCH_ID_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})"
         ]
-        
+
         with mergeEngine.begin() as connection:
             for index_sql in indexes:
                 try:
@@ -317,24 +262,24 @@ class Job(ABC):
         """Create performance indexes for merge tables"""
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
-        
+
         indexes = [
             # Critical: join performance (exists in all modes)
             f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})"
         ]
-        
+
         # Add forensic-specific indexes for batch milestoned tables
         if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
             indexes.extend([
                 # Critical: live record filtering (batch_out = 2147483647)
                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_out ON {tableName} ({sp.BATCH_OUT_COLUMN_NAME})",
-                
+
                 # Composite: optimal for live record joins (most common pattern)
                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_live_records ON {tableName} ({sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})",
-                
+
                 # For forensic queries: finding recently closed records
                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_in ON {tableName} ({sp.BATCH_IN_COLUMN_NAME})",
-                
+
                 # For forensic history queries
                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_range ON {tableName} ({sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})"
             ])
@@ -344,7 +289,7 @@ class Job(ABC):
                 # For live-only mode: change detection performance
                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_all_hash ON {tableName} ({sp.ALL_HASH_COLUMN_NAME})"
             ])
-        
+
         with mergeEngine.begin() as connection:
             for index_sql in indexes:
                 try:
@@ -666,7 +611,7 @@ class Job(ABC):
                 # Only add unique constraint on key_hash for live-only mode
                 # In forensic mode, multiple records can have the same key_hash (different versions)
                 self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
-            
+
             # Create performance indexes for merge table
             self.createMergeTableIndexes(mergeEngine, tableName)
 
@@ -721,6 +666,8 @@ class Job(ABC):
 
         # Ingest the source records in a single transaction
         print(f"DEBUG: Starting ingestion for batch {batchId}, hasMoreDatasets: {state.hasMoreDatasets()}")
+        recordsInserted = 0  # Initialize counter for all datasets
+        totalRecords = 0  # Initialize total records counter
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():  # While there is a dataset to ingest
                 # Get source table name, Map the dataset name if necessary
@@ -927,7 +874,7 @@ class SnapshotMergeJobForensic(Job):
                     AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME}
                     AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 """
-                
+
                 # Step 2: Close records not in source (equivalent to WHEN NOT MATCHED BY SOURCE)
                 close_deleted_sql = f"""
                 UPDATE {mergeTableName} m
@@ -939,7 +886,7 @@ class SnapshotMergeJobForensic(Job):
                     AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 )
                 """
-                
+
                 # Step 3: Insert new records (equivalent to WHEN NOT MATCHED BY TARGET)
                 insert_new_sql = f"""
                 INSERT INTO {mergeTableName} (
@@ -950,7 +897,7 @@ class SnapshotMergeJobForensic(Job):
                     {sp.BATCH_IN_COLUMN_NAME},
                     {sp.BATCH_OUT_COLUMN_NAME}
                 )
-                SELECT 
+                SELECT
                     {', '.join([f's."{col}"' for col in allColumns])},
                     {batchId},
                     s.{sp.ALL_HASH_COLUMN_NAME},
@@ -965,7 +912,7 @@ class SnapshotMergeJobForensic(Job):
                     AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
                 )
                 """
-                
+
                 print(f"DEBUG: Executing PostgreSQL 16 compatible forensic merge for dataset {datasetToMergeName}")
                 print("DEBUG: Step 1 - Closing changed records")
                 connection.execute(text(close_changed_sql))
@@ -1305,17 +1252,17 @@ def main():
     # Clone the git repository if the directory is empty
     import os
     import subprocess
-    
+
     if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
         print(f"Cloning git repository into {args.git_repo_path}")
         git_token = os.environ.get('git_TOKEN')
         if not git_token:
             print("ERROR: git_TOKEN environment variable not found")
             return -1
-        
+
         # Ensure the directory exists
         os.makedirs(args.git_repo_path, exist_ok=True)
-        
+
         # Clone the repository (billynewport/mvpmodel)
         git_url = f"https://{git_token}@github.com/billynewport/mvpmodel.git"
         try:

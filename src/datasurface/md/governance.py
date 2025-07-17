@@ -2806,6 +2806,11 @@ class DataPlatform(Documentable, JSONable):
     def lintWorkspace(self, eco: Ecosystem, tree: ValidationTree, ws: 'Workspace', dsgName: str):
         raise NotImplementedError("lintWorkspace not implemented")
 
+    @abstractmethod
+    def resetBatchState(self, eco: Ecosystem, storeName: str, datasetName: Optional[str] = None) -> str:
+        """This resets the batch state for a datastore"""
+        raise NotImplementedError("resetBatchState not implemented")
+
 
 class UnsupportedIngestionType(ValidationProblem):
     """This indicates an ingestion type is not supported by a data platform"""

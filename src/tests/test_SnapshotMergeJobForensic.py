@@ -4,7 +4,8 @@
 """
 
 import unittest
-from datasurface.platforms.yellow.jobs import BatchStatus, JobStatus
+from datasurface.platforms.yellow.jobs import JobStatus
+from datasurface.platforms.yellow.yellow_dp import BatchStatus
 from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 from datasurface.md.governance import WorkspacePlatformConfig, DataMilestoningStrategy
 from src.tests.test_SnapshotMergeJobLiveOnly import BaseSnapshotMergeJobTest

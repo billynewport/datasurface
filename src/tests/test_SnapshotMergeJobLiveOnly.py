@@ -9,7 +9,8 @@ from typing import Optional
 from sqlalchemy import create_engine, text, MetaData
 from sqlalchemy.engine import Engine
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
-from datasurface.platforms.yellow.jobs import Job, JobStatus, BatchState, BatchStatus
+from datasurface.platforms.yellow.jobs import Job, JobStatus
+from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
 from datasurface.md import Ecosystem
 from datasurface.md import Datastore, DataContainer, Dataset
 from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, WorkspacePlatformConfig
@@ -119,12 +120,22 @@ class BaseSnapshotMergeJobTest(ABC):
             def lintCredential(self, cred: Credential, tree) -> None:
                 pass
 
+        mock_cred_store = MockCredentialStore()
+        
         if self.job is not None:
-            self.job.credStore = MockCredentialStore()  # type: ignore[attr-defined]
+            self.job.credStore = mock_cred_store  # type: ignore[attr-defined]
+            
+        # Also mock the data platform's credential store for resetBatchState method
+        if self.dp is not None:
+            self.dp.credStore = mock_cred_store  # type: ignore[attr-defined]
 
     def setupDatabases(self) -> None:
         self.source_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
-        self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
+        # This needs to used the values in the self.dp.mergeStore
+        host = self.dp.mergeStore.hostPortPair.hostName
+        port = self.dp.mergeStore.hostPortPair.port
+        db_name = self.dp.mergeStore.databaseName
+        self.merge_engine = create_engine(f'postgresql://postgres:postgres@{host}:{port}/{db_name}')
         self.createSourceTable()
         self.createMergeDatabase()
         if self.job is not None:
@@ -475,6 +486,139 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
     def test_full_batch_lifecycle(self) -> None:
         """Test the complete batch processing lifecycle"""
         self.common_test_batch_lifecycle_steps(self)
+
+    def getStagingTableData(self) -> list:
+        """Get all data from the staging table"""
+        with self.merge_engine.begin() as conn:
+            try:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM test_dp_store1_people_staging
+                    ORDER BY "id"
+                """))
+            except Exception:
+                result = conn.execute(text("""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM Test_DP_Store1_people_staging
+                    ORDER BY "id"
+                """))
+            return [row._asdict() for row in result.fetchall()]
+
+    def test_reset_committed_batch_fails(self) -> None:
+        """Test that trying to reset a committed batch fails"""
+        # Step 1: Insert test data and run a complete batch to completion
+        test_data = [
+            {"id": "1", "firstName": "John", "lastName": "Doe", "dob": "1980-01-01",
+             "employer": "Company A", "dod": None},
+            {"id": "2", "firstName": "Jane", "lastName": "Smith", "dob": "1985-02-15",
+             "employer": "Company B", "dod": None}
+        ]
+        self.insertTestData(test_data)
+
+        # Run the job until completion (should commit the batch)
+        self.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED, self)
+
+        # Step 2: Try to reset the committed batch - this should fail
+        assert self.eco is not None
+        assert self.dp is not None
+        result = self.dp.resetBatchState(self.eco, "Store1")
+
+        # Check that the reset failed with the expected error message
+        self.assertEqual(result, "ERROR: Batch is COMMITTED and cannot be reset")
+
+        # Verify batch status is still COMMITTED (unchanged)
+        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED, self)
+
+    def test_reset_ingested_batch_success(self) -> None:
+        """Test that resetting a batch after ingesting data works correctly"""
+        # Step 1: Insert test data 
+        test_data = [
+            {"id": "1", "firstName": "John", "lastName": "Doe", "dob": "1980-01-01", 
+             "employer": "Company A", "dod": None},
+            {"id": "2", "firstName": "Jane", "lastName": "Smith", "dob": "1985-02-15", 
+             "employer": "Company B", "dod": None},
+            {"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", 
+             "employer": "Company C", "dod": None}
+        ]
+        self.insertTestData(test_data)
+        
+        # Step 2: Run job until it reaches INGESTED state (one iteration should do ingestion only)
+        assert self.job is not None
+        assert self.merge_engine is not None
+        assert self.source_engine is not None
+        
+        # Run the job once - this should ingest data and set status to INGESTED
+        job_status = self.job.run()
+        self.assertEqual(job_status, JobStatus.KEEP_WORKING)  # Should continue to merge phase
+        
+        # The job should have ingested data and set status to INGESTED
+        key = "Store1"
+        batchId = 1  # First batch
+        self.checkSpecificBatchStatus(key, batchId, BatchStatus.INGESTED, self)
+        
+        # Verify data is in staging table
+        staging_data_before = self.getStagingTableData()
+        self.assertEqual(len(staging_data_before), 3)  # 3 records ingested
+        for row in staging_data_before:
+            self.assertEqual(row['ds_surf_batch_id'], batchId)
+        
+        # Step 3: Reset the batch
+        assert self.eco is not None
+        assert self.dp is not None
+        result = self.dp.resetBatchState(self.eco, "Store1")
+        
+        # Check that the reset was successful
+        self.assertEqual(result, "SUCCESS")
+        
+        # Step 4: Verify the reset worked correctly
+        
+        # Check batch status is back to STARTED
+        self.checkSpecificBatchStatus(key, batchId, BatchStatus.STARTED, self)
+        
+        # Check staging table is cleared (no records with this batch_id)
+        staging_data_after = self.getStagingTableData()
+        self.assertEqual(len(staging_data_after), 0)  # All staging records cleared
+        
+        # Verify batch state is reset by checking the state in batch_metrics
+        with self.merge_engine.begin() as conn:
+            result = conn.execute(text(f'''
+                SELECT "state"
+                FROM test_dp_batch_metrics
+                WHERE "key" = '{key}' AND "batch_id" = {batchId}
+            '''))
+            row = result.fetchone()
+            self.assertIsNotNone(row)
+            
+            # Parse the batch state and verify it's reset
+            state = BatchState.from_json(row[0])
+            self.assertEqual(state.current_dataset_index, 0)  # Reset to start
+            self.assertEqual(state.current_offset, 0)  # Reset to start
+            self.assertTrue(state.hasMoreDatasets())  # Should have datasets to process
+        
+        # Step 5: Verify we can continue processing after reset
+        # Re-run the job and it should process from the beginning again
+        self.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus(key, batchId, BatchStatus.COMMITTED, self)
+        
+        # Verify the data is now in the merge table (complete processing)
+        merge_data = self.getMergeTableData()
+        self.assertEqual(len(merge_data), 3)  # All 3 records should be in merge table
+        for row in merge_data:
+            self.assertEqual(row['ds_surf_batch_id'], batchId)
+
+    def test_reset_nonexistent_datastore_fails(self) -> None:
+        """Test that trying to reset a non-existent datastore fails"""
+        assert self.eco is not None
+        assert self.dp is not None
+
+        # Try to reset a datastore that doesn't exist
+        result = self.dp.resetBatchState(self.eco, "NonExistentStore")
+
+        # Check that the reset failed with the expected error message
+        self.assertEqual(result, "ERROR: Could not find datastore in ecosystem")
 
 
 if __name__ == "__main__":

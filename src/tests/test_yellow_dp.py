@@ -77,7 +77,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
         # Check for Kubernetes pod operator configuration
         self.assertIn("KubernetesPodOperator", dag_content)
         self.assertIn("datasurface/datasurface:latest", dag_content)
-        self.assertIn("python', '-m', 'datasurface.platforms.kubpgstarter.jobs", dag_content)
+        self.assertIn("python', '-m', 'datasurface.platforms.yellow.jobs", dag_content)
 
         # Check for return code handling logic
         self.assertIn("determine_next_action", dag_content)
@@ -95,7 +95,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
             # Test 1: Generate bootstrap artifacts for both platforms
             print("\n--- Generating Bootstrap Artifacts ---")
             eco: Ecosystem = generatePlatformBootstrap(
-                "yellow_dp_tests/mvp_model",
+                "src/tests/yellow_dp_tests/mvp_model",
                 temp_dir,
                 "YellowLive",
                 "YellowForensic"
@@ -138,7 +138,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
             # Test 2: Generate ingestion DAGs for both platforms
             print("\n--- Generating Ingestion DAGs ---")
             eco2: Ecosystem = handleModelMerge(
-                "yellow_dp_tests/mvp_model",
+                "src/tests/yellow_dp_tests/mvp_model",
                 temp_dir,
                 "YellowLive",
                 "YellowForensic"

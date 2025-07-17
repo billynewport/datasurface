@@ -18,7 +18,7 @@ from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, 
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import VarChar, Date
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
-from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase
+from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase, DataPlatformManagedDataContainer
 
 
 def createEcosystem() -> Ecosystem:
@@ -37,6 +37,12 @@ def createEcosystem() -> Ecosystem:
                 Credential("postgres", CredentialType.USER_PASSWORD),
                 Credential("git", CredentialType.API_TOKEN),
                 Credential("slack", CredentialType.API_TOKEN),
+                PostgresDatabase(
+                    "Test_DB",  # Model name for database
+                    hostPort=HostPortPair("localhost", 5432),  # Host and port for database
+                    locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                    databaseName="test_db"  # Database name
+                ),
                 "airflow",
                 milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY)
         ],
@@ -115,12 +121,7 @@ def createEcosystem() -> Ecosystem:
         ),
         Workspace(
             "Consumer1",
-            PostgresDatabase(
-                "Consumer_DB",  # Model name for consumer database
-                hostPort=HostPortPair("localhost", 5432),  # Host and port for database
-                locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
-                databaseName="consumer_db"  # Database name
-            ),
+            DataPlatformManagedDataContainer("Consumer1 container"),
             DatasetGroup(
                 "TestDSG",
                 sinks=[

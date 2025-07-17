@@ -83,6 +83,34 @@ def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames:
     return eco
 
 
+def resetBatchState(modelFolderName: str, platformName: str, storeName: str, datasetName: Optional[str] = None) -> None:
+    """Reset batch state for a YellowDataPlatform store/dataset.
+
+    Args:
+        modelFolderName: Model folder name (containing eco.py)
+        platformName: Name of the YellowDataPlatform
+        storeName: Name of the datastore to reset
+        datasetName: Optional dataset name for single-dataset reset
+    """
+
+    # Load the model
+    eco: Optional[Ecosystem]
+    ecoTree: Optional[ValidationTree]
+    eco, ecoTree = loadEcosystemFromEcoModule(modelFolderName)
+    if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
+        if ecoTree is not None:
+            ecoTree.printTree()
+        raise Exception(f"Failed to load ecosystem from {modelFolderName}")
+
+    assert eco is not None
+
+    # Find the platform
+    dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
+
+    # Reset batch state
+    dp.resetBatchState(eco, storeName, datasetName)
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Platform utilities for DataSurface")
@@ -100,10 +128,19 @@ if __name__ == "__main__":
     parser_merge.add_argument("--output", required=True, help="Base output directory for platform files")
     parser_merge.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
 
+    # Subcommand: resetBatchState
+    parser_reset = subparsers.add_parser("resetBatchState", help="Reset batch state for YellowDataPlatform")
+    parser_reset.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
+    parser_reset.add_argument("--platform", required=True, help="YellowDataPlatform name")
+    parser_reset.add_argument("--store", required=True, help="Datastore name to reset")
+    parser_reset.add_argument("--dataset", required=False, help="Optional dataset name for single-dataset reset")
+
     args = parser.parse_args()
     if args.command == "generatePlatformBootstrap":
         generatePlatformBootstrap(args.model, args.output, *args.platform)
     elif args.command == "handleModelMerge":
         handleModelMerge(args.model, args.output, *args.platform)
+    elif args.command == "resetBatchState":
+        resetBatchState(args.model, args.platform, args.store, args.dataset)
     else:
         parser.print_help()

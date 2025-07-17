@@ -124,6 +124,10 @@ class LegacyDataPlatform(DataPlatform):
         # Allow all basically.
         pass
 
+    def resetBatchState(self, eco: Ecosystem, storeName: str, datasetName: Optional[str] = None) -> str:
+        """This resets the batch state for a datastore"""
+        raise NotImplementedError("resetBatchState not implemented")
+
 
 class LegacyDataPlatformChooser(DataPlatformChooser):
     """This chooses the legacy DataPlatform and allows the specifics of the particular

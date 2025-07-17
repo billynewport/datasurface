@@ -23,6 +23,14 @@ from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabas
 def createEcosystem() -> Ecosystem:
     """This is a very simple test model with a single datastore and dataset.
     It is used to test the YellowDataPlatform."""
+
+    merge_datacontainer: PostgresDatabase = PostgresDatabase(
+        "MergeDB",
+        hostPort=HostPortPair("localhost", 5432),
+        locations={LocationKey("MyCorp:USA/NY_1")},
+        databaseName="datasurface_merge"
+    )
+
     ecosys: Ecosystem = Ecosystem(
         name="Test",
         repo=GitHubRepository("billynewport/repo", "ECOmain"),
@@ -31,12 +39,12 @@ def createEcosystem() -> Ecosystem:
                 name="YellowLive",
                 locs={LocationKey("MyCorp:USA/NY_1")},
                 doc=PlainTextDocumentation("Live Yellow DataPlatform"),
-                postgresName="pg-data",  # Both YellowDataPlatforms use the same postgres and database, tables are different because of platform name prefix
                 namespace="ns-kub-pg-test",
                 connectCredentials=Credential("connect", CredentialType.API_TOKEN),
                 postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
                 gitCredential=Credential("git", CredentialType.API_TOKEN),
                 slackCredential=Credential("slack", CredentialType.API_TOKEN),
+                merge_datacontainer=merge_datacontainer,
                 airflowName="airflow",
                 milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY
                 ),
@@ -44,12 +52,12 @@ def createEcosystem() -> Ecosystem:
                 "YellowForensic",
                 locs={LocationKey("MyCorp:USA/NY_1")},
                 doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
-                postgresName="pg-data",  # Both YellowDataPlatforms use the same postgres and database, tables are different because of platform name prefix
                 namespace="ns-kub-pg-test",
                 connectCredentials=Credential("connect", CredentialType.API_TOKEN),
                 postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
                 gitCredential=Credential("git", CredentialType.API_TOKEN),
                 slackCredential=Credential("slack", CredentialType.API_TOKEN),
+                merge_datacontainer=merge_datacontainer,
                 airflowName="airflow",
                 milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
                 )
@@ -91,7 +99,7 @@ def createEcosystem() -> Ecosystem:
             capture_metadata=SQLSnapshotIngestion(
                 PostgresDatabase(
                     "CustomerDB",  # Model name for database
-                    hostPort=HostPortPair("pg-data.ns-kub-pg-test.svc.cluster.local", 5432),  # Host and port for database
+                    hostPort=HostPortPair("localhost", 5432),  # Host and port for database
                     locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
                     databaseName="customer_db"  # Database name
                 ),
@@ -105,13 +113,13 @@ def createEcosystem() -> Ecosystem:
                     schema=DDLTable(
                         columns=[
                             DDLColumn("id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK),
-                            DDLColumn("firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
-                            DDLColumn("lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("firstname", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
+                            DDLColumn("lastname", VarChar(100), nullable=NullableStatus.NOT_NULLABLE),
                             DDLColumn("dob", Date(), nullable=NullableStatus.NOT_NULLABLE),
                             DDLColumn("email", VarChar(100)),
                             DDLColumn("phone", VarChar(100)),
-                            DDLColumn("primaryAddressId", VarChar(20)),
-                            DDLColumn("billingAddressId", VarChar(20))
+                            DDLColumn("primaryaddressid", VarChar(20)),
+                            DDLColumn("billingaddressid", VarChar(20))
                         ]
                     ),
                     classifications=[SimpleDC(SimpleDCTypes.CPI, "Customer")]

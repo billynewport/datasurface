@@ -1,24 +1,11 @@
 [
     {
-      "dsgName": "LiveDSG",
+      "dsgName": "TestDSG",
       "workspace": "Consumer1",
       "assignments": [
         {
-          "dataPlatform": "YellowLive",
-          "documentation": "Live Yellow DataPlatform",
-          "productionStatus": "PRODUCTION",
-          "deprecationsAllowed": "NEVER",
-          "status": "PROVISIONED"
-        }
-      ]
-    },
-    {
-      "dsgName": "ForensicDSG",
-      "workspace": "Consumer1",
-      "assignments": [
-        {
-          "dataPlatform": "YellowForensic",
-          "documentation": "Forensic Yellow DataPlatform",
+          "dataPlatform": "Test_DP",
+          "documentation": "Test DataPlatform",
           "productionStatus": "PRODUCTION",
           "deprecationsAllowed": "NEVER",
           "status": "PROVISIONED"

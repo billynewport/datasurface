@@ -26,6 +26,63 @@ from datasurface.md.repo import GitHubRepository
 from typing import cast
 import copy
 from enum import Enum
+import json
+from typing import List
+
+
+class BatchStatus(Enum):
+    """This is the status of a batch"""
+    STARTED = "started"  # The batch is started, ingestion is in progress
+    INGESTED = "ingested"  # The batch is ingested, merge is in progress
+    COMMITTED = "committed"  # The batch is committed, no more work to do
+    FAILED = "failed"  # The batch failed, reset batch to try again
+
+
+class BatchState:
+    """This is the state of a batch being processed. It provides a list of datasets which need to be
+    ingested still and for the dataset currently being ingested, where to start ingestion from in terms
+    of an offset in the source table."""
+
+    def __init__(self, datasetsToProcess: List[str], schema_versions: Optional[dict[str, str]] = None) -> None:
+        self.all_datasets: List[str] = datasetsToProcess
+        self.current_dataset_index: int = 0
+        self.current_offset: int = 0
+        self.schema_versions: dict[str, str] = schema_versions or {}
+
+    def reset(self) -> None:
+        """This resets the state to the start of the batch"""
+        self.current_dataset_index = 0
+        self.current_offset = 0
+
+    def getCurrentDataset(self) -> str:
+        """This returns the current dataset"""
+        return self.all_datasets[self.current_dataset_index]
+
+    def moveToNextDataset(self) -> None:
+        """This moves to the next dataset"""
+        self.current_dataset_index += 1
+        self.current_offset = 0
+
+    def hasMoreDatasets(self) -> bool:
+        """This returns True if there are more datasets to ingest"""
+        return self.current_dataset_index < len(self.all_datasets)
+
+    @staticmethod
+    def from_json(json_str: str) -> "BatchState":
+        # Inflate the json in to this class
+        state: BatchState = BatchState([])
+        # Load the json string in to a dictionary
+        json_dict: dict[str, Any] = json.loads(json_str)
+        state.all_datasets = json_dict["all_datasets"]
+        state.current_dataset_index = json_dict["current_dataset_index"]
+        state.current_offset = json_dict["current_offset"]
+        state.schema_versions = json_dict.get("schema_versions", {})
+        return state
+
+    def to_json(self) -> str:
+        # Convert the class in to a dictionary
+        json_dict: dict[str, Any] = self.__dict__
+        return json.dumps(json_dict)
 
 
 class KubernetesEnvVarsCredentialStore(CredentialStore):
@@ -385,7 +442,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             common_context: dict[str, Any] = {
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
-                "postgres_hostname": self.dp.to_k8s_name(self.dp.postgresName),
+                "postgres_hostname": self.dp.to_k8s_name(self.dp.mergeStore.hostPortPair.hostName),
+                "postgres_database": self.dp.mergeStore.databaseName,
+                "postgres_port": self.dp.mergeStore.hostPortPair.port,
                 "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
                 "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
                 "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
@@ -496,8 +555,8 @@ class YellowDataPlatform(DataPlatform):
             postgresCredential: Credential,
             gitCredential: Credential,
             slackCredential: Credential,
+            merge_datacontainer: PostgresDatabase,
             airflowName: str = "airflow",
-            postgresName: str = "pg-data",
             kafkaConnectName: str = "kafka-connect",
             kafkaClusterName: str = "kafka-cluster",
             slackChannel: str = "datasurface-events",
@@ -511,7 +570,7 @@ class YellowDataPlatform(DataPlatform):
         self.connectCredentials: Credential = connectCredentials
         self.postgresCredential: Credential = postgresCredential
         self.airflowName: str = airflowName
-        self.postgresName: str = postgresName
+        self.mergeStore: PostgresDatabase = merge_datacontainer
         self.kafkaConnectName: str = kafkaConnectName
         self.kafkaClusterName: str = kafkaClusterName
         self.slackCredential: Credential = slackCredential
@@ -531,12 +590,6 @@ class YellowDataPlatform(DataPlatform):
             )
         )
 
-        self.mergeStore = PostgresDatabase(
-            name=f"{postgresName}-db",
-            hostPort=HostPortPair(f"{postgresName}.{namespace}.svc.cluster.local", 5432),
-            locations=self.locs,
-            databaseName="datasurface_merge"
-        )
         self.credStore = KubernetesEnvVarsCredentialStore(
             name=f"{name}-cred-store",
             locs=self.locs,
@@ -553,7 +606,6 @@ class YellowDataPlatform(DataPlatform):
                 "_type": self.__class__.__name__,
                 "namespace": self.namespace,
                 "airflowName": self.airflowName,
-                "postgresName": self.postgresName,
                 "kafkaConnectName": self.kafkaConnectName,
                 "kafkaClusterName": self.kafkaClusterName,
                 "connectCredentials": self.connectCredentials.to_json(),
@@ -649,7 +701,9 @@ class YellowDataPlatform(DataPlatform):
         context: dict[str, Any] = {
             "namespace_name": self.namespace,
             "platform_name": self.to_k8s_name(self.name),
-            "postgres_hostname": self.to_k8s_name(self.postgresName),
+            "postgres_hostname": self.to_k8s_name(self.mergeStore.hostPortPair.hostName),
+            "postgres_database": self.mergeStore.databaseName,
+            "postgres_port": self.mergeStore.hostPortPair.port,
             "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
             "airflow_name": self.to_k8s_name(self.airflowName),
             "airflow_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
@@ -702,6 +756,155 @@ class YellowDataPlatform(DataPlatform):
                                 chooser.retention.milestoningStrategy, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
                 else:
                     tree.addRaw(ObjectWrongType(chooser, WorkspacePlatformConfig, ProblemSeverity.ERROR))
+
+    def resetBatchState(self, eco: Ecosystem, storeName: str, datasetName: Optional[str] = None) -> str:
+        """Reset batch state for a given store and optionally a specific dataset.
+        This clears batch counters and metrics, forcing a fresh start for ingestion.
+
+        Args:
+            eco: The ecosystem containing the datastore
+            storeName: Name of the datastore to reset
+            datasetName: Optional dataset name for single-dataset reset. If None, resets entire store.
+        """
+        from sqlalchemy import text
+        from datasurface.platforms.yellow.jobs import createEngine
+
+        # Get credentials and create database connection
+        user, password = self.credStore.getAsUserPassword(self.postgresCredential)
+        engine = createEngine(self.mergeStore, user, password)
+
+        # Create schema projector to access column name constants
+        schema_projector_base = self.createSchemaProjector(eco)
+        schema_projector = cast(YellowSchemaProjector, schema_projector_base)
+
+        # Validate datastore exists before proceeding
+        datastore_ce: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(storeName)
+        if datastore_ce is None:
+            return "ERROR: Could not find datastore in ecosystem"
+
+        datastore: Datastore = datastore_ce.datastore
+        if datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
+            return "ERROR: Cannot specify a dataset name for a multi-dataset datastore"
+        elif datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET and datasetName is None:
+            return "ERROR: Cannot reset a single-dataset datastore without a dataset name"
+
+        # Determine the key(s) to reset
+        keys_to_reset = []
+        if datasetName is not None:
+            # Single dataset reset
+            keys_to_reset.append(f"{storeName}#{datasetName}")
+        else:
+            # Multi-dataset reset - there is just one key for the store.
+            keys_to_reset.append(storeName)
+
+        # Get table names
+        platform_prefix = self.name.lower()
+        batch_counter_table = platform_prefix + "_batch_counter"
+        batch_metrics_table = platform_prefix + "_batch_metrics"
+
+        print(f"Resetting batch state for platform {self.name}, store {storeName}" +
+              (f", dataset {datasetName}" if datasetName else ""))
+        print(f"Keys to reset: {keys_to_reset}")
+
+        # We can only reset a batch there there is an existing open batch. An open batch is one where the batch_status is not committed.
+        # Resetting a batch means deleting the ingested data for the current batch from staging. Then reset the state of the batch to
+        # It's initial state.
+
+        with engine.begin() as connection:
+            for key in keys_to_reset:
+                # First check if there's a current batch and its status
+                # Get the current batch ID
+                result = connection.execute(text(f'SELECT "currentBatch" FROM {batch_counter_table} WHERE key = :key'), {"key": key})
+                batch_row = result.fetchone()
+
+                if batch_row is not None:
+                    current_batch_id = batch_row[0]
+
+                    # Check the batch status
+                    result = connection.execute(text(f'''
+                        SELECT "batch_status"
+                        FROM {batch_metrics_table}
+                        WHERE "key" = :key AND "batch_id" = :batch_id
+                    '''), {"key": key, "batch_id": current_batch_id})
+                    status_row = result.fetchone()
+
+                    if status_row is not None:
+                        batch_status = status_row[0]
+                        if batch_status == BatchStatus.COMMITTED.value:
+                            print(f"  Key '{key}': SKIPPED - Batch {current_batch_id} is COMMITTED and cannot be reset")
+                            print("    Committed batches are immutable to preserve data integrity")
+                            print("    If you need to reprocess data, start a new batch instead")
+                            return "ERROR: Batch is COMMITTED and cannot be reset"
+                        else:
+                            print(f"  Key '{key}': Batch {current_batch_id} status is '{batch_status}' - safe to reset")
+
+                            # Proceed with reset - Get the datastore to access datasets
+                            datastore_ce: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(storeName)
+                            if datastore_ce is None:
+                                print(f"    ERROR: Could not find datastore '{storeName}' in ecosystem")
+                                return "ERROR: Could not find datastore in ecosystem"
+
+                            datastore: Datastore = datastore_ce.datastore
+                            if datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
+                                print("Cannot specify a dataset name for a multi-dataset datastore {datastore.name}")
+                                return "ERROR: Cannot specify a dataset name for a multi-dataset datastore"
+                            elif datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET and datasetName is None:
+                                print(f"Cannot reset a single-dataset datastore {datastore.name} without a dataset name")
+                                return "ERROR: Cannot reset a single-dataset datastore without a dataset name"
+
+                            # Get the batch state to understand which datasets are involved
+                            result = connection.execute(text(f'''
+                                SELECT "state"
+                                FROM {batch_metrics_table}
+                                WHERE "key" = :key AND "batch_id" = :batch_id
+                            '''), {"key": key, "batch_id": current_batch_id})
+                            batch_state_row = result.fetchone()
+
+                            if batch_state_row is not None:
+                                state: BatchState = BatchState.from_json(batch_state_row[0])
+
+                                # Reset the batch state to its initial state
+                                state.reset()
+
+                                # Update the batch_metrics table with the new batch state
+                                result = connection.execute(text(f'''
+                                    UPDATE {batch_metrics_table}
+                                    SET "batch_status" = :batch_status,
+                                        "state" = :batch_state
+                                    WHERE "key" = :key AND "batch_id" = :batch_id
+                                '''), {
+                                    "key": key,
+                                    "batch_id": current_batch_id,
+                                    "batch_status": BatchStatus.STARTED.value,
+                                    "batch_state": state.to_json()
+                                })
+
+                                # Now delete the records from the staging table for every dataset in the batch
+                                datasets_cleared = 0
+                                for dataset_name in state.all_datasets:
+                                    # Use the proper staging table naming method
+                                    base_table_name = f"{storeName}_{dataset_name}"
+                                    staging_table_name = f"{platform_prefix}_{base_table_name}_staging"
+
+                                    # Delete staging records for this batch using the correct column name
+                                    result = connection.execute(text(f'''
+                                        DELETE FROM {staging_table_name}
+                                        WHERE {schema_projector.BATCH_ID_COLUMN_NAME} = :batch_id
+                                    '''), {"batch_id": current_batch_id})
+
+                                    records_deleted = result.rowcount
+                                    if records_deleted > 0:
+                                        print(f"    Cleared {records_deleted} records from {staging_table_name}")
+                                        datasets_cleared += 1
+
+                                print(f"  Key '{key}': reset batch {current_batch_id} successfully")
+                                print(f"    Reset state and cleared staging data for {datasets_cleared} datasets")
+                            else:
+                                print(f"    ERROR: Could not find batch state for batch {current_batch_id}")
+                                return "ERROR: Could not find batch state for batch {current_batch_id}"
+
+        print("Batch state reset complete")
+        return "SUCCESS"
 
 
 class IUDValues(Enum):
