@@ -761,11 +761,9 @@ class Job(ABC):
                         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
                         # Execute batch insert using proper SQLAlchemy batch execution
-                        # Use executemany from the underlying DBAPI for true batch efficiency
-                        # This is the most efficient way to do batch inserts
-                        for values in batchValues:
-                            params = {str(i): val for i, val in enumerate(values)}
-                            mergeConn.execute(text(insertSql), params)
+                        # Use executemany for true batch efficiency - single execute call for all rows
+                        all_params = [{str(i): val for i, val in enumerate(values)} for values in batchValues]
+                        mergeConn.execute(text(insertSql), all_params)
                         numRowsInserted: int = len(batchValues)
                         recordsInserted += numRowsInserted
                         # Write the offset to the state
@@ -915,11 +913,22 @@ class SnapshotMergeJobForensic(Job):
 
                 print(f"DEBUG: Executing PostgreSQL 16 compatible forensic merge for dataset {datasetToMergeName}")
                 print("DEBUG: Step 1 - Closing changed records")
-                connection.execute(text(close_changed_sql))
+                result1 = connection.execute(text(close_changed_sql))
+                changed_records = result1.rowcount
+                total_updated += changed_records
+                print(f"DEBUG: Step 1 - Closed {changed_records} changed records")
+
                 print("DEBUG: Step 2 - Closing deleted records")
-                connection.execute(text(close_deleted_sql))
+                result2 = connection.execute(text(close_deleted_sql))
+                deleted_records = result2.rowcount
+                total_deleted += deleted_records
+                print(f"DEBUG: Step 2 - Closed {deleted_records} deleted records")
+
                 print("DEBUG: Step 3 - Inserting new records")
-                connection.execute(text(insert_new_sql))
+                result3 = connection.execute(text(insert_new_sql))
+                new_records = result3.rowcount
+                total_inserted += new_records
+                print(f"DEBUG: Step 3 - Inserted {new_records} new records")
 
                 # Insert new versions for changed records (where the old record was just closed)
                 insert_changed_sql = f"""
@@ -941,13 +950,19 @@ class SnapshotMergeJobForensic(Job):
                 )
                 """
                 print("DEBUG: Step 4 - Inserting new versions for changed records")
-                connection.execute(text(insert_changed_sql))
+                result4 = connection.execute(text(insert_changed_sql))
+                changed_new_records = result4.rowcount
+                total_inserted += changed_new_records
+                print(f"DEBUG: Step 4 - Inserted {changed_new_records} new versions for changed records")
 
-                # Metrics (optional, can be improved for accuracy)
+                # Count total records processed from staging for this dataset
                 count_result = connection.execute(
                     text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
+
+                print(f"DEBUG: Dataset {datasetToMergeName} - New: {new_records}, Changed: {changed_records}, "
+                      f"Deleted: {deleted_records}, Changed New Versions: {changed_new_records}")
 
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(
@@ -1281,12 +1296,12 @@ def main():
     eco: Optional[Ecosystem] = None
     tree: Optional[ValidationTree] = None
     eco, tree = loadEcosystemFromEcoModule(args.git_repo_path)
-    if eco is None or tree is None:
-        print("Failed to load ecosystem")
-        return -1  # ERROR
-    if tree.hasErrors():
+    if tree is not None and tree.hasErrors():
         print("Ecosystem model has errors")
         tree.printTree()
+        return -1  # ERROR
+    if eco is None or tree is None:
+        print("Failed to load ecosystem")
         return -1  # ERROR
 
     if args.operation == "snapshot-merge":
