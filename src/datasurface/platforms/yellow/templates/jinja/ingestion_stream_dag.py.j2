@@ -189,7 +189,7 @@ job = KubernetesPodOperator(
     image='{{ datasurface_docker_image }}',
     cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
-        '--platform-name', 'YellowLive',
+        '--platform-name', '{{ original_platform_name }}',
         '--store-name', '{{ store_name }}',
         {% if dataset_name %}
         '--dataset-name', '{{ dataset_name }}',

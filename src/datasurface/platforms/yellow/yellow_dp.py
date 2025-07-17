@@ -442,6 +442,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             common_context: dict[str, Any] = {
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "original_platform_name": self.dp.name,  # Original platform name for job execution
                 "postgres_hostname": self.dp.to_k8s_name(self.dp.mergeStore.hostPortPair.hostName),
                 "postgres_database": self.dp.mergeStore.databaseName,
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
