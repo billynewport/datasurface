@@ -2294,12 +2294,12 @@ class AuthorizedObjectManager(GitControlledObject, Generic[G, N]):
 
     def defineAllObjects(self) -> list[G]:
         """This 'defines' all declared objects"""
-        keys: list[G] = list()
+        values: list[G] = list()
         for n in self.authorizedNames.values():
             v: Optional[G] = self.getObject(n.name)
             if (v is not None):
-                keys.append(v)
-        return keys
+                values.append(v)
+        return values
 
     def getObject(self, name: str) -> Optional[G]:
         """This returns a managed object for the specified name. Users can then fill out the attributes
