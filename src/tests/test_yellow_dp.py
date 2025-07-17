@@ -89,9 +89,10 @@ class Test_YellowDataPlatform(unittest.TestCase):
     def test_mvp_model_bootstrap_and_dags(self):
         """Test MVP model bootstrap artifacts and ingestion DAG generation for dual platforms."""
         # Create a temporary directory for outputs
-        with tempfile.TemporaryDirectory() as temp_dir:
-            print(f"\n=== MVP Model Test Output Directory: {temp_dir} ===")
+        temp_dir = tempfile.mkdtemp()
+        print(f"\n=== MVP Model Test Output Directory: {temp_dir} ===")
 
+        try:
             # Test 1: Generate bootstrap artifacts for both platforms
             print("\n--- Generating Bootstrap Artifacts ---")
             eco: Ecosystem = generatePlatformBootstrap(
@@ -388,8 +389,48 @@ class Test_YellowDataPlatform(unittest.TestCase):
 
             # Keep the temp directory for manual examination by copying files to a permanent location
             import shutil
-            permanent_dir = "yellow_dp_tests/mvp_model/generated_output"
+            permanent_dir = "src/tests/yellow_dp_tests/mvp_model/generated_output"
+            print(f"\n--- Copying files from {temp_dir} to {permanent_dir} ---")
+            print(f"Source exists: {os.path.exists(temp_dir)}")
+            print(f"Source contents: {os.listdir(temp_dir) if os.path.exists(temp_dir) else 'N/A'}")
+            print(f"Target exists: {os.path.exists(permanent_dir)}")
+            
             if os.path.exists(permanent_dir):
-                shutil.rmtree(permanent_dir)
-            shutil.copytree(temp_dir, permanent_dir)
-            print(f"\n✓ Files copied to permanent location for examination: {permanent_dir}")
+                print(f"Removing existing target directory: {permanent_dir}")
+                try:
+                    shutil.rmtree(permanent_dir)
+                except Exception as e:
+                    print(f"Warning: Could not remove existing directory {permanent_dir}: {e}")
+            
+            try:
+                shutil.copytree(temp_dir, permanent_dir)
+                print(f"✓ Files copied to permanent location for examination: {permanent_dir}")
+                print(f"Target contents after copy: {os.listdir(permanent_dir) if os.path.exists(permanent_dir) else 'N/A'}")
+                
+                # Additional verification
+                if os.path.exists(permanent_dir):
+                    print("Target directory exists after copy")
+                    contents = os.listdir(permanent_dir)
+                    print(f"Target directory contents: {contents}")
+                    for item in contents:
+                        item_path = os.path.join(permanent_dir, item)
+                        if os.path.isdir(item_path):
+                            print(f"  Directory: {item} -> {os.listdir(item_path)}")
+                        else:
+                            print(f"  File: {item}")
+                else:
+                    print("❌ Target directory does not exist after copy!")
+                    
+            except Exception as e:
+                print(f"❌ Copy failed: {e}")
+                import traceback
+                traceback.print_exc()
+        finally:
+            # Clean up the temporary directory
+            import shutil
+            if os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    print(f"✓ Cleaned up temporary directory: {temp_dir}")
+                except Exception as e:
+                    print(f"Warning: Could not clean up temporary directory {temp_dir}: {e}")

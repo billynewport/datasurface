@@ -26,6 +26,6 @@ java/dmsingester/bin/**
 test_lint_performance.prof
 
 src/tests/yellow_dp_tests/base/*
-**/yellow_dp_tests/mvp_model/generated_output/**
+src/tests/yellow_dp_tests/mvp_model/generated_output/**
 
 
