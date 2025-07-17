@@ -26,7 +26,7 @@ def createEcosystem() -> Ecosystem:
 
     merge_datacontainer: PostgresDatabase = PostgresDatabase(
         "MergeDB",
-        hostPort=HostPortPair("localhost", 5432),
+        hostPort=HostPortPair("pg-data.ns-kub-pg-test.svc.cluster.local", 5432),
         locations={LocationKey("MyCorp:USA/NY_1")},
         databaseName="datasurface_merge"
     )
@@ -99,7 +99,7 @@ def createEcosystem() -> Ecosystem:
             capture_metadata=SQLSnapshotIngestion(
                 PostgresDatabase(
                     "CustomerDB",  # Model name for database
-                    hostPort=HostPortPair("localhost", 5432),  # Host and port for database
+                    hostPort=HostPortPair("pg-data.ns-kub-pg-test.svc.cluster.local", 5432),  # Host and port for database
                     locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
                     databaseName="customer_db"  # Database name
                 ),
