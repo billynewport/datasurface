@@ -1040,6 +1040,7 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 - ✅ **Testing Suite**: Complete test coverage for all major functionality
 
 **🎯 Production Capabilities Achieved:**
+
 - ✅ **Live Data Processing**: YellowLive platform processing customer/address data (@hourly)
 - ✅ **Forensic Data Processing**: YellowForensic platform with historical data retention (@hourly)  
 - ✅ **Infrastructure Management**: Automated platform setup and maintenance (@daily)
@@ -1048,6 +1049,7 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 - ✅ **Operational Monitoring**: Full logging and status reporting for production use
 
 **🚀 Ready for Production Deployment:**
+
 1. **✅ Core Data Pipeline**: Complete ingestion from source to merge tables
 2. **✅ Batch Processing**: Reliable, recoverable batch operations with state management
 3. **✅ Schema Management**: Automated handling of model changes and updates
@@ -1056,6 +1058,7 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 6. **✅ Command Line Tools**: Operational management and troubleshooting capabilities
 
 **Infrastructure Status - FULLY OPERATIONAL:**
+
 - ✅ **Kubernetes Cluster**: Stable 14+ day uptime with all pods healthy
 - ✅ **PostgreSQL Database**: Source and merge data processing operational
 - ✅ **Airflow Scheduler**: All DAGs executing on schedule with proper RBAC
@@ -1066,6 +1069,7 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 - ✅ **Network Configuration**: Inter-pod communication and external access working
 
 **Next Steps - Production Scaling Opportunities:**
+
 1. **Consumer Database Integration** - Workspace view creation and data consumption patterns
 2. **Performance Optimization** - Throughput testing and latency optimization for high-volume scenarios  
 3. **Advanced Processing** - MERGE handler integration for complex data transformation workflows
@@ -1084,6 +1088,7 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 **Background:** The forensic merge phase was working correctly - data was being processed from staging to merge tables successfully. However, the metrics recording showed 0 for all operations (inserted/updated/deleted) despite actual data changes occurring. This created a significant observability gap for production monitoring.
 
 **Root Cause Analysis:**
+
 - **Problem Identified**: The `SnapshotMergeJobForensic.mergeStagingToMerge()` method was executing all 4 SQL operations correctly but **not capturing row counts** from the database operations
 - **Specific Issue**: Each `connection.execute(text(sql))` call returns a result object with `rowcount`, but the code was ignoring these values
 - **Impact**: Metrics variables (`total_inserted`, `total_updated`, `total_deleted`) remained at their initialized value of 0
@@ -1112,6 +1117,7 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 **Objective:** ✅ Validate the metrics fix with real data changes and confirm accurate reporting.
 
 **Test Environment Setup:**
+
 1. **✅ Rebuilt Docker Container** with the forensic merge fix
 2. **✅ Restarted Data Change Simulator** to generate fresh changes
    - Configured with airflow/airflow database credentials
@@ -1121,10 +1127,12 @@ kubectl get configmap -n ns-kub-pg-test <configmap-name> -o yaml
 **Validation Results:**
 
 **Before Fix:**
+
 - All batches showed `0 inserted, 0 updated, 0 deleted` despite data changes
 - Merge operations worked but metrics were invisible
 
 **After Fix (Batch 13):**
+
 - **✅ 4 records inserted**
 - **✅ 3 records updated** 
 - **✅ 1 record deleted**
@@ -1138,6 +1146,7 @@ DEBUG: Total forensic merge results - Inserted: 4, Updated: 3, Deleted: 1
 ```
 
 **Data Change Simulator Integration:**
+
 - ✅ Simulator successfully generating realistic business operations
 - ✅ Changes properly detected and processed by forensic merge
 - ✅ Metrics accurately reflect actual database operations
@@ -1168,7 +1177,8 @@ DEBUG: Total forensic merge results - Inserted: 4, Updated: 3, Deleted: 1
    - Clear operation-level visibility
    - Comprehensive error context
 
-**Success Criteria - ALL ACHIEVED:**
+**Success Criteria - ALL ACHIEVED:*
+*
 - ✅ Metrics accurately reflect actual database operations
 - ✅ Debug output provides complete operational visibility
 - ✅ Fix maintains existing functionality and performance
@@ -1178,6 +1188,7 @@ DEBUG: Total forensic merge results - Inserted: 4, Updated: 3, Deleted: 1
 ## 🎉 **PHASE 8 COMPLETED - PRODUCTION-READY METRICS AND OBSERVABILITY!**
 
 **Achievement Summary:**
+
 - ✅ **Metrics Accuracy**: Fixed forensic merge to capture actual row counts instead of zeros
 - ✅ **Operational Visibility**: Enhanced debug output shows detailed breakdown of all operations
 - ✅ **Data Quality**: Accurate metrics enable proper validation and auditing workflows
@@ -1221,6 +1232,7 @@ DEBUG: Total forensic merge results - Inserted: 4, Updated: 3, Deleted: 1
 **Critical Discovery**: The distinction between `platform_name` and `original_platform_name` variables is essential for correct operation.
 
 **Variable Architecture:**
+
 - **`platform_name`**: Lowercase Kubernetes-safe name (e.g., "yellowlive")
   - Used for: DAG names, Kubernetes resource names, environment variables
   - Generated by: `self.to_k8s_name(self.name)` method
@@ -1232,7 +1244,8 @@ DEBUG: Total forensic merge results - Inserted: 4, Updated: 3, Deleted: 1
   - Purpose: Correct platform identification in ecosystem model
 
 **Template Context Sources:**
-```
+
+```text
 Ingestion DAGs: createAirflowDAGs() → context includes original_platform_name ✅
 Infrastructure DAGs: generateBootstrapArtifacts() → context missing original_platform_name ❌
 ```
@@ -1242,6 +1255,7 @@ Infrastructure DAGs: generateBootstrapArtifacts() → context missing original_p
 ### Task 9.3: Template Validation and Verification ✅ **COMPLETED**
 
 **Validation Results:**
+
 - ✅ **All 4 DAG Templates**: Perfect match between templates and generated output
 - ✅ **Environment Variables**: Proper Kubernetes V1EnvVar format throughout
 - ✅ **Module Paths**: Correct datasurface.platforms.yellow.jobs references
@@ -1251,12 +1265,14 @@ Infrastructure DAGs: generateBootstrapArtifacts() → context missing original_p
 - ✅ **Log Parsing**: Direct Airflow log file parsing for result codes
 
 **Generated DAGs Verified:**
+
 - ✅ `yellowlive__Store1_ingestion.py` - Live data ingestion (@hourly)
 - ✅ `yellowforensic__Store1_ingestion.py` - Forensic data ingestion (@hourly)
 - ✅ `yellowlive_infrastructure_dag.py` - Live platform management (@daily)
 - ✅ `yellowforensic_infrastructure_dag.py` - Forensic platform management (@daily)
 
 **Production Readiness Achieved:**
+
 - ✅ **Template System**: All templates generate correct, production-ready DAGs
 - ✅ **Variable Architecture**: Proper platform name handling for all use cases
 - ✅ **Error Prevention**: Comprehensive template validation prevents future issues

@@ -18,7 +18,7 @@ from datasurface.md.exceptions import AttributeAlreadySetException, ObjectAlread
 from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
         UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, UserDSLObject, \
-        InternalLintableObject, ANSI_SQL_NamedObject, UnexpectedExceptionProblem
+        InternalLintableObject, ANSI_SQL_NamedObject, UnexpectedExceptionProblem, ObjectNotSupportedByDataPlatform
 from datasurface.md.json import JSONable
 import hashlib
 from datasurface.md.utils import is_valid_sql_identifier, is_valid_hostname_or_ip, validate_cron_string
@@ -573,9 +573,10 @@ class DataContainer(Documentable, JSONable):
 
 
 class DataPlatformManagedDataContainer(DataContainer):
-    """This is a data container that is managed by a data platform. This is used on Workspaces to specify a DataContainer that is provided by the DataPlatform
-    assigned to the Workspace. Some DataPlatforms may only support this type of container if they do not support pushing data to different explicit data containers for
-    Workspaces, for example, a consumer wants the data pushed to an existing database where they want the data along with other data they have in that database."""
+    """This is a data container that is managed by a data platform. This is used on Workspaces to specify a DataContainer that is provided by
+    the DataPlatform assigned to the Workspace. Some DataPlatforms may only support this type of container if they do not support pushing data
+    to different explicit data containers for Workspaces, for example, a consumer wants the data pushed to an existing database where they want
+    the data along with other data they have in that database."""
     def __init__(self, name: str) -> None:
         super().__init__(name, set())
 
@@ -1506,6 +1507,25 @@ class Ecosystem(GitControlledObject, JSONable):
                     zone_declaration.key = GovernanceZoneKey(self.key, zone_declaration.name)
 
         self.resetKey()
+
+    def checkObjectIsSupported(self, obj: object, types: list[type], tree: ValidationTree) -> None:
+        """This checks that the object is one of the specified types only."""
+        if not isinstance(obj, tuple(types)):
+            tree.addRaw(ObjectNotSupportedByDataPlatform(obj, types, ProblemSeverity.ERROR))
+
+    def checkAllRepositoriesInEcosystem(self, tree: ValidationTree, types: list[type]) -> None:
+        """This checks that all repositories in the ecosystem are one of the specified types only."""
+        self.checkObjectIsSupported(self.owningRepo, types, tree)
+
+        # Check each GovernanceZone
+        zone: GovernanceZone
+        for zone in self.zones.defineAllObjects():
+            self.checkObjectIsSupported(zone.owningRepo, types, tree.addSubTree(zone))
+
+            # Check each Team
+            team: Team
+            for team in zone.teams.defineAllObjects():
+                self.checkObjectIsSupported(team.owningRepo, types, tree.addSubTree(team))
 
     def hydrateDSGDataPlatformMappings(self, jsonFile: str, tree: ValidationTree) -> None:
         """This uses the file dsg_platform_mapping.json to hydrate the dsgPlatformMappings set"""

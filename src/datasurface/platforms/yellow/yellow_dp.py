@@ -17,7 +17,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataMilestoningStrategy
-from datasurface.md import DataPlatformManagedDataContainer, GovernanceZone, Team
+from datasurface.md import DataPlatformManagedDataContainer
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer, String
 import os
@@ -641,25 +641,6 @@ class YellowDataPlatform(DataPlatform):
         """Check if the name is a valid Kubernetes namespace (RFC 1123 label)."""
         return re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', name) is not None
 
-    def checkObjectIsSupported(self, obj: object, types: list[type], tree: ValidationTree) -> None:
-        """This checks that the object is one of the specified types only."""
-        if not isinstance(obj, tuple(types)):
-            tree.addRaw(ObjectNotSupportedByDataPlatform(obj, types, ProblemSeverity.ERROR))
-
-    def checkAllRepositoriesInEcosystem(self, eco: Ecosystem, tree: ValidationTree, types: list[type]) -> None:
-        """This checks that all repositories in the ecosystem are one of the specified types only."""
-        self.checkObjectIsSupported(eco.owningRepo, types, tree)
-
-        # Check each GovernanceZone
-        zone: GovernanceZone
-        for zone in eco.zones.defineAllObjects():
-            self.checkObjectIsSupported(zone.owningRepo, types, tree.addSubTree(zone))
-
-            # Check each Team
-            team: Team
-            for team in zone.teams.defineAllObjects():
-                self.checkObjectIsSupported(team.owningRepo, types, tree.addSubTree(team))
-
     def lint(self, eco: Ecosystem, tree: ValidationTree) -> None:
         """This should validate the platform and its associated parts but it cannot validate the usage of the DataPlatform
         as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
@@ -687,7 +668,7 @@ class YellowDataPlatform(DataPlatform):
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
         for loc in self.locs:
             loc.lint(tree.addSubTree(loc))
-        self.checkAllRepositoriesInEcosystem(eco, tree, [GitHubRepository])
+        eco.checkAllRepositoriesInEcosystem(tree, [GitHubRepository])
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
         """This is called to handle merge events on the revised graph."""

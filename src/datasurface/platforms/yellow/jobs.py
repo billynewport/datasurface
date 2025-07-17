@@ -23,7 +23,6 @@ from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpd
 from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
 import argparse
 import sys
-from datasurface.md.model_loader import loadEcosystemFromEcoModule
 import json
 import hashlib
 from abc import ABC, abstractmethod
