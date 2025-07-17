@@ -43,36 +43,67 @@ start_task = EmptyOperator(
 )
 
 # Environment variables for all tasks
-common_env_vars = {
-    # Postgres credentials
-    '{{ postgres_credential_secret_name }}_USER': {
-        'secret_name': '{{ postgres_credential_secret_name }}',
-        'secret_key': 'username'
-    },
-    '{{ postgres_credential_secret_name }}_PASSWORD': {
-        'secret_name': '{{ postgres_credential_secret_name }}',
-        'secret_key': 'password'
-    },
-    # Kafka Connect credentials
-    '{{ kafka_connect_credential_secret_name }}_TOKEN': {
-        'secret_name': '{{ kafka_connect_credential_secret_name }}',
-        'secret_key': 'token'
-    },
+common_env_vars = [
+    # Platform configuration (literal values)
+    k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value='{{ platform_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value='{{ slack_channel_name }}'),
+    
+    # Postgres credentials (for merge store)
+    k8s.V1EnvVar(
+        name='{{ postgres_credential_secret_name }}_USER',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ postgres_credential_secret_name }}',
+                key='username'
+            )
+        )
+    ),
+    k8s.V1EnvVar(
+        name='{{ postgres_credential_secret_name }}_PASSWORD',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ postgres_credential_secret_name }}',
+                key='password'
+            )
+        )
+    ),
     # Git credentials
-    '{{ git_credential_secret_name }}_TOKEN': {
-        'secret_name': '{{ git_credential_secret_name }}',
-        'secret_key': 'token'
-    },
+    k8s.V1EnvVar(
+        name='{{ git_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ git_credential_secret_name }}',
+                key='token'
+            )
+        )
+    ),
     # Slack credentials
-    '{{ slack_credential_secret_name }}_TOKEN': {
-        'secret_name': '{{ slack_credential_secret_name }}',
-        'secret_key': 'token'
-    },
-    # Platform configuration
-    'DATASURFACE_PLATFORM_NAME': '{{ platform_name }}',
-    'DATASURFACE_NAMESPACE': '{{ namespace_name }}',
-    'DATASURFACE_SLACK_CHANNEL': '{{ slack_channel_name }}'
-}
+    k8s.V1EnvVar(
+        name='{{ slack_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ slack_credential_secret_name }}',
+                key='token'
+            )
+        )
+    )
+]
+
+{% if kafka_connect_credential_secret_name %}
+# Kafka Connect credentials for Kafka ingestion
+common_env_vars.extend([
+    k8s.V1EnvVar(
+        name='{{ kafka_connect_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ kafka_connect_credential_secret_name }}',
+                key='token'
+            )
+        )
+    )
+])
+{% endif %}
 
 # MERGE Task - Generates infrastructure terraform files
 merge_task = KubernetesPodOperator(
@@ -80,9 +111,9 @@ merge_task = KubernetesPodOperator(
     name='{{ platform_name }}-infra-merge',
     namespace='{{ namespace_name }}',
     image='{{ datasurface_docker_image }}',
-    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.tasks.merge'],
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
-        '--platform-name', '{{ platform_name }}',
+        '--platform-name', '{{ original_platform_name }}',
         '--operation', 'infrastructure-merge',
         '--git-repo-path', '/workspace/model'
     ],
@@ -90,14 +121,14 @@ merge_task = KubernetesPodOperator(
     volumes=[
         k8s.V1Volume(
             name='git-workspace',
-            config_map=k8s.V1ConfigMapVolumeSource(name='{{ platform_name }}-git-config')
+            empty_dir=k8s.V1EmptyDirVolumeSource()
         )
     ],
     volume_mounts=[
         k8s.V1VolumeMount(
             name='git-workspace',
             mount_path='/workspace/model',
-            read_only=True
+            read_only=False
         )
     ],
     is_delete_operator_pod=True,
@@ -111,9 +142,9 @@ metrics_collector_task = KubernetesPodOperator(
     name='{{ platform_name }}-metrics-collector',
     namespace='{{ namespace_name }}',
     image='{{ datasurface_docker_image }}',
-    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.tasks.metrics'],
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
-        '--platform-name', '{{ platform_name }}',
+        '--platform-name', '{{ original_platform_name }}',
         '--operation', 'collect-metrics',
         '--postgres-host', '{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local',
         '--postgres-port', '5432',
@@ -131,9 +162,9 @@ apply_security_task = KubernetesPodOperator(
     name='{{ platform_name }}-apply-security',
     namespace='{{ namespace_name }}',
     image='{{ datasurface_docker_image }}',
-    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.tasks.security'],
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
-        '--platform-name', '{{ platform_name }}',
+        '--platform-name', '{{ original_platform_name }}',
         '--operation', 'apply-security',
         '--postgres-host', '{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local',
         '--postgres-port', '5432',
@@ -151,9 +182,9 @@ table_removal_task = KubernetesPodOperator(
     name='{{ platform_name }}-table-removal',
     namespace='{{ namespace_name }}',
     image='{{ datasurface_docker_image }}',
-    cmds=['python', '-m', 'datasurface.platforms.kubpgstarter.tasks.cleanup'],
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
     arguments=[
-        '--platform-name', '{{ platform_name }}',
+        '--platform-name', '{{ original_platform_name }}',
         '--operation', 'remove-unused-tables',
         '--postgres-host', '{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local',
         '--postgres-port', '5432',
@@ -164,14 +195,14 @@ table_removal_task = KubernetesPodOperator(
     volumes=[
         k8s.V1Volume(
             name='git-workspace',
-            config_map=k8s.V1ConfigMapVolumeSource(name='{{ platform_name }}-git-config')
+            empty_dir=k8s.V1EmptyDirVolumeSource()
         )
     ],
     volume_mounts=[
         k8s.V1VolumeMount(
             name='git-workspace',
             mount_path='/workspace/model',
-            read_only=True
+            read_only=False
         )
     ],
     is_delete_operator_pod=True,

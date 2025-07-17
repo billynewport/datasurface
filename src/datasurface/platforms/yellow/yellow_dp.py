@@ -702,6 +702,7 @@ class YellowDataPlatform(DataPlatform):
         context: dict[str, Any] = {
             "namespace_name": self.namespace,
             "platform_name": self.to_k8s_name(self.name),
+            "original_platform_name": self.name,  # Original platform name for job execution
             "postgres_hostname": self.to_k8s_name(self.mergeStore.hostPortPair.hostName),
             "postgres_database": self.mergeStore.databaseName,
             "postgres_port": self.mergeStore.hostPortPair.port,
