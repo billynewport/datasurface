@@ -1,6 +1,6 @@
 [![License: BSL v1.1](https://img.shields.io/badge/License-BSL%20v1.1-blue.svg)](https://mariadb.com/bsl11/) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE-OF-CONDUCT.md)
 
-> :warning: **Work in progress**: This project is being implemented in phases. Phase 1 is complete as of March 2024. Work on an Kafka Connect/Confluent Cloud DataPlatform is underway. Please see the [roadmap](ROADMAP.md) for details on when features should drop and the road map.
+> :warning: **Work in progress**: This project is being implemented in phases. Phase 1 is complete as of March 2024. Phase 3, implementing the [YellowDataPlatform](docs/yellow_dp/README.md) is 99% finished. This provides a working data platform offering live and milestones based data ingestion. Please see the [roadmap](ROADMAP.md) for details on when features should drop and the road map.
 
 # DataSurface: A Data Ecosystem Broker
 

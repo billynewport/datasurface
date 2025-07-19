@@ -14,9 +14,9 @@ We're building a REST API to the datasurface models. This is being packaged as a
 
 The way this would be used is as a sidekick container in a Kubernetes job for example. The sidekick or init container runs with a copy of the model checked out of the repository. Then it runs on a localhost and the job can query the model easily. If the job is written in python then it can be consumed directly.
 
-## Phase 3: YellowDataPlatform Batch/Streaming Support using Postgres,Kafka Connect/Confluent (Started March 2025, IN PROGRESS)
+## Phase 3: YellowDataPlatform Batch/Streaming Support using Kubernetes, Airflow, Postgres, Kafka Connect/Confluent (Started March 2025, 99% complete)
 
-This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support direct SQL ingestion as well asKafka connect to import data from a variety of sources and support live and milestoned data. This is the YellowDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This will use Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources. It is designed around Docker Swarm for the container orchestration.
+This is a powerful DataPlatform that uses a Postgres instance to store staging data and merge tables. It will support direct SQL ingestion as well as Kafka connect to import data from a variety of sources and support live and milestoned data. This is the YellowDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This uses Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources. It is designed around kubnernetes for the container orchestration.
 
 You can read about it [here in the design docs](docs/yellow_dp/README.md).
 
@@ -24,13 +24,13 @@ You can read about it [here in the design docs](docs/yellow_dp/README.md).
 
 Security is about who can read data in a Workspace. There is no single solution to this problem that will work for all use cases. We will provide an extensible framework for SecurityModules to be written and used. We will provide a default implementation. DataPlatforms and SecurityModules are independent components. A SecurityModule can work with compatible DataPlatforms. Compatible here means that the SecurityModule and the DataPlatform need to share compatible DataContainers for hosting Workspaces. For example, a DataPlatform which uses Snowflake databases for Workspaces will be compatible with any SecurityModule which supports Snowflake. The initial security module will support PostGres in line with the initial DataPlatform also supporting Postgres. By explicitly choosing a SQL based DataContainer, this work should be easier to extend to similar SQL databases.
 
-## Conclusion of Phase 4 and 5 is a working system
+## Conclusion of Phase 3 and 4 is a working system
 
 Once we have a working DataPlatform and SecurityModule, users will be able to use DataSurface to build end to end systems.
 
 ## Future DataPlatforms
 
-Once the SimpleDataPlatform is working then we can start to look at other DataPlatforms. The candidates are:
+Once the YellowDataPlatform is working then we can start to look at other DataPlatforms. The candidates are:
 
 * Databricks
 
