@@ -32,6 +32,7 @@ from typing import List
 from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
 from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
+from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
 
 
 class BatchStatus(Enum):
@@ -313,6 +314,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
         else:
             cmdTree: ValidationTree = storeTree.addSubTree(store.cmd)
+
+            # Check the trigger if specified in a cron trigger
+            if store.cmd.stepTrigger is None:
+                cmdTree.addRaw(ObjectMissing(store, "trigger", ProblemSeverity.ERROR))
+            elif not isinstance(store.cmd.stepTrigger, (CronTrigger, ExternallyTriggered)):
+                cmdTree.addRaw(ObjectNotSupportedByDataPlatform(store.cmd.stepTrigger, [CronTrigger, ExternallyTriggered], ProblemSeverity.ERROR))
             if store.cmd.singleOrMultiDatasetIngestion is None:
                 cmdTree.addRaw(ObjectMissing(store, IngestionConsistencyType, ProblemSeverity.ERROR))
             # Both single and multi dataset are supported for SQL snapshot ingestion
@@ -496,6 +503,15 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             issueTree.addRaw(UnexpectedExceptionProblem(e))
             return {}
 
+    def getScheduleStringForTrigger(self, trigger: StepTrigger) -> str:
+        """This returns the schedule string for a trigger"""
+        if isinstance(trigger, CronTrigger):
+            return f"'{trigger.cron}"
+        elif isinstance(trigger, ExternallyTriggered):
+            return "None"
+        else:
+            raise ValueError(f"Unsupported trigger type: {type(trigger)}")
+
     def populateDAGConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
         """Populate the database with ingestion stream configurations for dynamic DAG factory"""
         from sqlalchemy import text
@@ -517,6 +533,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # Determine if this is single or multi dataset ingestion
                     is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
 
+                    assert store.cmd.stepTrigger is not None
                     if is_single_dataset:
                         # For single dataset, create a separate entry for each dataset
                         for dataset in store.datasets.values():
@@ -527,7 +544,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                                 "datasets": [dataset.name],
                                 "store_name": storeName,
                                 "dataset_name": dataset.name,
-                                "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
+                                "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot",
+                                "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger)
                             }
 
                             # Add credential information for this stream
@@ -546,7 +564,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             "single_dataset": False,
                             "datasets": [dataset.name for dataset in store.datasets.values()],
                             "store_name": storeName,
-                            "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
+                            "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot",
+                            "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger)
                         }
 
                         # Add credential information for this stream

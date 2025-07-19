@@ -478,6 +478,23 @@ class CronTrigger(StepTrigger):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
 
 
+class ExternallyTriggered(StepTrigger):
+    """This is a step trigger that is triggered by an external event"""
+    def __init__(self, name: str):
+        super().__init__(name)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def __eq__(self, o: object) -> bool:
+        return super().__eq__(o) and isinstance(o, ExternallyTriggered)
+
+    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+        pass
+
+
 class DataContainer(Documentable, JSONable):
     """This is a container for data. It's a logical container. The data can be physically stored in
     one or more locations through replication or fault tolerance measures. It is owned by a data platform

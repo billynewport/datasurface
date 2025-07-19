@@ -20,6 +20,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
     """Create a single ingestion stream DAG from configuration"""
     platform_name = platform_config['platform_name']
     stream_key = stream_config['stream_key']
+    schedule_string = stream_config['schedule_string']
     
     # Default arguments for the DAG
     default_args = {
@@ -37,7 +38,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         f'{platform_name}__{stream_key}_ingestion',
         default_args=default_args,
         description=f'Ingestion Stream DAG for {platform_name}__{stream_key}',
-        schedule='@hourly',  # External trigger schedule
+        schedule=schedule_string,  # External trigger schedule
         catchup=False,
         tags=['datasurface', 'ingestion', platform_name, stream_key]
     )
