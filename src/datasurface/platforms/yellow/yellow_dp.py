@@ -27,7 +27,11 @@ from typing import cast
 import copy
 from enum import Enum
 import json
+import sqlalchemy
 from typing import List
+from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
+from datasurface.platforms.yellow.jobs import createEngine
+from datasurface.md.sqlalchemyutils import createOrUpdateTable
 
 
 class BatchStatus(Enum):
@@ -687,11 +691,35 @@ class YellowDataPlatform(DataPlatform):
         name = name.strip('-')
         return name
 
+    def getTableForPlatform(self, tableName: str) -> str:
+        """This returns the table name for the platform"""
+        return f"{self.name}_{tableName}".lower()
+
+    def getDAGTableName(self) -> str:
+        """This returns the name of the batch counter table"""
+        return self.getTableForPlatform("airflow_dsg")
+
+    def getAirflowDAGTable(self) -> Table:
+        """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
+        data store name and the dataset name."""
+        t: Table = Table(self.getDAGTableName(), MetaData(),
+                         Column("stream_key", sqlalchemy.String(length=255), primary_key=True),
+                         Column("config_json", sqlalchemy.String(length=2048)),
+                         Column("status", sqlalchemy.String(length=50)),
+                         Column("created_at", TIMESTAMP()),
+                         Column("updated_at", TIMESTAMP()))
+        return t
+
     def generateBootstrapArtifacts(self, eco: Ecosystem) -> dict[str, str]:
         """This generates a kubernetes yaml file for the data platform using a jinja2 template.
         This doesn't need an intention graph, it's just for boot-strapping.
         Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
         needs to create the DAG for the infrastructure."""
+
+        # Create the airflow dsg table if needed
+        mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
+        mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
+        createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
 
         # Create Jinja2 environment
         env: Environment = Environment(

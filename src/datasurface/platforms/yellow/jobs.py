@@ -159,17 +159,13 @@ class YellowDatasetUtilities(ABC):
             if stored_hash and not self.validateSchemaUnchanged(dataset, stored_hash):
                 raise Exception(f"Schema changed for dataset {dataset_name} during batch processing")
 
-    def getTableForPlatform(self, tableName: str) -> str:
-        """This returns the table name for the platform"""
-        return f"{self.dp.name}_{tableName}".lower()
-
     def getBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        return self.getTableForPlatform("batch_counter")
+        return self.dp.getTableForPlatform("batch_counter")
 
     def getBatchMetricsTableName(self) -> str:
         """This returns the name of the batch metrics table"""
-        return self.getTableForPlatform("batch_metrics")
+        return self.dp.getTableForPlatform("batch_metrics")
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
@@ -217,12 +213,12 @@ class YellowDatasetUtilities(ABC):
     def getStagingTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the staging table name for a dataset"""
         tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.getTableForPlatform(tableName + "_staging")
+        return self.dp.getTableForPlatform(tableName + "_staging")
 
     def getMergeTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
         tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.getTableForPlatform(tableName + "_merge")
+        return self.dp.getTableForPlatform(tableName + "_merge")
 
 
 class Job(YellowDatasetUtilities):
