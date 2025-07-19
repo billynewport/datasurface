@@ -4,10 +4,9 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, DataContainer, PostgresDatabase,
-    MySQLDatabase, OracleDatabase, SQLServerDatabase, DB2Database, Dataset, IngestionConsistencyType
+    Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, Dataset, IngestionConsistencyType
 )
-from sqlalchemy import create_engine, Table, MetaData, text
+from sqlalchemy import Table, MetaData, text
 import sqlalchemy
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.schema import Column
@@ -18,6 +17,8 @@ from enum import Enum
 from typing import cast, List, Any, Optional
 from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
 from datasurface.md.lint import ValidationTree
+from datasurface.platforms.yellow.db_utils import createEngine
+
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy, BatchStatus, BatchState
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
@@ -65,62 +66,6 @@ class JobStatus(Enum):
     KEEP_WORKING = 1  # The job is still in progress, put on queue and continue ASAP
     DONE = 0  # The job is complete, wait for trigger to run batch again
     ERROR = -1  # The job failed, stop the job and don't run again
-
-
-def createEngine(container: DataContainer, userName: str, password: str) -> Engine:
-    """This creates a SQLAlchemy engine for a given data container."""
-    if isinstance(container, PostgresDatabase):
-        return create_engine(  # type: ignore[attr-defined]
-            'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                username=userName,
-                password=password,
-                hostName=container.hostPortPair.hostName,
-                port=container.hostPortPair.port,
-                databaseName=container.databaseName
-            ),
-            isolation_level="READ COMMITTED"
-        )
-    elif isinstance(container, MySQLDatabase):
-        return create_engine(
-            'mysql+pymysql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                username=userName,
-                password=password,
-                hostName=container.hostPortPair.hostName,
-                port=container.hostPortPair.port,
-                databaseName=container.databaseName
-            ),
-            isolation_level="READ COMMITTED"
-        )
-    elif isinstance(container, OracleDatabase):
-        return create_engine(
-            'oracle+cx_oracle://{username}:{password}@{hostName}:{port}/?service_name={databaseName}'.format(
-                username=userName,
-                password=password,
-                hostName=container.hostPortPair.hostName,
-                port=container.hostPortPair.port,
-                databaseName=container.databaseName
-            ),
-            isolation_level="READ COMMITTED"
-        )
-    elif isinstance(container, SQLServerDatabase):
-        return create_engine(
-            'mssql+pyodbc://{username}:{password}@{hostName}:{port}/{databaseName}?driver=ODBC+Driver+17+for+SQL+Server'.format(
-                username=userName,
-                password=password,
-                hostName=container.hostPortPair.hostName,
-                port=container.hostPortPair.port,
-                databaseName=container.databaseName
-            ),
-            isolation_level="READ COMMITTED"
-        )
-    elif isinstance(container, DB2Database):
-        raise Exception(
-            "DB2 database support is not available on this platform. "
-            "IBM does not provide ARM64-compatible drivers for DB2. "
-            "Please use PostgreSQL, MySQL, Oracle, or SQL Server instead."
-        )
-    else:
-        raise Exception(f"Unsupported container type {type(container)}")
 
 
 class YellowDatasetUtilities(ABC):

@@ -30,7 +30,7 @@ import json
 import sqlalchemy
 from typing import List
 from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
-from datasurface.platforms.yellow.jobs import createEngine
+from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
 
 
@@ -453,7 +453,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
                 "original_platform_name": self.dp.name,  # Original platform name for job execution
-                "postgres_hostname": self.dp.to_k8s_name(self.dp.mergeStore.hostPortPair.hostName),
+                "postgres_hostname": self.dp.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.dp.mergeStore.databaseName,
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
                 "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
@@ -496,21 +496,153 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             issueTree.addRaw(UnexpectedExceptionProblem(e))
             return {}
 
+    def populateDAGConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
+        """Populate the database with ingestion stream configurations for dynamic DAG factory"""
+        from sqlalchemy import text
+        from datasurface.platforms.yellow.db_utils import createEngine
+
+        # Get database connection
+        user, password = self.dp.credStore.getAsUserPassword(self.dp.postgresCredential)
+        engine = createEngine(self.dp.mergeStore, user, password)
+
+        # Build the ingestion_streams context from the graph (same logic as createAirflowDAGs)
+        ingestion_streams: list[dict[str, Any]] = []
+
+        for storeName in self.graph.storesToIngest:
+            try:
+                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
+                store: Datastore = storeEntry.datastore
+
+                if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion)):
+                    # Determine if this is single or multi dataset ingestion
+                    is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
+
+                    if is_single_dataset:
+                        # For single dataset, create a separate entry for each dataset
+                        for dataset in store.datasets.values():
+                            stream_key = f"{storeName}_{dataset.name}"
+                            stream_config = {
+                                "stream_key": stream_key,
+                                "single_dataset": True,
+                                "datasets": [dataset.name],
+                                "store_name": storeName,
+                                "dataset_name": dataset.name,
+                                "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
+                            }
+
+                            # Add credential information for this stream
+                            if stream_config["ingestion_type"] == "kafka":
+                                stream_config["kafka_connect_credential_secret_name"] = self.dp.to_k8s_name(self.dp.connectCredentials.name)
+                            elif stream_config["ingestion_type"] == "sql_snapshot":
+                                # For SQL snapshot ingestion, we need the source database credentials
+                                if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
+                                    stream_config["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
+
+                            ingestion_streams.append(stream_config)
+                    else:
+                        # For multi dataset, create one entry for the entire store
+                        stream_config = {
+                            "stream_key": storeName,
+                            "single_dataset": False,
+                            "datasets": [dataset.name for dataset in store.datasets.values()],
+                            "store_name": storeName,
+                            "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
+                        }
+
+                        # Add credential information for this stream
+                        if stream_config["ingestion_type"] == "kafka":
+                            stream_config["kafka_connect_credential_secret_name"] = self.dp.to_k8s_name(self.dp.connectCredentials.name)
+                        elif stream_config["ingestion_type"] == "sql_snapshot":
+                            # For SQL snapshot ingestion, we need the source database credentials
+                            if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
+                                stream_config["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
+
+                        ingestion_streams.append(stream_config)
+                else:
+                    issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
+                    continue
+
+            except ObjectDoesntExistException:
+                issueTree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
+                continue
+
+        try:
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
+
+            # Common context for all streams (platform-level configuration)
+            common_context: dict[str, Any] = {
+                "namespace_name": self.dp.namespace,
+                "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "original_platform_name": self.dp.name,  # Original platform name for job execution
+                "postgres_hostname": self.dp.mergeStore.hostPortPair.hostName,
+                "postgres_database": self.dp.mergeStore.databaseName,
+                "postgres_port": self.dp.mergeStore.hostPortPair.port,
+                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
+                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
+                "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
+                "slack_channel_name": self.dp.slackChannel,
+                "datasurface_docker_image": self.dp.datasurfaceImage,
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
+            }
+
+            # Get table name
+            table_name = self.dp.getDAGTableName()
+
+            # Store configurations in database
+            with engine.begin() as connection:
+                # First, delete all existing records for this platform to ensure clean state
+                connection.execute(text(f"DELETE FROM {table_name}"))
+                print(f"Cleared existing configurations from {table_name}")
+
+                # Then insert all current configurations
+                for stream in ingestion_streams:
+                    # Create complete context for this stream
+                    stream_context = common_context.copy()
+                    stream_context.update(stream)  # Add stream properties directly to context
+
+                    # Convert to JSON
+                    config_json = json.dumps(stream_context)
+
+                    # Insert the new configuration
+                    connection.execute(text(f"""
+                        INSERT INTO {table_name} (stream_key, config_json, status, created_at, updated_at)
+                        VALUES (:stream_key, :config_json, 'active', NOW(), NOW())
+                    """), {
+                        "stream_key": stream["stream_key"],
+                        "config_json": config_json
+                    })
+
+            print(f"Populated {len(ingestion_streams)} ingestion stream configurations in {table_name}")
+
+        except Exception as e:
+            issueTree.addRaw(UnexpectedExceptionProblem(e))
+
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages. For this platform it returns a dictionary containing a terraform
         file which configures all the kafka connect sink connectors to copy datastores using
-        kafka ingestion capture meta data to postgres staging tables. It also needs to create
-        individual AirFlow DAGs for each ingestion stream (store or dataset depending on whether
-        the model specifies single or multidataset)"""
+        kafka ingestion capture meta data to postgres staging tables. It also populates the database
+        with ingestion stream configurations for the factory DAG to use."""
         # First create the terraform file
         terraform_code: str = self.createTerraformForAllIngestedNodes(self.graph.eco, issueTree)
-        # Then create the AirFlow DAGs
-        airflow_dags: dict[str, str] = self.createAirflowDAGs(self.graph.eco, issueTree)
 
-        # Combine terraform and all DAG files
-        result: dict[str, str] = {"terraform_code": terraform_code}
-        result.update(airflow_dags)
+        # Populate database with ingestion stream configurations
+        self.populateDAGConfigurations(self.graph.eco, issueTree)
+
+        # Return only terraform - factory DAG is created during bootstrap
+        result: dict[str, str] = {
+            "terraform_code": terraform_code
+        }
         return result
 
 
@@ -714,7 +846,7 @@ class YellowDataPlatform(DataPlatform):
         """This generates a kubernetes yaml file for the data platform using a jinja2 template.
         This doesn't need an intention graph, it's just for boot-strapping.
         Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
-        needs to create the DAG for the infrastructure."""
+        needs to create the DAG for the infrastructure and the factory DAG for dynamic ingestion stream generation."""
 
         # Create the airflow dsg table if needed
         mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
@@ -728,10 +860,13 @@ class YellowDataPlatform(DataPlatform):
         )
 
         # Load the bootstrap template
-        kubernetes_template: Template = env.get_template('kubernetes_services.j2')
+        kubernetes_template: Template = env.get_template('kubernetes_services.yaml')
 
         # Load the infrastructure DAG template
         dag_template: Template = env.get_template('infrastructure_dag.py.j2')
+
+        # Load the factory DAG template
+        factory_template: Template = env.get_template('yellow_platform_factory_dag.py.j2')
 
         gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
@@ -746,7 +881,7 @@ class YellowDataPlatform(DataPlatform):
             "namespace_name": self.namespace,
             "platform_name": self.to_k8s_name(self.name),
             "original_platform_name": self.name,  # Original platform name for job execution
-            "postgres_hostname": self.to_k8s_name(self.mergeStore.hostPortPair.hostName),
+            "postgres_hostname": self.mergeStore.hostPortPair.hostName,
             "postgres_database": self.mergeStore.databaseName,
             "postgres_port": self.mergeStore.hostPortPair.port,
             "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
@@ -770,12 +905,14 @@ class YellowDataPlatform(DataPlatform):
 
         # Render the templates
         rendered_yaml: str = kubernetes_template.render(context)
-        rendered_dag: str = dag_template.render(context)
+        rendered_infrastructure_dag: str = dag_template.render(context)
+        rendered_factory_dag: str = factory_template.render(context)
 
         # Return as dictionary with filename as key
         return {
             "kubernetes-bootstrap.yaml": rendered_yaml,
-            f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_dag
+            f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
+            f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag
         }
 
     def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
@@ -814,7 +951,7 @@ class YellowDataPlatform(DataPlatform):
             datasetName: Optional dataset name for single-dataset reset. If None, resets entire store.
         """
         from sqlalchemy import text
-        from datasurface.platforms.yellow.jobs import createEngine
+        from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get credentials and create database connection
         user, password = self.credStore.getAsUserPassword(self.postgresCredential)

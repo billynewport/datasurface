@@ -31,21 +31,22 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         'retries': 0,  # No retries - the job handles its own retry logic
         'retry_delay': timedelta(minutes=5),
     }
-    
+
+    # Create the DAG
     dag = DAG(
         f'{platform_name}__{stream_key}_ingestion',
         default_args=default_args,
         description=f'Ingestion Stream DAG for {platform_name}__{stream_key}',
-        schedule='@hourly',
+        schedule='@hourly',  # External trigger schedule
         catchup=False,
         tags=['datasurface', 'ingestion', platform_name, stream_key]
     )
-    
+
     # Environment variables for the job - combining literal and secret-based vars
     env_vars = [
         # Platform configuration (literal values)
         k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
-        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace']),
+        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
         k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value=platform_config['slack_channel_name']),
         
         # Postgres credentials (for merge store)
@@ -88,8 +89,8 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             )
         )
     ]
-    
-    # Add source database credentials for SQL snapshot ingestion (if different from merge store)
+
+    # Source database credentials for SQL snapshot ingestion (only if different from merge store)
     if (stream_config.get('ingestion_type') == 'sql_snapshot' and 
         stream_config.get('source_credential_secret_name') and 
         stream_config['source_credential_secret_name'] != platform_config['postgres_credential_secret_name']):
@@ -113,8 +114,8 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 )
             )
         ])
-    
-    # Add Kafka Connect credentials for Kafka ingestion
+
+    # Kafka Connect credentials for Kafka ingestion
     if (stream_config.get('ingestion_type') == 'kafka' and 
         stream_config.get('kafka_connect_credential_secret_name')):
         env_vars.extend([
@@ -137,7 +138,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 )
             )
         ])
-    
+
     # Function to determine next action based on job return code
     def determine_next_action(**context):
         """Determine the next action based on the job return code parsed from Airflow task logs"""
@@ -187,8 +188,8 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             return 'wait_for_trigger'
         else:  # ERROR (-1)
             raise Exception(f"SnapshotMergeJob failed with code {return_code} - manual intervention required")
-    
-    # Build job arguments
+
+    # Job task
     job_args = [
         '--platform-name', platform_config['original_platform_name'],
         '--store-name', stream_config['store_name'],
@@ -202,12 +203,11 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
     # Add dataset name if present
     if stream_config.get('dataset_name'):
         job_args.extend(['--dataset-name', stream_config['dataset_name']])
-    
-    # Main job task
+
     job = KubernetesPodOperator(
         task_id='snapshot_merge_job',
         name=f"{platform_name}-{stream_key.replace('-', '_')}-job",
-        namespace=platform_config['namespace'],
+        namespace=platform_config['namespace_name'],
         image=platform_config['datasurface_docker_image'],
         cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
         arguments=job_args,
@@ -235,14 +235,14 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         on_finish_action="delete_pod",
         dag=dag
     )
-    
+
     # Branch operator
     branch = BranchPythonOperator(
         task_id='check_result',
         python_callable=determine_next_action,
         dag=dag
     )
-    
+
     # Reschedule immediately
     reschedule = TriggerDagRunOperator(
         task_id='reschedule_immediately',
@@ -250,16 +250,16 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         conf={'triggered_by': 'reschedule'},
         dag=dag
     )
-    
+
     # Wait for trigger
     wait = EmptyOperator(
         task_id='wait_for_trigger',
         dag=dag
     )
-    
+
     # Set up dependencies
     job >> branch
-    branch >> [reschedule, wait]
+    branch >> [reschedule, wait] 
     
     return dag
 
@@ -268,22 +268,39 @@ def load_platform_configurations():
     generated_dags = {}
     
     try:
-        # Connect to the merge database to read configurations
-        postgres_hook = PostgresHook('{{ postgres_credential_secret_name }}')
+        import sqlalchemy
+        from sqlalchemy import create_engine, text
+        import os
+        
+        # Build database connection string using environment variables
+        postgres_user = os.environ.get('{{ postgres_credential_secret_name }}_USER')
+        postgres_password = os.environ.get('{{ postgres_credential_secret_name }}_PASSWORD')
+        postgres_host = '{{ postgres_hostname }}'
+        postgres_port = {{ postgres_port }}
+        postgres_db = '{{ postgres_database }}'
+        
+        if not postgres_user or not postgres_password:
+            print("Missing PostgreSQL credentials in environment variables")
+            return {}
+        
+        # Create database connection
+        engine = create_engine(f'postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}')
         
         # Read from the platform-specific airflow_dsg table
         table_name = '{{ platform_name }}_airflow_dsg'
-        configs = postgres_hook.get_records(f"""
-            SELECT stream_key, config_json 
-            FROM {table_name}
-            WHERE status = 'active'
-        """)
+        with engine.connect() as connection:
+            result = connection.execute(text(f"""
+                SELECT stream_key, config_json 
+                FROM {table_name}
+                WHERE status = 'active'
+            """))
+            configs = result.fetchall()
         
         # Platform configuration (same for all streams)
         platform_config = {
             'platform_name': '{{ platform_name }}',
             'original_platform_name': '{{ original_platform_name }}',
-            'namespace': '{{ namespace_name }}',
+            'namespace_name': '{{ namespace_name }}',
             'datasurface_docker_image': '{{ datasurface_docker_image }}',
             'slack_channel_name': '{{ slack_channel_name }}',
             'postgres_credential_secret_name': '{{ postgres_credential_secret_name }}',
