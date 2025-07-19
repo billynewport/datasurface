@@ -506,7 +506,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
     def getScheduleStringForTrigger(self, trigger: StepTrigger) -> str:
         """This returns the schedule string for a trigger"""
         if isinstance(trigger, CronTrigger):
-            return f"'{trigger.cron}"
+            return trigger.cron
         elif isinstance(trigger, ExternallyTriggered):
             return "None"
         else:
