@@ -230,7 +230,7 @@ class Job(YellowDatasetUtilities):
             (f"idx_{tableName}_key_hash", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})"),
 
             # Composite: optimal for most queries that filter by batch AND join by key
-            (f"idx_{tableName}_batch_key", 
+            (f"idx_{tableName}_batch_key",
              f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_key ON {tableName} ({sp.BATCH_ID_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})")
         ]
 
@@ -238,12 +238,12 @@ class Job(YellowDatasetUtilities):
             for index_name, index_sql in indexes:
                 # Check if index already exists
                 check_sql = """
-                SELECT COUNT(*) FROM pg_indexes 
+                SELECT COUNT(*) FROM pg_indexes
                 WHERE indexname = :index_name AND tablename = :table_name
                 """
                 result = connection.execute(text(check_sql), {"index_name": index_name, "table_name": tableName})
                 index_exists = result.fetchone()[0] > 0
-                
+
                 if not index_exists:
                     try:
                         connection.execute(text(index_sql))
@@ -268,14 +268,14 @@ class Job(YellowDatasetUtilities):
                 (f"idx_{tableName}_batch_out", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_out ON {tableName} ({sp.BATCH_OUT_COLUMN_NAME})"),
 
                 # Composite: optimal for live record joins (most common pattern)
-                (f"idx_{tableName}_live_records", 
+                (f"idx_{tableName}_live_records",
                  f"CREATE INDEX IF NOT EXISTS idx_{tableName}_live_records ON {tableName} ({sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})"),
 
                 # For forensic queries: finding recently closed records
                 (f"idx_{tableName}_batch_in", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_in ON {tableName} ({sp.BATCH_IN_COLUMN_NAME})"),
 
                 # For forensic history queries
-                (f"idx_{tableName}_batch_range", 
+                (f"idx_{tableName}_batch_range",
                  f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_range ON {tableName} ({sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})")
             ])
         else:
@@ -289,12 +289,12 @@ class Job(YellowDatasetUtilities):
             for index_name, index_sql in indexes:
                 # Check if index already exists
                 check_sql = """
-                SELECT COUNT(*) FROM pg_indexes 
+                SELECT COUNT(*) FROM pg_indexes
                 WHERE indexname = :index_name AND tablename = :table_name
                 """
                 result = connection.execute(text(check_sql), {"index_name": index_name, "table_name": tableName})
                 index_exists = result.fetchone()[0] > 0
-                
+
                 if not index_exists:
                     try:
                         connection.execute(text(index_sql))
