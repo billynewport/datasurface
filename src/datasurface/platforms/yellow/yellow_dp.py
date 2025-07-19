@@ -887,6 +887,9 @@ class YellowDataPlatform(DataPlatform):
         # Load the factory DAG template
         factory_template: Template = env.get_template('yellow_platform_factory_dag.py.j2')
 
+        # Load the model merge job template
+        model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
+
         gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
         # Extract git repository owner and name from the full repository name
@@ -926,12 +929,14 @@ class YellowDataPlatform(DataPlatform):
         rendered_yaml: str = kubernetes_template.render(context)
         rendered_infrastructure_dag: str = dag_template.render(context)
         rendered_factory_dag: str = factory_template.render(context)
+        rendered_model_merge_job: str = model_merge_template.render(context)
 
         # Return as dictionary with filename as key
         return {
             "kubernetes-bootstrap.yaml": rendered_yaml,
             f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
-            f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag
+            f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
+            f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job
         }
 
     def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:

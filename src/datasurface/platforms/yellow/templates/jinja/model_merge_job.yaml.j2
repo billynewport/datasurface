@@ -1,0 +1,60 @@
+# model-merge-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ platform_name }}-model-merge-job
+  namespace: {{ namespace_name }}
+spec:
+  template:
+    spec:
+      containers:
+      - name: model-merge-handler
+        image: {{ datasurface_docker_image }}
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "🔄 Starting DataSurface Model Merge Handler"
+          
+          # Clone the model repository using git token
+          echo "📥 Cloning model repository..."
+          git clone {{ git_repo_url }} /workspace/model
+          cd /workspace/model
+          
+          # Switch to the correct branch
+          git checkout {{ git_repo_branch }}
+          
+          # Run merge handler for platform using CLI
+          echo "🔧 Running model merge handler..."
+          python -m datasurface.cmd.platform handleModelMerge \
+            --model /workspace/model \
+            --output /workspace/generated_artifacts \
+            --platform {{ original_platform_name }}
+          
+          echo "✅ Model merge handler complete!"
+        env:
+        - name: PYTHONPATH
+          value: "/app/src"
+        - name: {{ git_credential_secret_name | replace('-', '_') }}_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ git_credential_secret_name }}
+              key: token
+        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ postgres_credential_secret_name }}
+              key: username
+        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ postgres_credential_secret_name }}
+              key: password
+        volumeMounts:
+        - name: git-workspace
+          mountPath: /workspace
+      volumes:
+      - name: git-workspace
+        emptyDir: {}
+      restartPolicy: Never
+  backoffLimit: 3 
