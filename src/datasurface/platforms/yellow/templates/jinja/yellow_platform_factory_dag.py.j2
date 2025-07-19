@@ -335,46 +335,162 @@ factory_dag = DAG(
     tags=['datasurface', 'factory', '{{ platform_name }}', 'dynamic-dag-manager']
 )
 
+def find_existing_factory_dags():
+    """
+    Find all DAGs in globals() that were previously created by this factory.
+    Uses naming convention: {{ platform_name }}__*_ingestion
+    """
+    factory_dags = {}
+    platform_prefix = "{{ platform_name }}__"
+    ingestion_suffix = "_ingestion"
+    
+    for name, obj in globals().items():
+        if (name.startswith(platform_prefix) and 
+            name.endswith(ingestion_suffix) and 
+            hasattr(obj, 'dag_id')):
+            factory_dags[name] = obj
+    
+    return factory_dags
+
 def sync_dynamic_dags(**context):
     """
     Task that synchronizes dynamic DAGs with database configuration.
-    This function loads configurations from the database and creates/updates
-    dynamic ingestion DAGs accordingly.
+    Implements full DAG lifecycle management: create, update, and delete.
     """
     task_instance = context['task_instance']
     
     try:
-        task_instance.log.info("Starting dynamic DAG synchronization for {{ platform_name }}")
+        task_instance.log.info("=" * 80)
+        task_instance.log.info("🏭 FACTORY DAG EXECUTION - Dynamic DAG Lifecycle Management")
+        task_instance.log.info(f"📍 Platform: {{ platform_name }}")
+        task_instance.log.info("=" * 80)
         
-        # Load current configurations from database
-        generated_dags = load_platform_configurations()
+        # Step 1: Find existing factory DAGs
+        task_instance.log.info("🔍 Scanning for existing factory-managed DAGs...")
+        existing_dags = find_existing_factory_dags()
+        task_instance.log.info(f"   Found {len(existing_dags)} existing DAGs from previous factory runs")
         
-        if not generated_dags:
-            task_instance.log.warning("No active configurations found in database - no dynamic DAGs created")
-            return "No active configurations found"
+        # Step 2: Load current configurations from database
+        task_instance.log.info("📊 Loading current configurations from database...")
+        current_dags = load_platform_configurations()
+        task_instance.log.info(f"   Found {len(current_dags)} active configurations in database")
         
-        # Log what we're creating/updating
-        task_instance.log.info(f"Found {len(generated_dags)} active ingestion stream configurations:")
-        for dag_id in generated_dags.keys():
-            task_instance.log.info(f"  - {dag_id}")
+        # Handle special case: no active configs but existing DAGs need cleanup
+        if not current_dags and existing_dags:
+            task_instance.log.warning("")
+            task_instance.log.warning("⚠️  SPECIAL CASE: No active configurations but existing DAGs found")
+            task_instance.log.warning("   → All existing factory DAGs will be removed")
+            task_instance.log.warning("   → This cleans up zombie DAGs from previous configurations")
         
-        # Update globals with new/updated DAGs
-        # This makes the dynamic DAGs available to Airflow
-        for dag_id, dag_object in generated_dags.items():
-            globals()[dag_id] = dag_object
-            task_instance.log.info(f"✅ Registered dynamic DAG: {dag_id}")
+        # Step 3: Calculate lifecycle changes
+        existing_dag_ids = set(existing_dags.keys())
+        current_dag_ids = set(current_dags.keys())
         
-        summary = f"Successfully synchronized {len(generated_dags)} dynamic ingestion DAGs"
-        task_instance.log.info(summary)
+        to_create = current_dag_ids - existing_dag_ids
+        to_remove = existing_dag_ids - current_dag_ids  
+        to_update = current_dag_ids & existing_dag_ids
         
+        task_instance.log.info("")
+        task_instance.log.info("📋 LIFECYCLE ANALYSIS:")
+        task_instance.log.info(f"   🆕 To Create: {len(to_create)} DAGs")
+        task_instance.log.info(f"   🗑️  To Remove: {len(to_remove)} DAGs") 
+        task_instance.log.info(f"   🔄 To Update: {len(to_update)} DAGs")
+        
+        # Step 4: Execute lifecycle changes
+        task_instance.log.info("")
+        task_instance.log.info("=" * 60)
+        task_instance.log.info("🔄 EXECUTING DAG LIFECYCLE CHANGES")
+        task_instance.log.info("=" * 60)
+        
+        # Remove obsolete DAGs
+        removed_dags = []
+        if to_remove:
+            task_instance.log.info("🗑️  REMOVING OBSOLETE DAGs:")
+            for dag_id in to_remove:
+                if dag_id in globals():
+                    del globals()[dag_id]
+                    removed_dags.append(dag_id)
+                    task_instance.log.info(f"   🗑️  REMOVED: {dag_id}")
+                    task_instance.log.info(f"      → No longer in database configuration")
+        else:
+            task_instance.log.info("🗑️  No DAGs to remove")
+        
+        # Create new DAGs  
+        created_dags = []
+        if to_create:
+            task_instance.log.info("")
+            task_instance.log.info("🆕 CREATING NEW DAGs:")
+            for dag_id in to_create:
+                globals()[dag_id] = current_dags[dag_id]
+                created_dags.append(dag_id)
+                task_instance.log.info(f"   ✅ CREATED: {dag_id}")
+                task_instance.log.info(f"      → New configuration found in database")
+        else:
+            task_instance.log.info("🆕 No new DAGs to create")
+        
+        # Update existing DAGs
+        updated_dags = []
+        if to_update:
+            task_instance.log.info("")
+            task_instance.log.info("🔄 UPDATING EXISTING DAGs:")
+            for dag_id in to_update:
+                globals()[dag_id] = current_dags[dag_id]
+                updated_dags.append(dag_id)
+                task_instance.log.info(f"   🔄 UPDATED: {dag_id}")
+                task_instance.log.info(f"      → Configuration refreshed from database")
+        else:
+            task_instance.log.info("🔄 No DAGs to update")
+        
+        # Final summary
+        task_instance.log.info("")
+        task_instance.log.info("=" * 60)
+        task_instance.log.info("📋 FACTORY DAG LIFECYCLE SUMMARY")
+        task_instance.log.info("=" * 60)
+        
+        if removed_dags:
+            task_instance.log.info("🗑️  REMOVED DAGS:")
+            for dag_id in removed_dags:
+                task_instance.log.info(f"   → {dag_id}")
+        
+        if created_dags:
+            task_instance.log.info("✅ CREATED DAGS:")
+            for dag_id in created_dags:
+                task_instance.log.info(f"   → {dag_id}")
+        
+        if updated_dags:
+            task_instance.log.info("🔄 UPDATED DAGS:")
+            for dag_id in updated_dags:
+                task_instance.log.info(f"   → {dag_id}")
+        
+        total_changes = len(removed_dags) + len(created_dags) + len(updated_dags)
+        task_instance.log.info("")
+        task_instance.log.info(f"📊 TOTAL CHANGES: {total_changes}")
+        task_instance.log.info(f"📊 ACTIVE DAGS: {len(current_dags)} (after lifecycle management)")
+        task_instance.log.info("")
+        task_instance.log.info("💡 All DAGs are now synchronized with database configuration")
+        task_instance.log.info("💡 Obsolete DAGs have been removed to prevent zombie DAGs")
+        task_instance.log.info("💡 Dynamic DAGs are available in the Airflow UI")
+        task_instance.log.info("=" * 80)
+        
+        summary = f"✅ Lifecycle complete: -{len(removed_dags)} +{len(created_dags)} ~{len(updated_dags)} = {len(current_dags)} active DAGs"
         return summary
         
     except Exception as e:
-        error_msg = f"Failed to synchronize dynamic DAGs: {str(e)}"
-        task_instance.log.error(error_msg)
-        task_instance.log.error(f"Error details: {type(e).__name__}")
+        task_instance.log.error("=" * 80)
+        task_instance.log.error("❌ FACTORY DAG EXECUTION FAILED")
+        task_instance.log.error("=" * 80)
+        task_instance.log.error(f"💥 Error: {str(e)}")
+        task_instance.log.error(f"🔧 Error Type: {type(e).__name__}")
+        task_instance.log.error("")
+        task_instance.log.error("🔍 Troubleshooting steps:")
+        task_instance.log.error("   1. Check database connectivity")
+        task_instance.log.error("   2. Verify {{ platform_name }}_airflow_dsg table exists")
+        task_instance.log.error("   3. Check environment variables are set")
+        task_instance.log.error("   4. Review scheduler pod logs for more details")
+        task_instance.log.error("=" * 80)
         
         # Re-raise to mark task as failed
+        error_msg = f"❌ Factory DAG failed: {str(e)}"
         raise Exception(error_msg)
 
 # Create the factory task

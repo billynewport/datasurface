@@ -156,8 +156,129 @@ sync_task = PythonOperator(
 - ✅ **Scheduled execution** every 5 minutes for automatic updates
 - ✅ **Monitoring and alerting** on factory DAG execution
 - ✅ **Troubleshooting visibility** through task logs and execution history
+- ✅ **Enhanced logging** with clear indicators of which DAGs were created
+
+**Factory DAG Log Output Example:**
+```
+================================================================================
+🏭 FACTORY DAG EXECUTION - Dynamic DAG Lifecycle Management
+📍 Platform: yellowlive
+================================================================================
+🔍 Scanning for existing factory-managed DAGs...
+   Found 3 existing DAGs from previous factory runs
+📊 Loading current configurations from database...
+   Found 2 active configurations in database
+
+📋 LIFECYCLE ANALYSIS:
+   🆕 To Create: 1 DAGs
+   🗑️  To Remove: 2 DAGs
+   🔄 To Update: 1 DAGs
+
+============================================================
+🔄 EXECUTING DAG LIFECYCLE CHANGES
+============================================================
+🗑️  REMOVING OBSOLETE DAGs:
+   🗑️  REMOVED: yellowlive__OldStore_ingestion
+      → No longer in database configuration
+   🗑️  REMOVED: yellowlive__DeletedStore_ingestion
+      → No longer in database configuration
+
+🆕 CREATING NEW DAGs:
+   ✅ CREATED: yellowlive__NewStore_ingestion
+      → New configuration found in database
+
+🔄 UPDATING EXISTING DAGs:
+   🔄 UPDATED: yellowlive__Store1_ingestion
+      → Configuration refreshed from database
+
+============================================================
+📋 FACTORY DAG LIFECYCLE SUMMARY
+============================================================
+🗑️  REMOVED DAGS:
+   → yellowlive__OldStore_ingestion
+   → yellowlive__DeletedStore_ingestion
+✅ CREATED DAGS:
+   → yellowlive__NewStore_ingestion
+🔄 UPDATED DAGS:
+   → yellowlive__Store1_ingestion
+
+📊 TOTAL CHANGES: 4
+📊 ACTIVE DAGS: 2 (after lifecycle management)
+
+💡 All DAGs are now synchronized with database configuration
+💡 Obsolete DAGs have been removed to prevent zombie DAGs
+💡 Dynamic DAGs are available in the Airflow UI
+================================================================================
+```
 
 **Impact:** ✅ **Significant operational improvement** - factory DAGs now provide full visibility while maintaining dynamic DAG generation functionality.
+
+#### **🔧 Fix 5: DAG Lifecycle Management (ZOMBIE DAG ELIMINATION)**
+
+**Problem Identified:** Airflow doesn't track DAG provenance, causing **zombie DAGs** to persist indefinitely.
+
+**Root Cause:** When configurations are removed from the database:
+- Factory DAG stops creating those DAGs
+- But existing DAGs remain in `globals()` forever  
+- **Zombie DAGs** continue to appear in UI and execute
+- No automatic cleanup mechanism exists
+
+**Critical Issue:**
+```python
+# Day 1: Factory creates Store1, Store2, Store3 DAGs
+globals()["yellowlive__Store1_ingestion"] = dag1
+globals()["yellowlive__Store2_ingestion"] = dag2  
+globals()["yellowlive__Store3_ingestion"] = dag3
+
+# Day 2: Store2 config removed from database
+# Factory only creates Store1 and Store3...
+# Store2 DAG still exists in globals()! ❌ ZOMBIE DAG
+```
+
+**Solution Implemented:** **Full DAG Lifecycle Management**
+
+**Code Changes:**
+```python
+def find_existing_factory_dags():
+    """Find all DAGs previously created by this factory"""
+    factory_dags = {}
+    platform_prefix = "yellowlive__"
+    ingestion_suffix = "_ingestion"
+    
+    for name, obj in globals().items():
+        if (name.startswith(platform_prefix) and 
+            name.endswith(ingestion_suffix) and 
+            hasattr(obj, 'dag_id')):
+            factory_dags[name] = obj
+    return factory_dags
+
+def sync_dynamic_dags(**context):
+    # 1. Find existing factory DAGs
+    existing_dags = find_existing_factory_dags()
+    
+    # 2. Load current database configurations  
+    current_dags = load_platform_configurations()
+    
+    # 3. Calculate lifecycle changes
+    to_create = current_dag_ids - existing_dag_ids
+    to_remove = existing_dag_ids - current_dag_ids  # 🗑️ Zombie DAGs
+    to_update = current_dag_ids & existing_dag_ids
+    
+    # 4. Execute lifecycle changes
+    for dag_id in to_remove:
+        del globals()[dag_id]  # ✅ Remove zombie DAG
+        log.info(f"🗑️ REMOVED: {dag_id}")
+```
+
+**New Operational Benefits:**
+- ✅ **Zombie DAG elimination** - obsolete DAGs automatically removed
+- ✅ **Full lifecycle tracking** - create, update, delete operations logged
+- ✅ **Database synchronization** - DAGs always match current configuration
+- ✅ **Operational clarity** - clear visibility into what was changed
+- ✅ **Resource cleanup** - prevents accumulation of obsolete DAGs
+- ✅ **Audit trail** - complete log of all DAG lifecycle events
+
+**Impact:** ✅ **Critical operational fix** - eliminates zombie DAG accumulation and provides complete DAG lifecycle management with full audit visibility.
 
 ## Best Practices Learned
 

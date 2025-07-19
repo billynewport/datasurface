@@ -313,7 +313,12 @@ kubectl logs -f job/populate-dag-configs -n your-namespace
    - `yellowlive_factory_dag` ✅ (visible and schedulable)
    - `yellowforensic_factory_dag` ✅ (visible and schedulable)
 3. **Check DAG Status**: Both should be enabled, parsing successfully, and running every 5 minutes
-4. **View Factory Logs**: Click on the factory DAGs to see execution logs and monitor dynamic DAG creation
+4. **View Factory Logs**: Click on the factory DAGs to see detailed execution logs showing:
+   - Which dynamic DAGs were created/updated/removed by name
+   - Database configuration loading status  
+   - Step-by-step factory execution progress
+   - DAG lifecycle management (creation, updates, zombie DAG cleanup)
+   - Clear success/failure indicators with change counts
 
 #### Test Factory DAG Execution
 
@@ -440,6 +445,20 @@ To add new ingestion streams or modify existing ones:
 2. **Update the ConfigMap** with new model files
 3. **Re-run the populate job** to update database configurations
 4. **Factory DAGs will automatically** pick up changes on next execution
+
+### Automatic Lifecycle Management
+
+The factory DAGs now provide **complete DAG lifecycle management**:
+
+- **➕ Adding configurations** → Factory creates new dynamic DAGs automatically
+- **✏️ Modifying configurations** → Factory updates existing DAGs with new settings  
+- **❌ Removing configurations** → Factory **automatically removes obsolete DAGs** (zombie DAG cleanup)
+
+**Benefits:**
+- ✅ **No zombie DAGs** - removed configurations are automatically cleaned up
+- ✅ **Complete visibility** - logs show exactly which DAGs were added/updated/removed
+- ✅ **Database synchronization** - DAGs always match current database configuration
+- ✅ **Operational clarity** - clear audit trail of all changes
 
 ## Next Steps
 
