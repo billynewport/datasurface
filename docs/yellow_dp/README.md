@@ -1,6 +1,6 @@
 # Yellow Data Platform
 
-This is a builtin Yellow, a powerful DataPlatform that can be used with DataSurface. It uses a Postgres instance to store its data. The data consists of staging data and merge tables. Consumers directly query the merge tables through Workspace specific views. Workspaces should use the LogicalDataContainer as their DataContainer.
+This is the Yellow Data Platform, a builtin powerful DataPlatform that can be used with DataSurface. Yellow is the first DataPlatform to be implemented. There will be more DataPlatforms to come. It uses a Postgres instance to store its data. The data consists of staging data and merge tables. Consumers directly query the merge tables through Workspace specific views. Workspaces should use the LogicalDataContainer as their DataContainer.
 
 The technical components of the YellowDataPlatform are:
 
