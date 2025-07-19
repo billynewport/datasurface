@@ -113,6 +113,52 @@ CREATE TABLE platform_airflow_dsg (
 );
 ```
 
+#### **🔧 Fix 4: Factory DAG UI Visibility (ARCHITECTURAL IMPROVEMENT)**
+
+**Initial Discovery:** Factory DAGs initially **did not appear** in Airflow UI as runnable DAGs.
+
+**Problem Identified:** Hidden factory DAGs created operational blindness:
+- ❌ No visibility into factory DAG execution
+- ❌ No logs to troubleshoot when dynamic DAGs weren't created  
+- ❌ No manual triggering when configurations change
+- ❌ No monitoring of factory DAG health
+- ❌ No way to see what dynamic DAGs were created/updated/removed
+
+**Solution Implemented:** **Hybrid Factory DAG Architecture**
+
+Factory DAGs now have **two operational modes**:
+1. **Visible Factory DAG** - Schedulable DAG in Airflow UI for monitoring and control
+2. **Dynamic DAG Creation** - Still generates ingestion DAGs based on database configurations
+
+**Code Changes:**
+```python
+# New: Visible factory DAG that appears in Airflow UI
+factory_dag = DAG(
+    'yellowlive_factory_dag',
+    description='Factory DAG for yellowlive - Creates and manages dynamic ingestion stream DAGs',
+    schedule='*/5 * * * *',  # Check for configuration changes every 5 minutes
+    is_paused_upon_creation=False,
+    tags=['datasurface', 'factory', 'yellowlive', 'dynamic-dag-manager']
+)
+
+# Factory task with full logging and error handling
+sync_task = PythonOperator(
+    task_id='sync_dynamic_dags',
+    python_callable=sync_dynamic_dags,
+    dag=factory_dag
+)
+```
+
+**New Operational Benefits:**
+- ✅ **Factory DAGs visible** in Airflow UI as schedulable DAGs
+- ✅ **Full logging** of factory operations and dynamic DAG creation
+- ✅ **Manual triggering** capability when configurations change
+- ✅ **Scheduled execution** every 5 minutes for automatic updates
+- ✅ **Monitoring and alerting** on factory DAG execution
+- ✅ **Troubleshooting visibility** through task logs and execution history
+
+**Impact:** ✅ **Significant operational improvement** - factory DAGs now provide full visibility while maintaining dynamic DAG generation functionality.
+
 ## Best Practices Learned
 
 ### 1. Credential Management

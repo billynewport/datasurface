@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import BranchPythonOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from kubernetes.client import models as k8s
@@ -324,9 +324,72 @@ def load_platform_configurations():
     
     return generated_dags
 
-# Execute when Airflow scans this file
-all_platform_dags = load_platform_configurations()
+# Create the visible Factory DAG that appears in Airflow UI
+factory_dag = DAG(
+    '{{ platform_name }}_factory_dag',
+    description='Factory DAG for {{ platform_name }} - Creates and manages dynamic ingestion stream DAGs',
+    schedule='*/5 * * * *',  # Check for configuration changes every 5 minutes
+    start_date=datetime(2025, 1, 1),
+    catchup=False,
+    is_paused_upon_creation=False,
+    tags=['datasurface', 'factory', '{{ platform_name }}', 'dynamic-dag-manager']
+)
 
-# Make DAGs available to Airflow
-for dag_id, dag_object in all_platform_dags.items():
-    globals()[dag_id] = dag_object 
+def sync_dynamic_dags(**context):
+    """
+    Task that synchronizes dynamic DAGs with database configuration.
+    This function loads configurations from the database and creates/updates
+    dynamic ingestion DAGs accordingly.
+    """
+    task_instance = context['task_instance']
+    
+    try:
+        task_instance.log.info("Starting dynamic DAG synchronization for {{ platform_name }}")
+        
+        # Load current configurations from database
+        generated_dags = load_platform_configurations()
+        
+        if not generated_dags:
+            task_instance.log.warning("No active configurations found in database - no dynamic DAGs created")
+            return "No active configurations found"
+        
+        # Log what we're creating/updating
+        task_instance.log.info(f"Found {len(generated_dags)} active ingestion stream configurations:")
+        for dag_id in generated_dags.keys():
+            task_instance.log.info(f"  - {dag_id}")
+        
+        # Update globals with new/updated DAGs
+        # This makes the dynamic DAGs available to Airflow
+        for dag_id, dag_object in generated_dags.items():
+            globals()[dag_id] = dag_object
+            task_instance.log.info(f"✅ Registered dynamic DAG: {dag_id}")
+        
+        summary = f"Successfully synchronized {len(generated_dags)} dynamic ingestion DAGs"
+        task_instance.log.info(summary)
+        
+        return summary
+        
+    except Exception as e:
+        error_msg = f"Failed to synchronize dynamic DAGs: {str(e)}"
+        task_instance.log.error(error_msg)
+        task_instance.log.error(f"Error details: {type(e).__name__}")
+        
+        # Re-raise to mark task as failed
+        raise Exception(error_msg)
+
+# Create the factory task
+sync_task = PythonOperator(
+    task_id='sync_dynamic_dags',
+    python_callable=sync_dynamic_dags,
+    dag=factory_dag,
+    provide_context=True
+)
+
+# Also execute once during DAG discovery for immediate availability
+# This provides backward compatibility with the current behavior
+try:
+    initial_dags = load_platform_configurations()
+    for dag_id, dag_object in initial_dags.items():
+        globals()[dag_id] = dag_object
+except Exception as e:
+    print(f"Warning: Failed to load initial dynamic DAGs during discovery: {e}") 

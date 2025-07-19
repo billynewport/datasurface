@@ -309,10 +309,11 @@ kubectl logs -f job/populate-dag-configs -n your-namespace
 #### Check Factory DAGs in Airflow
 
 1. **Access Airflow UI**: Navigate to your Airflow web interface (typically http://localhost:8080 or via port-forward)
-2. **Verify Factory DAGs**: You should see:
-   - `yellowlive_factory_dag`
-   - `yellowforensic_factory_dag`
-3. **Check DAG Status**: Both should be enabled and parsing successfully
+2. **Verify Factory DAGs**: You should now see the factory DAGs as **visible, schedulable DAGs**:
+   - `yellowlive_factory_dag` ✅ (visible and schedulable)
+   - `yellowforensic_factory_dag` ✅ (visible and schedulable)
+3. **Check DAG Status**: Both should be enabled, parsing successfully, and running every 5 minutes
+4. **View Factory Logs**: Click on the factory DAGs to see execution logs and monitor dynamic DAG creation
 
 #### Test Factory DAG Execution
 
@@ -365,6 +366,8 @@ After factory DAGs run, you should see dynamically generated ingestion stream DA
 - Ensure no syntax errors in generated DAGs
 - Check that Airflow can access the files (permissions)
 
+**Note**: Factory DAGs should now be **visible in the Airflow UI** as schedulable DAGs running every 5 minutes. If they're not visible, this indicates a configuration or parsing error.
+
 #### 2. Database Connection Errors
 
 **Symptoms**: Factory DAGs fail with connection errors
@@ -393,6 +396,17 @@ After factory DAGs run, you should see dynamically generated ingestion stream DA
 - Check scheduler pod environment variables
 - Restart scheduler after updating secrets/env vars
 
+#### 5. Factory DAG Not Creating Dynamic DAGs
+
+**Symptoms**: Factory DAG is visible but no dynamic ingestion DAGs appear
+
+**Solutions**:
+- Check factory DAG execution logs in Airflow UI
+- Verify database contains active configurations: `SELECT * FROM yellowlive_airflow_dsg WHERE status='active';`
+- Manually trigger the factory DAG to force immediate execution
+- Check database connection from factory DAG logs
+- Verify all environment variables are set correctly
+
 ### Useful Commands
 
 ```bash
@@ -410,6 +424,12 @@ kubectl exec -it $POSTGRES_POD -n your-namespace -- psql -U airflow -d datasurfa
 
 # View DAG configurations
 kubectl exec -it $POSTGRES_POD -n your-namespace -- psql -U airflow -d datasurface_merge -c "SELECT * FROM yellowlive_airflow_dsg;"
+
+# Check factory DAG execution history (via Airflow UI)
+# Navigate to: Airflow UI > DAGs > yellowlive_factory_dag > Graph/Logs
+
+# Manually trigger factory DAG
+# Navigate to: Airflow UI > DAGs > yellowlive_factory_dag > Trigger DAG
 ```
 
 ## Updating Configurations
