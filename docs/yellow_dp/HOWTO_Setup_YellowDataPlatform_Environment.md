@@ -18,6 +18,17 @@ This document provides a step-by-step guide to set up a complete YellowDataPlatf
 
 ### Step 1: Clone the Starter Repository
 
+**Optional: Remove Previous Environment**
+If you have an existing yellow_starter deployment, clean it up first:
+```bash
+# Remove old Kubernetes namespace and all resources
+kubectl delete namespace ns-yellow-starter
+
+# Remove local artifacts (if reusing same directory)
+rm -rf yellow_starter/generated_output/
+```
+
+**Clone Fresh Repository**
 ```bash
 git clone https://github.com/billynewport/yellow_starter.git
 cd yellow_starter
@@ -29,28 +40,38 @@ cd yellow_starter
 # Review the ecosystem model
 cat eco.py
 
-# Create the platform assignments file if it doesn't exist
-cat > dsg_platform_mapping.json << 'EOF'
-{
-  "Consumer1": {
-    "LiveDSG": [
-      {
-        "dataplatform": "YellowLive",
-        "status": "PROVISIONED"
-      }
-    ],
-    "ForensicDSG": [
-      {
-        "dataplatform": "YellowForensic", 
-        "status": "PROVISIONED"
-      }
-    ]
-  }
-}
-EOF
-
-# Review the platform assignments
+# Review the platform assignments file (should already exist with correct format)
 cat dsg_platform_mapping.json
+
+# Expected format for dsg_platform_mapping.json:
+# [
+#   {
+#     "dsgName": "LiveDSG",
+#     "workspace": "Consumer1",
+#     "assignments": [
+#       {
+#         "dataPlatform": "YellowLive",
+#         "documentation": "Live Yellow DataPlatform",
+#         "productionStatus": "PRODUCTION",
+#         "deprecationsAllowed": "NEVER",
+#         "status": "PROVISIONED"
+#       }
+#     ]
+#   },
+#   {
+#     "dsgName": "ForensicDSG", 
+#     "workspace": "Consumer1",
+#     "assignments": [
+#       {
+#         "dataPlatform": "YellowForensic",
+#         "documentation": "Forensic Yellow DataPlatform", 
+#         "productionStatus": "PRODUCTION",
+#         "deprecationsAllowed": "NEVER",
+#         "status": "PROVISIONED"
+#       }
+#     ]
+#   }
+# ]
 ```
 
 **Key configurations to verify:**
