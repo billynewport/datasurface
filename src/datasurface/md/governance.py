@@ -1688,15 +1688,15 @@ class Ecosystem(GitControlledObject, JSONable):
         self.teamCache: dict[str, TeamCacheEntry] = {}
         """This is a cache of all team declarations in the ecosystem"""
 
-    def generateAllBootstrapArtifacts(self, folderRoot: str):
+    def generateAllBootstrapArtifacts(self, folderRoot: str, ringLevel: int):
         """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
         platform and then create a file named after the key and write the value to the file. The caller should provide the location of the volume mounted
         to expose the files to"""
 
         for dp in self.dataPlatforms.values():
-            self.generateBootstrapArtifacts(folderRoot, dp)
+            self.generateBootstrapArtifacts(folderRoot, dp, ringLevel)
 
-    def generateBootstrapArtifacts(self, folderRoot: str, dp: 'DataPlatform'):
+    def generateBootstrapArtifacts(self, folderRoot: str, dp: 'DataPlatform', ringLevel: int):
         """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
         platform and then create a file named after the key and write the value to the file. The caller should provide the location of the volume mounted
         to expose the files to"""
@@ -1704,7 +1704,7 @@ class Ecosystem(GitControlledObject, JSONable):
         name: str = dp.name
         folder: str = f"bootstrap_{name}"
         os.makedirs(folder, exist_ok=True)
-        files: dict[str, str] = dp.generateBootstrapArtifacts(self)
+        files: dict[str, str] = dp.generateBootstrapArtifacts(self, ringLevel)
         for key, value in files.items():
             with open(os.path.join(folder, key), "w") as f:
                 f.write(value)
@@ -2830,7 +2830,7 @@ class DataPlatform(Documentable, JSONable):
         pass
 
     @abstractmethod
-    def generateBootstrapArtifacts(self, eco: Ecosystem) -> dict[str, str]:
+    def generateBootstrapArtifacts(self, eco: Ecosystem, ringLevel: int) -> dict[str, str]:
         """This generates the bootstrap artifacts from the data platform. The ecosystem is needed to get the eco reposistory among other things"""
         pass
 

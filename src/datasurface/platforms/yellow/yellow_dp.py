@@ -861,83 +861,87 @@ class YellowDataPlatform(DataPlatform):
                          Column("updated_at", TIMESTAMP()))
         return t
 
-    def generateBootstrapArtifacts(self, eco: Ecosystem) -> dict[str, str]:
+    def generateBootstrapArtifacts(self, eco: Ecosystem, ringLevel: int) -> dict[str, str]:
         """This generates a kubernetes yaml file for the data platform using a jinja2 template.
         This doesn't need an intention graph, it's just for boot-strapping.
         Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
         needs to create the DAG for the infrastructure and the factory DAG for dynamic ingestion stream generation."""
 
-        # Create the airflow dsg table if needed
-        mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
-        mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
-        createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
+        if ringLevel == 0:
+            # Create Jinja2 environment
+            env: Environment = Environment(
+                loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
+                autoescape=select_autoescape(['html', 'xml'])
+            )
 
-        # Create Jinja2 environment
-        env: Environment = Environment(
-            loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
-            autoescape=select_autoescape(['html', 'xml'])
-        )
+            # Load the bootstrap template
+            kubernetes_template: Template = env.get_template('kubernetes_services.yaml')
 
-        # Load the bootstrap template
-        kubernetes_template: Template = env.get_template('kubernetes_services.yaml')
+            # Load the infrastructure DAG template
+            dag_template: Template = env.get_template('infrastructure_dag.py.j2')
 
-        # Load the infrastructure DAG template
-        dag_template: Template = env.get_template('infrastructure_dag.py.j2')
+            # Load the factory DAG template
+            factory_template: Template = env.get_template('yellow_platform_factory_dag.py.j2')
 
-        # Load the factory DAG template
-        factory_template: Template = env.get_template('yellow_platform_factory_dag.py.j2')
+            # Load the model merge job template
+            model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
 
-        # Load the model merge job template
-        model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
-        gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
 
-        # Extract git repository owner and name from the full repository name
-        git_repo_parts = gitRepo.repositoryName.split('/')
-        if len(git_repo_parts) != 2:
-            raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
-        git_repo_owner, git_repo_name = git_repo_parts
+            # Prepare template context with all required variables
+            context: dict[str, Any] = {
+                "namespace_name": self.namespace,
+                "platform_name": self.to_k8s_name(self.name),
+                "original_platform_name": self.name,  # Original platform name for job execution
+                "postgres_hostname": self.mergeStore.hostPortPair.hostName,
+                "postgres_database": self.mergeStore.databaseName,
+                "postgres_port": self.mergeStore.hostPortPair.port,
+                "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
+                "airflow_name": self.to_k8s_name(self.airflowName),
+                "airflow_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
+                "kafka_cluster_name": self.to_k8s_name(self.kafkaClusterName),
+                "kafka_connect_name": self.to_k8s_name(self.kafkaConnectName),
+                "kafka_connect_credential_secret_name": self.to_k8s_name(self.connectCredentials.name),
+                "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
+                "datasurface_docker_image": self.datasurfaceImage,
+                "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
+                "slack_credential_secret_name": self.to_k8s_name(self.slackCredential.name),
+                "slack_channel_name": self.slackChannel,
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
+                "ingestion_streams": {}  # Empty for bootstrap - no ingestion streams yet
+            }
 
-        # Prepare template context with all required variables
-        context: dict[str, Any] = {
-            "namespace_name": self.namespace,
-            "platform_name": self.to_k8s_name(self.name),
-            "original_platform_name": self.name,  # Original platform name for job execution
-            "postgres_hostname": self.mergeStore.hostPortPair.hostName,
-            "postgres_database": self.mergeStore.databaseName,
-            "postgres_port": self.mergeStore.hostPortPair.port,
-            "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
-            "airflow_name": self.to_k8s_name(self.airflowName),
-            "airflow_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
-            "kafka_cluster_name": self.to_k8s_name(self.kafkaClusterName),
-            "kafka_connect_name": self.to_k8s_name(self.kafkaConnectName),
-            "kafka_connect_credential_secret_name": self.to_k8s_name(self.connectCredentials.name),
-            "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
-            "datasurface_docker_image": self.datasurfaceImage,
-            "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
-            "slack_credential_secret_name": self.to_k8s_name(self.slackCredential.name),
-            "slack_channel_name": self.slackChannel,
-            "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-            "git_repo_branch": gitRepo.branchName,
-            "git_repo_name": gitRepo.repositoryName,
-            "git_repo_owner": git_repo_owner,
-            "git_repo_repo_name": git_repo_name,
-            "ingestion_streams": {}  # Empty for bootstrap - no ingestion streams yet
-        }
+            # Render the templates
+            rendered_yaml: str = kubernetes_template.render(context)
+            rendered_infrastructure_dag: str = dag_template.render(context)
+            rendered_factory_dag: str = factory_template.render(context)
+            rendered_model_merge_job: str = model_merge_template.render(context)
 
-        # Render the templates
-        rendered_yaml: str = kubernetes_template.render(context)
-        rendered_infrastructure_dag: str = dag_template.render(context)
-        rendered_factory_dag: str = factory_template.render(context)
-        rendered_model_merge_job: str = model_merge_template.render(context)
-
-        # Return as dictionary with filename as key
-        return {
-            "kubernetes-bootstrap.yaml": rendered_yaml,
-            f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
-            f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
-            f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job
-        }
+            # Return as dictionary with filename as key
+            return {
+                "kubernetes-bootstrap.yaml": rendered_yaml,
+                f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
+                f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
+                f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job
+            }
+        elif ringLevel == 1:
+            # Create the airflow dsg table if needed
+            mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
+            mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
+            createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
+            return {}
+        else:
+            raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
 
     def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
         return YellowSchemaProjector(eco, self)

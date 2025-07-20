@@ -47,7 +47,10 @@ class Test_YellowDataPlatform(unittest.TestCase):
 
         try:
             with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
-                eco: Ecosystem = generatePlatformBootstrap("src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
+                # Generate the bootstrap artifacts for ring level 0
+                eco: Ecosystem = generatePlatformBootstrap(0, "src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
+                # Generate the bootstrap artifacts for ring level 1
+                eco: Ecosystem = generatePlatformBootstrap(1, "src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
                 # Validate that the ecosystem was created successfully
                 self.assertIsNotNone(eco)
                 self.assertEqual(eco.name, "Test")
@@ -175,6 +178,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
                 # Test 1: Generate bootstrap artifacts for both platforms
                 print("\n--- Generating Bootstrap Artifacts ---")
                 eco: Ecosystem = generatePlatformBootstrap(
+                    0,
                     "src/tests/yellow_dp_tests/mvp_model",
                     temp_dir,
                     "YellowLive",

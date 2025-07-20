@@ -13,7 +13,7 @@ import time
 import subprocess
 
 
-def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
+def generatePlatformBootstrap(ringLevel: int, modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
     """This will generate the platform bootstrap files for a given platform using the model defined in
     the model folder, the model must be called 'eco.py'. The files will be generated in the {basePlatformDir}/{platformName} directory."""
 
@@ -33,7 +33,7 @@ def generatePlatformBootstrap(modelFolderName: str, basePlatformDir: str, *platf
     for platformName in platformNames:
         dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
         # Generate the bootstrap files
-        bootstrapArtifacts: dict[str, str] = dp.generateBootstrapArtifacts(eco)
+        bootstrapArtifacts: dict[str, str] = dp.generateBootstrapArtifacts(eco, ringLevel)
         # Create the platform directory if it doesn't exist
         os.makedirs(os.path.join(basePlatformDir, platformName), exist_ok=True)
         for name, content in bootstrapArtifacts.items():
@@ -208,6 +208,7 @@ if __name__ == "__main__":
 
     # Subcommand: generatePlatformBootstrap
     parser_bootstrap = subparsers.add_parser("generatePlatformBootstrap", help="Generate platform bootstrap files")
+    parser_bootstrap.add_argument("--ringLevel", required=True, help=", 0 to N, Ring level to generate bootstrap artifacts for")
     parser_bootstrap.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
     parser_bootstrap.add_argument("--output", required=True, help="Base output directory for platform files")
     parser_bootstrap.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
@@ -227,7 +228,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.command == "generatePlatformBootstrap":
-        generatePlatformBootstrap(args.model, args.output, *args.platform)
+        generatePlatformBootstrap(args.ringLevel, args.model, args.output, *args.platform)
     elif args.command == "handleModelMerge":
         handleModelMerge(args.model, args.output, *args.platform)
     elif args.command == "resetBatchState":
