@@ -55,7 +55,7 @@ common_env_vars = [
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
                 name='{{ postgres_credential_secret_name }}',
-                key='username'
+                key='POSTGRES_USER'
             )
         )
     ),
@@ -64,7 +64,7 @@ common_env_vars = [
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
                 name='{{ postgres_credential_secret_name }}',
-                key='password'
+                key='POSTGRES_PASSWORD'
             )
         )
     ),

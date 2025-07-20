@@ -108,6 +108,8 @@ ls -la generated_output/YellowForensic/
 - `kubernetes-bootstrap.yaml` - Kubernetes deployment configuration
 - `{platform}_infrastructure_dag.py` - Platform management DAG
 - `{platform}_factory_dag.py` - Dynamic DAG factory
+- `{platform}_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
+- `{platform}_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
 
 ### Step 5: Validate Configuration
 
@@ -135,7 +137,7 @@ diff generated_output/YellowLive/kubernetes-bootstrap.yaml generated_output/Yell
 # Create namespace
 kubectl create namespace ns-yellow-starter
 
-# Create database credentials secret (standard PostgreSQL defaults)
+# Create database credentials secret (consistent format for all components)
 kubectl create secret generic postgres \
   --from-literal=POSTGRES_USER=postgres \
   --from-literal=POSTGRES_PASSWORD=datasurface123 \
@@ -165,35 +167,39 @@ kubectl create secret generic slack \
 kubectl apply -f generated_output/YellowLive/kubernetes-bootstrap.yaml
 ```
 
-### Step 3: Create Required Databases
+### Step 3: Run Ring 1 Initialization
+
+Ring 1 initialization creates the database schemas required for the platform operations.
 
 ```bash
 # Wait for PostgreSQL to be ready
 kubectl wait --for=condition=ready pod -l app=yellowlive-postgres -n ns-yellow-starter --timeout=300s
 
-# Create required databases
+# Create required databases manually (required before Ring 1 initialization)
 kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE airflow_db;"
 kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE customer_db;"
 kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE datasurface_merge;"
+
+# Apply Ring 1 initialization jobs (creates platform database schemas)
+kubectl apply -f generated_output/YellowLive/yellowlive_ring1_init_job.yaml
+kubectl apply -f generated_output/YellowForensic/yellowforensic_ring1_init_job.yaml
+
+# Wait for Ring 1 initialization to complete
+kubectl wait --for=condition=complete job/yellowlive-ring1-init -n ns-yellow-starter --timeout=300s
+kubectl wait --for=condition=complete job/yellowforensic-ring1-init -n ns-yellow-starter --timeout=300s
 ```
 
-### Step 4: Initialize Airflow Database
+### Step 4: Verify Airflow Services
+
+Airflow should initialize automatically with the consistent secret configuration.
 
 ```bash
-# Restart scheduler pod if it's stuck in init state
-kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
-
-# Wait for scheduler to be ready
+# Wait for Airflow services to be ready
 kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n ns-yellow-starter --timeout=300s
-
-# Initialize Airflow database manually
-kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- airflow db init
-
-# Restart webserver if needed
-kubectl delete pod -n ns-yellow-starter -l app=airflow-webserver
-
-# Wait for webserver to be ready
 kubectl wait --for=condition=ready pod -l app=airflow-webserver -n ns-yellow-starter --timeout=300s
+
+# Verify Airflow database connection
+kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- airflow db check
 ```
 
 ### Step 5: Create Airflow Admin User
@@ -210,7 +216,7 @@ kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- \
   --password admin123
 ```
 
-### Step 6: Deploy DAG Factory
+### Step 6: Deploy DAG Factory and Model Merge Jobs
 
 ```bash
 # Get the current scheduler pod name
@@ -221,6 +227,18 @@ kubectl cp generated_output/YellowLive/yellowlive_factory_dag.py $SCHEDULER_POD:
 kubectl cp generated_output/YellowForensic/yellowforensic_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 kubectl cp generated_output/YellowLive/yellowlive_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 kubectl cp generated_output/YellowForensic/yellowforensic_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+
+# Deploy model merge jobs to populate ingestion stream configurations
+kubectl apply -f generated_output/YellowLive/yellowlive_model_merge_job.yaml
+kubectl apply -f generated_output/YellowForensic/yellowforensic_model_merge_job.yaml
+
+# Wait for model merge jobs to complete
+kubectl wait --for=condition=complete job/yellowlive-model-merge-job -n ns-yellow-starter --timeout=300s
+kubectl wait --for=condition=complete job/yellowforensic-model-merge-job -n ns-yellow-starter --timeout=300s
+
+# Restart Airflow scheduler to trigger factory DAGs (creates dynamic ingestion stream DAGs)
+kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
+kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n ns-yellow-starter --timeout=300s
 ```
 
 ### Step 7: Verify Deployment
@@ -245,6 +263,8 @@ Open http://localhost:8080 and login with:
 - `yellowforensic_factory_dag` - YellowForensic platform factory  
 - `yellowlive_infrastructure` - YellowLive infrastructure management
 - `yellowforensic_infrastructure` - YellowForensic infrastructure management
+- `yellowlive__CustomerDatabase_ingestion` - YellowLive ingestion stream DAG (created dynamically)
+- `yellowforensic__CustomerDatabase_ingestion` - YellowForensic ingestion stream DAG (created dynamically)
 
 ## Ring Level Explanation
 
@@ -298,20 +318,28 @@ kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U 
 
 ### Common Issues and Solutions
 
-**Issue: Airflow scheduler stuck in Init:0/1 state**
+**Issue: Ingestion stream DAGs not appearing in Airflow UI**
 ```bash
-# Cause: airflow_db database doesn't exist
-# Solution: Create the database manually
-kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE airflow_db;"
+# Cause: Factory DAGs haven't run yet or model merge jobs failed
+# Solution: Verify model merge jobs completed and restart scheduler
+kubectl get jobs -n ns-yellow-starter
+kubectl logs job/yellowlive-model-merge-job -n ns-yellow-starter
 kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
 ```
 
-**Issue: Airflow webserver in CrashLoopBackOff**
+**Issue: Ring 1 initialization job fails**
 ```bash
-# Cause: Database not properly initialized
-# Solution: Run airflow db init manually
-kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- airflow db init
-kubectl delete pod -n ns-yellow-starter -l app=airflow-webserver
+# Cause: Secret keys mismatch or database not accessible
+# Solution: Verify secret format and database connectivity
+kubectl describe job/yellowlive-ring1-init -n ns-yellow-starter
+kubectl logs job/yellowlive-ring1-init -n ns-yellow-starter
+```
+
+**Issue: Secret configuration errors**
+```bash
+# Cause: Inconsistent secret key names
+# Verify all secrets use POSTGRES_USER/POSTGRES_PASSWORD format:
+kubectl get secret postgres -n ns-yellow-starter -o yaml
 ```
 
 ## Next Steps
@@ -355,9 +383,20 @@ Once deployment is complete:
 - PostgreSQL database with all required schemas
 - Airflow scheduler and webserver operational
 - Factory DAGs for dynamic ingestion stream creation
+- Model merge jobs for populating ingestion configurations
+- Ring 1 initialization for database schema creation
 - Admin access configured (admin/admin123)
 
 **Deployment Process:**
-- Clean artifact generation (no manual fixes required)
-- Automated database and Airflow setup
-- Ready for immediate data pipeline deployment 
+- Clean artifact generation (includes all required YAML files)
+- Consistent secret configuration (POSTGRES_USER/POSTGRES_PASSWORD format)
+- Automated database schema creation via Ring 1 initialization
+- Automated ingestion stream DAG creation via factory pattern
+- Ready for immediate data pipeline deployment
+
+**Key Improvements:**
+- **✅ Automated Ring 1 Initialization**: Database schemas created automatically
+- **✅ Consistent Secret Format**: All components use same credential keys
+- **✅ Complete Artifact Generation**: Ring 0 generates all required deployment files
+- **✅ Dynamic DAG Creation**: Ingestion stream DAGs created automatically from database configurations
+- **✅ No Manual Workarounds**: Clean deployment process without sed commands or manual fixes 

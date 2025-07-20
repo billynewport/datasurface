@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ platform_name }}-ring1-init
+  namespace: {{ namespace_name }}
+spec:
+  template:
+    spec:
+      containers:
+      - name: ring1-init
+        image: {{ datasurface_docker_image }}
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            echo "🔄 Starting Ring 1 Initialization for {{ original_platform_name }}"
+            
+            # Clone the model repository using git token
+            echo "📥 Cloning model repository..."
+            git clone {{ git_repo_url }} /workspace/model
+            cd /workspace/model
+            
+            # Switch to the correct branch
+            git checkout {{ git_repo_branch }}
+            
+            # Run Ring 1 initialization for platform
+            echo "🔧 Running Ring 1 initialization for {{ original_platform_name }}..."
+            python -m datasurface.cmd.platform generatePlatformBootstrap \
+              --ringLevel 1 \
+              --model /workspace/model \
+              --output /workspace/generated_artifacts \
+              --platform {{ original_platform_name }}
+            
+            echo "✅ Ring 1 initialization complete for {{ original_platform_name }}!"
+        env:
+          - name: PYTHONPATH
+            value: "/app/src"
+          - name: git_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ git_credential_secret_name }}
+                key: token
+          - name: postgres_USER
+            valueFrom:
+              secretKeyRef:
+                name: {{ postgres_credential_secret_name }}
+                key: POSTGRES_USER
+          - name: postgres_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ postgres_credential_secret_name }}
+                key: POSTGRES_PASSWORD
+        volumeMounts:
+          - name: git-workspace
+            mountPath: /workspace
+      volumes:
+        - name: git-workspace
+          emptyDir: {}
+      restartPolicy: Never
+  backoffLimit: 3 

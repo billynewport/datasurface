@@ -56,7 +56,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='username'
+                    key='POSTGRES_USER'
                 )
             )
         ),
@@ -65,7 +65,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='password'
+                    key='POSTGRES_PASSWORD'
                 )
             )
         ),
@@ -101,7 +101,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 value_from=k8s.V1EnvVarSource(
                     secret_key_ref=k8s.V1SecretKeySelector(
                         name=stream_config['source_credential_secret_name'],
-                        key='username'
+                        key='POSTGRES_USER'
                     )
                 )
             ),
@@ -110,7 +110,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 value_from=k8s.V1EnvVarSource(
                     secret_key_ref=k8s.V1SecretKeySelector(
                         name=stream_config['source_credential_secret_name'],
-                        key='password'
+                        key='POSTGRES_PASSWORD'
                     )
                 )
             )

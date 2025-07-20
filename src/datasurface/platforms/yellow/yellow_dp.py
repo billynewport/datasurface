@@ -887,6 +887,9 @@ class YellowDataPlatform(DataPlatform):
             # Load the model merge job template
             model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
 
+            # Load the ring1 initialization job template
+            ring1_init_template: Template = env.get_template('ring1_init_job.yaml.j2')
+
             gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
             # Extract git repository owner and name from the full repository name
@@ -927,13 +930,15 @@ class YellowDataPlatform(DataPlatform):
             rendered_infrastructure_dag: str = dag_template.render(context)
             rendered_factory_dag: str = factory_template.render(context)
             rendered_model_merge_job: str = model_merge_template.render(context)
+            rendered_ring1_init_job: str = ring1_init_template.render(context)
 
             # Return as dictionary with filename as key
             return {
                 "kubernetes-bootstrap.yaml": rendered_yaml,
                 f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
                 f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
-                f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job
+                f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
+                f"{self.to_k8s_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job
             }
         elif ringLevel == 1:
             # Create the airflow dsg table if needed
