@@ -149,9 +149,9 @@ metrics_collector_task = KubernetesPodOperator(
     arguments=[
         '--platform-name', '{{ original_platform_name }}',
         '--operation', 'collect-metrics',
-        '--postgres-host', '{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local',
-        '--postgres-port', '5432',
-        '--postgres-database', 'datasurface_merge'
+        '--postgres-host', '{{ postgres_hostname }}',
+        '--postgres-port', '{{ postgres_port }}',
+        '--postgres-database', '{{ postgres_database }}'
     ],
     env_vars=common_env_vars,  # type: ignore
     is_delete_operator_pod=True,
@@ -169,9 +169,9 @@ apply_security_task = KubernetesPodOperator(
     arguments=[
         '--platform-name', '{{ original_platform_name }}',
         '--operation', 'apply-security',
-        '--postgres-host', '{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local',
-        '--postgres-port', '5432',
-        '--postgres-database', 'datasurface_merge'
+        '--postgres-host', '{{ postgres_hostname }}',
+        '--postgres-port', '{{ postgres_port }}',
+        '--postgres-database', '{{ postgres_database }}'
     ],
     env_vars=common_env_vars,  # type: ignore
     is_delete_operator_pod=True,
@@ -189,9 +189,9 @@ table_removal_task = KubernetesPodOperator(
     arguments=[
         '--platform-name', '{{ original_platform_name }}',
         '--operation', 'remove-unused-tables',
-        '--postgres-host', '{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local',
-        '--postgres-port', '5432',
-        '--postgres-database', 'datasurface_merge',
+        '--postgres-host', '{{ postgres_hostname }}',
+        '--postgres-port', '{{ postgres_port }}',
+        '--postgres-database', '{{ postgres_database }}',
         '--git-repo-path', '/workspace/model',
         '--git-repo-owner', '{{ git_repo_owner }}',
         '--git-repo-name', '{{ git_repo_repo_name }}',

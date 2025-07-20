@@ -38,7 +38,7 @@ spec:
         - name: postgres
           image: postgres:15
           ports:
-            - containerPort: 5432
+            - containerPort: {{ postgres_port }}
           envFrom:
             - secretRef:
                 name: {{ postgres_credential_secret_name }}
@@ -69,8 +69,8 @@ spec:
     app: {{ platform_name }}-postgres
   ports:
     - protocol: TCP
-      port: 5432
-      targetPort: 5432
+      port: {{ postgres_port }}
+      targetPort: {{ postgres_port }}
 ---
 # Airflow DAGs PVC
 apiVersion: v1
@@ -108,7 +108,7 @@ data:
   airflow.cfg: |
     [core]
     executor = LocalExecutor
-    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db
     dags_folder = /opt/airflow/dags
     load_examples = False
 
@@ -121,7 +121,7 @@ data:
     remote_logging = False
 
     [database]
-    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db
 ---
 # Airflow Scheduler Deployment
 apiVersion: apps/v1
@@ -154,7 +154,7 @@ spec:
               name: {{ postgres_credential_secret_name }}
         env:
           - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-            value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
+            value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db"
         volumeMounts:
           - name: airflow-dags
             mountPath: /opt/airflow/dags
@@ -180,7 +180,7 @@ spec:
             - name: AIRFLOW_UID
               value: "50000"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db"
             - name: GIT_REPO_URL
               value: "{{ git_repo_url }}"
             - name: GIT_REPO_BRANCH
@@ -255,7 +255,7 @@ spec:
             - name: AIRFLOW_UID
               value: "50000"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local:5432/airflow_db"
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db"
             - name: GIT_REPO_URL
               value: "{{ git_repo_url }}"
             - name: GIT_REPO_BRANCH
@@ -538,7 +538,7 @@ data:
             - name: PLATFORM_NAME
               value: "{{ platform_name }}"
             - name: POSTGRES_HOST
-              value: "{{ postgres_hostname }}.{{ namespace_name }}.svc.cluster.local"
+              value: "{{ postgres_hostname }}"
             - name: KAFKA_CONNECT_URL
               value: "http://{{ kafka_connect_name }}-service.{{ namespace_name }}.svc.cluster.local:8083"
           volumeMounts:

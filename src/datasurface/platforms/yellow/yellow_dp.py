@@ -867,6 +867,7 @@ class YellowDataPlatform(DataPlatform):
         Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
         needs to create the DAG for the infrastructure and the factory DAG for dynamic ingestion stream generation."""
 
+        print(f"Generating bootstrap artifacts for {self.name} at ring level '{ringLevel}'")
         if ringLevel == 0:
             # Create Jinja2 environment
             env: Environment = Environment(
@@ -875,7 +876,7 @@ class YellowDataPlatform(DataPlatform):
             )
 
             # Load the bootstrap template
-            kubernetes_template: Template = env.get_template('kubernetes_services.yaml')
+            kubernetes_template: Template = env.get_template('kubernetes_services.yaml.j2')
 
             # Load the infrastructure DAG template
             dag_template: Template = env.get_template('infrastructure_dag.py.j2')

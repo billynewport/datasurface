@@ -208,7 +208,7 @@ if __name__ == "__main__":
 
     # Subcommand: generatePlatformBootstrap
     parser_bootstrap = subparsers.add_parser("generatePlatformBootstrap", help="Generate platform bootstrap files")
-    parser_bootstrap.add_argument("--ringLevel", required=True, help=", 0 to N, Ring level to generate bootstrap artifacts for")
+    parser_bootstrap.add_argument("--ringLevel", type=int, required=True, help=", 0 to N, Ring level to generate bootstrap artifacts for")
     parser_bootstrap.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
     parser_bootstrap.add_argument("--output", required=True, help="Base output directory for platform files")
     parser_bootstrap.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
