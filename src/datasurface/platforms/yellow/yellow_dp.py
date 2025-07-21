@@ -33,6 +33,7 @@ from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
 from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
+from pydantic import BaseModel, Field
 
 
 class BatchStatus(Enum):
@@ -43,16 +44,15 @@ class BatchStatus(Enum):
     FAILED = "failed"  # The batch failed, reset batch to try again
 
 
-class BatchState:
+class BatchState(BaseModel):
     """This is the state of a batch being processed. It provides a list of datasets which need to be
     ingested still and for the dataset currently being ingested, where to start ingestion from in terms
     of an offset in the source table."""
 
-    def __init__(self, datasetsToProcess: List[str], schema_versions: Optional[dict[str, str]] = None) -> None:
-        self.all_datasets: List[str] = datasetsToProcess
-        self.current_dataset_index: int = 0
-        self.current_offset: int = 0
-        self.schema_versions: dict[str, str] = schema_versions or {}
+    all_datasets: List[str]
+    current_dataset_index: int = 0
+    current_offset: int = 0
+    schema_versions: dict[str, str] = Field(default_factory=dict)
 
     def reset(self) -> None:
         """This resets the state to the start of the batch"""
@@ -71,23 +71,6 @@ class BatchState:
     def hasMoreDatasets(self) -> bool:
         """This returns True if there are more datasets to ingest"""
         return self.current_dataset_index < len(self.all_datasets)
-
-    @staticmethod
-    def from_json(json_str: str) -> "BatchState":
-        # Inflate the json in to this class
-        state: BatchState = BatchState([])
-        # Load the json string in to a dictionary
-        json_dict: dict[str, Any] = json.loads(json_str)
-        state.all_datasets = json_dict["all_datasets"]
-        state.current_dataset_index = json_dict["current_dataset_index"]
-        state.current_offset = json_dict["current_offset"]
-        state.schema_versions = json_dict.get("schema_versions", {})
-        return state
-
-    def to_json(self) -> str:
-        # Convert the class in to a dictionary
-        json_dict: dict[str, Any] = self.__dict__
-        return json.dumps(json_dict)
 
 
 class KubernetesEnvVarsCredentialStore(CredentialStore):
@@ -1079,7 +1062,7 @@ class YellowDataPlatform(DataPlatform):
                             batch_state_row = result.fetchone()
 
                             if batch_state_row is not None:
-                                state: BatchState = BatchState.from_json(batch_state_row[0])
+                                state: BatchState = BatchState.model_validate_json(batch_state_row[0])
 
                                 # Reset the batch state to its initial state
                                 state.reset()
@@ -1094,7 +1077,7 @@ class YellowDataPlatform(DataPlatform):
                                     "key": key,
                                     "batch_id": current_batch_id,
                                     "batch_status": BatchStatus.STARTED.value,
-                                    "batch_state": state.to_json()
+                                    "batch_state": state.model_dump_json()
                                 })
 
                                 # Now delete the records from the staging table for every dataset in the batch

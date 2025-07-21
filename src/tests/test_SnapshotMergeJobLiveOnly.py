@@ -168,7 +168,7 @@ class BaseSnapshotMergeJobTest(ABC):
 
     def common_test_BatchState(self, tc: unittest.TestCase) -> None:
         """Test the BatchState class"""
-        state = BatchState([self.store.datasets["people"].name])
+        state = BatchState(all_datasets=[self.store.datasets["people"].name])
         tc.assertEqual(state.all_datasets, ["people"])
         tc.assertEqual(state.current_dataset_index, 0)
         tc.assertEqual(state.current_offset, 0)
@@ -593,7 +593,7 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
             self.assertIsNotNone(row)
             
             # Parse the batch state and verify it's reset
-            state = BatchState.from_json(row[0])
+            state = BatchState.model_validate_json(row[0])
             self.assertEqual(state.current_dataset_index, 0)  # Reset to start
             self.assertEqual(state.current_offset, 0)  # Reset to start
             self.assertTrue(state.hasMoreDatasets())  # Should have datasets to process

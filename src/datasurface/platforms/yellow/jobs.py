@@ -397,8 +397,13 @@ class Job(YellowDatasetUtilities):
         connection.execute(text(
             f"INSERT INTO {self.getBatchMetricsTableName()} "
             f'("key", "batch_id", "batch_start_time", "batch_status", "state") '
-            f"VALUES ('{key}', {newBatch}, NOW(), '{BatchStatus.STARTED.value}', '{state.to_json()}')"
-        ))
+            f"VALUES (:key, :batch_id, NOW(), :batch_status, :state)"
+        ), {
+            "key": key,
+            "batch_id": newBatch,
+            "batch_status": BatchStatus.STARTED.value,
+            "state": state.model_dump_json()
+        })
 
         return newBatch
 
@@ -408,7 +413,7 @@ class Job(YellowDatasetUtilities):
         key: str = self.getKey()
         # Create schema hashes for the dataset
         schema_versions = {self.dataset.name: self.getSchemaHash(self.dataset)}
-        state: BatchState = BatchState([self.dataset.name], schema_versions)  # Just one dataset to ingest, start at offset 0
+        state: BatchState = BatchState(all_datasets=[self.dataset.name], schema_versions=schema_versions)  # Just one dataset to ingest, start at offset 0
         return self.createBatchCommon(connection, key, state)
 
     def createMultiBatch(self, store: Datastore, connection: Connection) -> int:
@@ -427,7 +432,7 @@ class Job(YellowDatasetUtilities):
             schema_versions[dataset_name] = self.getSchemaHash(dataset)
 
         # Start with the first dataset and the rest of the datasets to go
-        state: BatchState = BatchState(allDatasets, schema_versions)  # Start with the first dataset
+        state: BatchState = BatchState(all_datasets=allDatasets, schema_versions=schema_versions)  # Start with the first dataset
         return self.createBatchCommon(connection, key, state)
 
     def startBatch(self, mergeEngine: Engine) -> int:
@@ -456,7 +461,7 @@ class Job(YellowDatasetUtilities):
         result = connection.execute(text(f'SELECT "state" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
         row = result.fetchone()
 
-        return BatchState.from_json(row[0]) if row else BatchState([])
+        return BatchState.model_validate_json(row[0]) if row else BatchState(all_datasets=[])
 
     def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""
@@ -501,22 +506,29 @@ class Job(YellowDatasetUtilities):
             state: Optional[BatchState] = None) -> None:
         """Update the batch status and metrics in a transaction"""
         with mergeEngine.begin() as connection:
-            update_parts = [f"batch_status = '{status.value}'"]
+            update_parts = ["batch_status = :batch_status"]
+            update_params = {"batch_status": status.value, "key": key, "batch_id": batchId}
+            
             if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
                 update_parts.append("batch_end_time = NOW()")
             if recordsInserted is not None:
-                update_parts.append(f"records_inserted = {recordsInserted}")
+                update_parts.append("records_inserted = :records_inserted")
+                update_params["records_inserted"] = recordsInserted
             if recordsUpdated is not None:
-                update_parts.append(f"records_updated = {recordsUpdated}")
+                update_parts.append("records_updated = :records_updated")
+                update_params["records_updated"] = recordsUpdated
             if recordsDeleted is not None:
-                update_parts.append(f"records_deleted = {recordsDeleted}")
+                update_parts.append("records_deleted = :records_deleted")
+                update_params["records_deleted"] = recordsDeleted
             if totalRecords is not None:
-                update_parts.append(f"total_records = {totalRecords}")
+                update_parts.append("total_records = :total_records")
+                update_params["total_records"] = totalRecords
             if state is not None:
-                update_parts.append(f"state = '{state.to_json()}'")
+                update_parts.append("state = :state")
+                update_params["state"] = state.model_dump_json()
 
-            update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
-            connection.execute(text(update_sql))
+            update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = :key AND "batch_id" = :batch_id'
+            connection.execute(text(update_sql), update_params)
 
     def markBatchMerged(self, connection: Connection, key: str, batchId: int, status: BatchStatus,
                         recordsInserted: Optional[int] = None, recordsUpdated: Optional[int] = None,
@@ -773,7 +785,12 @@ class Job(YellowDatasetUtilities):
                         state.current_offset = offset + numRowsInserted
                         # Update the state in the batch metrics table
                         mergeConn.execute(text(
-                            f'UPDATE {self.getBatchMetricsTableName()} SET "state" = \'{state.to_json()}\' WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
+                            f'UPDATE {self.getBatchMetricsTableName()} SET "state" = :state'
+                            f' WHERE "key" = :key AND "batch_id" = :batch_id'), {
+                                "state": state.model_dump_json(),
+                                "key": key,
+                                "batch_id": batchId
+                            })
 
                     offset = state.current_offset
 
