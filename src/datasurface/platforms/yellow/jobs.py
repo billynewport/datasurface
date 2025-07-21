@@ -123,6 +123,16 @@ class JobUtilities(ABC):
         current_hash = self.getSchemaHash(dataset)
         return current_hash == stored_hash
 
+    def getRawBaseTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
+        """This returns the base table name for a dataset"""
+        assert isinstance(store.cmd, SQLIngestion)
+        return f"{store.name}_{dataset.name if dataset.name not in store.cmd.tableForDataset else store.cmd.tableForDataset[dataset.name]}"
+
+    def getRawMergeTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
+        """This returns the merge table name for a dataset"""
+        tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
+        return self.dp.getTableForPlatform(tableName + "_merge")
+
 
 class YellowDatasetUtilities(JobUtilities):
     """This class provides utilities for working with datasets in the Yellow platform."""
@@ -159,7 +169,7 @@ class YellowDatasetUtilities(JobUtilities):
 
     def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the base table name for a dataset"""
-        return f"{self.store.name}_{dataset.name if dataset.name not in self.cmd.tableForDataset else self.cmd.tableForDataset[dataset.name]}"
+        return self.getRawBaseTableNameForDataset(self.store, dataset)
 
     def getStagingTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the staging table name for a dataset"""
@@ -168,8 +178,7 @@ class YellowDatasetUtilities(JobUtilities):
 
     def getMergeTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
-        tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.dp.getTableForPlatform(tableName + "_merge")
+        return self.getRawMergeTableNameForDataset(self.store, dataset)
 
 
 class Job(YellowDatasetUtilities):
