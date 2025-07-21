@@ -4,7 +4,7 @@
 
 This document provides a step-by-step guide to set up a complete YellowDataPlatform environment on Kubernetes. 
 
-It is designed as an AI first document, easy to following repeatedly by an AI assistant to speed installs.
+It is designed as an AI first document, easy to following repeatedly by an AI assistant to speed installs. Tested in Cursor with Claude 4 Sonnet in Max mode.
 
 The setup uses a two-ring approach:
 
