@@ -455,6 +455,14 @@ YellowDataPlatform represents a paradigm shift for small to medium enterprise da
 - **Governance ready**: Policy enforcement scales with organizational maturity
 - **Technical debt prevention**: Automatic platform upgrades over time
 
+## How to start up DataSurface with the YellowDataPlatform
+
+We are testing this now on MacBook with Docker Desktop and it's local kubernetes cluster. We are also testing on a Dell Ubuntu 24 with kubernetes installed. The easiest way to get this running is the follow the instructions in the HOWTO: Setup YellowDataPlatform Kubernetes Environment.
+
+We currently ask the agentic AI in cursor to follow the instructions in the HOWTO and it takes maybe 5 minutes to get a working environment on a Mac. We are specifically designing HOWTOs that are easy for the AI to follow.
+
+[HOWTO: Setup YellowDataPlatform Kubernetes Environment](HOWTO_Setup_YellowDataPlatform_Environment.md)
+
 ## Conclusion: The DataSurface Revolution
 
 YellowDataPlatform proves that small to medium enterprises can access **powerful yet simple** data platforms. By embracing SQL's proven track record, Kubernetes' orchestration capabilities, and DataSurface's intention-driven architecture, it delivers a production-ready solution designed for organizations that need enterprise capabilities without enterprise complexity.
