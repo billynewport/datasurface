@@ -68,41 +68,13 @@ class JobStatus(Enum):
     ERROR = -1  # The job failed, stop the job and don't run again
 
 
-class YellowDatasetUtilities(ABC):
-    """This class provides utilities for working with datasets in the Yellow platform."""
-    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
+class JobUtilities(ABC):
+    """This class provides utilities for working with jobs in the Yellow platform."""
+    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform) -> None:
         self.eco: Ecosystem = eco
         self.dp: YellowDataPlatform = dp
-        self.store: Datastore = store
-        self.datasetName: Optional[str] = datasetName
-        self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
-        self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
-        self.cmd: SQLIngestion = cast(SQLIngestion, store.cmd)
         self.credStore: CredentialStore = credStore
-
-    def getSchemaHash(self, dataset: Dataset) -> str:
-        """Generate a hash of the dataset schema"""
-        schema: DDLTable = cast(DDLTable, dataset.originalSchema)
-        schema_data = {
-            'columns': {name: {'type': str(col.type), 'nullable': str(col.nullable)}
-                        for name, col in schema.columns.items()},
-            'primaryKey': schema.primaryKeyColumns.colNames if schema.primaryKeyColumns else []
-        }
-        schema_str = json.dumps(schema_data, sort_keys=True)
-        return hashlib.md5(schema_str.encode()).hexdigest()
-
-    def validateSchemaUnchanged(self, dataset: Dataset, stored_hash: str) -> bool:
-        """Validate that the schema hasn't changed since batch start"""
-        current_hash = self.getSchemaHash(dataset)
-        return current_hash == stored_hash
-
-    def checkForSchemaChanges(self, state: BatchState) -> None:
-        """Check if any dataset schemas have changed since batch start"""
-        for dataset_name in state.all_datasets:
-            dataset = self.store.datasets[dataset_name]
-            stored_hash = state.schema_versions.get(dataset_name)
-            if stored_hash and not self.validateSchemaUnchanged(dataset, stored_hash):
-                raise Exception(f"Schema changed for dataset {dataset_name} during batch processing")
+        self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
 
     def getBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
@@ -134,6 +106,40 @@ class YellowDatasetUtilities(ABC):
                          Column("total_records", Integer(), nullable=True),
                          Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
         return t
+
+    def getSchemaHash(self, dataset: Dataset) -> str:
+        """Generate a hash of the dataset schema"""
+        schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+        schema_data = {
+            'columns': {name: {'type': str(col.type), 'nullable': str(col.nullable)}
+                        for name, col in schema.columns.items()},
+            'primaryKey': schema.primaryKeyColumns.colNames if schema.primaryKeyColumns else []
+        }
+        schema_str = json.dumps(schema_data, sort_keys=True)
+        return hashlib.md5(schema_str.encode()).hexdigest()
+
+    def validateSchemaUnchanged(self, dataset: Dataset, stored_hash: str) -> bool:
+        """Validate that the schema hasn't changed since batch start"""
+        current_hash = self.getSchemaHash(dataset)
+        return current_hash == stored_hash
+
+
+class YellowDatasetUtilities(JobUtilities):
+    """This class provides utilities for working with datasets in the Yellow platform."""
+    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp)
+        self.store: Datastore = store
+        self.datasetName: Optional[str] = datasetName
+        self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
+        self.cmd: SQLIngestion = cast(SQLIngestion, store.cmd)
+
+    def checkForSchemaChanges(self, state: BatchState) -> None:
+        """Check if any dataset schemas have changed since batch start"""
+        for dataset_name in state.all_datasets:
+            dataset = self.store.datasets[dataset_name]
+            stored_hash = state.schema_versions.get(dataset_name)
+            if stored_hash and not self.validateSchemaUnchanged(dataset, stored_hash):
+                raise Exception(f"Schema changed for dataset {dataset_name} during batch processing")
 
     def getKey(self) -> str:
         """This returns the key for the batch"""
@@ -508,7 +514,7 @@ class Job(YellowDatasetUtilities):
         with mergeEngine.begin() as connection:
             update_parts = ["batch_status = :batch_status"]
             update_params = {"batch_status": status.value, "key": key, "batch_id": batchId}
-            
+
             if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
                 update_parts.append("batch_end_time = NOW()")
             if recordsInserted is not None:

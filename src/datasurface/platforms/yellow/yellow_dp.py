@@ -34,6 +34,7 @@ from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
 from pydantic import BaseModel, Field
+from datasurface.md.codeartifact import PythonRepoCodeArtifact
 
 
 class BatchStatus(Enum):
@@ -240,6 +241,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             except ObjectDoesntExistException:
                 tree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
                 return ""
+
+        # Lint Workspace data transformers, only PythonRepoCodeArtifacts are supported
+        for workspace in self.graph.workspaces.values():
+            if workspace.dataTransformer is not None:
+                if not isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact):
+                    tree.addRaw(ObjectWrongType(workspace.dataTransformer.code, PythonRepoCodeArtifact, ProblemSeverity.ERROR))
 
         # If no Kafka ingestion nodes, return empty terraform
         if not ingest_nodes:

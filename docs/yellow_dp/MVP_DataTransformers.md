@@ -1,6 +1,16 @@
 # MVP for DataTransformers in YellowDataPlatform
 
-Time to get DataTransformers working in YellowDataPlatform. A DataTransformer is code which executes against a Workspace and produces an output which is then ingested in a new Datastore. For example, we could make a DataTransformer which takes a customer table with PII and removes the PII producing a new Datastore containing the customer data without PII through masking for example. Everytime the source customer data changes, we run the DataTransformer and ingest the changes to the output Datastore. The code for the DataTransformer will be packaged in a docker container and run in a job pod. The job pod should be called when any of the datasets on the Workspace change or ingest another batch.
+Time to get DataTransformers working in YellowDataPlatform. A DataTransformer is code which executes against a Workspace and produces an output which is then ingested in a new Datastore. For example, we could make a DataTransformer which takes a customer table with PII and removes the PII producing a new Datastore containing the customer data without PII through masking for example. There are many examples we could use for producing derived data.
+
+* Changing the schema of input data.
+* Joining data with other data, materializing a view.
+* Masking data.
+* Aggregating data.
+* etc.
+
+Everytime the source customer data changes, we run the DataTransformer and ingest the changes to the output Datastore. The code for the DataTransformer will be packaged in a docker container and run in a job pod. The job pod should be called when any of the datasets on the Workspace change or ingest another batch. Indeed, a version of a DataTransformer could be a materializing view which refreshes on a timer. Thats a viable alternative to coding one in python or Spark and one what DataSurface will support. However, materialized views only produce a single view/dataset as output so it's a question of supporting both approaches.
+
+The DataTransformer code is packaged by its owner in its own GitHub repository. They would have a normal test cycle around this before releasing a new version. The Ecosystem model is also versioned. A DataTransformer in the model will reference a specific version of the code. The output Datastore and associated datasets/schemas are also versioned together with the DataTransformer code in the model. When the DataTransformer owner adds a DataTransformer then they need to define the Workspace/DSG, the DataTransformer and the output Datastore as one commit really.
 
 Some points to consider. The customer data transformer code runs in a managed environment whose maintenance and code levels are controlled centrally. It's important that no platform code (or as little as possible) is present in the customer managed code/artifacts. This is essential as customer data transformer release cycles will not align with the platform release cycles and holding up a platform release is not acceptable. The platform must also ensure that customer data transformer code is run securely and that the code is not able to access any other data in the system. The platform must also ensure that the code once working, stays working after platform updates.
 
@@ -36,12 +46,6 @@ Truly rolling back a breaking schema change is difficult. This is because it's n
 
 This may seem like a lot of work but being fined a billion dollars for mistakes isn't fun either. Some organizations can specify policies which relax the situation but this implementation encourages collaboration and communication between the DataTransformer owner and the consumers. It's important for data producers to know that once they publish data and other people use it then they are responsible for it for as long as those consumers use it (including retention periods). This awareness is key so teams cannot say they didn't realize their data was being used for critical reporting.
 
-TODO: I may allow a producer approval where Workspaces cannot use a datastore/dataset sink in a Workspace unless the data producer has previously approved it. This would be like workspacedataplatform assignments. A json file named after the Datastore which has a list of Workspaces/DSGs approved to use it. This would mean the workflow would be:
-
-1. Consumer Workspace tries to add a datastore/dataset sink to a Workspace and on commit, the actiona handler block it as unapproved by producer.
-2. The consumer discusses with the producer and the producer approves it by adding the consumer Workspace/DSG to the json file for the datastore.
-3. The consumer commits the change and the action handler allows it.
-
 ## How this works in YellowDataPlatform
 
 YellowDataPlatform, for now, uses the merge store database for everything, all staging and merge tables, workspace views and DataTransformer output tables. Workspaces must use the data container DataPlatformManagedDataContainer. This is a special data container which means the Workspace is placed on a DataContainer by the DataPlatform and not the consumer. YellowDataPlatform will always use the merge data container for these Workspaces.
@@ -66,7 +70,7 @@ The data transformer should also be provided with a dict[str,str] which maps fro
 
 The DataTransformer runs against all the datasets in a Workspace. It creates its outputs by writing them to tables in the Workspace DataContainer. The system then ingests the output tables into a the DataTransformers output Datastore as normal. The DataTransformer can use its output Datastore as an input to itself, just specify it in the Workspace. The tables to hold the output have a special name in the DataContainer. The table names produce the normal way but have a prefix of 'dt_'. This is enough to make then unique as only one DataTransformer can produce a specific output Datastore. The tables could be truncated before each run to ensure they are empty and must always be multi-dataset stores.
 
-The security module should make the dt_ tables writeable by the DataTransformer credentials and dev ops members. Note, ideally, a devops team member should only be able to access these tables or any aspect of the system using a traceable temporary credential whose assignment is approved by a senior devops member. Nobody should have default access to the system. These approvals should be based on a ticket being opened for a task which requires access to the system. All access including terminal logs, commands executed, keystrokes if needed should be logged. All actions performed by the temporary credential should be logged and reviewed quickly by a senios devops member.
+The security module should make the dt_ tables writeable by the DataTransformer credentials and dev ops members. Note, ideally, a devops team member should only be able to access these tables or any aspect of the system using a traceable temporary credential whose assignment is approved by a senior devops member. Nobody should have default access to the system. These approvals should be based on a ticket being opened for a task which requires access to the system. All access including terminal logs, commands executed, keystrokes if needed should be logged. All actions performed by the temporary credential should be logged and reviewed quickly by a senior devops member.
 
 ## Factory DAG modifications
 

@@ -1210,7 +1210,7 @@ class DatasetDSGApproval(UserDSLObject):
         return f"DatasetDSGApproval({self.workspace}, {self.dsg}, {self.datasetName})"
 
     def __hash__(self) -> int:
-        return hash(self.workspace + self.dsg + self.datasetName)
+        return hash(f"{self.workspace}#{self.dsg}#{self.datasetName}")
 
     def lint(self, eco: 'Ecosystem', store: 'Datastore', tree: ValidationTree) -> None:
         # Nothing to do, approvals can be added before the Workspace/DSG/Dataset exists. We run the risk
