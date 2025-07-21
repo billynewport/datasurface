@@ -145,7 +145,7 @@ kubectl create secret generic postgres \
 
 # Create GitHub credentials secret  
 kubectl create secret generic git \
-  --from-literal=GITHUB_TOKEN=your-github-token \
+  --from-literal=token=your-github-personal-access-token \
   -n ns-yellow-starter
 
 # Create Slack credentials secret (optional)
