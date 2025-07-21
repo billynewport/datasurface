@@ -187,6 +187,17 @@ spec:
               value: "{{ git_repo_branch }}"
             - name: GIT_REPO_NAME
               value: "{{ git_repo_name }}"
+            # Factory DAG credentials (needed for dynamic DAG creation)
+            - name: postgres_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ postgres_credential_secret_name }}
+                  key: POSTGRES_USER
+            - name: postgres_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ postgres_credential_secret_name }}
+                  key: POSTGRES_PASSWORD
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
