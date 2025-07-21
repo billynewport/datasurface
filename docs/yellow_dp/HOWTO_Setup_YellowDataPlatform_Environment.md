@@ -275,7 +275,6 @@ Open http://localhost:8080 and login with:
 
 **Ring 1**: Initialize databases and runtime configuration (requires Kubernetes cluster)
 - Would create platform-specific database schemas and configurations
-- Currently not used in this setup - databases created manually instead
 
 ## Troubleshooting
 
