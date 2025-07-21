@@ -2,7 +2,11 @@
 
 ## Overview
 
-This document provides a step-by-step guide to set up a complete YellowDataPlatform environment on Kubernetes. The setup uses a two-ring approach:
+This document provides a step-by-step guide to set up a complete YellowDataPlatform environment on Kubernetes. 
+
+It is designed as an AI first document, easy to following repeatedly by an AI assistant to speed installs.
+
+The setup uses a two-ring approach:
 
 - **Ring 0**: Generate bootstrap artifacts (runs in Docker container)
 - **Ring 1**: Deploy to Kubernetes with full infrastructure (requires secrets and K8s cluster)
