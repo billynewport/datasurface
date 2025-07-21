@@ -2,6 +2,8 @@
 
 Time to get DataTransformers working in YellowDataPlatform. A DataTransformer is code which executes against a Workspace and produces an output which is then ingested in a new Datastore. For example, we could make a DataTransformer which takes a customer table with PII and removes the PII producing a new Datastore containing the customer data without PII through masking for example. Everytime the source customer data changes, we run the DataTransformer and ingest the changes to the output Datastore. The code for the DataTransformer will be packaged in a docker container and run in a job pod. The job pod should be called when any of the datasets on the Workspace change or ingest another batch.
 
+Some points to consider. The customer data transformer code runs in a managed environment whose maintenance and code levels are controlled centrally. It's important that no platform code (or as little as possible) is present in the customer managed code/artifacts. This is essential as customer data transformer release cycles will not align with the platform release cycles and holding up a platform release is not acceptable. The platform must also ensure that customer data transformer code is run securely and that the code is not able to access any other data in the system. The platform must also ensure that the code once working, stays working after platform updates.
+
 ## Quick introduction to DataTransformers
 
 Ingesting data is one thing but systems also need to be able to produce derivative data based on data already in the system. DataTransformers are the way to do this. They define a process which takes a Workspace with its list of datasets and produces derivative data stored in a new DataStore. The code for this transformation is packaged as a CodeArtifact in the model. YellowDataPlatform will use docker container images to package this code and run it in a kubernetes job pod when it's needed. Any credentials and the Workspace DataContaienr connection info will be provided to the DataTransformer code as environment variables.
@@ -22,9 +24,15 @@ So, we need to find the DataTransformer nodes in the graph. The left hand side n
 
 The ingestion DAG for the output datastore is already taken care of, it will be in the storesToIngest list for the ingestion graph. DataTransformers output DataStores must have a cmd which is a DataTransformerOutput. This is a special cmd which is used to indicate that the datastore is an output of a DataTransformer. This is now lint checked by DataTransformer in the DSL. Users dont specify how to ingest the output datastore of a DataTransformer, it's done automatically by the DataPlatform.
 
+## The DataTransformerJob
 
+This is a new job type which is used to execute the code in the DataTransformer within the YellowDataPlatform. It runs within the container image of the DataTransformer code artifact, a docker container image. The job runs using a datatransformer instance specific credential, not any system credentials. This also prevents the datatransformer from accessing any other data in the system. The credential it uses to access the DataContainer, the merge engine in this case, should also be supplied. This also needs to be specific to the DataTransformer instance. The YellowDataPlatform would need to generate these credentials as needed, part of handleModelMerge and then provide them to the job.
 
+I feel uncomfortable using a customer container image to run this code. We have no control over the version of datasurface used in the container. This was a maintenance problem for me in the past when clients created spark jobs in their own jars with the libraries packed in. We ended up trying to shim in fixes to those libraries as it was hard to get all clients to recompile their spark job jars and update them. The same thing may happen here.
 
+So, rather than using a container image in the CodeArtifact, we will make a new CodeArtifact which specifies a github repo containing the code. There will be an expectation of a datatransformer.py file containing a standard function which will be called by the DataPlatform to run the code. The data platform will provide the standard container image to run the job in. The main code will start a transaction against the merge engine, truncate the output tables and then within that transaction, call the datatransformer.py function passing the connection. The datatransformer is expected to write the output to the dt_ output tables using that connection. The transaction is then committed in the main function. When the job completes, the ingestion job for the output tables should be triggered. This is always a multi-dataset ingestion job.
+
+The data transformer should also be provided with a dict[str,str] which maps from store#dataset name to the table name for every datasetsink in the Workspace. The output datastore and datasets is also present in the dict.
 
 
 ## How will a DataTransformer work?

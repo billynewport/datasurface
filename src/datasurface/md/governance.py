@@ -3321,39 +3321,6 @@ class CodeArtifact(UserDSLObject):
         return f"{self.__class__.__name__}()"
 
 
-class ContainerImageCodeArtifact(CodeArtifact):
-    """This describes a container image which can be used to transform data in a workspace"""
-    def __init__(self, image: str, envVars: dict[str, str], requiredVersion: str) -> None:
-        super().__init__()
-        self.image: str = image  # The name of the container image to use
-        self.envVars: dict[str, str] = envVars
-        self.requiredVersion: str = requiredVersion
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "image": self.image, "envVars": self.envVars, "requiredVersion": self.requiredVersion})
-        return rc
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
-        # Check the image name is valid
-        pass
-
-    def __eq__(self, o: object) -> bool:
-        if isinstance(o, ContainerImageCodeArtifact):
-            rc: bool = self.requiredVersion == o.requiredVersion
-            rc = rc and self.envVars == o.envVars
-            rc = rc and self.image == o.image
-            return rc
-        else:
-            return False
-
-    def __hash__(self) -> int:
-        return hash((self.image, tuple(self.envVars.items()), self.requiredVersion))
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.image}, {self.envVars}, {self.requiredVersion})"
-
-
 class PythonCodeArtifact(CodeArtifact):
     """This describes a python job and its dependencies"""
     def __init__(self, requirements: list[str], envVars: dict[str, str], requiredVersion: str) -> None:
