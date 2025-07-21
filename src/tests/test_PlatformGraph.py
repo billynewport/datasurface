@@ -53,6 +53,25 @@ class Test_PlatformGraphs(unittest.TestCase):
 
         print(graphStr)
 
+    def test_storesToIngestMatchesIngestionNodesInGraph(self):
+        eco: Ecosystem = createEcosystem()
+        legacyA: DataPlatform = eco.getDataPlatformOrThrow("LegacyA")
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+        pi: PlatformPipelineGraph = graph.roots[legacyA.name]
+
+        # Ingestion nodes are all the nodes on the left hand side of the graph but can also occur within the graph.
+        ingestionNodes: set[IngestionNode] = set()
+        for node in pi.nodes.values():
+            if isinstance(node, IngestionNode):
+                ingestionNodes.add(node)
+
+        # Just make a set of the store names
+        ingestionStoreNames: set[str] = set()
+        for node in ingestionNodes:
+            ingestionStoreNames.add(node.storeName)
+
+        self.assertEqual(len(pi.storesToIngest), len(ingestionStoreNames))
+
     def test_WorkspacePriority(self):
         p1: WorkspacePriority = PrioritizedWorkloadTier(WorkloadTier.CRITICAL)
         p2: WorkspacePriority = PrioritizedWorkloadTier(WorkloadTier.HIGH)

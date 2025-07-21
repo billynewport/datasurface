@@ -10,24 +10,21 @@ Ingesting data is one thing but systems also need to be able to produce derivati
 
 The source of truth for the system is the Ecosystem model. This is transformed in to an intention graph which describes the system as a whole in a form which is then provided to DataPlatforms who turn the graph in to infrastructure to realize that intention using the technology stack implemented in the DataPlatform. For example, YellowDataPlatform realizes the intention graph using Kubernetes, Airflow and a merge database engine, currently Postgres.
 
-The graph for around DataTransformers looks like this. This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include
-    provisioning Workspace views, provisioning dataContainer tables. Exporting data to dataContainer tables. Ingesting data from datastores,
-    executing data transformers. We always build the graph starting on the right hand side, the consumer side which is typically a
-    Workspace. We work left-wards towards data producers using the datasets used in DatasetGroups in the Workspace. Any datasets
-    used by a Workspace need to have exports to the Workspace for those datasets. All datasets exported must also have been
-    ingested. So we add an ingestion step. If a dataset is produced by a DataTransformer then we need to have the ingestion
-    triggered by the execution of the DataTransformer. The DataTransformer is triggered itself by exports to the Workspace which
-    owns it.
-    Thus the right hand side of the graph should all be Exports to Workspaces. The left hand side should be
-    all ingestion steps. Every ingestion should have a right hand side node which are exports to Workspaces.
-    Exports will have a trigger for each dataset used by a DataTransformer. The trigger will be a join on all the exports to
-    a single Workspace and will always trigger a DataTransformer node. The Datatransformer node will have an ingestion
-    node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore.
+The graph for around DataTransformers looks like this. This should be all the information a DataPlatform needs to render the processing pipeline graph. This would include provisioning Workspace views, provisioning dataContainer tables. Exporting data to dataContainer tables. Ingesting data from datastores, executing data transformers. We always build the graph starting on the right hand side, the consumer side which is typically a Workspace. We work left-wards towards data producers using the datasets used in DatasetGroups in the Workspace. Any datasets used by a Workspace need to have exports to the Workspace for those datasets. All datasets exported must also have been ingested. So we add an ingestion step. If a dataset is produced by a DataTransformer then we need to have the ingestion triggered by the execution of the DataTransformer. The DataTransformer is triggered itself by exports to the Workspace which owns it. Thus the right hand side of the graph should all be Exports to workspaces. The left hand side should be all ingestion steps. Every ingestion should have a right hand side node which are exports to Workspaces. Exports will have a trigger for each dataset used by a DataTransformer. The trigger will be a join on all the exports to a single Workspace and will always trigger a DataTransformer node. The Datatransformer node will have an ingestion node for its output Datastore and then that Datastore should be exported to the Workspaces which use that Datastore. The priority of each node should be the highest priority of the Workspaces which depend on it.
 
-    The priority of each node should be the highest priority of the Workspaces which depend on it.
+## How this works in YellowDataPlatform
+
+YellowDataPlatform, for now, uses the merge store database for everything, all staging and merge tables, workspace views and DataTransformer output tables. Workspaces must use the data container DataPlatformManagedDataContainer. This is a special data container which means the Workspace is placed by the DataPlatform and not the consumer. YellowDataPlatform will always use the merge data container for these Workspaces.
+
+YellowDataPlatform dynamically generated ingestion DAGs for each ingestion stream assigned to it. These all end up in the merge tables of its assigned merge data container. Yellow currently only uses the ingestion nodes in the graph. Every Workspace in the model assigned to the DataPlatform will also be present in the graph. We will see ExportNodes from every ingestion node contained in the Workspace (all DatasetSinks in the DSGs for the Workspace). The DataContainer specified on the export nodes will be the Workspace DataContainer or DataPlatformManagedDataContainer. Workspaces with a DataTransformer will cause every export node to it to have a TriggerNode followed by a DataTransformerNode. A DataTransformerNode will have an ingestion node for its output Datastore. If the output datastore is also used by another Workspace then the ingestion node will be followed by an Export node to consuming Workspaces and so on.
+
+So, we need to find the DataTransformer nodes in the graph. The left hand side nodes are all the ingestion nodes it depends on. The right hand side node should be a single ingestion node for the output datastore. The output datastore will have export nodes following it because to be in the graph, it must have consumers and the Datatransformer node and associated export nodes would also be absent if noone used it. Remember, if noone is using it then Datasurface doesn't ingest it.
+
+The ingestion DAG for the output datastore is already taken care of, it will be in the storesToIngest list for the ingestion graph. DataTransformers output DataStores must have a cmd which is a DataTransformerOutput. This is a special cmd which is used to indicate that the datastore is an output of a DataTransformer. This is now lint checked by DataTransformer in the DSL. Users dont specify how to ingest the output datastore of a DataTransformer, it's done automatically by the DataPlatform.
 
 
-```mermaid
+
+
 
 
 ## How will a DataTransformer work?

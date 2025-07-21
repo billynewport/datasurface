@@ -3472,6 +3472,9 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
             if (workSpaceI.team != storeI.team):
                 tree.addRaw(ConstraintViolation(f"DataTransformer {self.name} is using a datastore from a different team", ProblemSeverity.ERROR))
             self.code.lint(eco, tree.addSubTree(self.code))
+            # Output datastores must have a cmd which is a DataTransformerOutput
+            if not isinstance(self.outputDatastore.cmd, DataTransformerOutput):
+                tree.addRaw(ObjectNotSupportedByDataPlatform(self.outputDatastore.cmd, [DataTransformerOutput], ProblemSeverity.ERROR))
 
     def __eq__(self, o: object) -> bool:
         return ANSI_SQL_NamedObject.__eq__(self, o) and Documentable.__eq__(self, o) and \

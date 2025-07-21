@@ -45,6 +45,9 @@ class Credential(UserDSLObject):
             "credentialType": self.credentialType.name,
         }
 
+    def __hash__(self) -> int:
+        return hash((self.name, self.credentialType))
+
 
 class CredentialLookupException(Exception):
     """This is raised when a credential is not found in the credential store"""
