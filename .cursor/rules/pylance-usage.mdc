@@ -16,3 +16,4 @@ alwaysApply: false
 - There is a developer diary showing their thinking and decisions in Diary/BillyN, there are monthly markdown files updated constantly.
 - I always use classes for my pytest test cases and I use unittest for my testing framework. I name the test classes with a prefix of Test
 - There should be one empty line at the end of every file.
+- Place any temporary work in the tmp folder of the project.
