@@ -112,3 +112,11 @@ DataSurface supports a tabular style schema and an Avro schema with a record as 
 ## Dataset partitioning
 
 Producers specify a partitioning strategy for ingestion as part of their metadata. This works in terms of splitting the data for efficient ingestion. The problem is consumers, in my experience, sometimes want a different partitioning strategy. Re-partitioning a dataset is actually very expensive to do. For now, consumers cannot specify alternative partitioning strategies but this is something that could be added in the future.
+
+## Datastores requiring approval of Consumers
+
+It's possible for a Workspace/DSG to use a dataset without the Datastore owner knowing. If that consumer was used for critical reporting or regulatory reporting then if the data producer doesn't know about it then this can cause issues down the line with expectations.
+
+Every datastore can specify an optional set of consumers who are allowed to use the datastore. These approvals if specified will be used to check that a consumer is allowed to use the datastore. The linting for teh consumer will fail if the consumer is not approved by the producer. The producer can then approve the consumer by adding the consumer (Workspace name/DSG name/dataset name) to the datastore. At which point the consumer linting will pass they refresh to a version of the model which has the approval.
+
+This approval mechanism is optional. A Data producer whose approval set is None has disabled this feature. If they specify even an empty set then approval is required.

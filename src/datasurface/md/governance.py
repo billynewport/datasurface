@@ -1190,20 +1190,54 @@ class DatasetPerTopicKafkaIngestion(KafkaIngestion):
         super().__init__(kafkaServer, *args)
 
 
+class DatasetDSGApproval(UserDSLObject):
+    """This is simply a record that a Workspace/DSG was approved to use a specific dataset in a datastore."""
+    def __init__(self, workspace: str, dsg: str, datasetName: str) -> None:
+        UserDSLObject.__init__(self)
+        self.workspace: str = workspace
+        self.dsg: str = dsg
+        self.datasetName: str = datasetName
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "workspace": self.workspace, "dsg": self.dsg, "datasetName": self.datasetName}
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, DatasetDSGApproval):
+            return self.workspace == other.workspace and self.dsg == other.dsg and self.datasetName == other.datasetName
+        return False
+
+    def __str__(self) -> str:
+        return f"DatasetDSGApproval({self.workspace}, {self.dsg}, {self.datasetName})"
+
+    def __hash__(self) -> int:
+        return hash(self.workspace + self.dsg + self.datasetName)
+
+    def lint(self, eco: 'Ecosystem', store: 'Datastore', tree: ValidationTree) -> None:
+        # Nothing to do, approvals can be added before the Workspace/DSG/Dataset exists. We run the risk
+        # here of typos causing delays with approvals but this can't be avoided as team A using repo A may
+        # own the datastore and team B using a different repo may want to use it. Permissions on Ecosystem
+        # model updates mean the approval has to be added in a commit before the Workspace/DSG/Dataset exists.
+        pass
+
+
 class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
 
     """This is a named group of datasets. It describes how to capture the data and make it available for processing"""
     def __init__(self, name: str,
-                 *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo],
+                 *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo, DatasetDSGApproval],
                  datasets: Optional[list[Dataset]] = None,
                  capture_metadata: Optional[CaptureMetaData] = None,
                  documentation: Optional[Documentation] = None,
                  production_status: Optional[ProductionStatus] = None,
-                 deprecation_info: Optional[DeprecationInfo] = None) -> None:
+                 deprecation_info: Optional[DeprecationInfo] = None,
+                 datasetDSGApprovals: Optional[set[DatasetDSGApproval]] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, documentation)
         JSONable.__init__(self)
         self.datasets: dict[str, Dataset] = OrderedDict()
+
+        # If none then approval are not required. If even an empty list then approval is required.
+        self.datasetDSGApprovals: Optional[set[DatasetDSGApproval]] = datasetDSGApprovals
         self.key: Optional[DatastoreKey] = None
         self.cmd: Optional[CaptureMetaData] = capture_metadata
         self.productionStatus: ProductionStatus = production_status if production_status is not None else ProductionStatus.NOT_PRODUCTION
@@ -1232,6 +1266,17 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
         # Process *args using existing add method
         self.add(*args)
 
+    def isDatasetDSGApproved(self, workspace: str, dsg: str, datasetName: str) -> bool:
+        """Returns true if the dataset/dsg is approved"""
+        # If approvals are not required, allow all access
+        if self.datasetDSGApprovals is None:
+            return True
+
+        # For better performance with large approval lists, we could maintain a set
+        # For now, keeping the simple implementation but with proper iteration
+        key: DatasetDSGApproval = DatasetDSGApproval(workspace, dsg, datasetName)
+        return key in self.datasetDSGApprovals
+
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
         rc.update(Documentable.to_json(self))
@@ -1244,12 +1289,14 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
             rc.update({"doc": self.documentation.to_json()})
         rc.update({"productionStatus": self.productionStatus.name})
         rc.update({"deprecationStatus": self.deprecationStatus.to_json()})
+        if (self.datasetDSGApprovals is not None):
+            rc.update({"datasetDSGApprovals": [a.to_json() for a in self.datasetDSGApprovals]})
         return rc
 
     def setTeam(self, tdKey: TeamDeclarationKey):
         self.key = DatastoreKey(tdKey, self.name)
 
-    def add(self, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo]) -> None:
+    def add(self, *args: Union[Dataset, CaptureMetaData, Documentation, ProductionStatus, DeprecationInfo, DatasetDSGApproval]) -> None:
         for arg in args:
             if (type(arg) is Dataset):
                 d: Dataset = arg
@@ -1265,6 +1312,11 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
                 self.productionStatus = arg
             elif (isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
+            elif (isinstance(arg, DatasetDSGApproval)):
+                # Initialize approvals list if it doesn't exist
+                if self.datasetDSGApprovals is None:
+                    self.datasetDSGApprovals = set()
+                self.datasetDSGApprovals.add(arg)
             elif (isinstance(arg, Documentation)):
                 doc: Documentation = arg
                 self.documentation = doc
@@ -1278,7 +1330,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
             return ANSI_SQL_NamedObject.__eq__(self, other) and Documentable.__eq__(self, other) and \
                 self.datasets == other.datasets and self.cmd == other.cmd and \
                 self.productionStatus == other.productionStatus and self.deprecationStatus == other.deprecationStatus and \
-                self.key == other.key
+                self.key == other.key and self.datasetDSGApprovals == other.datasetDSGApprovals
         return False
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', storeTree: ValidationTree) -> None:
@@ -1301,6 +1353,9 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
             storeTree.addRaw(AttributeNotSet("CaptureMetaData not set"))
         if (len(self.datasets) == 0):
             storeTree.addRaw(AttributeNotSet("No datasets in store"))
+        if (self.datasetDSGApprovals is not None):
+            for approval in self.datasetDSGApprovals:
+                approval.lint(eco, self, storeTree.addSubTree(approval))
 
     def checkForBackwardsCompatibility(self, other: object, vTree: ValidationTree) -> bool:
         """This checks if the other datastore is backwards compatible with this one. This means that the other datastore
@@ -3027,7 +3082,7 @@ class DatasetSink(UserDSLObject):
     def __hash__(self) -> int:
         return hash(f"{self.storeName}/{self.datasetName}")
 
-    def lint(self, eco: Ecosystem, team: Team, ws: 'Workspace', tree: ValidationTree):
+    def lint(self, eco: Ecosystem, team: Team, ws: 'Workspace', dsg: 'DatasetGroup', tree: ValidationTree):
         """Check the DatasetSink meets all policy checks"""
         if not is_valid_sql_identifier(self.storeName):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetSink store name {self.storeName}", ProblemSeverity.ERROR))
@@ -3040,6 +3095,10 @@ class DatasetSink(UserDSLObject):
             storeI: Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.storeName)
             if storeI:
                 store: Datastore = storeI.datastore
+                # If approvals are required, check this DSG is in the store approval list
+                if (not store.isDatasetDSGApproved(ws.name, dsg.name, self.datasetName)):
+                    tree.addRaw(ConstraintViolation(
+                        f"Dataset {self.storeName}:{self.datasetName} is not approved for use in {ws.name}#{dsg.name}", ProblemSeverity.ERROR))
                 # Check Workspace dataContainer locations are compatible with the Datastore gz policies
                 if (store.key):
                     gzStore: GovernanceZone = eco.getZoneOrThrow(store.key.gzName)
@@ -3239,7 +3298,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
             tree.addRaw(NameMustBeSQLIdentifier(f"DatasetGroup name {self.name}", ProblemSeverity.ERROR))
         for sink in self.sinks.values():
             sinkTree: ValidationTree = tree.addSubTree(sink)
-            sink.lint(eco, team, ws, sinkTree)
+            sink.lint(eco, team, ws, self, sinkTree)
         if (self.platformMD):
             # PlatformChooser needs to choose a platform and that platform must perfectly match the same named platform in the Ecosystem
             platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)

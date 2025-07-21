@@ -121,4 +121,8 @@ Dataplatforms are the underlying mechanism for how data arrives in Data containe
 
 The view is usually an important abstraction as it provides the data platform flexibility if columns are added to the dataset. A new table can be created and provisioned with the new column while existing consumers continue to use the existing table and views. The Dataplatform will simultaenously keep the original table up to date. When the new table has caught up and is ready for use then the data platform would alter the consumer views to point at the new table and then delete the old table.
 
+## Producer approval of consumers
+
+It's possible that a datastore owners requires explicit approval for a consumer to use a dataset before it can be used. See [Datastores](Datastores.md) for more information.
+
 [See Data Platforms for more information](DataPlatform.md)
