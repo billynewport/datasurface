@@ -201,6 +201,52 @@ def resetBatchState(modelFolderName: str, platformName: str, storeName: str, dat
     dp.resetBatchState(eco, storeName, datasetName)
 
 
+def executeDataTransformerJob(modelFolderName: str, platformName: str, workspaceName: str, workingFolder: str) -> None:
+    """Execute a DataTransformer job for a specific workspace.
+
+    Args:
+        modelFolderName: Model folder name (containing eco.py)
+        platformName: Name of the DataPlatform
+        workspaceName: Name of the workspace containing the DataTransformer
+        workingFolder: Working folder for temporary files
+    """
+    from datasurface.platforms.yellow.transformerjob import DataTransformerJob
+    from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+
+    # Load the model
+    eco: Optional[Ecosystem]
+    ecoTree: Optional[ValidationTree]
+    eco, ecoTree = loadEcosystemFromEcoModule(modelFolderName)
+    if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
+        if ecoTree is not None:
+            ecoTree.printTree()
+        raise Exception(f"Failed to load ecosystem from {modelFolderName}")
+
+    assert eco is not None
+
+    # Find the platform
+    dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
+
+    # Ensure it's a YellowDataPlatform
+    if not isinstance(dp, YellowDataPlatform):
+        raise Exception(f"Platform {platformName} is not a YellowDataPlatform")
+
+    # Get credential store
+    credStore = dp.getCredentialStore()
+
+    # Create and execute the DataTransformer job
+    job = DataTransformerJob(eco, credStore, dp, workspaceName, workingFolder)
+    status = job.run()
+
+    print(f"DataTransformer job completed with status: {status.name}")
+
+    # Exit with appropriate code for Airflow to understand
+    if status.name == "DONE":
+        exit(0)  # Success
+    else:
+        exit(1)  # Error
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Platform utilities for DataSurface")
@@ -226,6 +272,13 @@ if __name__ == "__main__":
     parser_reset.add_argument("--store", required=True, help="Datastore name to reset")
     parser_reset.add_argument("--dataset", required=False, help="Optional dataset name for single-dataset reset")
 
+    # Subcommand: executeDataTransformerJob
+    parser_dt = subparsers.add_parser("executeDataTransformerJob", help="Execute a DataTransformer job")
+    parser_dt.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
+    parser_dt.add_argument("--platform", required=True, help="DataPlatform name")
+    parser_dt.add_argument("--workspace", required=True, help="Workspace name containing the DataTransformer")
+    parser_dt.add_argument("--working-folder", required=True, help="Working folder for temporary files")
+
     args = parser.parse_args()
     if args.command == "generatePlatformBootstrap":
         generatePlatformBootstrap(args.ringLevel, args.model, args.output, *args.platform)
@@ -233,5 +286,7 @@ if __name__ == "__main__":
         handleModelMerge(args.model, args.output, *args.platform)
     elif args.command == "resetBatchState":
         resetBatchState(args.model, args.platform, args.store, args.dataset)
+    elif args.command == "executeDataTransformerJob":
+        executeDataTransformerJob(args.model, args.platform, args.workspace, getattr(args, 'working_folder'))
     else:
         parser.print_help()

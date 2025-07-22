@@ -72,6 +72,9 @@ The DataTransformer runs against all the datasets in a Workspace. It creates its
 
 The security module should make the dt_ tables writeable by the DataTransformer credentials and dev ops members. Note, ideally, a devops team member should only be able to access these tables or any aspect of the system using a traceable temporary credential whose assignment is approved by a senior devops member. Nobody should have default access to the system. These approvals should be based on a ticket being opened for a task which requires access to the system. All access including terminal logs, commands executed, keystrokes if needed should be logged. All actions performed by the temporary credential should be logged and reviewed quickly by a senior devops member.
 
+## Local test harness
+
+I need to create a test case which fakes running a simple DataTransformer against a local merge database. It should be able to run a sample transformer after mocking the git clone and so on. We can verify the output in the output tables. I'm thinking a simple test with a people datastore input and a masked people output datastore. The transformer can simply mask some fields.
 ## Factory DAG modifications
 
 The factory DAG needs to create the extra DAGs for the DataTransformers. For each DataTransformer it will need:
@@ -79,3 +82,10 @@ The factory DAG needs to create the extra DAGs for the DataTransformers. For eac
 * A task sensor monitoring all the datasets on each DataTransformers Workspace using an OR operator.
 * A DAG to execute the DataTransformer code in a job pod triggered by the task sensor.
 * A task which runs after the DataTransformer code completes to trigger a normal ingestion job for the output Datastore tables.
+
+I don't plan on disrupting the existing ingestion DAGs. I'd like to implement the DataTransformer DAGs as independently as possible. The Data Transformer DAG needs an external sensor to trigger it when any of the ingestion stream DAGs complete that are used by the DataTransformer (the Workspace DSG DatasetSinks). There needs to be a special ingestion stream for datatransformer output datastore ingestion streams. This DAG has an external trigger watching for the data transformer job to complete.
+
+## Model Merge Handler modifications
+
+This handler currently creates the DAG tables and inserts a single row per ingestion stream in that table. The factory DAG reads this table and creates the ingestion DAGs, one per record in the table. We now need to add another table for DataTransformers. We need to similarly insert a row per DataTransformer. The factory DAG will read this table and create the DataTransformer DAGs, one per record in the table.
+
