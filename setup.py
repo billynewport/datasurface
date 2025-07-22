@@ -14,7 +14,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='datasurface',
-    version='0.0.25',
+    version='0.0.26',
     license='BSL_v1.1',
     description='Automate the governance, management and movement of data within your enterprise',
     long_description=long_description,
@@ -35,7 +35,8 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     include_package_data=True,
-    package_data={"datasurface": ["*.pyi", "**/*.pyi", "py.typed"]},  # Include .pyi files and py.typed file
+    package_data={"datasurface": ["py.typed", "*.pyi", "**/*.pyi"]},  # Include py.typed file and type stubs
+    zip_safe=False,  # Required for py.typed to work properly
     install_requires=requirements,
     # Modules with DataPlatforms should register their entry points here
     entry_points={

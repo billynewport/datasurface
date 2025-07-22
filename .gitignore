@@ -9,6 +9,7 @@ src/datasurface/md/__pycache__/Governance.cpython-311.pyc
 dist/*
 src/datasurface.egg-info/*
 **/*.pyi
+
 **/.terraform/*
 **/*.hcl
 **/*.class
