@@ -196,11 +196,16 @@ kubectl wait --for=condition=complete job/yellowforensic-ring1-init -n ns-yellow
 
 ### Step 4: Verify Airflow Services
 
-Airflow should initialize automatically with the consistent secret configuration.
+Airflow requires database initialization before the webserver can start properly.
 
 ```bash
-# Wait for Airflow services to be ready
+# Wait for Airflow scheduler to be ready
 kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n ns-yellow-starter --timeout=300s
+
+# Initialize Airflow database (required for webserver to start)
+kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- airflow db init
+
+# Wait for Airflow webserver to be ready (after database initialization)
 kubectl wait --for=condition=ready pod -l app=airflow-webserver -n ns-yellow-starter --timeout=300s
 
 # Verify Airflow database connection

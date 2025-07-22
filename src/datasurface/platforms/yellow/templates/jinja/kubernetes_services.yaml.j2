@@ -3,6 +3,48 @@ kind: Namespace
 metadata:
   name: {{ namespace_name }}
 ---
+# Airflow Service Account for RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-service-account
+  namespace: {{ namespace_name }}
+---
+# Airflow Role for Pod Management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: {{ namespace_name }}
+  name: airflow-pod-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list"]
+---
+# Airflow RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-pod-manager-binding
+  namespace: {{ namespace_name }}
+subjects:
+- kind: ServiceAccount
+  name: airflow-service-account
+  namespace: {{ namespace_name }}
+roleRef:
+  kind: Role
+  name: airflow-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
 # PostgreSQL PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -141,6 +183,7 @@ spec:
       labels:
         app: {{ airflow_name }}-scheduler
     spec:
+      serviceAccountName: airflow-service-account
       initContainers:
       - name: airflow-db-init
         image: apache/airflow:2.8.1
@@ -247,6 +290,7 @@ spec:
       labels:
         app: {{ airflow_name }}-webserver
     spec:
+      serviceAccountName: airflow-service-account
       containers:
         - name: airflow-webserver
           image: apache/airflow:2.8.1

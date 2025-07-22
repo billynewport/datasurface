@@ -227,3 +227,30 @@ This implementation provides flexible DataTransformer execution patterns while m
 ## Issues
 
 While trying to bring this up, I noticed that DSG linting requires a platformMD to be specified. A terminal Workspace is a user facing Workspace where they specified requirements. A terminal Workspace cannot have a DataTransformer because that would be no consumer for the output datastore. A DataTransformer is only included in a pipeline graph IFF there is a consumer for its output datastore. The lint for Workspace needs to be updated to reflect either platformMD or a dataTransformer. DataTransformer workspaces basically implicitly use the platformMD of the terminal Workspace which caused it to be included in the pipeline graph based on that terminal Workspace's dataset requirements.
+
+Fixed.
+
+## Separate the execute transformer job to use its own CLI main in that file.
+
+### Implementation Status: ✅ COMPLETED
+
+The `transformerjob.py` now has its own CLI main function that:
+
+- **Accepts DataTransformer-specific arguments**: `--platform-name`, `--workspace-name`, `--operation`, `--working-folder`, etc.
+- **Handles ecosystem model loading**: Clones git repository and loads the latest model
+- **Validates workspace configuration**: Ensures workspace exists and has a DataTransformer
+- **Executes DataTransformer jobs**: Creates and runs `DataTransformerJob` instances
+- **Returns proper exit codes**: 0 for success, 1 for keep working, -1 for errors
+- **Follows same pattern as jobs.py**: Uses `DATASURFACE_RESULT_CODE` for Airflow log parsing
+
+DataTransformer DAGs now call `transformerjob.py` directly instead of going through `jobs.py`, providing better separation of concerns and cleaner code organization.
+
+#### Updated DataTransformer Factory DAG Template
+
+The `datatransformer_factory_dag.py.j2` template has been updated to:
+
+- **Call the new CLI**: Uses `python -m datasurface.platforms.yellow.transformerjob` instead of `jobs`
+- **Simplified arguments**: Removes unnecessary database connection arguments (handled internally)
+- **Correct parameter order**: Matches the new CLI interface for `transformerjob.py`
+- **Cleaner separation**: DataTransformer execution is now completely separated from regular ingestion jobs
+

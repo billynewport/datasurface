@@ -11,7 +11,7 @@ from sqlalchemy import Engine, text
 from datasurface.platforms.yellow.jobs import createEngine
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
 from typing import cast, Dict, Any, Optional, Callable
-from datasurface.cmd.platform import cloneGitRepository
+from datasurface.cmd.platform import cloneGitRepository, getLatestModelAtTimestampedFolder
 import os
 import sys
 import copy
@@ -21,6 +21,9 @@ from sqlalchemy.engine import Connection
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 import sqlalchemy
 from sqlalchemy import Table
+import argparse
+from datasurface.md.repo import GitHubRepository
+from datasurface.md.lint import ValidationTree
 
 
 class DataTransformerJob(JobUtilities):
@@ -148,3 +151,93 @@ class DataTransformerJob(JobUtilities):
         except Exception as e:
             print(f"DataTransformer job failed: {e}")
             return JobStatus.ERROR
+
+
+def main():
+    """Main entry point for the DataTransformerJob when run as a command-line tool."""
+    parser = argparse.ArgumentParser(description='Run DataTransformerJob for a specific workspace')
+    parser.add_argument('--platform-name', required=True, help='Name of the platform')
+    parser.add_argument('--workspace-name', required=True, help='Name of the workspace')
+    parser.add_argument('--operation', default='run-datatransformer', help='Operation to perform')
+    parser.add_argument('--working-folder', default='/tmp/datatransformer', help='Working folder for temporary files')
+    parser.add_argument('--git-repo-path', required=True, help='Path to the git repository')
+    parser.add_argument('--git-repo-owner', required=True, help='GitHub repository owner (e.g., billynewport)')
+    parser.add_argument('--git-repo-name', required=True, help='GitHub repository name (e.g., mvpmodel)')
+    parser.add_argument('--git-repo-branch', required=True, help='GitHub repository branch (e.g., main)')
+
+    args = parser.parse_args()
+
+    # Ensure the working directory exists
+    os.makedirs(args.working_folder, exist_ok=True)
+
+    # Clone the git repository if the directory is empty
+    if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
+        git_token = os.environ.get('git_TOKEN')
+        if not git_token:
+            print("ERROR: git_TOKEN environment variable not found")
+            return -1
+
+    # Ensure the directory exists
+    os.makedirs(args.git_repo_path, exist_ok=True)
+
+    eco: Optional[Ecosystem] = None
+    tree: Optional[ValidationTree] = None
+    eco, tree = getLatestModelAtTimestampedFolder(
+        GitHubRepository(f"{args.git_repo_owner}/{args.git_repo_name}", args.git_repo_branch), args.git_repo_path, doClone=True)
+    if tree is not None and tree.hasErrors():
+        print("Ecosystem model has errors")
+        tree.printTree()
+        return -1  # ERROR
+    if eco is None or tree is None:
+        print("Failed to load ecosystem")
+        return -1  # ERROR
+
+    if args.operation == "run-datatransformer":
+        print(f"Running {args.operation} for platform: {args.platform_name}, workspace: {args.workspace_name}")
+
+        dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
+        if dp is None:
+            print(f"Unknown platform: {args.platform_name}")
+            return -1  # ERROR
+
+        # Check if the workspace exists
+        wce: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(args.workspace_name)
+        if wce is None:
+            print(f"Unknown workspace: {args.workspace_name}")
+            return -1  # ERROR
+
+        workspace: Workspace = wce.workspace
+        if workspace.dataTransformer is None:
+            print(f"Workspace {args.workspace_name} has no DataTransformer")
+            return -1  # ERROR
+
+        # Create and run the DataTransformer job
+        job: DataTransformerJob = DataTransformerJob(eco, dp.getCredentialStore(), dp, args.workspace_name, args.working_folder)
+        jobStatus: JobStatus = job.run()
+
+        if jobStatus == JobStatus.DONE:
+            print("DataTransformer job completed successfully")
+            return 0  # DONE
+        elif jobStatus == JobStatus.KEEP_WORKING:
+            print("DataTransformer job is still in progress")
+            return 1  # KEEP_WORKING
+        else:
+            print("DataTransformer job failed")
+            return -1  # ERROR
+    else:
+        print(f"Unknown operation: {args.operation}")
+        return -1  # ERROR
+
+
+if __name__ == "__main__":
+    try:
+        exit_code = main()
+        print(f"DATASURFACE_RESULT_CODE={exit_code}")
+    except Exception as e:
+        print(f"Unhandled exception in main: {e}")
+        import traceback
+        traceback.print_exc()
+        print("DATASURFACE_RESULT_CODE=-1")
+        exit_code = -1
+    # Always exit with 0 (success) - Airflow will parse the result code from logs
+    sys.exit(0)
