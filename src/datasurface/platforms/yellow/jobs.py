@@ -15,7 +15,7 @@ from sqlalchemy.types import Integer, String, TIMESTAMP
 from sqlalchemy.engine.row import Row
 from enum import Enum
 from typing import cast, List, Any, Optional
-from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
+from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion, DataTransformerOutput
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.yellow.db_utils import createEngine
 
@@ -125,13 +125,24 @@ class JobUtilities(ABC):
 
     def getRawBaseTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
         """This returns the base table name for a dataset"""
-        assert isinstance(store.cmd, SQLIngestion)
-        return f"{store.name}_{dataset.name if dataset.name not in store.cmd.tableForDataset else store.cmd.tableForDataset[dataset.name]}"
+        if isinstance(store.cmd, SQLIngestion):
+            return f"{store.name}_{dataset.name if dataset.name not in store.cmd.tableForDataset else store.cmd.tableForDataset[dataset.name]}"
+        elif isinstance(store.cmd, DataTransformerOutput):
+            return f"{store.name}_{dataset.name}"  # ✅ Simple base name without circular call
+        else:
+            raise Exception(f"Unknown store command type: {type(store.cmd)}")
 
     def getRawMergeTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
         return self.dp.getTableForPlatform(tableName + "_merge")
+
+    def getDataTransformerOutputTableNameForDatasetForIngestionOnly(self, store: Datastore, dataset: Dataset) -> str:
+        """This returns the DataTransformer output table name for a dataset (dt_ prefix) for ingestion only. Merged tables are stored in the
+        normal merge table notation. The dt prefix is ONLY used for the output tables for a DataTransformer when doing the ingestion
+        of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
+        tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
+        return self.dp.getTableForPlatform(f"dt_{tableName}")
 
 
 class YellowDatasetUtilities(JobUtilities):
@@ -141,7 +152,6 @@ class YellowDatasetUtilities(JobUtilities):
         self.store: Datastore = store
         self.datasetName: Optional[str] = datasetName
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
-        self.cmd: SQLIngestion = cast(SQLIngestion, store.cmd)
 
     def checkForSchemaChanges(self, state: BatchState) -> None:
         """Check if any dataset schemas have changed since batch start"""
@@ -456,8 +466,8 @@ class Job(YellowDatasetUtilities):
         newBatchId: int
         with mergeEngine.begin() as connection:
             # Create a new batch
-            assert self.cmd is not None
-            if self.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
+            assert self.store.cmd is not None
+            if self.store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
                 assert self.dataset is not None
                 newBatchId = self.createSingleBatch(self.store, connection)
             else:
@@ -616,7 +626,7 @@ class Job(YellowDatasetUtilities):
             return JobStatus.DONE
         return JobStatus.ERROR
 
-    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
+    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
         """This will make sure the staging table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
@@ -626,7 +636,7 @@ class Job(YellowDatasetUtilities):
             # Create performance indexes for staging table
             self.createStagingTableIndexes(mergeEngine, tableName)
 
-    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
+    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
         """This will make sure the merge table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
@@ -646,29 +656,42 @@ class Job(YellowDatasetUtilities):
             self.createMergeTableIndexes(mergeEngine, tableName)
 
     def run(self) -> JobStatus:
-        # First, get a connection to the source database
-        cmd: SQLSnapshotIngestion = cast(SQLSnapshotIngestion, self.store.cmd)
-        assert cmd.credential is not None
+        # Check if this is a DataTransformer output store
+        isDataTransformerOutput = isinstance(self.store.cmd, DataTransformerOutput)
 
         # Now, get a connection to the merge database
         mergeUser, mergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
         mergeEngine: Engine = createEngine(self.dp.mergeStore, mergeUser, mergePassword)
 
-        # Now, get an Engine for the source database
-        sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
-        assert self.store.cmd.dataContainer is not None
-        sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
+        ingestionType: IngestionConsistencyType = IngestionConsistencyType.MULTI_DATASET
+        if isDataTransformerOutput:
+            # For DataTransformer output, source and merge are the same (merge database)
+            sourceEngine: Engine = mergeEngine
+            ingestionType = IngestionConsistencyType.MULTI_DATASET
+        elif isinstance(self.store.cmd, SQLIngestion):
+            # First, get a connection to the source database
+            cmd: SQLIngestion = cast(SQLIngestion, self.store.cmd)
+            assert cmd.credential is not None
+
+            # Now, get an Engine for the source database
+            sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
+            assert self.store.cmd.dataContainer is not None
+            sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
+            assert cmd.singleOrMultiDatasetIngestion is not None
+            ingestionType = cmd.singleOrMultiDatasetIngestion
+        else:
+            raise Exception(f"Unknown store command type: {type(self.store.cmd)}")
 
         # Make sure the staging and merge tables exist and have the current schema for each dataset
-        self.reconcileStagingTableSchemas(mergeEngine, self.store, cmd)
-        self.reconcileMergeTableSchemas(mergeEngine, self.store, cmd)
+        self.reconcileStagingTableSchemas(mergeEngine, self.store)
+        self.reconcileMergeTableSchemas(mergeEngine, self.store)
 
         # Create batch counter and metrics tables if they don't exist
         self.createBatchCounterTable(mergeEngine)
         self.createBatchMetricsTable(mergeEngine)
 
         # Check current batch status to determine what to do
-        if cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
+        if ingestionType == IngestionConsistencyType.SINGLE_DATASET:
             # For single dataset ingestion, process each dataset separately
             for dataset in self.store.datasets.values():
                 key = f"{self.store.name}#{dataset.name}"
@@ -678,6 +701,19 @@ class Job(YellowDatasetUtilities):
             key = self.store.name
             currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus
+
+    def getSourceTableName(self, dataset: Dataset) -> str:
+        """This returns the source table name for a dataset"""
+        if isinstance(self.store.cmd, DataTransformerOutput):
+            return self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
+        elif isinstance(self.store.cmd, SQLIngestion):
+            if dataset.name not in self.store.cmd.tableForDataset:
+                tableName: str = dataset.name
+            else:
+                tableName: str = self.store.cmd.tableForDataset[dataset.name]
+            return tableName
+        else:
+            raise Exception(f"Unknown store command type: {type(self.store.cmd)}")
 
     def baseIngestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
@@ -704,9 +740,12 @@ class Job(YellowDatasetUtilities):
                 datasetToIngestName: str = state.getCurrentDataset()
                 dataset: Dataset = self.store.datasets[datasetToIngestName]
 
-                # Get source table name using mapping if necessary
-                tableName: str = datasetToIngestName if datasetToIngestName not in self.cmd.tableForDataset else self.cmd.tableForDataset[datasetToIngestName]
-                sourceTableName: str = tableName
+                # Get source table name - for DataTransformer output, use dt_ prefixed tables
+                if isinstance(self.store.cmd, DataTransformerOutput):
+                    sourceTableName: str = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
+                else:
+                    # Get source table name using mapping if necessary
+                    sourceTableName: str = self.getSourceTableName(dataset)
 
                 # Get destination staging table name
                 stagingTableName: str = self.getStagingTableNameForDataset(dataset)
@@ -1326,7 +1365,7 @@ def main():
         return -1  # ERROR
 
     if args.operation == "snapshot-merge":
-        print(f"Running SnapshotMergeJob for platform: {args.platform_name}, store: {args.store_name}")
+        print(f"Running {args.operation} for platform: {args.platform_name}, store: {args.store_name}")
         if args.dataset_name:
             print(f"Dataset: {args.dataset_name}")
 
@@ -1363,9 +1402,12 @@ def main():
                     print("Multi dataset ingestion does not require a dataset name")
                     return -1  # ERROR
 
-        if store.cmd is None:
-            print(f"Store {args.store_name} has no credential")
-            return -1  # ERROR
+        # DataTransformer output stores don't need external credentials
+        if not isinstance(store.cmd, DataTransformerOutput):
+            cmd = cast(SQLSnapshotIngestion, store.cmd)
+            if cmd.credential is None:
+                print(f"Store {args.store_name} has no credential")
+                return -1  # ERROR
 
         if args.dataset_name:
             dataset: Optional[Dataset] = store.datasets.get(args.dataset_name)

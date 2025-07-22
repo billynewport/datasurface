@@ -30,10 +30,6 @@ class DataTransformerJob(JobUtilities):
         self.workspaceName: str = workspaceName
         self.workingFolder: str = workingFolder
 
-    def getOutputTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
-        """This returns the output table name for a dataset"""
-        return f"dt_{self.getRawMergeTableNameForDataset(store, dataset)}"
-
     def _buildDatasetMapping(self, workspace: Workspace, outputDatastore: Datastore) -> Dict[str, str]:
         """Build a mapping from store#dataset names to table names for the workspace."""
         dataset_mapping: Dict[str, str] = {}
@@ -52,7 +48,7 @@ class DataTransformerJob(JobUtilities):
         for dataset in outputDatastore.datasets.values():
             # Need the prefix incase the output datastore is also in the inputs on the workspace
             store_dataset_key = f"dt_{outputDatastore.name}#{dataset.name}"
-            table_name = self.getOutputTableNameForDataset(outputDatastore, dataset)
+            table_name = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
             dataset_mapping[store_dataset_key] = table_name
 
         return dataset_mapping
@@ -60,7 +56,7 @@ class DataTransformerJob(JobUtilities):
     def _truncateOutputTables(self, connection: Connection, outputDatastore: Datastore) -> None:
         """Truncate all output tables for the DataTransformer."""
         for dataset in outputDatastore.datasets.values():
-            table_name = self.getOutputTableNameForDataset(outputDatastore, dataset)
+            table_name = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
             try:
                 connection.execute(text(f"TRUNCATE TABLE {table_name}"))
                 print(f"Truncated output table: {table_name}")
@@ -129,7 +125,8 @@ class DataTransformerJob(JobUtilities):
             # Create or update the output tables
             for dataset in outputDatastore.datasets.values():
                 store: Datastore = self.eco.cache_getDatastoreOrThrow(outputDatastore.name).datastore
-                t: Table = datasetToSQLAlchemyTable(dataset, self.getOutputTableNameForDataset(store, dataset), sqlalchemy.MetaData())
+                t: Table = datasetToSQLAlchemyTable(
+                    dataset, self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData())
                 createOrUpdateTable(systemMergeEngine, t)
 
             # Execute the transformer in a transaction

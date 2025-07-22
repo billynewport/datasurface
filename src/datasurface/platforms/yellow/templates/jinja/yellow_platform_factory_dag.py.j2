@@ -338,16 +338,18 @@ factory_dag = DAG(
 
 def find_existing_factory_dags():
     """
-    Find all DAGs in globals() that were previously created by this factory.
-    Uses naming convention: {{ platform_name }}__*_ingestion
+    Find all DAGs in globals() that were previously created by this ingestion factory.
+    Uses naming convention to identify regular ingestion DAGs and excludes DataTransformer DAGs.
+    Pattern: {{ platform_name }}__*_ingestion (but NOT *_dt_ingestion or *_datatransformer)
     """
     factory_dags = {}
     platform_prefix = "{{ platform_name }}__"
-    ingestion_suffix = "_ingestion"
     
     for name, obj in globals().items():
         if (name.startswith(platform_prefix) and 
-            name.endswith(ingestion_suffix) and 
+            name.endswith("_ingestion") and 
+            not name.endswith("_dt_ingestion") and  # Exclude DataTransformer output DAGs
+            not name.endswith("_datatransformer") and  # Exclude DataTransformer execution DAGs
             hasattr(obj, 'dag_id')):
             factory_dags[name] = obj
     

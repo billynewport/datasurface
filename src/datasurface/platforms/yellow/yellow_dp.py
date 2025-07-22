@@ -9,7 +9,7 @@ from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace
-from datasurface.md.governance import DatasetGroup
+from datasurface.md.governance import DatasetGroup, DataTransformerOutput
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
     ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
 from datasurface.md.exceptions import ObjectDoesntExistException
@@ -636,6 +636,142 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         except Exception as e:
             issueTree.addRaw(UnexpectedExceptionProblem(e))
 
+    def populateDataTransformerConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
+        """Populate the database with DataTransformer configurations for dynamic DAG factory"""
+        from sqlalchemy import text
+        from datasurface.platforms.yellow.db_utils import createEngine
+
+        # Get database connection
+        user, password = self.dp.credStore.getAsUserPassword(self.dp.postgresCredential)
+        engine = createEngine(self.dp.mergeStore, user, password)
+
+        # Build the DataTransformer configurations from the graph
+        datatransformer_configs: list[dict[str, Any]] = []
+
+        for workspaceName, workspace in self.graph.workspaces.items():
+            # Only process workspaces that have a DataTransformer
+            if workspace.dataTransformer is not None:
+                try:
+                    # Get the output datastore
+                    outputDatastore = workspace.dataTransformer.outputDatastore
+
+                    # Build list of input DAG IDs that this DataTransformer depends on
+                    input_dag_ids: list[str] = []
+                    input_dataset_list: list[str] = []
+
+                    # Get all datasets used by this workspace (inputs to the DataTransformer)
+                    for dsg in workspace.dsgs.values():
+                        for sink in dsg.sinks.values():
+                            # Map to the ingestion DAG ID using the same logic as populateDAGConfigurations
+                            storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(sink.storeName)
+                            store: Datastore = storeEntry.datastore
+
+                            # Determine DAG ID based on store type
+                            if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion)):
+                                # Regular ingestion store
+                                is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
+
+                                # Use the same stream_key logic as the ingestion factory
+                                if is_single_dataset:
+                                    stream_key = f"{sink.storeName}_{sink.datasetName}"
+                                else:
+                                    stream_key = sink.storeName
+
+                                # Regular ingestion DAG naming pattern
+                                dag_id = f"{self.dp.to_k8s_name(self.dp.name)}__{stream_key}_ingestion"
+
+                            elif isinstance(store.cmd, DataTransformerOutput):
+                                # DataTransformer output store - use dt_ingestion naming pattern
+                                dag_id = f"{self.dp.to_k8s_name(self.dp.name)}__{sink.storeName}_dt_ingestion"
+
+                            else:
+                                # Unsupported store type, skip
+                                continue
+
+                            if dag_id not in input_dag_ids:
+                                input_dag_ids.append(dag_id)
+
+                            input_dataset_list.append(f"{sink.storeName}#{sink.datasetName}")
+
+                    # Get output dataset list
+                    output_dataset_list: list[str] = [dataset.name for dataset in outputDatastore.datasets.values()]
+
+                    # Create the configuration
+                    dt_config = {
+                        "workspace_name": workspaceName,
+                        "output_datastore_name": outputDatastore.name,
+                        "input_dag_ids": input_dag_ids,
+                        "input_dataset_list": input_dataset_list,
+                        "output_dataset_list": output_dataset_list
+                    }
+
+                    datatransformer_configs.append(dt_config)
+
+                except Exception as e:
+                    issueTree.addRaw(UnexpectedExceptionProblem(e))
+                    continue
+
+        try:
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
+
+            # Common context for all DataTransformers (platform-level configuration)
+            common_context: dict[str, Any] = {
+                "namespace_name": self.dp.namespace,
+                "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "original_platform_name": self.dp.name,  # Original platform name for job execution
+                "postgres_hostname": self.dp.mergeStore.hostPortPair.hostName,
+                "postgres_database": self.dp.mergeStore.databaseName,
+                "postgres_port": self.dp.mergeStore.hostPortPair.port,
+                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
+                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
+                "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
+                "slack_channel_name": self.dp.slackChannel,
+                "datasurface_docker_image": self.dp.datasurfaceImage,
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
+            }
+
+            # Get table name
+            table_name = self.dp.getDataTransformerTableName()
+
+            # Store configurations in database
+            with engine.begin() as connection:
+                # First, delete all existing records for this platform to ensure clean state
+                connection.execute(text(f"DELETE FROM {table_name}"))
+                print(f"Cleared existing configurations from {table_name}")
+
+                # Then insert all current configurations
+                for dt_config in datatransformer_configs:
+                    # Create complete context for this DataTransformer
+                    dt_context = common_context.copy()
+                    dt_context.update(dt_config)  # Add DataTransformer properties directly to context
+
+                    # Convert to JSON
+                    config_json = json.dumps(dt_context)
+
+                    # Insert the new configuration
+                    connection.execute(text(f"""
+                        INSERT INTO {table_name} (workspace_name, config_json, status, created_at, updated_at)
+                        VALUES (:workspace_name, :config_json, 'active', NOW(), NOW())
+                    """), {
+                        "workspace_name": dt_config["workspace_name"],
+                        "config_json": config_json
+                    })
+
+            print(f"Populated {len(datatransformer_configs)} DataTransformer configurations in {table_name}")
+
+        except Exception as e:
+            issueTree.addRaw(UnexpectedExceptionProblem(e))
+
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages. For this platform it returns a dictionary containing a terraform
@@ -647,6 +783,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Populate database with ingestion stream configurations
         self.populateDAGConfigurations(self.graph.eco, issueTree)
+
+        # Populate database with DataTransformer configurations
+        self.populateDataTransformerConfigurations(self.graph.eco, issueTree)
 
         # Return only terraform - factory DAG is created during bootstrap
         result: dict[str, str] = {
@@ -840,12 +979,26 @@ class YellowDataPlatform(DataPlatform):
         """This returns the name of the batch counter table"""
         return self.getTableForPlatform("airflow_dsg")
 
+    def getDataTransformerTableName(self) -> str:
+        """This returns the name of the DataTransformer DAG table"""
+        return self.getTableForPlatform("airflow_datatransformer")
+
     def getAirflowDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
         t: Table = Table(self.getDAGTableName(), MetaData(),
                          Column("stream_key", sqlalchemy.String(length=255), primary_key=True),
                          Column("config_json", sqlalchemy.String(length=2048)),
+                         Column("status", sqlalchemy.String(length=50)),
+                         Column("created_at", TIMESTAMP()),
+                         Column("updated_at", TIMESTAMP()))
+        return t
+
+    def getDataTransformerDAGTable(self) -> Table:
+        """This constructs the sqlalchemy table for DataTransformer DAG configurations."""
+        t: Table = Table(self.getDataTransformerTableName(), MetaData(),
+                         Column("workspace_name", sqlalchemy.String(length=255), primary_key=True),
+                         Column("config_json", sqlalchemy.String(length=4096)),
                          Column("status", sqlalchemy.String(length=50)),
                          Column("created_at", TIMESTAMP()),
                          Column("updated_at", TIMESTAMP()))
@@ -873,6 +1026,9 @@ class YellowDataPlatform(DataPlatform):
 
             # Load the factory DAG template
             factory_template: Template = env.get_template('yellow_platform_factory_dag.py.j2')
+
+            # Load the DataTransformer factory DAG template
+            datatransformer_factory_template: Template = env.get_template('datatransformer_factory_dag.py.j2')
 
             # Load the model merge job template
             model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
@@ -919,6 +1075,7 @@ class YellowDataPlatform(DataPlatform):
             rendered_yaml: str = kubernetes_template.render(context)
             rendered_infrastructure_dag: str = dag_template.render(context)
             rendered_factory_dag: str = factory_template.render(context)
+            rendered_datatransformer_factory_dag: str = datatransformer_factory_template.render(context)
             rendered_model_merge_job: str = model_merge_template.render(context)
             rendered_ring1_init_job: str = ring1_init_template.render(context)
 
@@ -927,14 +1084,16 @@ class YellowDataPlatform(DataPlatform):
                 "kubernetes-bootstrap.yaml": rendered_yaml,
                 f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
                 f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
+                f"{self.to_k8s_name(self.name)}_datatransformer_factory_dag.py": rendered_datatransformer_factory_dag,
                 f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
                 f"{self.to_k8s_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job
             }
         elif ringLevel == 1:
-            # Create the airflow dsg table if needed
+            # Create the airflow dsg table and datatransformer table if needed
             mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
             mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
             createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
+            createOrUpdateTable(mergeEngine, self.getDataTransformerDAGTable())
             return {}
         else:
             raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
