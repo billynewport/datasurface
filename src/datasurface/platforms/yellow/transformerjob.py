@@ -87,18 +87,19 @@ class DataTransformerJob(JobUtilities):
                 dataset_mapping = self._buildDatasetMapping(workspace, outputDatastore)
 
                 # Call the transformer function
+                print(f"Calling transformer function: {executeTransformer}")
                 result = executeTransformer(connection, dataset_mapping)
-
+                print(f"Transformer function result: {result}")
                 print(f"DataTransformer executed successfully for workspace: {self.workspaceName}")
                 return result
 
             except ModuleNotFoundError:
                 # Should only happen on initial setup of a repository
                 print(f"Transformer module not found in {codeDir}")
-                return None
+                raise
             except AttributeError as e:
                 print(f"createTransformer function not found in transformer module: {e}")
-                return None
+                raise
             except Exception as e:
                 print(f"Error executing transformer: {e}")
                 raise
@@ -133,6 +134,7 @@ class DataTransformerJob(JobUtilities):
                 createOrUpdateTable(systemMergeEngine, t)
 
             # Execute the transformer in a transaction
+            print("Starting Transaction for job")
             with systemMergeEngine.begin() as connection:
                 # Truncate output tables before running transformer
                 self._truncateOutputTables(connection, outputDatastore)
