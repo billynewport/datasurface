@@ -367,9 +367,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 if not isinstance(dt.code, PythonRepoCodeArtifact):
                     dtTree.addRaw(ObjectNotSupportedByDataPlatform(store, [PythonRepoCodeArtifact], ProblemSeverity.ERROR))
 
-                if dt.trigger:
+                # YellowDataPlatform supports None (sensor-based) or CronTrigger (scheduled) for DataTransformers
+                if dt.trigger is not None:
                     if not isinstance(dt.trigger, CronTrigger):
-                        dtTree.addRaw(ObjectNotSupportedByDataPlatform(store, [CronTrigger], ProblemSeverity.ERROR))
+                        dtTree.addRaw(ObjectNotSupportedByDataPlatform(dt.trigger, [CronTrigger], ProblemSeverity.ERROR))
 
             for dsg in workspace.dsgs.values():
                 dsgTree: ValidationTree = wsTree.addSubTree(dsg)
@@ -718,6 +719,15 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "input_dataset_list": input_dataset_list,
                         "output_dataset_list": output_dataset_list
                     }
+
+                    # Add schedule information if DataTransformer has a trigger
+                    if workspace.dataTransformer.trigger is not None:
+                        if isinstance(workspace.dataTransformer.trigger, CronTrigger):
+                            dt_config["schedule_string"] = workspace.dataTransformer.trigger.cron
+                        else:
+                            # This shouldn't happen due to linting, but handle gracefully
+                            dt_config["schedule_string"] = None
+                    # If no trigger, omit schedule_string (sensor-based mode)
 
                     datatransformer_configs.append(dt_config)
 

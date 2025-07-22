@@ -54,6 +54,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
     workspace_name = dt_config['workspace_name']
     output_datastore_name = dt_config['output_datastore_name']
     input_dag_ids = dt_config.get('input_dag_ids', [])
+    schedule_string = dt_config.get('schedule_string')  # None if sensor-based, cron string if scheduled
     
     # Default arguments for the DAG
     default_args = {
@@ -66,12 +67,15 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         'retry_delay': timedelta(minutes=5),
     }
 
+    # Determine schedule: use cron string if provided, otherwise None (external trigger/sensor based)
+    dag_schedule = schedule_string if schedule_string else None
+
     # Create the DAG
     dag = DAG(
         f'{platform_name}__{workspace_name}_datatransformer',
         default_args=default_args,
         description=f'DataTransformer DAG for {platform_name}__{workspace_name}',
-        schedule=None,  # External trigger only
+        schedule=dag_schedule,  # Use trigger schedule or None for sensor-based
         catchup=False,
         tags=['datasurface', 'datatransformer', platform_name, workspace_name]
     )
@@ -130,21 +134,24 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         dag=dag
     )
 
-    # External task sensors for each input dataset
+    # Create external task sensors only if no schedule (sensor-based mode)
     sensors = []
-    for i, input_dag_id in enumerate(input_dag_ids, 1):
-        sensor = ExternalTaskSensor(
-            task_id=f'wait_for_{input_dag_id.replace("__", "_").replace("-", "_")}',
-            external_dag_id=input_dag_id,
-            external_task_id='wait_for_trigger',  # Wait for the completion of the ingestion
-            allowed_states=['success'],
-            failed_states=['failed'],
-            mode='reschedule',
-            timeout=3600,  # 1 hour timeout
-            poke_interval=30,  # Check every 30 seconds
-            dag=dag
-        )
-        sensors.append(sensor)
+    if schedule_string is None:
+        # Sensor-based mode: wait for input DAGs to complete
+        for i, input_dag_id in enumerate(input_dag_ids, 1):
+            sensor = ExternalTaskSensor(
+                task_id=f'wait_for_{input_dag_id.replace("__", "_").replace("-", "_")}',
+                external_dag_id=input_dag_id,
+                external_task_id='wait_for_trigger',  # Wait for the completion of the ingestion
+                allowed_states=['success'],
+                failed_states=['failed'],
+                mode='reschedule',
+                timeout=3600,  # 1 hour timeout
+                poke_interval=30,  # Check every 30 seconds
+                dag=dag
+            )
+            sensors.append(sensor)
+    # If scheduled mode: no sensors needed, DAG runs on schedule
 
     # DataTransformer job
     datatransformer_job = KubernetesPodOperator(
@@ -453,6 +460,13 @@ def load_datatransformer_configurations():
         for row in configs:
             workspace_name = row[0]
             config_json = json.loads(row[1])
+            
+            # Log scheduling mode for debugging
+            schedule_string = config_json.get('schedule_string')
+            if schedule_string:
+                print(f"Creating scheduled DataTransformer DAG for {workspace_name} with schedule: {schedule_string}")
+            else:
+                print(f"Creating sensor-based DataTransformer DAG for {workspace_name}")
             
             # Create both execution and output ingestion DAGs
             execution_dag_id = f"{{ platform_name }}__{workspace_name}_datatransformer"

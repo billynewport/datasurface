@@ -152,3 +152,74 @@ Truly breaking changes require:
 
 This implementation provides a complete, production-ready DataTransformer system that integrates seamlessly with the existing YellowDataPlatform infrastructure.
 
+## DataTransformer Trigger revisions
+
+The existing DSL had a specific trigger for DataTransformer which looking at it now makes no sense. I have switched to a StepTrigger and I also had to modify StepTrigger to be a UserDSLObject for linting purposes. The StepTrigger lint method had too many parameters also so I removed them. This also means the data transformer factory dag needs to use the cron expression if the step trigger is specified. I need to change YellowDataPlatform to lint either None or CronTrigger for a DataTransformer.
+
+If a DataTransformer trigger is present then there is no need for a sensor for its DAG and the schedule string should be set to the triggers string just like normal ingestion DAGs. So, if a trigger is present then use it for the schedule and no sensors. If no trigger is present then have the sensors and the datatransformer DAG waits for the sensor.
+
+The merge handler may also need to store the schedule string for a DataTransformer when a steptrigger is present. If it's not present then omit it like now. The factory dag could use the presence of the schedule string to just make the DAG scheduled versus use the sensors on the inputs.
+
+### Implementation Status: ✅ COMPLETED
+
+The DataTransformer trigger logic has been fully implemented with the following changes:
+
+#### 1. **Updated Trigger Linting**
+- YellowDataPlatform now accepts `None` or `CronTrigger` for DataTransformers
+- `None` trigger = sensor-based mode (wait for input data changes)
+- `CronTrigger` = scheduled mode (run on cron schedule)
+
+#### 2. **Enhanced Configuration Storage**
+- `config_json` in `{platform}_airflow_datatransformer` table now includes `schedule_string` field
+- `schedule_string` is populated with cron expression when trigger is present
+- `schedule_string` is omitted when no trigger (sensor-based mode)
+
+#### 3. **Updated Factory DAG Logic**
+- Factory DAG checks for presence of `schedule_string` in configuration
+- **Scheduled Mode**: Uses cron schedule, no external task sensors
+- **Sensor Mode**: Uses external task sensors, no schedule (triggered by input data)
+
+#### 4. **Conditional Task Creation**
+- External task sensors are only created when `schedule_string` is absent
+- Task dependencies automatically adjust based on sensor presence
+- Debugging logs show which mode is being used for each DataTransformer
+
+#### 5. **Database Schema**
+The existing `{platform}_airflow_datatransformer` table structure remains unchanged:
+```sql
+CREATE TABLE platform_airflow_datatransformer (
+    workspace_name VARCHAR(255) PRIMARY KEY,
+    config_json VARCHAR(4096) NOT NULL,  -- Now includes optional schedule_string
+    status VARCHAR(50) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+#### 6. **Example Configurations**
+
+**Scheduled DataTransformer** (with CronTrigger):
+```json
+{
+    "workspace_name": "customer_masking",
+    "output_datastore_name": "masked_customers",
+    "schedule_string": "0 2 * * *",  // Run daily at 2 AM
+    "input_dag_ids": [...],
+    "input_dataset_list": [...],
+    "output_dataset_list": [...]
+}
+```
+
+**Sensor-based DataTransformer** (no trigger):
+```json
+{
+    "workspace_name": "real_time_analytics", 
+    "output_datastore_name": "analytics_output",
+    // No schedule_string = sensor mode
+    "input_dag_ids": [...],
+    "input_dataset_list": [...],
+    "output_dataset_list": [...]
+}
+```
+
+This implementation provides flexible DataTransformer execution patterns while maintaining backward compatibility and clear operational behavior.
