@@ -155,7 +155,7 @@ kubectl create secret generic git \
 
 # Create Slack credentials secret (optional)
 kubectl create secret generic slack \
-  --from-literal=SLACK_WEBHOOK_URL=your-slack-webhook \
+  --from-literal=token=your-slack-webhook \
   -n ns-yellow-starter
 ```
 
@@ -354,6 +354,15 @@ kubectl logs job/yellowlive-ring1-init -n ns-yellow-starter
 # Cause: Inconsistent secret key names
 # Verify all secrets use POSTGRES_USER/POSTGRES_PASSWORD format:
 kubectl get secret postgres -n ns-yellow-starter -o yaml
+```
+
+**Issue: DataTransformer pods fail with CreateContainerConfigError**
+```bash
+# Cause: Slack secret using wrong key name
+# Error: "couldn't find key token in Secret ns-yellow-starter/slack"
+# Solution: Verify slack secret uses 'token' key (not 'SLACK_WEBHOOK_URL'):
+kubectl delete secret slack -n ns-yellow-starter
+kubectl create secret generic slack --from-literal=token=your-slack-webhook -n ns-yellow-starter
 ```
 
 ## Next Steps
