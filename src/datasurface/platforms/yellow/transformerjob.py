@@ -5,7 +5,7 @@
 
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.platforms.yellow.jobs import JobUtilities, JobStatus
-from datasurface.md import Ecosystem, CredentialStore, Workspace, WorkspaceCacheEntry, Datastore, Dataset
+from datasurface.md import Ecosystem, CredentialStore, Workspace, WorkspaceCacheEntry, Datastore, Dataset, DataPlatform
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
 from sqlalchemy import Engine, text
 from datasurface.platforms.yellow.jobs import createEngine
@@ -26,6 +26,43 @@ from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
 
 
+class DataTransformerContext:
+    """This class is used to map dataset names to table names for the workspace."""
+    def __init__(self, eco: Ecosystem, workspace: Workspace, dp: DataPlatform) -> None:
+        self._eco: Ecosystem = eco
+        self._workspace: Workspace = workspace
+        self._dataPlatform: DataPlatform = dp
+        self._input_dataset_to_table_mapping: Dict[str, str] = {}
+        self._output_dataset_to_table_mapping: Dict[str, str] = {}
+
+    def getInputTableNameForDataset(self, storeName: str, datasetName: str) -> str:
+        return self._input_dataset_to_table_mapping.get(f"{storeName}#{datasetName}", "")
+
+    def getOutputTableNameForDataset(self, storeName: str, datasetName: str) -> str:
+        return self._output_dataset_to_table_mapping.get(f"{storeName}#{datasetName}", "")
+
+    def getEcosystem(self) -> Ecosystem:
+        return self._eco
+
+    def getPlatform(self) -> DataPlatform:
+        return self._dataPlatform
+
+    def getWorkspace(self) -> Workspace:
+        return self._workspace
+
+
+class InternalDataTransformerContext(DataTransformerContext):
+    """This class is used to map dataset names to table names for the workspace."""
+    def __init__(self, eco: Ecosystem, workspace: Workspace, dp: YellowDataPlatform) -> None:
+        super().__init__(eco, workspace, dp)
+
+    def addInputDataset(self, storeName: str, datasetName: str, table_name: str) -> None:
+        self._input_dataset_to_table_mapping[f"{storeName}#{datasetName}"] = table_name
+
+    def addOutputDataset(self, storeName: str, datasetName: str, table_name: str) -> None:
+        self._output_dataset_to_table_mapping[f"{storeName}#{datasetName}"] = table_name
+
+
 class DataTransformerJob(JobUtilities):
     """This is a job which runs a DataTransformer."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, workspaceName: str, workingFolder: str) -> None:
@@ -33,26 +70,24 @@ class DataTransformerJob(JobUtilities):
         self.workspaceName: str = workspaceName
         self.workingFolder: str = workingFolder
 
-    def _buildDatasetMapping(self, workspace: Workspace, outputDatastore: Datastore) -> Dict[str, str]:
+    def _buildDatasetMapping(self, workspace: Workspace, outputDatastore: Datastore) -> DataTransformerContext:
         """Build a mapping from store#dataset names to table names for the workspace."""
-        dataset_mapping: Dict[str, str] = {}
+        dataset_mapping: InternalDataTransformerContext = InternalDataTransformerContext(self.eco, workspace, self.dp)
 
         # Add input datasets from the workspace
         for dsg in workspace.dsgs.values():
             for ds in dsg.sinks.values():
-                store_dataset_key = f"{ds.storeName}#{ds.datasetName}"
                 store: Datastore = self.eco.cache_getDatastoreOrThrow(ds.storeName).datastore
                 dataset: Dataset = store.datasets[ds.datasetName]
                 # Table names in merge database follow the pattern: store_dataset
                 table_name = self.getRawMergeTableNameForDataset(store, dataset)
-                dataset_mapping[store_dataset_key] = table_name
+                dataset_mapping.addInputDataset(store.name, dataset.name, table_name)
 
         # Add output datasets with dt_ prefix
         for dataset in outputDatastore.datasets.values():
             # Need the prefix incase the output datastore is also in the inputs on the workspace
-            store_dataset_key = f"dt_{outputDatastore.name}#{dataset.name}"
             table_name = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
-            dataset_mapping[store_dataset_key] = table_name
+            dataset_mapping.addOutputDataset(outputDatastore.name, dataset.name, table_name)
 
         return dataset_mapping
 
