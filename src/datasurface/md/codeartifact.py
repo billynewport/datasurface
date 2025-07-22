@@ -6,6 +6,8 @@
 
 from datasurface.md.governance import CodeArtifact
 from datasurface.md.repo import GitHubRepository
+from datasurface.md.lint import ValidationTree
+from datasurface.md import Ecosystem
 from typing import Any
 
 
@@ -33,3 +35,6 @@ class PythonRepoCodeArtifact(CodeArtifact):
 
     def __hash__(self) -> int:
         return hash(f"{self.repo}#{self.version}")
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        self.repo.lint(tree.addSubTree(self.repo))
