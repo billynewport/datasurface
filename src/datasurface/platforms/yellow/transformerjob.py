@@ -121,7 +121,7 @@ class DataTransformerJob(JobUtilities):
 
             # git clone the code artifact in to the code folder in the working folder
             clone_dir: str = os.path.join(self.workingFolder, "code")
-            cloneGitRepository(code.repo, clone_dir)
+            finalCodeFolder: str = cloneGitRepository(code.repo, clone_dir)
 
             # Get the output datastore
             outputDatastore: Datastore = w.dataTransformer.outputDatastore
@@ -140,7 +140,7 @@ class DataTransformerJob(JobUtilities):
                 self._truncateOutputTables(connection, outputDatastore)
 
                 # Execute the transformer code
-                result = self.executeTransformer(clone_dir, connection, w, outputDatastore)
+                result = self.executeTransformer(finalCodeFolder, connection, w, outputDatastore)
 
                 if result is None:
                     print("DataTransformer returned no result")
