@@ -302,7 +302,6 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
         ws_db,
         DatasetGroup(
             "MaskCustomers",
-            platform_chooser=chooser,
             sinks=[
                 DatasetSink("NW_Data", "customers")
             ]
@@ -331,7 +330,6 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
             )
         )
     t.add(w)
-    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["MaskCustomers"])
 
     w = Workspace(
         "WorkspaceUsingTransformerOutput",

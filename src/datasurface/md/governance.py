@@ -3223,6 +3223,12 @@ class DatasetGroupDataPlatformAssignments(UserDSLObject):
             dsg: Optional[DatasetGroup] = w.workspace.dsgs.get(self.dsgName)
             if dsg is None:
                 tree.addRaw(UnknownObjectReference(f"Unknown dataset group {self.workspace}:{self.dsgName}", ProblemSeverity.ERROR))
+            else:
+                # Make sure the DSG has a platformMD
+                if dsg.platformMD is None:
+                    tree.addRaw(ConstraintViolation(f"DSG {self.workspace}:{self.dsgName} must have a platformMD",
+                                                    ProblemSeverity.ERROR))
+
         for assignment in self.assignments:
             assignment.lint(eco, tree.addSubTree(assignment))
 
@@ -3299,6 +3305,8 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         for sink in self.sinks.values():
             sinkTree: ValidationTree = tree.addSubTree(sink)
             sink.lint(eco, team, ws, self, sinkTree)
+
+        # If a DSG has a platformMD, it must choose a platform and that platform must perfectly match the same named platform in the Ecosystem
         if (self.platformMD):
             # PlatformChooser needs to choose a platform and that platform must perfectly match the same named platform in the Ecosystem
             platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
@@ -3317,8 +3325,6 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                     if (not platform.isWorkspaceDataContainerSupported(eco, ws.dataContainer)):
                         tree.addProblem(f"DataPlatform {platform.name} does not support the Workspace data container {ws.dataContainer.name}",
                                         ProblemSeverity.ERROR)
-        else:
-            tree.addRaw(AttributeNotSet("DSG has no data platform chooser"))
         if (len(self.sinks) == 0):
             tree.addRaw(AttributeNotSet("No datasetsinks in group"))
 
@@ -3486,6 +3492,15 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
         ANSI_SQL_NamedObject.nameLint(self, tree)
         if (self.documentation):
             self.documentation.lint(tree)
+
+        # The DSGs owned by the Workspace with a DataTransformer must not have a platformMD
+        for dsg in ws.dsgs.values():
+            if dsg.platformMD:
+                tree.addRaw(
+                    ConstraintViolation(
+                        f"Workspace {ws.name} has a DataTransformer which is not allowed for a Workspace with a DSG {dsg.name}with a platformMD",
+                        ProblemSeverity.ERROR))
+
         # Does store exist
         storeI: Optional[DatastoreCacheEntry] = eco.datastoreCache.get(self.outputDatastore.name)
         if (storeI is None):
@@ -3914,6 +3929,9 @@ class PlatformPipelineGraph(InternalLintableObject):
         # This is the set of ALL nodes in this platforms pipeline graph
         self.nodes: dict[str, PipelineNode] = dict()
 
+        # Cycle detection for DataTransformer self-references to prevent infinite recursion
+        self._datatransformer_processing: set[str] = set()
+
     def __str__(self) -> str:
         return f"PlatformPipelineGraph({self.platform.name})"
 
@@ -3922,6 +3940,8 @@ class PlatformPipelineGraph(InternalLintableObject):
         ingestion, export, trigger, and data transformation operations"""
         self.dataContainerConsumers = dict()
         self.storesToIngest = set()
+        # Reset cycle detection state for fresh graph generation
+        self._datatransformer_processing = set()
 
         # Split DSGs by Asset hosting Workspaces
         for dsg in self.roots:
@@ -4005,27 +4025,38 @@ class PlatformPipelineGraph(InternalLintableObject):
     def createGraphForDataTransformer(self, dt: DataTransformerOutput, exportStep: ExportNode) -> None:
         """If a store is the output for a DataTransformer then we need to ingest it from the Workspace
         which defines the DataTransformer."""
-        w: Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
-        if w.dataContainer:
-            # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
-            dtStep: DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
-            triggerStep: TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
-            # Add ingestion for transfomer
-            dtIngestStep: PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None))
-            dtStep.addRightHandNode(dtIngestStep)
-            # Ingesting Transformer causes Export
-            dtIngestStep.addRightHandNode(exportStep)
-            # Trigger calls Transformer Step
-            triggerStep.addRightHandNode(dtStep)
-            # Add Exports to call trigger
-            for dsgR in self.roots:
-                if dsgR.workspace == w:
-                    for sink in dsgR.dsg.sinks.values():
-                        dsrExportStep: ExportNode = cast(ExportNode, self.findExistingOrCreateStep(
-                                ExportNode(self.platform, w.dataContainer, sink.storeName, sink.datasetName)))
-                        self.addExportToPriorIngestion(dsrExportStep)
-                        # Add Trigger for DT after export
-                        dsrExportStep.addRightHandNode(triggerStep)
+
+        # Cycle detection: prevent infinite recursion for DataTransformer self-references
+        transformer_key = f"{dt.workSpaceName}:{exportStep.storeName}"
+        if transformer_key in self._datatransformer_processing:
+            return  # Skip to avoid infinite recursion
+
+        self._datatransformer_processing.add(transformer_key)
+        try:
+            w: Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
+            if w.dataContainer:
+                # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
+                dtStep: DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
+                triggerStep: TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
+                # Add ingestion for transfomer
+                dtIngestStep: PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None))
+                dtStep.addRightHandNode(dtIngestStep)
+                # Ingesting Transformer causes Export
+                dtIngestStep.addRightHandNode(exportStep)
+                # Trigger calls Transformer Step
+                triggerStep.addRightHandNode(dtStep)
+                # Add Exports to call trigger
+                for dsgR in self.roots:
+                    if dsgR.workspace == w:
+                        for sink in dsgR.dsg.sinks.values():
+                            dsrExportStep: ExportNode = cast(ExportNode, self.findExistingOrCreateStep(
+                                    ExportNode(self.platform, w.dataContainer, sink.storeName, sink.datasetName)))
+                            self.addExportToPriorIngestion(dsrExportStep)
+                            # Add Trigger for DT after export
+                            dsrExportStep.addRightHandNode(triggerStep)
+        finally:
+            # Clean up cycle detection state
+            self._datatransformer_processing.discard(transformer_key)
 
     def addExportToPriorIngestion(self, exportStep: ExportNode):
         """This makes sure the ingestion steps for a the datasets in an export step exist"""
@@ -4149,13 +4180,21 @@ class PlatformPipelineGraph(InternalLintableObject):
             key=lambda w: cast(PrioritizedWorkloadTier, w.priority).priority.value
         )
 
-        def setLeftNodesPriority(node: PipelineNode, priority: WorkspacePriority):
+        def setLeftNodesPriority(node: PipelineNode, priority: WorkspacePriority, visited_nodes: Optional[set[str]] = None):
             """This sets the priority of a node and then recursively sets the priority of all left hand nodes"""
+            if visited_nodes is None:
+                visited_nodes = set()
+
+            node_key = str(node)
+            if node_key in visited_nodes:
+                return  # Cycle detected - avoid infinite recursion
+
+            visited_nodes.add(node_key)
             node.setPriority(priority)
             for left_node in node.leftHandNodes.values():
                 # if left node priority is none or lower than the current priority then set it
                 if left_node.priority is None or not left_node.priority.isMoreImportantThan(priority):
-                    setLeftNodesPriority(left_node, priority)
+                    setLeftNodesPriority(left_node, priority, visited_nodes)
 
         # 3. Set initial priorities on export nodes, starting with highest priority workspaces
         for workspace in sorted_workspaces:
@@ -4194,6 +4233,54 @@ class EcosystemPipelineGraph(InternalLintableObject):
                     # Collect Workspaces using the platform
                     if (self.roots[p.name].workspaces.get(w.workspace.name) is None):
                         self.roots[p.name].workspaces[w.workspace.name] = w.workspace
+
+        # Recursively auto-include DataTransformer workspaces and their dependencies
+        for platform_name, platform_graph in self.roots.items():
+            visited_workspaces: set[str] = set()
+            workspace_queue: list[str] = []
+
+            # Start with all currently assigned workspaces
+            for root in list(platform_graph.roots):
+                if root.workspace.name not in visited_workspaces:
+                    workspace_queue.append(root.workspace.name)
+
+            # Process queue until empty (handles recursive dependencies and cycles)
+            while workspace_queue:
+                current_workspace_name = workspace_queue.pop(0)
+                if current_workspace_name in visited_workspaces:
+                    continue  # Skip already processed workspaces (cycle detection)
+
+                visited_workspaces.add(current_workspace_name)
+                current_workspace_entry: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(current_workspace_name)
+                if current_workspace_entry is None:
+                    continue  # Skip if workspace doesn't exist
+
+                current_workspace: Workspace = current_workspace_entry.workspace
+
+                # Check all sinks in this workspace for DataTransformer dependencies
+                for dsg in current_workspace.dsgs.values():
+                    for sink in dsg.sinks.values():
+                        storeEntry: Optional[DatastoreCacheEntry] = eco.datastoreCache.get(sink.storeName)
+                        if storeEntry is not None:
+                            store: Datastore = storeEntry.datastore
+                            if isinstance(store.cmd, DataTransformerOutput):
+                                # This is a DataTransformer output - auto-include the producer workspace
+                                dt_workspace_name: str = store.cmd.workSpaceName
+                                if dt_workspace_name not in visited_workspaces:
+                                    # Add to queue for recursive processing
+                                    workspace_queue.append(dt_workspace_name)
+
+                                    # Add to platform graph immediately
+                                    dt_workspace_entry: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(dt_workspace_name)
+                                    if dt_workspace_entry is not None:
+                                        dt_workspace: Workspace = dt_workspace_entry.workspace
+                                        # Add all DSGs from the DataTransformer workspace to this platform
+                                        for dt_dsg in dt_workspace.dsgs.values():
+                                            dt_root: DSGRootNode = DSGRootNode(dt_workspace, dt_dsg)
+                                            platform_graph.roots.add(dt_root)
+                                        # Add the workspace to the platform's workspace collection
+                                        if platform_graph.workspaces.get(dt_workspace.name) is None:
+                                            platform_graph.workspaces[dt_workspace.name] = dt_workspace
 
         # Now track DSGs per dataContainer
         # For each platform what DSGs need to be exported to a given dataContainer

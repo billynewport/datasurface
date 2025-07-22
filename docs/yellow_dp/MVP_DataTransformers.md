@@ -223,3 +223,7 @@ CREATE TABLE platform_airflow_datatransformer (
 ```
 
 This implementation provides flexible DataTransformer execution patterns while maintaining backward compatibility and clear operational behavior.
+
+## Issues
+
+While trying to bring this up, I noticed that DSG linting requires a platformMD to be specified. A terminal Workspace is a user facing Workspace where they specified requirements. A terminal Workspace cannot have a DataTransformer because that would be no consumer for the output datastore. A DataTransformer is only included in a pipeline graph IFF there is a consumer for its output datastore. The lint for Workspace needs to be updated to reflect either platformMD or a dataTransformer. DataTransformer workspaces basically implicitly use the platformMD of the terminal Workspace which caused it to be included in the pipeline graph based on that terminal Workspace's dataset requirements.
