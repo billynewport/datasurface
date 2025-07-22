@@ -70,7 +70,14 @@ def getLatestModelFolder(modelFolderName: str) -> str:
 
 def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
     """This will clone the git repository into the given path. If the directory is empty, it will clone the repository.
-    If the directory is not empty, it will not clone the repository."""
+    If the directory is not empty, it will not clone the repository.
+
+    Returns:
+        str: Path to the cloned repository folder
+
+    Raises:
+        Exception: If cloning fails or repository validation fails
+    """
 
     # get as temporary folder in the folder gitRepoPath
     # Cannot have a dash in it.
@@ -80,33 +87,55 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
     if not os.path.exists(tempFolder) or not os.listdir(tempFolder):
         git_token = os.environ.get('git_TOKEN')
         if not git_token:
-            print("ERROR: git_TOKEN environment variable not found")
-            return ""
+            raise Exception("git_TOKEN environment variable not found")
 
         # Ensure the directory exists
         os.makedirs(tempFolder, exist_ok=True)
 
         # Clone the repository (billynewport/mvpmodel)
         git_url = f"https://{git_token}@github.com/{repo.repositoryName}.git"
+        print(f"Cloning repository: {git_url} into {tempFolder}")
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ['git', 'clone', '--branch', repo.branchName, git_url, '.'],
                 cwd=tempFolder,
                 capture_output=True,
                 text=True,
                 check=True
             )
-            print(f"Successfully cloned repository: {result.stdout}")
+            print(f"Successfully cloned repository: {git_url} branch: {repo.branchName}")
+
+            # Validate that the repository was cloned successfully
+            if not os.path.exists(os.path.join(tempFolder, '.git')):
+                raise Exception(f"Repository was not cloned successfully - no .git directory found in {tempFolder}")
+
+            # Check if eco.py exists (expected model file)
+            if not os.path.exists(os.path.join(tempFolder, 'eco.py')):
+                print(f"Warning: eco.py not found in cloned repository {repo.repositoryName}")
+
         except subprocess.CalledProcessError as e:
-            print(f"Failed to clone repository: {e.stderr}")
-            return ""
+            # Clean up the temp folder on failure
+            if os.path.exists(tempFolder):
+                import shutil
+                shutil.rmtree(tempFolder)
+            raise Exception(f"Failed to clone repository {repo.repositoryName}: {e.stderr}")
+    else:
+        print(f"Using existing repository in {tempFolder}")
 
     # Get latest timestamp model folder and rename the temp folder to it. This means
     # jobs looking at a timestamp model folder never see a partial model while it
     # is being cloned.
     finalModelFolder = getNewModelFolder(gitRepoPath)
-    os.rename(tempFolder, finalModelFolder)
-    print(f"Cloned git repository into {finalModelFolder}")
+    try:
+        os.rename(tempFolder, finalModelFolder)
+        print(f"Cloned git repository into {finalModelFolder}")
+    except OSError as e:
+        # Clean up temp folder if rename fails
+        if os.path.exists(tempFolder):
+            import shutil
+            shutil.rmtree(tempFolder)
+        raise Exception(f"Failed to rename temp folder to {finalModelFolder}: {e}")
+
     return finalModelFolder
 
 
