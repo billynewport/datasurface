@@ -9,7 +9,7 @@ from datasurface.md.credential import Credential, CredentialType
 from datasurface.md import CDCCaptureIngestion, CronTrigger, LocationKey, \
         Dataset, DatasetGroup, Datastore, Ecosystem, GovernanceZone, \
         IngestionConsistencyType, Team, \
-        Workspace, HostPortPair, DataPlatform, DataPlatformKey, DataPlatformChooser, DatasetSink, DataTransformer, TimedTransformerTrigger, PythonCodeArtifact
+        Workspace, HostPortPair, DataPlatform, DataPlatformKey, DataPlatformChooser, DatasetSink, DataTransformer, PythonCodeArtifact
 from datasurface.md.governance import DSGDataPlatformAssignment, DatasetGroupDataPlatformAssignments, DatasetGroupDataPlatformMappingStatus, ProductionStatus
 from datasurface.md.governance import DeprecationsAllowed
 from datasurface.md import DataContainer
@@ -327,7 +327,6 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
                     )
                 ]
             ),
-            TimedTransformerTrigger("Customer_Mask", CronTrigger("MaskCustomers Every 10 mins", "*/10 * * * *")),
             PythonCodeArtifact([], {}, "3.11")
             )
         )

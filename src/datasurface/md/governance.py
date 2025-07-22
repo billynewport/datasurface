@@ -438,7 +438,7 @@ class IngestionConsistencyType(Enum):
     MULTI_DATASET = 1
 
 
-class StepTrigger(JSONable):
+class StepTrigger(UserDSLObject):
     """A step such as ingestion is driven in pulses triggered by these."""
     def __init__(self, name: str):
         super().__init__()
@@ -453,7 +453,7 @@ class StepTrigger(JSONable):
         return isinstance(o, StepTrigger) and self.name == o.name
 
     @abstractmethod
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         pass
 
 
@@ -472,7 +472,7 @@ class CronTrigger(StepTrigger):
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, CronTrigger) and self.cron == o.cron
 
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         """This checks if the source is valid for the specified ecosystem, governance zone and team"""
         if not validate_cron_string(self.cron):
             tree.addProblem(f"Invalid cron string <{self.cron}>")
@@ -491,7 +491,7 @@ class ExternallyTriggered(StepTrigger):
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, ExternallyTriggered)
 
-    def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', tree: ValidationTree) -> None:
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         pass
 
 
@@ -935,7 +935,7 @@ class CaptureMetaData(UserDSLObject):
             self.dataContainer.lint(eco, cTree)
 
         if (self.stepTrigger):
-            self.stepTrigger.lint(eco, gz, t, tree)
+            self.stepTrigger.lint(eco, tree)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, CaptureMetaData) and self.singleOrMultiDatasetIngestion == other.singleOrMultiDatasetIngestion and \
@@ -3458,25 +3458,26 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
     """This allows new data to be produced from existing data. The inputs to the transformer are the
     datasets in the workspace and the output is a Datastore associated with the transformer. The transformer
     will be triggered using the specified trigger policy"""
-    def __init__(self, name: str, store: Datastore, trigger: TransformerTrigger, code: CodeArtifact,
-                 doc: Optional[Documentation] = None) -> None:
+    def __init__(self, name: str, store: Datastore, code: CodeArtifact,
+                 doc: Optional[Documentation] = None, trigger: Optional[StepTrigger] = None) -> None:
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         JSONable.__init__(self)
         # This Datastore is defined here and has a CaptureMetaData automatically added. Do not specify a CMD in the Datastore
         # This is done in the Team.addWorkspace method
         self.outputDatastore: Datastore = store
-        self.trigger: TransformerTrigger = trigger
         self.code: CodeArtifact = code
         self.documentation = doc
+        self.trigger: Optional[StepTrigger] = trigger
 
     def to_json(self) -> dict[str, Any]:
         json_dict: dict[str, Any] = ANSI_SQL_NamedObject.to_json(self)
         json_dict.update(Documentable.to_json(self))
         json_dict.update({"_type": self.__class__.__name__})
         json_dict.update({"outputDatastore": self.outputDatastore.to_json()})
-        json_dict.update({"trigger": self.trigger.to_json()})
         json_dict.update({"code": self.code.to_json()})
+        if self.trigger is not None:
+            json_dict.update({"trigger": self.trigger.to_json()})
         if self.documentation:
             json_dict["documentation"] = self.documentation.to_json()
         return json_dict
@@ -3501,11 +3502,13 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
             # Output datastores must have a cmd which is a DataTransformerOutput
             if not isinstance(self.outputDatastore.cmd, DataTransformerOutput):
                 tree.addRaw(ObjectNotSupportedByDataPlatform(self.outputDatastore.cmd, [DataTransformerOutput], ProblemSeverity.ERROR))
+            if self.trigger:
+                self.trigger.lint(eco, tree.addSubTree(self.trigger))
 
     def __eq__(self, o: object) -> bool:
         return ANSI_SQL_NamedObject.__eq__(self, o) and Documentable.__eq__(self, o) and \
-            isinstance(o, DataTransformer) and self.outputDatastore == o.outputDatastore and \
-            self.trigger == o.trigger and self.code == o.code
+            isinstance(o, DataTransformer) and self.outputDatastore == o.outputDatastore and self.code == o.code and \
+            self.trigger == o.trigger
 
 
 class WorkloadTier(Enum):

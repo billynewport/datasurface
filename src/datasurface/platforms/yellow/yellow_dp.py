@@ -358,13 +358,27 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Check all Workspace requirements are supported by the platform
         for workspace in self.graph.workspaces.values():
+            wsTree: ValidationTree = tree.addSubTree(workspace)
+            if workspace.dataTransformer:
+                dtTree: ValidationTree = wsTree.addSubTree(workspace.dataTransformer)
+                dt: DataTransformer = workspace.dataTransformer
+                if dt.code is None:
+                    dtTree.addRaw(AttributeNotSet("code"))
+                if not isinstance(dt.code, PythonRepoCodeArtifact):
+                    dtTree.addRaw(ObjectNotSupportedByDataPlatform(store, [PythonRepoCodeArtifact], ProblemSeverity.ERROR))
+
+                if dt.trigger:
+                    if not isinstance(dt.trigger, CronTrigger):
+                        dtTree.addRaw(ObjectNotSupportedByDataPlatform(store, [CronTrigger], ProblemSeverity.ERROR))
+
             for dsg in workspace.dsgs.values():
-                dsgTree: ValidationTree = tree.addSubTree(dsg)
+                dsgTree: ValidationTree = wsTree.addSubTree(dsg)
                 pc: Optional[DataPlatformChooser] = dsg.platformMD
                 if pc is not None:
                     if isinstance(pc, WorkspacePlatformConfig):
+                        pcTree: ValidationTree = dsgTree.addSubTree(pc)
                         if pc.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
-                            dsgTree.addRaw(AttributeValueNotSupported(pc, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
+                            pcTree.addRaw(AttributeValueNotSupported(pc, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
                     else:
                         dsgTree.addRaw(ObjectWrongType(pc, WorkspacePlatformConfig, ProblemSeverity.ERROR))
                 else:
