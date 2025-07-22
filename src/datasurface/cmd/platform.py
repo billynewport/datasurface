@@ -93,8 +93,11 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
         os.makedirs(tempFolder, exist_ok=True)
 
         # Clone the repository (billynewport/mvpmodel)
-        git_url = f"https://{git_token}@github.com/{repo.repositoryName}.git"
-        print(f"Cloning repository: {git_url} into {tempFolder}")
+        # URL-encode the token to handle special characters
+        import urllib.parse
+        encoded_token = urllib.parse.quote(git_token, safe='')
+        git_url = f"https://{encoded_token}@github.com/{repo.repositoryName}.git"
+        print(f"Cloning repository: {repo.repositoryName} into {tempFolder}")
         try:
             subprocess.run(
                 ['git', 'clone', '--branch', repo.branchName, git_url, '.'],
@@ -103,7 +106,7 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
                 text=True,
                 check=True
             )
-            print(f"Successfully cloned repository: {git_url} branch: {repo.branchName}")
+            print(f"Successfully cloned repository: {repo.repositoryName} branch: {repo.branchName}")
 
             # Validate that the repository was cloned successfully
             if not os.path.exists(os.path.join(tempFolder, '.git')):
@@ -113,12 +116,19 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
             if not os.path.exists(os.path.join(tempFolder, 'eco.py')):
                 print(f"Warning: eco.py not found in cloned repository {repo.repositoryName}")
 
+            # List contents of cloned repository for debugging
+            print(f"Contents of cloned repository {repo.repositoryName}:")
+            for item in os.listdir(tempFolder):
+                print(f"  - {item}")
+
         except subprocess.CalledProcessError as e:
             # Clean up the temp folder on failure
             if os.path.exists(tempFolder):
                 import shutil
                 shutil.rmtree(tempFolder)
-            raise Exception(f"Failed to clone repository {repo.repositoryName}: {e.stderr}")
+            # Sanitize error message to remove token exposure
+            sanitized_error = e.stderr.replace(git_token, "***TOKEN***") if e.stderr else "Unknown git error"
+            raise Exception(f"Failed to clone repository {repo.repositoryName}: {sanitized_error}")
     else:
         print(f"Using existing repository in {tempFolder}")
 
@@ -128,7 +138,7 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
     finalModelFolder = getNewModelFolder(gitRepoPath)
     try:
         os.rename(tempFolder, finalModelFolder)
-        print(f"Cloned git repository into {finalModelFolder}")
+        print(f"Cloned git repository {repo.repositoryName} branch: {repo.branchName} into {finalModelFolder}")
     except OSError as e:
         # Clean up temp folder if rename fails
         if os.path.exists(tempFolder):
