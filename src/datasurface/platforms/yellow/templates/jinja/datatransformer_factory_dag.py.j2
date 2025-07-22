@@ -500,8 +500,8 @@ def sync_datatransformer_dags(**context):
         task_instance.log.info("🔍 ANALYZING DAG LIFECYCLE CHANGES")
         task_instance.log.info("=" * 60)
         
-                 # Get existing DataTransformer-related DAGs using naming convention
-         existing_dt_dags = {k: v for k, v in globals().items() 
+        # Get existing DataTransformer-related DAGs using naming convention
+        existing_dt_dags = {k: v for k, v in globals().items() 
                            if k.endswith('_datatransformer') or k.endswith('_dt_ingestion')}
         
         current_dag_ids = set(current_dags.keys())

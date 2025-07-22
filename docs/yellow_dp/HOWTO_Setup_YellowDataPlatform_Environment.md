@@ -112,6 +112,7 @@ ls -la generated_output/YellowForensic/
 - `kubernetes-bootstrap.yaml` - Kubernetes deployment configuration
 - `{platform}_infrastructure_dag.py` - Platform management DAG
 - `{platform}_factory_dag.py` - Dynamic DAG factory
+- `{platform}_datatransformer_factory_dag.py` - Dynamic DataTransformer DAG factory
 - `{platform}_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
 - `{platform}_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
 
@@ -228,8 +229,11 @@ SCHEDULER_POD=$(kubectl get pods -n ns-yellow-starter -l app=airflow-scheduler -
 
 # Copy factory DAGs to Airflow
 kubectl cp generated_output/YellowLive/yellowlive_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-kubectl cp generated_output/YellowForensic/yellowforensic_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+kubectl cp generated_output/YellowLive/yellowlive_datatransformer_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 kubectl cp generated_output/YellowLive/yellowlive_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+
+kubectl cp generated_output/YellowForensic/yellowforensic_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+kubectl cp generated_output/YellowForensic/yellowforensic_datatransformer_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 kubectl cp generated_output/YellowForensic/yellowforensic_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 
 # Deploy model merge jobs to populate ingestion stream configurations
@@ -264,10 +268,12 @@ Open http://localhost:8080 and login with:
 
 **Expected DAGs in Airflow UI:**
 - `yellowlive_factory_dag` - YellowLive platform factory
-- `yellowforensic_factory_dag` - YellowForensic platform factory  
+- `yellowlive_datatransformer_factory_dag` - YellowLive datatransformer factory
 - `yellowlive_infrastructure` - YellowLive infrastructure management
-- `yellowforensic_infrastructure` - YellowForensic infrastructure management
 - `yellowlive__CustomerDatabase_ingestion` - YellowLive ingestion stream DAG (created dynamically)
+- `yellowforensic_factory_dag` - YellowForensic platform factory  
+- `yellowforensic_datatransformer_factory_dag` - YellowForensic datatransformer factory
+- `yellowforensic_infrastructure` - YellowForensic infrastructure management
 - `yellowforensic__CustomerDatabase_ingestion` - YellowForensic ingestion stream DAG (created dynamically)
 
 ## Ring Level Explanation
