@@ -119,9 +119,10 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
 
     def getAsToken(self, cred: Credential) -> str:
         """This fetches the credential and returns a token. This is used for API tokens."""
-        token: Optional[str] = os.getenv(f"{cred.name}_TOKEN")
+        envName: str = f"{cred.name}_TOKEN"
+        token: Optional[str] = os.getenv(envName)
         if token is None:
-            raise CredentialNotAvailableException(cred, "token is None")
+            raise CredentialNotAvailableException(cred, f"token for {envName} is None")
         return token
 
     def isLegalEnvVarName(self, name: str) -> bool:
@@ -609,6 +610,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
                 "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
                 "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
+                "git_credential_name": self.dp.gitCredential.name,  # Original credential name for job parameter
                 "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
                 "slack_channel_name": self.dp.slackChannel,
                 "datasurface_docker_image": self.dp.datasurfaceImage,
@@ -754,6 +756,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
                 "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.postgresCredential.name),
                 "git_credential_secret_name": self.dp.to_k8s_name(self.dp.gitCredential.name),
+                "git_credential_name": self.dp.gitCredential.name,  # Original credential name for job parameter
                 "slack_credential_secret_name": self.dp.to_k8s_name(self.dp.slackCredential.name),
                 "slack_channel_name": self.dp.slackChannel,
                 "datasurface_docker_image": self.dp.datasurfaceImage,
@@ -1085,6 +1088,7 @@ class YellowDataPlatform(DataPlatform):
                 "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
                 "datasurface_docker_image": self.datasurfaceImage,
                 "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
+                "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
                 "slack_credential_secret_name": self.to_k8s_name(self.slackCredential.name),
                 "slack_channel_name": self.slackChannel,
                 "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",

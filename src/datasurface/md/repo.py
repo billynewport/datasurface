@@ -12,12 +12,14 @@ from datasurface.md.json import JSONable
 from typing import Mapping, Iterable
 import re
 from urllib.parse import urlparse, ParseResult
+from datasurface.md.credential import Credential, CredentialType
 
 
 class Repository(Documentable, JSONable):
     """This is a repository which can store an ecosystem model. It is used to check whether changes are authorized when made from a repository"""
-    def __init__(self, doc: Optional[Documentation]):
+    def __init__(self, doc: Optional[Documentation], credential: Optional[Credential] = None):
         Documentable.__init__(self, doc)
+        self.credential: Optional[Credential] = credential
 
     @abstractmethod
     def lint(self, tree: ValidationTree) -> None:
@@ -25,10 +27,15 @@ class Repository(Documentable, JSONable):
         raise NotImplementedError()
 
     def __eq__(self, other: object) -> bool:
-        if (Documentable.__eq__(self, other) and isinstance(other, Repository)):
+        if (Documentable.__eq__(self, other) and isinstance(other, Repository) and self.credential == other.credential):
             return True
         else:
             return False
+
+    @abstractmethod
+    def eqForAuthorization(self, other: 'Repository') -> bool:
+        """This checks if the repositories are equal for authorization purposes. It should ignore the credential for example."""
+        raise NotImplementedError()
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -36,6 +43,8 @@ class Repository(Documentable, JSONable):
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__})
+        if (self.credential):
+            rc.update({"credential": self.credential.to_json()})
         return rc
 
 
@@ -58,7 +67,8 @@ class GitControlledObject(Documentable):
         else:
             return False
 
-    def _check_dict_changes(self, current_dict: dict[str, Any], proposed_dict: dict[str, Any], validation_tree: ValidationTree, dict_name: str) -> bool:
+    def dictsAreDifferent(self, current_dict: dict[str, Any], proposed_dict: dict[str, Any], validation_tree: ValidationTree, dict_name: str) -> bool:
+        """This checks if the current and proposed dictionaries are different and if so adds problems to the validation tree highlighting the differences"""
         if current_dict != proposed_dict:
             self.showDictChangesAsProblems(current_dict, proposed_dict, validation_tree.addSubTree(self))
             return True
@@ -71,8 +81,8 @@ class GitControlledObject(Documentable):
 
     @abstractmethod
     def areTopLevelChangesAuthorized(self, proposed: 'GitControlledObject', changeSource: Repository, tree: ValidationTree) -> bool:
-        """This should compare attributes which are locally authorized only"""
-        if (self.owningRepo == changeSource):
+        """This should compare attributes which are locally authorized only. Any differences should be added to the tree as problems"""
+        if (self.owningRepo.eqForAuthorization(changeSource)):
             return True
         rc: bool = self.owningRepo == proposed.owningRepo
         if not rc:
@@ -95,7 +105,7 @@ class GitControlledObject(Documentable):
             return
         else:
             # If changer is authorized then changes are allowed
-            if (self.owningRepo == changeSource):
+            if (self.owningRepo.eqForAuthorization(changeSource)):
                 return
             rc: bool = self.areTopLevelChangesAuthorized(proposed, changeSource, vTree)
             if not rc:
@@ -124,7 +134,7 @@ class GitControlledObject(Documentable):
         for key in deleted_keys:
             # Check if the object was deleted by the authoized change source
             obj: Optional[GitControlledObject] = current[key]
-            if (obj.owningRepo != changeSource):
+            if (not obj.owningRepo.eqForAuthorization(changeSource)):
                 vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
                     obj.owningRepo,
                     f"Key {key} has been deleted",
@@ -133,7 +143,7 @@ class GitControlledObject(Documentable):
         for key in added_keys:
             # Check if the object was added by the specified change source
             obj: Optional[GitControlledObject] = proposed[key]
-            if (obj.owningRepo != changeSource):
+            if (not obj.owningRepo.eqForAuthorization(changeSource)):
                 vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
                     obj.owningRepo,
                     f"Key {key} has been added",
@@ -234,10 +244,17 @@ class FakeRepository(Repository):
         rc.update({"_type": self.__class__.__name__, "name": self.name})
         return rc
 
+    def eqForAuthorization(self, other: 'Repository') -> bool:
+        """This checks if the repositories are equal for authorization purposes. It should ignore the credential for example."""
+        if (isinstance(other, FakeRepository) and self.name == other.name):
+            return True
+        else:
+            return False
+
 
 class GitRepository(Repository):
-    def __init__(self, doc: Optional[Documentation] = None) -> None:
-        super().__init__(doc)
+    def __init__(self, doc: Optional[Documentation] = None, credential: Optional[Credential] = None) -> None:
+        super().__init__(doc, credential)
 
     def is_valid_github_repo_name(self, name: str) -> bool:
         if not 1 <= len(name) <= 100:
@@ -292,8 +309,8 @@ class GitRepository(Repository):
 class GitHubRepository(GitRepository):
     """This represents a GitHub Repository specifically, this branch should have an eco.py files in the root
     folder. The eco.py file should contain an ecosystem object which is used to construct the ecosystem"""
-    def __init__(self, repo: str, branchName: str, doc: Optional[Documentation] = None) -> None:
-        super().__init__(doc)
+    def __init__(self, repo: str, branchName: str, doc: Optional[Documentation] = None, credential: Optional[Credential] = None) -> None:
+        super().__init__(doc, credential)
         self.repositoryName: str = repo
         """The name of the git repository from which changes to objects are authorized. The name is in the form 'owner/repo'. The system will
         add https://github.com/ to the front of the name implicitly, there is no need to include it in the name."""
@@ -303,6 +320,13 @@ class GitHubRepository(GitRepository):
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, GitHubRepository)):
             return super().__eq__(other) and self.repositoryName == other.repositoryName and self.branchName == other.branchName
+        else:
+            return False
+
+    def eqForAuthorization(self, other: 'Repository') -> bool:
+        """This checks if the repositories are equal for authorization purposes. It should ignore the credential for example."""
+        if (isinstance(other, GitHubRepository) and self.repositoryName == other.repositoryName and self.branchName == other.branchName):
+            return True
         else:
             return False
 
@@ -318,6 +342,8 @@ class GitHubRepository(GitRepository):
             tree.addProblem(f"Repository name <{self.repositoryName}> is not valid")
         if (not self.is_valid_github_branch(self.branchName)):
             tree.addProblem(f"Branch name <{self.branchName}> is not valid")
+        if (self.credential and self.credential.credentialType != CredentialType.API_TOKEN):
+            tree.addProblem(f"Credential type <{self.credential.credentialType}> must be an API token")
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -342,6 +368,14 @@ class GitLabRepository(GitRepository):
         if (isinstance(other, GitLabRepository)):
             return super().__eq__(other) and self.repoUrl == other.repoUrl and self.repositoryName == other.repositoryName and \
                 self.branchName == other.branchName
+        else:
+            return False
+
+    def eqForAuthorization(self, other: 'Repository') -> bool:
+        """This checks if the repositories are equal for authorization purposes. It should ignore the credential for example."""
+        if (isinstance(other, GitLabRepository) and self.repoUrl == other.repoUrl and self.repositoryName == other.repositoryName and
+                self.branchName == other.branchName):
+            return True
         else:
             return False
 

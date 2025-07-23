@@ -5,8 +5,12 @@
 
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.platforms.yellow.jobs import JobUtilities, JobStatus
-from datasurface.md import Ecosystem, CredentialStore, Workspace, WorkspaceCacheEntry, Datastore, Dataset, DataPlatform
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+from datasurface.md import (
+    Ecosystem, CredentialStore, Workspace, WorkspaceCacheEntry, Datastore, Dataset,
+    DataPlatform, Credential
+)
+from datasurface.md.credential import CredentialType
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, KubernetesEnvVarsCredentialStore
 from sqlalchemy import Engine, text
 from datasurface.platforms.yellow.jobs import createEngine
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
@@ -147,7 +151,7 @@ class DataTransformerJob(JobUtilities):
         finally:
             sys.path = origSystemPath
 
-    def run(self) -> JobStatus:
+    def run(self, credStore: CredentialStore) -> JobStatus:
         try:
             # Now, get a connection to the merge database
             systemMergeUser, systemMergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
@@ -162,7 +166,7 @@ class DataTransformerJob(JobUtilities):
 
             # git clone the code artifact in to the code folder in the working folder
             clone_dir: str = os.path.join(self.workingFolder, "code")
-            finalCodeFolder: str = cloneGitRepository(code.repo, clone_dir)
+            finalCodeFolder: str = cloneGitRepository(credStore, code.repo, clone_dir)
 
             # Get the output datastore
             outputDatastore: Datastore = w.dataTransformer.outputDatastore
@@ -207,18 +211,13 @@ def main():
     parser.add_argument('--git-repo-owner', required=True, help='GitHub repository owner (e.g., billynewport)')
     parser.add_argument('--git-repo-name', required=True, help='GitHub repository name (e.g., mvpmodel)')
     parser.add_argument('--git-repo-branch', required=True, help='GitHub repository branch (e.g., main)')
+    parser.add_argument('--git-platform-repo-credential-name', required=True, help='GitHub credential name for accessing the model repository (e.g., git)')
 
     args = parser.parse_args()
+    credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
 
     # Ensure the working directory exists
     os.makedirs(args.working_folder, exist_ok=True)
-
-    # Clone the git repository if the directory is empty
-    if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
-        git_token = os.environ.get('git_TOKEN')
-        if not git_token:
-            print("ERROR: git_TOKEN environment variable not found")
-            return -1
 
     # Ensure the directory exists
     os.makedirs(args.git_repo_path, exist_ok=True)
@@ -226,7 +225,12 @@ def main():
     eco: Optional[Ecosystem] = None
     tree: Optional[ValidationTree] = None
     eco, tree = getLatestModelAtTimestampedFolder(
-        GitHubRepository(f"{args.git_repo_owner}/{args.git_repo_name}", args.git_repo_branch), args.git_repo_path, doClone=True)
+        credStore,
+        GitHubRepository(
+            f"{args.git_repo_owner}/{args.git_repo_name}",
+            args.git_repo_branch,
+            credential=Credential(args.git_platform_repo_credential_name, CredentialType.API_TOKEN)),
+        args.git_repo_path, doClone=True)
     if tree is not None and tree.hasErrors():
         print("Ecosystem model has errors")
         tree.printTree()
@@ -256,7 +260,7 @@ def main():
 
         # Create and run the DataTransformer job
         job: DataTransformerJob = DataTransformerJob(eco, dp.getCredentialStore(), dp, args.workspace_name, args.working_folder)
-        jobStatus: JobStatus = job.run()
+        jobStatus: JobStatus = job.run(credStore)
 
         if jobStatus == JobStatus.DONE:
             print("DataTransformer job completed successfully")

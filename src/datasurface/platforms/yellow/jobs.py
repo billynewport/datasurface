@@ -18,8 +18,11 @@ from typing import cast, List, Any, Optional
 from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion, DataTransformerOutput
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.yellow.db_utils import createEngine
-
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy, BatchStatus, BatchState
+from datasurface.md.credential import Credential, CredentialType
+from datasurface.platforms.yellow.yellow_dp import (
+    YellowDataPlatform, YellowSchemaProjector, YellowMilestoneStrategy,
+    BatchStatus, BatchState, KubernetesEnvVarsCredentialStore
+)
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
 from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
 import argparse
@@ -1338,16 +1341,11 @@ def main():
     parser.add_argument('--git-repo-owner', required=True, help='GitHub repository owner (e.g., billynewport)')
     parser.add_argument('--git-repo-name', required=True, help='GitHub repository name (e.g., mvpmodel)')
     parser.add_argument('--git-repo-branch', required=True, help='GitHub repository branch (e.g., main)')
+    parser.add_argument('--git-platform-repo-credential-name', required=True, help='GitHub credential name for accessing the model repository (e.g., git)')
 
     args = parser.parse_args()
 
-    # Clone the git repository if the directory is empty
-
-    if not os.path.exists(args.git_repo_path) or not os.listdir(args.git_repo_path):
-        git_token = os.environ.get('git_TOKEN')
-        if not git_token:
-            print("ERROR: git_TOKEN environment variable not found")
-            return -1
+    credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
 
     # Ensure the directory exists
     os.makedirs(args.git_repo_path, exist_ok=True)
@@ -1355,7 +1353,12 @@ def main():
     eco: Optional[Ecosystem] = None
     tree: Optional[ValidationTree] = None
     eco, tree = getLatestModelAtTimestampedFolder(
-        GitHubRepository(f"{args.git_repo_owner}/{args.git_repo_name}", args.git_repo_branch), args.git_repo_path, doClone=True)
+        credStore,
+        GitHubRepository(
+            f"{args.git_repo_owner}/{args.git_repo_name}",
+            args.git_repo_branch,
+            credential=Credential(args.git_platform_repo_credential_name, CredentialType.API_TOKEN)),
+        args.git_repo_path, doClone=True)
     if tree is not None and tree.hasErrors():
         print("Ecosystem model has errors")
         tree.printTree()

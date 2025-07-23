@@ -185,6 +185,23 @@ kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U 
 kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE customer_db;"
 kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE datasurface_merge;"
 
+# Create source tables and initial test data using the data simulator
+# This creates the customers and addresses tables with initial data and simulates some changes
+kubectl run data-simulator --rm -i --restart=Never \
+  --image=datasurface/datasurface:latest \
+  --env="POSTGRES_USER=postgres" \
+  --env="POSTGRES_PASSWORD=datasurface123" \
+  -n ns-yellow-starter \
+  -- python src/tests/data_change_simulator.py \
+  --host pg-data.ns-yellow-starter.svc.cluster.local \
+  --port 5432 \
+  --database customer_db \
+  --user postgres \
+  --password datasurface123 \
+  --create-tables \
+  --max-changes 10 \
+  --verbose
+
 # Apply Ring 1 initialization jobs (creates platform database schemas)
 kubectl apply -f generated_output/YellowLive/yellowlive_ring1_init_job.yaml
 kubectl apply -f generated_output/YellowForensic/yellowforensic_ring1_init_job.yaml
@@ -368,11 +385,49 @@ kubectl create secret generic slack --from-literal=token=your-slack-webhook -n n
 ## Next Steps
 
 Once deployment is complete:
-1. Set up GitHub Personal Access Token in git secret for actual repository access
-2. Configure ingestion streams in Airflow (factory DAGs will create them dynamically)
-3. Set up data change simulator for testing the pipeline
+1. Access Airflow UI at http://localhost:8080 (admin/admin123) to view and trigger DAGs
+2. Test ingestion jobs by manually triggering the generated ingestion stream DAGs
+3. Optionally run continuous data simulation for ongoing testing (see below)
 4. Create workspace views for data access
 5. Monitor pipeline execution and DAG health
+
+## Testing with Continuous Data Simulation
+
+To continuously simulate realistic data changes for testing the ingestion pipeline:
+
+```bash
+# Run continuous data simulation in a Kubernetes pod
+kubectl run data-simulator-continuous --rm -i --restart=Never \
+  --image=datasurface/datasurface:latest \
+  --env="POSTGRES_USER=postgres" \
+  --env="POSTGRES_PASSWORD=datasurface123" \
+  -n ns-yellow-starter \
+  -- python src/tests/data_change_simulator.py \
+  --host pg-data.ns-yellow-starter.svc.cluster.local \
+  --port 5432 \
+  --database customer_db \
+  --user postgres \
+  --password datasurface123 \
+  --min-interval 10 \
+  --max-interval 30 \
+  --verbose
+
+# Press Ctrl+C to stop the simulator
+# Or stop it from another terminal with:
+# kubectl delete pod data-simulator-continuous -n ns-yellow-starter
+```
+
+**What the data simulator does:**
+- Creates new customers with addresses (15% of changes)
+- Updates customer information like email and phone (25% of changes)  
+- Adds new addresses for existing customers (20% of changes)
+- Updates existing addresses (30% of changes)
+- Occasionally deletes old addresses (10% of changes)
+
+**Observing the Pipeline:**
+- Watch the Airflow DAGs process the simulated changes
+- Monitor staging and merge tables for new data
+- Verify both live and forensic processing modes work correctly
 
 ## Success Criteria
 

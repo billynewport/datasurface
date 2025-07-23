@@ -5,12 +5,13 @@
 
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
-from datasurface.md import Ecosystem, DataPlatform, EcosystemPipelineGraph, PlatformPipelineGraph, DataPlatformGraphHandler
+from datasurface.md import Ecosystem, DataPlatform, EcosystemPipelineGraph, PlatformPipelineGraph, DataPlatformGraphHandler, CredentialStore
 from datasurface.md import ValidationTree
 from typing import Optional
 import os
 import time
 import subprocess
+import urllib.parse
 
 
 def generatePlatformBootstrap(ringLevel: int, modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
@@ -68,7 +69,7 @@ def getLatestModelFolder(modelFolderName: str) -> str:
     return latestModelFolder
 
 
-def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
+def cloneGitRepository(credStore: CredentialStore, repo: GitHubRepository, gitRepoPath: str) -> str:
     """This will clone the git repository into the given path. If the directory is empty, it will clone the repository.
     If the directory is not empty, it will not clone the repository.
 
@@ -85,18 +86,24 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
 
     # Clone the git repository if the directory is empty
     if not os.path.exists(tempFolder) or not os.listdir(tempFolder):
-        git_token = os.environ.get('git_TOKEN')
-        if not git_token:
-            raise Exception("git_TOKEN environment variable not found")
+        # Determine the git URL based on whether the repository has a credential
+        git_url: str
+        if repo.credential is not None:
+            # Use the repository's specific credential
+            git_token = credStore.getAsToken(repo.credential)
+
+            # URL-encode the token to handle special characters
+            encoded_token = urllib.parse.quote(git_token, safe='')
+            git_url = f"https://{encoded_token}@github.com/{repo.repositoryName}.git"
+            print(f"Cloning repository: {repo.repositoryName} using credential: {repo.credential.name}")
+        else:
+            # No credential specified - attempt to clone without authentication (for public repos)
+            git_url = f"https://github.com/{repo.repositoryName}.git"
+            print(f"Cloning repository: {repo.repositoryName} without authentication (public repository)")
 
         # Ensure the directory exists
         os.makedirs(tempFolder, exist_ok=True)
 
-        # Clone the repository (billynewport/mvpmodel)
-        # URL-encode the token to handle special characters
-        import urllib.parse
-        encoded_token = urllib.parse.quote(git_token, safe='')
-        git_url = f"https://{encoded_token}@github.com/{repo.repositoryName}.git"
         print(f"Cloning repository: {repo.repositoryName} into {tempFolder}")
         try:
             subprocess.run(
@@ -126,9 +133,13 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
             if os.path.exists(tempFolder):
                 import shutil
                 shutil.rmtree(tempFolder)
-            # Sanitize error message to remove token exposure
-            sanitized_error = e.stderr.replace(git_token, "***TOKEN***") if e.stderr else "Unknown git error"
-            raise Exception(f"Failed to clone repository {repo.repositoryName}: {sanitized_error}")
+            # Sanitize error message to remove token exposure if token was used
+            sanitized_error = e.stderr
+            if repo.credential is not None and sanitized_error:
+                git_token = os.environ.get(f"{repo.credential.name}_TOKEN", "")
+                if git_token:
+                    sanitized_error = sanitized_error.replace(git_token, "***TOKEN***")
+            raise Exception(f"Failed to clone repository {repo.repositoryName}: {sanitized_error or 'Unknown git error'}")
     else:
         print(f"Using existing repository in {tempFolder}")
 
@@ -149,7 +160,7 @@ def cloneGitRepository(repo: GitHubRepository, gitRepoPath: str) -> str:
     return finalModelFolder
 
 
-def getLatestModelAtTimestampedFolder(repo: GitHubRepository, modelFolderBaseName: str, doClone: bool = False) -> \
+def getLatestModelAtTimestampedFolder(credStore: CredentialStore, repo: GitHubRepository, modelFolderBaseName: str, doClone: bool = False) -> \
             tuple[Optional[Ecosystem], Optional[ValidationTree]]:
     """This will return the latest model at a timestamped folder. The model folder is expected to be a directory
     with subdirectories named model-{timestamp_secs}."""
@@ -157,7 +168,7 @@ def getLatestModelAtTimestampedFolder(repo: GitHubRepository, modelFolderBaseNam
     latestModelFolder: str
     if doClone:
         # Clone the git repository if the directory is empty
-        latestModelFolder = cloneGitRepository(repo, modelFolderBaseName)
+        latestModelFolder = cloneGitRepository(credStore, repo, modelFolderBaseName)
     else:
         # Get latest model timestamped folder
         latestModelFolder = getLatestModelFolder(modelFolderBaseName)
@@ -275,7 +286,7 @@ def executeDataTransformerJob(modelFolderName: str, platformName: str, workspace
 
     # Create and execute the DataTransformer job
     job = DataTransformerJob(eco, credStore, dp, workspaceName, workingFolder)
-    status = job.run()
+    status = job.run(credStore)
 
     print(f"DataTransformer job completed with status: {status.name}")
 

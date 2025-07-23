@@ -2005,11 +2005,12 @@ class Ecosystem(GitControlledObject, JSONable):
             return False
 
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
-        """This is a shallow equality check for the top level ecosystem object"""
+        """This is a shallow equality check for the top level ecosystem object. If this object is different then add Validation problems
+        for every difference to the tree"""
         if (isinstance(proposed, Ecosystem)):
             rc: bool = True
             # If we are being modified by a potentially unauthorized source then check
-            if (self.owningRepo != changeSource):
+            if (not self.owningRepo.eqForAuthorization(changeSource)):
                 rc = super().areTopLevelChangesAuthorized(proposed, changeSource, tree)
                 if self.name != proposed.name:
                     tree.addRaw(UnauthorizedAttributeChange("name", self.name, proposed.name, ProblemSeverity.ERROR))
@@ -2020,9 +2021,9 @@ class Ecosystem(GitControlledObject, JSONable):
                 zTree: ValidationTree = tree.addSubTree(self.zones)
                 if not self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree):
                     rc = False
-                if self._check_dict_changes(self.vendors, proposed.vendors, tree, "Vendors"):
+                if self.dictsAreDifferent(self.vendors, proposed.vendors, tree, "Vendors"):
                     rc = False
-                if self._check_dict_changes(self.dataPlatforms, proposed.dataPlatforms, tree, "DataPlatforms"):
+                if self.dictsAreDifferent(self.dataPlatforms, proposed.dataPlatforms, tree, "DataPlatforms"):
                     rc = False
                 if self.dsgPlatformMappings != proposed.dsgPlatformMappings:
                     tree.addRaw(UnauthorizedAttributeChange("dsgPlatformMappings", self.dsgPlatformMappings,
@@ -2266,17 +2267,17 @@ class Team(GitControlledObject, JSONable):
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
         """This is a shallow equality check for the top level team object"""
         # If we are being changed by an authorized source then it doesnt matter
-        if (self.owningRepo == changeSource):
+        if (self.owningRepo.eqForAuthorization(changeSource)):
             return True
         if not super().areTopLevelChangesAuthorized(proposed, changeSource, tree):
             return False
         if not isinstance(proposed, Team):
             return False
-        if self._check_dict_changes(self.dataStores, proposed.dataStores, tree, "DataStores"):
+        if self.dictsAreDifferent(self.dataStores, proposed.dataStores, tree, "DataStores"):
             return False
-        if self._check_dict_changes(self.workspaces, proposed.workspaces, tree, "Workspaces"):
+        if self.dictsAreDifferent(self.workspaces, proposed.workspaces, tree, "Workspaces"):
             return False
-        if self._check_dict_changes(self.containers, proposed.containers, tree, "Containers"):
+        if self.dictsAreDifferent(self.containers, proposed.containers, tree, "Containers"):
             return False
         return True
 
@@ -2420,7 +2421,7 @@ class AuthorizedObjectManager(GitControlledObject, Generic[G, N]):
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
         p: AuthorizedObjectManager[G, N] = cast(AuthorizedObjectManager[G, N], proposed)
         # If we are modified by an authorized source then it doesn't matter if its different or not
-        if (self.owningRepo == changeSource):
+        if (self.owningRepo.eqForAuthorization(changeSource)):
             return True
         else:
             if (self.authorizedNames == p.authorizedNames):
@@ -2617,21 +2618,21 @@ class GovernanceZone(GitControlledObject, JSONable):
     def areTopLevelChangesAuthorized(self, proposed: GitControlledObject, changeSource: Repository, tree: ValidationTree) -> bool:
         """Just check the not git controlled attributes"""
         # If we're changed by an authorized source then it doesn't matter
-        if (self.owningRepo == changeSource):
+        if (self.owningRepo.eqForAuthorization(changeSource)):
             return True
         if not (super().areTopLevelChangesAuthorized(proposed, changeSource, tree) and type(proposed) is GovernanceZone and self.name == proposed.name):
             return False
-        if self._check_dict_changes(self.storagePolicies, proposed.storagePolicies, tree, "StoragePolicies"):
+        if self.dictsAreDifferent(self.storagePolicies, proposed.storagePolicies, tree, "StoragePolicies"):
             return False
-        if self._check_dict_changes(self.dataplatformPolicies, proposed.dataplatformPolicies, tree, "DataPlatformPolicies"):
+        if self.dictsAreDifferent(self.dataplatformPolicies, proposed.dataplatformPolicies, tree, "DataPlatformPolicies"):
             return False
-        if self._check_dict_changes(self.vendorPolicies, proposed.vendorPolicies, tree, "VendorPolicies"):
+        if self.dictsAreDifferent(self.vendorPolicies, proposed.vendorPolicies, tree, "VendorPolicies"):
             return False
-        if self._check_dict_changes(self.hardVendorPolicies, proposed.hardVendorPolicies, tree, "HardVendorPolicies"):
+        if self.dictsAreDifferent(self.hardVendorPolicies, proposed.hardVendorPolicies, tree, "HardVendorPolicies"):
             return False
-        if self._check_dict_changes(self.classificationPolicies, proposed.classificationPolicies, tree, "ClassificationPolicies"):
+        if self.dictsAreDifferent(self.classificationPolicies, proposed.classificationPolicies, tree, "ClassificationPolicies"):
             return False
-        if self._check_dict_changes(self.locationPolicies, proposed.locationPolicies, tree, "LocationPolicies"):
+        if self.dictsAreDifferent(self.locationPolicies, proposed.locationPolicies, tree, "LocationPolicies"):
             return False
         if not self.teams.areTopLevelChangesAuthorized(proposed.teams, changeSource, tree):
             return False
