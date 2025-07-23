@@ -199,7 +199,7 @@ kubectl run data-simulator --rm -i --restart=Never \
   --user postgres \
   --password datasurface123 \
   --create-tables \
-  --max-changes 10 \
+  --max-changes 1 \
   --verbose
 
 # Apply Ring 1 initialization jobs (creates platform database schemas)
