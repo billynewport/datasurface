@@ -9,7 +9,7 @@ from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace
-from datasurface.md.governance import DatasetGroup, DataTransformerOutput
+from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
     ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
 from datasurface.md.exceptions import ObjectDoesntExistException
@@ -818,11 +818,243 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Populate database with DataTransformer configurations
         self.populateDataTransformerConfigurations(self.graph.eco, issueTree)
 
-        # Return only terraform - factory DAG is created during bootstrap
+        # Generate comprehensive secrets documentation
+        secrets_documentation: str = self.generateSecretsDocumentation(self.graph.eco, issueTree)
+
+        # Return terraform and secrets documentation
         result: dict[str, str] = {
-            "terraform_code": terraform_code
+            "terraform_code": terraform_code,
+            f"{self.dp.name}-secrets.md": secrets_documentation
         }
         return result
+
+    def generateSecretsDocumentation(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
+        """Generate comprehensive documentation listing all required Kubernetes secrets for this platform"""
+
+        # Collect all unique credentials needed
+        secrets_info: dict[str, dict[str, Any]] = {}
+
+        # Platform-level credentials (always required)
+        platform_secrets = [
+            {
+                'credential': self.dp.postgresCredential,
+                'purpose': 'PostgreSQL database access for merge store',
+                'k8s_name': self.dp.to_k8s_name(self.dp.postgresCredential.name),
+                'category': 'Platform Core'
+            },
+            {
+                'credential': self.dp.gitCredential,
+                'purpose': 'Git repository access for ecosystem model',
+                'k8s_name': self.dp.to_k8s_name(self.dp.gitCredential.name),
+                'category': 'Platform Core'
+            },
+            {
+                'credential': self.dp.slackCredential,
+                'purpose': 'Slack notifications for platform events',
+                'k8s_name': self.dp.to_k8s_name(self.dp.slackCredential.name),
+                'category': 'Platform Core'
+            },
+            {
+                'credential': self.dp.connectCredentials,
+                'purpose': 'Kafka Connect cluster API access',
+                'k8s_name': self.dp.to_k8s_name(self.dp.connectCredentials.name),
+                'category': 'Platform Core'
+            }
+        ]
+
+        # Add platform secrets
+        for secret_info in platform_secrets:
+            secrets_info[secret_info['k8s_name']] = secret_info
+
+        # Ingestion-specific credentials
+        for storeName in self.graph.storesToIngest:
+            try:
+                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
+                store: Datastore = storeEntry.datastore
+
+                if isinstance(store.cmd, IngestionMetadata) and store.cmd.credential is not None:
+                    k8s_name = self.dp.to_k8s_name(store.cmd.credential.name)
+                    if k8s_name not in secrets_info:
+                        secrets_info[k8s_name] = {
+                            'credential': store.cmd.credential,
+                            'purpose': f'Source database access for {storeName} SQL snapshot ingestion',
+                            'k8s_name': k8s_name,
+                            'category': 'Ingestion Source',
+                            'stores': [storeName]
+                        }
+                    else:
+                        # Same credential used for multiple stores
+                        if 'stores' not in secrets_info[k8s_name]:
+                            secrets_info[k8s_name]['stores'] = []
+                        secrets_info[k8s_name]['stores'].append(storeName)
+                        secrets_info[k8s_name]['purpose'] = f"Source database access for {', '.join(secrets_info[k8s_name]['stores'])} SQL snapshot ingestion"
+
+            except ObjectDoesntExistException:
+                issueTree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
+                continue
+
+        # DataTransformer repository credentials
+        for workspaceName, workspace in self.graph.workspaces.items():
+            if workspace.dataTransformer is not None:
+                assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
+                if workspace.dataTransformer.code.repo.credential is not None:
+                    k8s_name = self.dp.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
+                    if k8s_name not in secrets_info:
+                        secrets_info[k8s_name] = {
+                            'credential': workspace.dataTransformer.code.repo.credential,
+                            'purpose': f'Git repository access for {workspaceName} DataTransformer code',
+                            'k8s_name': k8s_name,
+                            'category': 'DataTransformer Repository',
+                            'workspaces': [workspaceName],
+                            'repo': workspace.dataTransformer.code.repo.repositoryName
+                        }
+                    else:
+                        # Same credential used for multiple DataTransformers
+                        if 'workspaces' not in secrets_info[k8s_name]:
+                            secrets_info[k8s_name]['workspaces'] = []
+                        secrets_info[k8s_name]['workspaces'].append(workspaceName)
+                        secrets_info[k8s_name]['purpose'] = f"Git repository access for {', '.join(secrets_info[k8s_name]['workspaces'])} DataTransformer code"
+
+        # Generate markdown documentation
+        gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+
+        markdown_lines = [
+            f"# Kubernetes Secrets for {self.dp.name}",
+            "",
+            f"This document lists all Kubernetes secrets required for the `{self.dp.name}` YellowDataPlatform deployment.",
+            "",
+            f"**Platform:** {self.dp.name}",
+            f"**Namespace:** {self.dp.namespace}",
+            f"**Ecosystem Repository:** {gitRepo.repositoryName}",
+            "",
+            "## Overview",
+            "",
+            f"Total secrets required: **{len(secrets_info)}**",
+            "",
+            "| Category | Count |",
+            "| --- | --- |"
+        ]
+
+        # Count by category
+        category_counts = {}
+        for secret in secrets_info.values():
+            category = secret['category']
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        for category, count in sorted(category_counts.items()):
+            markdown_lines.append(f"| {category} | {count} |")
+
+        markdown_lines.extend([
+            "",
+            "## Required Secrets",
+            ""
+        ])
+
+        # Group secrets by category
+        by_category = {}
+        for secret in secrets_info.values():
+            category = secret['category']
+            if category not in by_category:
+                by_category[category] = []
+            by_category[category].append(secret)
+
+        # Generate sections for each category
+        for category in sorted(by_category.keys()):
+            markdown_lines.extend([
+                f"### {category}",
+                ""
+            ])
+
+            for secret in sorted(by_category[category], key=lambda x: x['k8s_name']):
+                credential = secret['credential']
+                k8s_name = secret['k8s_name']
+                purpose = secret['purpose']
+
+                markdown_lines.extend([
+                    f"#### `{k8s_name}`",
+                    "",
+                    f"**Purpose:** {purpose}",
+                    f"**Type:** {credential.credentialType.name.lower()}",
+                    f"**Original Name:** `{credential.name}`",
+                    ""
+                ])
+
+                # Add specific details based on category
+                if category == "DataTransformer Repository" and 'repo' in secret:
+                    markdown_lines.extend([
+                        f"**Repository:** `{secret['repo']}`",
+                        f"**Workspaces:** {', '.join(secret.get('workspaces', []))}",
+                        ""
+                    ])
+                elif category == "Ingestion Source" and 'stores' in secret:
+                    markdown_lines.extend([
+                        f"**Datastores:** {', '.join(secret['stores'])}",
+                        ""
+                    ])
+
+                # Generate kubectl command based on credential type
+                if credential.credentialType == CredentialType.USER_PASSWORD:
+                    markdown_lines.extend([
+                        "**Create Command:**",
+                        "```bash",
+                        f"kubectl create secret generic {k8s_name} \\",
+                        "  --from-literal=POSTGRES_USER='your-username' \\",
+                        "  --from-literal=POSTGRES_PASSWORD='your-password' \\",
+                        f"  --namespace {self.dp.namespace}",
+                        "```",
+                        ""
+                    ])
+                elif credential.credentialType == CredentialType.API_TOKEN:
+                    markdown_lines.extend([
+                        "**Create Command:**",
+                        "```bash",
+                        f"kubectl create secret generic {k8s_name} \\",
+                        "  --from-literal=token='your-api-token' \\",
+                        f"  --namespace {self.dp.namespace}",
+                        "```",
+                        ""
+                    ])
+                elif credential.credentialType == CredentialType.API_KEY_PAIR:
+                    markdown_lines.extend([
+                        "**Create Command:**",
+                        "```bash",
+                        f"kubectl create secret generic {k8s_name} \\",
+                        "  --from-literal=api_key='your-api-key' \\",
+                        "  --from-literal=api_secret='your-api-secret' \\",
+                        f"  --namespace {self.dp.namespace}",
+                        "```",
+                        ""
+                    ])
+
+        markdown_lines.extend([
+            "## Verification",
+            "",
+            "To verify all secrets are created correctly:",
+            "",
+            "```bash",
+            "# List all secrets in the namespace",
+            f"kubectl get secrets -n {self.dp.namespace}",
+            "",
+            "# Verify specific secrets exist",
+        ])
+
+        for k8s_name in sorted(secrets_info.keys()):
+            markdown_lines.append(f"kubectl get secret {k8s_name} -n {self.dp.namespace}")
+
+        markdown_lines.extend([
+            "```",
+            "",
+            "## Notes",
+            "",
+            "- **Security:** Never commit actual secret values to version control",
+            "- **Rotation:** Plan for regular credential rotation",
+            "- **Access:** Use RBAC to limit secret access to necessary pods only",
+            "- **Backup:** Consider backing up secret definitions (without values) for disaster recovery",
+            "",
+            f"Generated automatically by DataSurface for platform `{self.dp.name}`"
+        ])
+
+        return "\n".join(markdown_lines)
 
 
 class KafkaConnectCluster(DataContainer):

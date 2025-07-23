@@ -180,3 +180,127 @@ class Test_YellowDataPlatform(unittest.TestCase):
                         print(f"✓ Cleaned up temporary directory: {temp_dir}")
                     except Exception as e:
                         print(f"Warning: Could not clean up temporary directory {temp_dir}: {e}")
+
+    def test_secrets_documentation_generation(self):
+        """Test that secrets documentation is generated correctly with all expected secrets."""
+
+        # Set up test environment variables for credentials
+        os.environ["postgres_USER"] = "postgres"
+        os.environ["postgres_PASSWORD"] = "postgres"
+        os.environ["git_TOKEN"] = "test_git_token"
+        os.environ["slack_TOKEN"] = "test_slack_token"
+        os.environ["connect_TOKEN"] = "test_connect_token"
+
+        # Mock createEngine to use localhost database
+        def mock_create_engine(container: DataContainer, userName: str, password: str):
+            if isinstance(container, PostgresDatabase) and hasattr(container, 'databaseName') and container.databaseName == 'datasurface_merge':
+                return create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
+            else:
+                return create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
+
+        # Set up test database
+        self.setup_test_database()
+
+        # Create a temporary directory for outputs
+        temp_dir = tempfile.mkdtemp()
+        print(f"\n=== Secrets Documentation Test Output Directory: {temp_dir} ===")
+
+        try:
+            with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
+                # Handle model merge which calls renderGraph and generates secrets documentation
+                eco: Ecosystem = handleModelMerge("src/tests/yellow_dp_tests/mvp_model", temp_dir, "YellowLive")
+
+                # Validate that the ecosystem was created successfully
+                self.assertIsNotNone(eco)
+                self.assertEqual(eco.name, "Test")
+
+                # Check that the platform output directory was created
+                platform_output_dir = os.path.join(temp_dir, "YellowLive")
+                self.assertTrue(os.path.exists(platform_output_dir))
+
+                # Look for the secrets documentation file
+                secrets_file = None
+                for filename in os.listdir(platform_output_dir):
+                    if filename.endswith("-secrets.md"):
+                        secrets_file = os.path.join(platform_output_dir, filename)
+                        break
+
+                self.assertIsNotNone(secrets_file, "Secrets documentation file should be generated")
+                assert secrets_file is not None  # Type narrowing for mypy
+                self.assertTrue(os.path.exists(secrets_file), f"Secrets file should exist: {secrets_file}")
+
+                # Read and validate the secrets documentation content
+                with open(secrets_file, 'r') as f:
+                    secrets_content = f.read()
+
+                print("\n=== Generated Secrets Documentation ===")
+                print(secrets_content)
+
+                # Verify the document structure
+                self.assertIn("# Kubernetes Secrets for YellowLive", secrets_content)
+                self.assertIn("## Overview", secrets_content)
+                self.assertIn("Total secrets required:", secrets_content)
+                self.assertIn("## Required Secrets", secrets_content)
+
+                # Verify platform core secrets are present
+                self.assertIn("### Platform Core", secrets_content)
+
+                # Check for expected platform-level secrets (these should always be present)
+                expected_platform_secrets = [
+                    "postgres",  # PostgreSQL credential
+                    "git",       # Git credential
+                    "slack",     # Slack credential
+                    "connect"    # Kafka Connect credential
+                ]
+
+                for secret_name in expected_platform_secrets:
+                    self.assertIn(f"#### `{secret_name}`", secrets_content,
+                                  f"Platform secret '{secret_name}' should be documented")
+
+                # Verify secret types are documented
+                self.assertIn("**Type:** user_password", secrets_content)  # PostgreSQL
+                self.assertIn("**Type:** api_token", secrets_content)      # Git, Slack, Connect
+
+                # Verify kubectl commands are present
+                self.assertIn("kubectl create secret generic", secrets_content)
+                self.assertIn("--from-literal=POSTGRES_USER=", secrets_content)
+                self.assertIn("--from-literal=token=", secrets_content)
+
+                # Verify verification section
+                self.assertIn("## Verification", secrets_content)
+                self.assertIn("kubectl get secrets -n", secrets_content)
+
+                # Verify security notes
+                self.assertIn("## Notes", secrets_content)
+                self.assertIn("Never commit actual secret values", secrets_content)
+
+                # Check that the namespace is correctly referenced
+                from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+                live_dp = eco.getDataPlatformOrThrow("YellowLive")
+                assert isinstance(live_dp, YellowDataPlatform)
+                expected_namespace = live_dp.namespace
+                self.assertIn(f"**Namespace:** {expected_namespace}", secrets_content)
+                self.assertIn(f"--namespace {expected_namespace}", secrets_content)
+
+                print("✅ Secrets documentation validation passed")
+                print("✅ All expected platform secrets documented")
+                print("✅ Proper kubectl commands generated")
+                print("✅ Security guidelines included")
+
+        finally:
+            # Clean up environment variables
+            for key in ["postgres_USER", "postgres_PASSWORD", "git_TOKEN", "slack_TOKEN", "connect_TOKEN"]:
+                os.environ.pop(key, None)
+
+            # Clean up
+            import shutil
+            if os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    print(f"✓ Cleaned up temporary directory: {temp_dir}")
+                except Exception as e:
+                    print(f"Warning: Could not clean up temporary directory {temp_dir}: {e}")
+
+
+if __name__ == '__main__':
+    unittest.main()
