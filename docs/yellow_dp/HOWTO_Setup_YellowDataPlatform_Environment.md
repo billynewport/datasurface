@@ -19,7 +19,7 @@ I have also tested this on an M2 Macbook Air with 24GB RAM and 2TB SSD. The same
 
 This document provides a step-by-step guide to set up a complete YellowDataPlatform environment on Kubernetes. 
 
-It is designed as an AI first document, easy to following repeatedly by an AI assistant to speed installs. Tested in Cursor with Claude 4 Sonnet in Max mode.
+It is designed as an AI first document, easy to following repeatedly by an AI assistant to speed installs. Tested in Cursor with a chat session in auto mode.
 
 The setup uses a two-ring approach:
 
