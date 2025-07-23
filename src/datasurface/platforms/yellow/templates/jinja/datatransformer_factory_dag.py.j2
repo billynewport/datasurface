@@ -128,6 +128,21 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         )
     ]
 
+    # DataTransformer-specific repository credential (if different from platform git credential)
+    if (dt_config.get('git_credential_secret_name') and 
+        dt_config['git_credential_secret_name'] != platform_config['git_credential_secret_name']):
+        env_vars.append(
+            k8s.V1EnvVar(
+                name=f"{dt_config['git_credential_secret_name']}_TOKEN",
+                value_from=k8s.V1EnvVarSource(
+                    secret_key_ref=k8s.V1SecretKeySelector(
+                        name=dt_config['git_credential_secret_name'],
+                        key='token'
+                    )
+                )
+            )
+        )
+
     # Start task
     start_task = EmptyOperator(
         task_id='start_datatransformer',
@@ -322,6 +337,21 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             )
         )
     ]
+
+    # DataTransformer-specific repository credential (if different from platform git credential)
+    if (dt_config.get('git_credential_secret_name') and 
+        dt_config['git_credential_secret_name'] != platform_config['git_credential_secret_name']):
+        env_vars.append(
+            k8s.V1EnvVar(
+                name=f"{dt_config['git_credential_secret_name']}_TOKEN",
+                value_from=k8s.V1EnvVarSource(
+                    secret_key_ref=k8s.V1SecretKeySelector(
+                        name=dt_config['git_credential_secret_name'],
+                        key='token'
+                    )
+                )
+            )
+        )
 
     # Start task
     start_task = EmptyOperator(

@@ -722,6 +722,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "output_dataset_list": output_dataset_list
                     }
 
+                    assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
+                    if workspace.dataTransformer.code.repo.credential is not None:
+                        dt_config["git_credential_secret_name"] = self.dp.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
+
                     # Add schedule information if DataTransformer has a trigger
                     if workspace.dataTransformer.trigger is not None:
                         if isinstance(workspace.dataTransformer.trigger, CronTrigger):
