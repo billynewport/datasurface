@@ -35,11 +35,17 @@ class DataTransformerContext:
         self._input_dataset_to_table_mapping: Dict[str, str] = {}
         self._output_dataset_to_table_mapping: Dict[str, str] = {}
 
-    def getInputTableNameForDataset(self, storeName: str, datasetName: str) -> str:
-        return self._input_dataset_to_table_mapping.get(f"{storeName}#{datasetName}", "")
+    def _getInputKey(self, dsg: str, storeName: str, datasetName: str) -> str:
+        return f"{dsg}#{storeName}#{datasetName}"
+
+    def _getOutputKey(self, storeName: str, datasetName: str) -> str:
+        return f"output#{storeName}#{datasetName}"
+
+    def getInputTableNameForDataset(self, dsg: str, storeName: str, datasetName: str) -> str:
+        return self._input_dataset_to_table_mapping.get(self._getInputKey(dsg, storeName, datasetName), "")
 
     def getOutputTableNameForDataset(self, storeName: str, datasetName: str) -> str:
-        return self._output_dataset_to_table_mapping.get(f"{storeName}#{datasetName}", "")
+        return self._output_dataset_to_table_mapping.get(self._getOutputKey(storeName, datasetName), "")
 
     def getEcosystem(self) -> Ecosystem:
         return self._eco
@@ -56,11 +62,11 @@ class InternalDataTransformerContext(DataTransformerContext):
     def __init__(self, eco: Ecosystem, workspace: Workspace, dp: YellowDataPlatform) -> None:
         super().__init__(eco, workspace, dp)
 
-    def addInputDataset(self, storeName: str, datasetName: str, table_name: str) -> None:
-        self._input_dataset_to_table_mapping[f"{storeName}#{datasetName}"] = table_name
+    def addInputDataset(self, dsg: str, storeName: str, datasetName: str, table_name: str) -> None:
+        self._input_dataset_to_table_mapping[self._getInputKey(dsg, storeName, datasetName)] = table_name
 
     def addOutputDataset(self, storeName: str, datasetName: str, table_name: str) -> None:
-        self._output_dataset_to_table_mapping[f"{storeName}#{datasetName}"] = table_name
+        self._output_dataset_to_table_mapping[self._getOutputKey(storeName, datasetName)] = table_name
 
 
 class DataTransformerJob(JobUtilities):
@@ -81,7 +87,7 @@ class DataTransformerJob(JobUtilities):
                 dataset: Dataset = store.datasets[ds.datasetName]
                 # Table names in merge database follow the pattern: store_dataset
                 table_name = self.getRawMergeTableNameForDataset(store, dataset)
-                dataset_mapping.addInputDataset(store.name, dataset.name, table_name)
+                dataset_mapping.addInputDataset(dsg.name, store.name, dataset.name, table_name)
 
         # Add output datasets with dt_ prefix
         for dataset in outputDatastore.datasets.values():
