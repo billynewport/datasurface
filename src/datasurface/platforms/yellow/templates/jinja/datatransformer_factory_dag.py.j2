@@ -340,15 +340,11 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             '--platform-name', platform_config['original_platform_name'],
             '--operation', 'snapshot-merge',
             '--store-name', output_datastore_name,
-            '--postgres-host', platform_config['postgres_hostname'],
-            '--postgres-port', str(platform_config['postgres_port']),
-            '--postgres-database', platform_config['postgres_database'],
             '--git-repo-path', '/workspace/model',
             '--git-repo-owner', platform_config['git_repo_owner'],
             '--git-repo-name', platform_config['git_repo_repo_name'],
             '--git-repo-branch', platform_config['git_repo_branch'],
-            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
-            '--workspace-name', workspace_name  # Source workspace for context
+            '--git-platform-repo-credential-name', platform_config['git_credential_name']
         ],
         env_vars=env_vars,  # type: ignore
         image_pull_policy='Always',
