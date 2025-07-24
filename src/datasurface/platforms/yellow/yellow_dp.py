@@ -821,10 +821,14 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Generate comprehensive secrets documentation
         secrets_documentation: str = self.generateSecretsDocumentation(self.graph.eco, issueTree)
 
-        # Return terraform and secrets documentation
+        # Generate operational network policy with current database ports
+        network_policy: str = self.generateOperationalNetworkPolicy(self.graph.eco, issueTree)
+
+        # Return terraform, secrets documentation, and network policy
         result: dict[str, str] = {
             "terraform_code": terraform_code,
-            f"{self.dp.name}-secrets.md": secrets_documentation
+            f"{self.dp.name}-secrets.md": secrets_documentation,
+            f"{self.dp.name}-operational-network-policy.yaml": network_policy
         }
         return result
 
@@ -1055,6 +1059,78 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         ])
 
         return "\n".join(markdown_lines)
+
+    def generateOperationalPorts(self, eco: Ecosystem) -> set[int]:
+        """Generate required database ports for operational use by scanning this platform's graph"""
+        required_ports = self.graph.generatePorts()
+        
+        # Add platform-specific ports (merge store)
+        required_ports.update(self.graph.getPortsForDataContainer(self.dp.mergeStore))
+        
+        return required_ports
+
+    def generateOperationalNetworkPolicy(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
+        """Generate operational network policy YAML based on current ecosystem database ports"""
+        from datetime import datetime
+
+        # Scan ecosystem model for all database ports that need network access (operational mode)
+        required_ports: set[int] = self.generateOperationalPorts(eco)
+
+        # Generate YAML content
+        yaml_lines = [
+            "# Operational Network Policy for External Database Access",
+            f"# Generated for platform: {self.dp.name}",
+            f"# Namespace: {self.dp.namespace}",
+            f"# Generated at: {datetime.now().isoformat()}",
+            "#",
+            "# Apply this network policy to allow pods to connect to external databases",
+            "# discovered from the current ecosystem model operational state.",
+            "# Includes ports from:",
+            "#   - Datastores being ingested by this platform",
+            "#   - Workspaces serviced by this platform",
+            "#   - Platform merge store",
+            "#",
+            f"# Required database ports: {sorted(list(required_ports))}",
+            "",
+            "apiVersion: networking.k8s.io/v1",
+            "kind: NetworkPolicy",
+            "metadata:",
+            f"  name: {self.dp.to_k8s_name(self.dp.name)}-operational-database-access",
+            f"  namespace: {self.dp.namespace}",
+            "  labels:",
+            f"    app: {self.dp.to_k8s_name(self.dp.name)}",
+            "    component: operational-network-policy",
+            "spec:",
+            "  podSelector: {}",
+            "  policyTypes:",
+            "    - Egress",
+            "  egress:",
+            "    # Allow all outbound traffic (needed for external database connections)",
+            "    - to:",
+            "        - ipBlock:",
+            "            cidr: 0.0.0.0/0",
+            "    # Allow DNS resolution",
+            "    - to: []",
+            "      ports:",
+            "        - protocol: UDP",
+            "          port: 53",
+            "        - protocol: TCP",
+            "          port: 53",
+            "    # Allow database ports discovered from operational ecosystem state",
+            "    - to:",
+            "        - ipBlock:",
+            "            cidr: 0.0.0.0/0",
+            "      ports:"
+        ]
+
+        # Add each discovered port
+        for port in sorted(list(required_ports)):
+            yaml_lines.extend([
+                "        - protocol: TCP",
+                f"          port: {port}"
+            ])
+
+        return "\n".join(yaml_lines)
 
 
 class KafkaConnectCluster(DataContainer):
@@ -1332,7 +1408,7 @@ class YellowDataPlatform(DataPlatform):
                 "git_repo_name": gitRepo.repositoryName,
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
-                "ingestion_streams": {}  # Empty for bootstrap - no ingestion streams yet
+                "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
             }
 
             # Render the templates

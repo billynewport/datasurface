@@ -4206,6 +4206,40 @@ class PlatformPipelineGraph(InternalLintableObject):
                 # Set the priority of all left hand nodes
                 setLeftNodesPriority(self.nodes[str(export_node)], workspace.priority)
 
+    def getPortsForDataContainer(self, dataContainer: 'DataContainer') -> set[int]:
+        """Extract ports from a data container if it's a HostPortSQLDatabase"""
+        from datasurface.md.governance import HostPortSQLDatabase
+        if isinstance(dataContainer, HostPortSQLDatabase):
+            return {dataContainer.hostPortPair.port}
+        return set()
+
+    def generatePorts(self) -> set[int]:
+        """Generate required database ports by scanning datastores and workspaces in this graph"""
+        required_ports: set[int] = set()
+
+        # Add standard database ports
+        required_ports.update([5432, 3306, 1521, 1433, 50000])  # PostgreSQL, MySQL, Oracle, SQL Server, DB2
+
+        # Convert store names to datastore objects and extract ports
+        for storeName in self.storesToIngest:
+            try:
+                storeEntry = self.eco.cache_getDatastoreOrThrow(storeName)
+                store = storeEntry.datastore
+                if store.cmd is not None and isinstance(store.cmd, IngestionMetadata) and store.cmd.dataContainer is not None:
+                    required_ports.update(self.getPortsForDataContainer(store.cmd.dataContainer))
+            except Exception:
+                continue
+
+        # Extract ports from workspaces in this graph
+        for workspace in self.workspaces.values():
+
+            if workspace.dataContainer is not None:
+                required_ports.update(self.getPortsForDataContainer(workspace.dataContainer))
+
+        # Platform-specific ports (like merge store) should be added by platform implementations
+
+        return required_ports
+
 
 class EcosystemPipelineGraph(InternalLintableObject):
     """This is the total graph for an Ecosystem. It's a list of graphs keyed by DataPlatforms in use. One graph per DataPlatform"""
