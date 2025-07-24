@@ -48,8 +48,12 @@ class DataTransformerContext:
     def getInputTableNameForDataset(self, dsg: str, storeName: str, datasetName: str) -> str:
         return self._input_dataset_to_table_mapping.get(self._getInputKey(dsg, storeName, datasetName), "")
 
-    def getOutputTableNameForDataset(self, storeName: str, datasetName: str) -> str:
-        return self._output_dataset_to_table_mapping.get(self._getOutputKey(storeName, datasetName), "")
+    def getOutputTableNameForDataset(self, datasetName: str) -> str:
+        assert self._workspace.dataTransformer is not None
+        tableName: str = self._output_dataset_to_table_mapping.get(self._getOutputKey(self._workspace.dataTransformer.outputDatastore.name, datasetName), "")
+        if tableName == "":
+            raise ValueError(f"Output table name not found for dataset {datasetName}")
+        return tableName
 
     def getEcosystem(self) -> Ecosystem:
         return self._eco
