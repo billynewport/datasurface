@@ -95,7 +95,7 @@ def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: st
 
     The view will have a one-to-one mapping to columns in the underlying table that have the same names.
     Returns the SQL CREATE OR REPLACE VIEW statement as a string.
-    
+
     Args:
         dataset: The dataset defining the schema
         viewName: Name of the view to create
@@ -112,11 +112,11 @@ def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: st
         # Create the view SQL statement using CREATE OR REPLACE VIEW
         columnsClause: str = ", ".join(columnNames)
         viewSql: str = f"CREATE OR REPLACE VIEW {viewName} AS SELECT {columnsClause} FROM {underlyingTable}"
-        
+
         # Add WHERE clause if provided
         if where_clause:
             viewSql += f" WHERE {where_clause}"
-            
+
         return viewSql
     else:
         raise Exception("Unknown schema type")

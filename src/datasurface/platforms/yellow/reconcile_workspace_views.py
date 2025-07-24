@@ -127,7 +127,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     # Create schema projector to access constants and determine platform behavior
     schema_projector = YellowSchemaProjector(eco, yellow_dp)
     is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED
-    
+
     print(f"Platform type: {'Forensic (BATCH_MILESTONED)' if is_forensic_platform else 'Live-only (LIVE_ONLY)'}")
 
     # Track results
@@ -156,22 +156,22 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                 print(f"DEBUG: dataset_group.sinks: {list(dataset_group.sinks.keys())}")
                 for sink in dataset_group.sinks.values():
                     print(f"DEBUG: Processing sink: {sink}")
-                    
+
                     # Create utilities instance for this specific sink
                     try:
                         store_entry = eco.cache_getDatastoreOrThrow(sink.storeName)
                         utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store_entry.datastore, sink.datasetName)
-                        
+
                         if utils.dataset is None:
                             print(f"Error: Dataset {sink.datasetName} not found in store {sink.storeName}")
                             views_failed += 1
                             continue
-                            
+
                     except Exception as e:
                         print(f"Error: Could not load datastore {sink.storeName}: {e}")
                         views_failed += 1
                         continue
-                    
+
                     # Generate merge table name using utilities
                     merge_table_name = utils.getMergeTableNameForDataset(utils.dataset)
                     print(f"DEBUG: merge_table_name: {merge_table_name}")
@@ -202,10 +202,10 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                     # Create views based on platform type
                     try:
                         view_changes = []
-                        
+
                         if is_forensic_platform:
                             # For forensic platforms: create both _view_full and _live views
-                            
+
                             # 1. Create full view (all historical records)
                             full_view_name = generate_full_view_name(dataplatform_name, workspace.name,
                                                                      dataset_group.name, sink.datasetName)
@@ -219,7 +219,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                                     view_changes.append(f"Created full view: {full_view_name}")
                             else:
                                 view_changes.append(f"Full view already up to date: {full_view_name}")
-                            
+
                             # 2. Create live view (only live records with WHERE clause)
                             live_view_name = generate_live_view_name(dataplatform_name, workspace.name,
                                                                      dataset_group.name, sink.datasetName)
@@ -235,7 +235,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                                     view_changes.append(f"Created live view: {live_view_name}")
                             else:
                                 view_changes.append(f"Live view already up to date: {live_view_name}")
-                                
+
                         else:
                             # For live-only platforms: create only _live view (no filtering needed)
                             live_view_name = generate_live_view_name(dataplatform_name, workspace.name,
@@ -251,11 +251,11 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                                     view_changes.append(f"Created live view: {live_view_name}")
                             else:
                                 view_changes.append(f"Live view already up to date: {live_view_name}")
-                        
+
                         # Print all view changes for this dataset
                         for change in view_changes:
                             print(f"  {change}")
-                            
+
                     except Exception as e:
                         print(f"Error creating/updating views for dataset '{sink.datasetName}': {e}")
                         views_failed += 1

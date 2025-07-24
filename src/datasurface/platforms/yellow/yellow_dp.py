@@ -1063,10 +1063,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
     def generateOperationalPorts(self, eco: Ecosystem) -> set[int]:
         """Generate required database ports for operational use by scanning this platform's graph"""
         required_ports = self.graph.generatePorts()
-        
+
         # Add platform-specific ports (merge store)
         required_ports.update(self.graph.getPortsForDataContainer(self.dp.mergeStore))
-        
+
         return required_ports
 
     def generateOperationalNetworkPolicy(self, eco: Ecosystem, issueTree: ValidationTree) -> str:
