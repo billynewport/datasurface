@@ -262,8 +262,8 @@ class DataContainerNamingMapper:
 
 class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
     """This is a default naming adapter which maps the dataset name to the dataset name and the attribute name to the attribute name"""
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, identifierLengthLimit: int = 63) -> None:
+        super().__init__(maxLen=identifierLengthLimit)
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, DefaultDataContainerNamingMapper)
@@ -622,45 +622,26 @@ class DataPlatformManagedDataContainer(DataContainer):
 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
-    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str) -> None:
+    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str, identifierLengthLimit: int = 64) -> None:
         super().__init__(name, locations)
         self.databaseName: str = databaseName
+        self.identifierLengthLimit: int = identifierLengthLimit
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "databaseName": self.databaseName})
+        rc.update({"_type": self.__class__.__name__, "databaseName": self.databaseName, "identifierLengthLimit": self.identifierLengthLimit})
         return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, SQLDatabase)):
-            return super().__eq__(other) and self.databaseName == other.databaseName
+            return super().__eq__(other) and self.databaseName == other.databaseName and self.identifierLengthLimit == other.identifierLengthLimit
         return False
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
 
     def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
-        return DefaultDataContainerNamingMapper()
-
-
-class URLSQLDatabase(SQLDatabase):
-    """This is a SQL database with a URL"""
-    def __init__(self, name: str, locations: set['LocationKey'], url: str, databaseName: str) -> None:
-        super().__init__(name, locations, databaseName)
-        self.url: str = url
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "url": self.url})
-        return rc
-
-    def __eq__(self, other: object) -> bool:
-        if (isinstance(other, URLSQLDatabase)):
-            return super().__eq__(other) and self.url == other.url
-        return False
-
-    def __hash__(self) -> int:
-        return hash(self.name)
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit)
 
 
 class HostPortPair(UserDSLObject):
@@ -722,8 +703,8 @@ class HostPortPairList(UserDSLObject):
 
 class HostPortSQLDatabase(SQLDatabase):
     """This is a SQL database with a host and port"""
-    def __init__(self, name: str, locations: set['LocationKey'], hostPort: HostPortPair, databaseName: str) -> None:
-        super().__init__(name, locations, databaseName)
+    def __init__(self, name: str, locations: set['LocationKey'], hostPort: HostPortPair, databaseName: str, identifierLengthLimit: int = 63) -> None:
+        super().__init__(name, locations, databaseName, identifierLengthLimit)
         self.hostPortPair: HostPortPair = hostPort
 
     def to_json(self) -> dict[str, Any]:
@@ -747,7 +728,7 @@ class HostPortSQLDatabase(SQLDatabase):
 class PostgresDatabase(HostPortSQLDatabase):
     """This is a Postgres database"""
     def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName)
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=63)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -766,7 +747,7 @@ class PostgresDatabase(HostPortSQLDatabase):
 class MySQLDatabase(HostPortSQLDatabase):
     """This is a MySQL database"""
     def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName)
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=64)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -785,7 +766,7 @@ class MySQLDatabase(HostPortSQLDatabase):
 class OracleDatabase(HostPortSQLDatabase):
     """This is an Oracle database"""
     def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName)
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -804,7 +785,7 @@ class OracleDatabase(HostPortSQLDatabase):
 class SQLServerDatabase(HostPortSQLDatabase):
     """This is a SQL Server database"""
     def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName)
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -823,7 +804,7 @@ class SQLServerDatabase(HostPortSQLDatabase):
 class DB2Database(HostPortSQLDatabase):
     """This is a DB2 database"""
     def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName)
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
