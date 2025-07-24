@@ -121,7 +121,7 @@ class DataTransformerJob(JobUtilities):
                 dataset: Dataset = store.datasets[ds.datasetName]
                 # Use live view name instead of merge table name for DataTransformers
                 # This ensures DataTransformers work with live data only
-                view_name = generate_live_view_name(self.dp.name, workspace.name, dsg.name, ds.datasetName)
+                view_name = generate_live_view_name(self.dp.name, workspace.name, dsg.name, ds.storeName, ds.datasetName)
                 dataset_mapping.addInputDataset(dsg.name, store.name, dataset.name, view_name)
 
         # Add output datasets with dt_ prefix

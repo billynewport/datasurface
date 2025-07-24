@@ -18,37 +18,40 @@ from datasurface.md.schema import DDLTable
 from datasurface.platforms.yellow.jobs import createEngine, YellowDatasetUtilities
 
 
-def generate_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, dataset_name: str) -> str:
-    """Generate a view name following the pattern: dataplatform/workspace/dsg/dataset_view"""
+def generate_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
+    """Generate a view name following the pattern: dataplatform/workspace/dsg/store/dataset_view"""
     # Convert to lowercase and replace spaces/special chars with underscores
     dp_name = dataplatform_name.lower().replace(' ', '_').replace('-', '_')
     ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
     dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
+    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
     dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
 
-    return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view"
+    return f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view"
 
 
-def generate_full_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, dataset_name: str) -> str:
+def generate_full_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
     """Generate a full view name with _full suffix for forensic platforms"""
     # Convert to lowercase and replace spaces/special chars with underscores
     dp_name = dataplatform_name.lower().replace(' ', '_').replace('-', '_')
     ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
     dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
+    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
     dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
 
-    return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view_full"
+    return f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full"
 
 
-def generate_live_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, dataset_name: str) -> str:
+def generate_live_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
     """Generate a live view name with _live suffix for both platform types"""
     # Convert to lowercase and replace spaces/special chars with underscores
     dp_name = dataplatform_name.lower().replace(' ', '_').replace('-', '_')
     ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
     dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
+    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
     dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
 
-    return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view_live"
+    return f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live"
 
 
 def check_merge_table_exists(engine: Engine, merge_table_name: str) -> bool:
@@ -208,7 +211,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
 
                             # 1. Create full view (all historical records)
                             full_view_name = generate_full_view_name(dataplatform_name, workspace.name,
-                                                                     dataset_group.name, sink.datasetName)
+                                                                     dataset_group.name, sink.storeName, sink.datasetName)
                             full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
                             if full_was_changed:
                                 if check_merge_table_exists(engine, full_view_name):
@@ -222,7 +225,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
 
                             # 2. Create live view (only live records with WHERE clause)
                             live_view_name = generate_live_view_name(dataplatform_name, workspace.name,
-                                                                     dataset_group.name, sink.datasetName)
+                                                                     dataset_group.name, sink.storeName, sink.datasetName)
                             live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
                             live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
                                                                   merge_table_name, live_where_clause)
@@ -239,7 +242,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                         else:
                             # For live-only platforms: create only _live view (no filtering needed)
                             live_view_name = generate_live_view_name(dataplatform_name, workspace.name,
-                                                                     dataset_group.name, sink.datasetName)
+                                                                     dataset_group.name, sink.storeName, sink.datasetName)
                             live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
                                                                   merge_table_name, None)
                             if live_was_changed:
