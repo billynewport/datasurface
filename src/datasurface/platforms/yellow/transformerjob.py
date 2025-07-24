@@ -26,8 +26,33 @@ from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 import sqlalchemy
 from sqlalchemy import Table
 import argparse
+import logging
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+
+# Custom logging functions that include level in message for pod manager visibility
+def log_error(message):
+    """Log error with level prefix for pod manager visibility"""
+    logger.error(f"[ERROR] {message}")
+
+
+def log_warning(message):
+    """Log warning with level prefix for pod manager visibility"""
+    logger.warning(f"[WARNING] {message}")
+
+
+def log_info(message):
+    """Log info with level prefix for pod manager visibility"""
+    logger.info(f"[INFO] {message}")
 
 
 class DataTransformerContext:
@@ -111,9 +136,9 @@ class DataTransformerJob(JobUtilities):
             table_name = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
             try:
                 connection.execute(text(f"TRUNCATE TABLE {table_name}"))
-                print(f"Truncated output table: {table_name}")
+                logger.info(f"Truncated output table: {table_name}")
             except Exception as e:
-                print(f"Could not truncate table {table_name}: {e}")
+                logger.error(f"Could not truncate table {table_name}: {e}")
 
     def executeTransformer(self, codeDir: str, connection: Connection, workspace: Workspace, outputDatastore: Datastore) -> Optional[Any]:
         """Load and execute the transformer code."""
@@ -136,21 +161,21 @@ class DataTransformerJob(JobUtilities):
                 dataset_mapping = self._buildDatasetMapping(workspace, outputDatastore)
 
                 # Call the transformer function
-                print(f"Calling transformer function: {executeTransformer}")
+                logger.info(f"Calling transformer function: {executeTransformer}")
                 result = executeTransformer(connection, dataset_mapping)
-                print(f"Transformer function result: {result}")
-                print(f"DataTransformer executed successfully for workspace: {self.workspaceName}")
+                logger.info(f"Transformer function result: {result}")
+                logger.info(f"DataTransformer executed successfully for workspace: {self.workspaceName}")
                 return result
 
             except ModuleNotFoundError:
                 # Should only happen on initial setup of a repository
-                print(f"Transformer module not found in {codeDir}")
+                logger.error(f"Transformer module not found in {codeDir}")
                 raise
             except AttributeError as e:
-                print(f"createTransformer function not found in transformer module: {e}")
+                logger.error(f"createTransformer function not found in transformer module: {e}")
                 raise
             except Exception as e:
-                print(f"Error executing transformer: {e}")
+                logger.error(f"Error executing transformer: {e}")
                 raise
         finally:
             sys.path = origSystemPath
@@ -183,7 +208,7 @@ class DataTransformerJob(JobUtilities):
                 createOrUpdateTable(systemMergeEngine, t)
 
             # Execute the transformer in a transaction
-            print("Starting Transaction for job")
+            logger.info("Starting Transaction for job")
             with systemMergeEngine.begin() as connection:
                 # Truncate output tables before running transformer
                 self._truncateOutputTables(connection, outputDatastore)
@@ -192,15 +217,15 @@ class DataTransformerJob(JobUtilities):
                 result = self.executeTransformer(finalCodeFolder, connection, w, outputDatastore)
 
                 if result is None:
-                    print("DataTransformer returned no result")
+                    logger.warning("DataTransformer returned no result")
 
-                print(f"DataTransformer job completed for workspace: {self.workspaceName}")
+                logger.info(f"DataTransformer job completed for workspace: {self.workspaceName}")
 
             # At this point the data is in the output tables ready for the ingestion job to grab it as a snapshot
             return JobStatus.DONE
 
         except Exception as e:
-            print(f"DataTransformer job failed: {e}")
+            logger.error(f"DataTransformer job failed: {e}")
             return JobStatus.ERROR
 
 
@@ -236,30 +261,30 @@ def main():
             credential=Credential(args.git_platform_repo_credential_name, CredentialType.API_TOKEN)),
         args.git_repo_path, doClone=True)
     if tree is not None and tree.hasErrors():
-        print("Ecosystem model has errors")
+        logger.error("Ecosystem model has errors")
         tree.printTree()
         return -1  # ERROR
     if eco is None or tree is None:
-        print("Failed to load ecosystem")
+        logger.error("Failed to load ecosystem")
         return -1  # ERROR
 
     if args.operation == "run-datatransformer":
-        print(f"Running {args.operation} for platform: {args.platform_name}, workspace: {args.workspace_name}")
+        logger.info(f"Running {args.operation} for platform: {args.platform_name}, workspace: {args.workspace_name}")
 
         dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
         if dp is None:
-            print(f"Unknown platform: {args.platform_name}")
+            logger.error(f"Unknown platform: {args.platform_name}")
             return -1  # ERROR
 
         # Check if the workspace exists
         wce: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(args.workspace_name)
         if wce is None:
-            print(f"Unknown workspace: {args.workspace_name}")
+            logger.error(f"Unknown workspace: {args.workspace_name}")
             return -1  # ERROR
 
         workspace: Workspace = wce.workspace
         if workspace.dataTransformer is None:
-            print(f"Workspace {args.workspace_name} has no DataTransformer")
+            logger.error(f"Workspace {args.workspace_name} has no DataTransformer")
             return -1  # ERROR
 
         # Create and run the DataTransformer job
@@ -267,16 +292,16 @@ def main():
         jobStatus: JobStatus = job.run(credStore)
 
         if jobStatus == JobStatus.DONE:
-            print("DataTransformer job completed successfully")
+            logger.info("DataTransformer job completed successfully")
             return 0  # DONE
         elif jobStatus == JobStatus.KEEP_WORKING:
-            print("DataTransformer job is still in progress")
+            logger.info("DataTransformer job is still in progress")
             return 1  # KEEP_WORKING
         else:
-            print("DataTransformer job failed")
+            logger.error("DataTransformer job failed")
             return -1  # ERROR
     else:
-        print(f"Unknown operation: {args.operation}")
+        logger.error(f"Unknown operation: {args.operation}")
         return -1  # ERROR
 
 
