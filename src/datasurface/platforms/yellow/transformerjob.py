@@ -29,6 +29,7 @@ import argparse
 import logging
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
+from datasurface.platforms.yellow.reconcile_workspace_views import generate_live_view_name
 
 # Setup logging
 logging.basicConfig(
@@ -118,9 +119,10 @@ class DataTransformerJob(JobUtilities):
             for ds in dsg.sinks.values():
                 store: Datastore = self.eco.cache_getDatastoreOrThrow(ds.storeName).datastore
                 dataset: Dataset = store.datasets[ds.datasetName]
-                # Table names in merge database follow the pattern: store_dataset
-                table_name = self.getRawMergeTableNameForDataset(store, dataset)
-                dataset_mapping.addInputDataset(dsg.name, store.name, dataset.name, table_name)
+                # Use live view name instead of merge table name for DataTransformers
+                # This ensures DataTransformers work with live data only
+                view_name = generate_live_view_name(self.dp.name, workspace.name, dsg.name, ds.datasetName)
+                dataset_mapping.addInputDataset(dsg.name, store.name, dataset.name, view_name)
 
         # Add output datasets with dt_ prefix
         for dataset in outputDatastore.datasets.values():

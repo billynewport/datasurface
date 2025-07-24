@@ -1375,6 +1375,9 @@ class YellowDataPlatform(DataPlatform):
             # Load the ring1 initialization job template
             ring1_init_template: Template = env.get_template('ring1_init_job.yaml.j2')
 
+            # Load the reconcile views job template
+            reconcile_views_template: Template = env.get_template('reconcile_views_job.yaml.j2')
+
             gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
 
             # Extract git repository owner and name from the full repository name
@@ -1418,6 +1421,7 @@ class YellowDataPlatform(DataPlatform):
             rendered_datatransformer_factory_dag: str = datatransformer_factory_template.render(context)
             rendered_model_merge_job: str = model_merge_template.render(context)
             rendered_ring1_init_job: str = ring1_init_template.render(context)
+            rendered_reconcile_views_job: str = reconcile_views_template.render(context)
 
             # Return as dictionary with filename as key
             return {
@@ -1426,7 +1430,8 @@ class YellowDataPlatform(DataPlatform):
                 f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
                 f"{self.to_k8s_name(self.name)}_datatransformer_factory_dag.py": rendered_datatransformer_factory_dag,
                 f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
-                f"{self.to_k8s_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job
+                f"{self.to_k8s_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job,
+                f"{self.to_k8s_name(self.name)}_reconcile_views_job.yaml": rendered_reconcile_views_job
             }
         elif ringLevel == 1:
             # Create the airflow dsg table and datatransformer table if needed

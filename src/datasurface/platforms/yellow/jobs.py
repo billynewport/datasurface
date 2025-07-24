@@ -1330,11 +1330,28 @@ class SnapshotMergeJobLiveOnly(Job):
         return total_inserted, total_updated, total_deleted
 
 
+def reconcileWorkspaceViews(eco: Ecosystem, platformName: str, credStore: CredentialStore) -> int:
+    """Reconcile workspace view schemas for the specified YellowDataPlatform.
+    
+    Args:
+        eco: The ecosystem containing the platform
+        platformName: Name of the YellowDataPlatform
+        credStore: Credential store for database access
+        
+    Returns:
+        0: All views were successfully created/updated
+        1: Some views could not be created/updated (missing columns or tables)
+    """
+    from datasurface.platforms.yellow.reconcile_workspace_views import reconcile_workspace_view_schemas
+    
+    return reconcile_workspace_view_schemas(eco, platformName, credStore)
+
+
 def main():
     """Main entry point for the SnapshotMergeJob when run as a command-line tool."""
     parser = argparse.ArgumentParser(description='Run SnapshotMergeJob for a specific ingestion stream')
     parser.add_argument('--platform-name', required=True, help='Name of the platform')
-    parser.add_argument('--store-name', required=True, help='Name of the datastore')
+    parser.add_argument('--store-name', help='Name of the datastore')
     parser.add_argument('--dataset-name', help='Name of the dataset (for single dataset ingestion)')
     parser.add_argument('--operation', default='snapshot-merge', help='Operation to perform')
     parser.add_argument('--git-repo-path', required=True, help='Path to the git repository')
@@ -1371,6 +1388,10 @@ def main():
         print(f"Running {args.operation} for platform: {args.platform_name}, store: {args.store_name}")
         if args.dataset_name:
             print(f"Dataset: {args.dataset_name}")
+
+        if args.store_name is None:
+            print("Store name is required for snapshot-merge operation")
+            return -1  # ERROR
 
         dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
         if dp is None:
@@ -1437,6 +1458,21 @@ def main():
         else:
             print("Job failed")
             return -1  # ERROR
+    elif args.operation == "reconcile-views":
+        print(f"Running {args.operation} for platform: {args.platform_name}")
+        
+        dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
+        if dp is None:
+            print(f"Unknown platform: {args.platform_name}")
+            return -1  # ERROR
+
+        result = reconcileWorkspaceViews(eco, args.platform_name, credStore)
+        if result == 0:
+            print("View reconciliation completed successfully")
+            return 0  # SUCCESS
+        else:
+            print("View reconciliation completed with warnings or errors")
+            return 1  # WARNING
     else:
         print(f"Unknown operation: {args.operation}")
         return -1  # ERROR

@@ -90,11 +90,18 @@ def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str, metadata: MetaDat
         raise Exception("Unknown schema type")
 
 
-def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: str, metadata: MetaData) -> str:
+def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: str, metadata: MetaData, where_clause: Optional[str] = None) -> str:
     """Converts a Dataset to a SQL CREATE OR REPLACE VIEW statement that maps to an underlying table.
 
     The view will have a one-to-one mapping to columns in the underlying table that have the same names.
     Returns the SQL CREATE OR REPLACE VIEW statement as a string.
+    
+    Args:
+        dataset: The dataset defining the schema
+        viewName: Name of the view to create
+        underlyingTable: Name of the underlying table
+        metadata: SQLAlchemy metadata (unused but kept for compatibility)
+        where_clause: Optional WHERE clause to filter the view (e.g., "batch_out = 2147483647")
     """
     if (isinstance(dataset.originalSchema, DDLTable)):
         table: DDLTable = dataset.originalSchema
@@ -105,6 +112,11 @@ def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: st
         # Create the view SQL statement using CREATE OR REPLACE VIEW
         columnsClause: str = ", ".join(columnNames)
         viewSql: str = f"CREATE OR REPLACE VIEW {viewName} AS SELECT {columnsClause} FROM {underlyingTable}"
+        
+        # Add WHERE clause if provided
+        if where_clause:
+            viewSql += f" WHERE {where_clause}"
+            
         return viewSql
     else:
         raise Exception("Unknown schema type")
@@ -430,16 +442,23 @@ def createOrUpdateTable(engine: Engine, table: Table) -> bool:
             return False
 
 
-def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyingTable: str) -> bool:
+def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyingTable: str, where_clause: Optional[str] = None) -> bool:
     """This will create the view if it doesn't exist or update it if it does to match the current dataset schema
+
+    Args:
+        engine: SQLAlchemy engine for the database
+        dataset: Dataset defining the schema
+        viewName: Name of the view to create/update
+        underlyingTable: Name of the underlying table
+        where_clause: Optional WHERE clause to filter the view (e.g., "batch_out = 2147483647")
 
     Returns:
         bool: True if the view was created or modified, False if no changes were needed
     """
     inspector = inspect(engine)  # type: ignore[attr-defined]
 
-    # Generate the new view SQL using CREATE OR REPLACE VIEW
-    newViewSql: str = datasetToSQLAlchemyView(dataset, viewName, underlyingTable, MetaData())
+    # Generate the new view SQL using CREATE OR REPLACE VIEW with optional WHERE clause
+    newViewSql: str = datasetToSQLAlchemyView(dataset, viewName, underlyingTable, MetaData(), where_clause)
 
     # Check if view exists
     if inspector.has_table(viewName):  # type: ignore[attr-defined]

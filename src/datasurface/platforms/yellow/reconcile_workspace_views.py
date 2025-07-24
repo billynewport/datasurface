@@ -13,7 +13,7 @@ from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, Ecosy
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.sqlalchemyutils import createOrUpdateView
 from datasurface.md.credential import CredentialStore
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowSchemaProjector
 from datasurface.md.schema import DDLTable
 from datasurface.platforms.yellow.jobs import createEngine, YellowDatasetUtilities
 
@@ -27,6 +27,28 @@ def generate_view_name(dataplatform_name: str, workspace_name: str, dsg_name: st
     dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
 
     return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view"
+
+
+def generate_full_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, dataset_name: str) -> str:
+    """Generate a full view name with _full suffix for forensic platforms"""
+    # Convert to lowercase and replace spaces/special chars with underscores
+    dp_name = dataplatform_name.lower().replace(' ', '_').replace('-', '_')
+    ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
+    dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
+    dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
+
+    return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view_full"
+
+
+def generate_live_view_name(dataplatform_name: str, workspace_name: str, dsg_name: str, dataset_name: str) -> str:
+    """Generate a live view name with _live suffix for both platform types"""
+    # Convert to lowercase and replace spaces/special chars with underscores
+    dp_name = dataplatform_name.lower().replace(' ', '_').replace('-', '_')
+    ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
+    dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
+    dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
+
+    return f"{dp_name}_{ws_name}_{dsg_name}_{dataset_name}_view_live"
 
 
 def check_merge_table_exists(engine: Engine, merge_table_name: str) -> bool:
@@ -76,11 +98,8 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
 
     yellow_dp: YellowDataPlatform = dataplatform
 
-    if yellow_dp.milestoneStrategy != YellowMilestoneStrategy.LIVE_ONLY:
-        print(f"WARNING: Skipping Data platform '{dataplatform_name}', live only supported for views at the moment")
-        return 1
-
     print(f"Reconciling workspace view schemas for platform: {dataplatform_name}")
+    print(f"Platform milestone strategy: {yellow_dp.milestoneStrategy.value}")
 
     # Generate the platform pipeline graph
     ecoGraph = EcosystemPipelineGraph(eco)
@@ -104,6 +123,12 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     except Exception as e:
         print(f"Error connecting to database: {e}")
         return 1
+
+    # Create schema projector to access constants and determine platform behavior
+    schema_projector = YellowSchemaProjector(eco, yellow_dp)
+    is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED
+    
+    print(f"Platform type: {'Forensic (BATCH_MILESTONED)' if is_forensic_platform else 'Live-only (LIVE_ONLY)'}")
 
     # Track results
     views_created = 0
@@ -147,11 +172,10 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                         views_failed += 1
                         continue
                     
-                    # Generate names using utilities and conventional methods
-                    view_name = generate_view_name(dataplatform_name, workspace.name, dataset_group.name, sink.datasetName)
+                    # Generate merge table name using utilities
                     merge_table_name = utils.getMergeTableNameForDataset(utils.dataset)
-                    print(f"DEBUG: view_name: {view_name}")
                     print(f"DEBUG: merge_table_name: {merge_table_name}")
+                    print(f"DEBUG: Processing dataset: {sink.datasetName} in store: {sink.storeName}")
 
                     # Get the original dataset schema - we already have it from utils.dataset
                     original_schema = utils.dataset.originalSchema
@@ -162,7 +186,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
 
                     # Check if merge table exists
                     if not check_merge_table_exists(engine, merge_table_name):
-                        print(f"Error: Merge table '{merge_table_name}' does not exist for view '{view_name}'")
+                        print(f"Error: Merge table '{merge_table_name}' does not exist for dataset '{sink.datasetName}'")
                         views_failed += 1
                         continue
 
@@ -171,24 +195,69 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                     has_columns, missing_columns = check_merge_table_has_required_columns(engine, merge_table_name, required_columns)
 
                     if not has_columns:
-                        print(f"Error: Merge table '{merge_table_name}' missing columns for view '{view_name}': {missing_columns}")
+                        print(f"Error: Merge table '{merge_table_name}' missing columns for dataset '{sink.datasetName}': {missing_columns}")
                         views_failed += 1
                         continue
 
-                    # Create or update the view using the dataset from utils
+                    # Create views based on platform type
                     try:
-                        was_changed = createOrUpdateView(engine, utils.dataset, view_name, merge_table_name)
-                        if was_changed:
-                            if check_merge_table_exists(engine, view_name):
-                                views_updated += 1
-                                print(f"Updated view: {view_name}")
+                        view_changes = []
+                        
+                        if is_forensic_platform:
+                            # For forensic platforms: create both _view_full and _live views
+                            
+                            # 1. Create full view (all historical records)
+                            full_view_name = generate_full_view_name(dataplatform_name, workspace.name,
+                                                                     dataset_group.name, sink.datasetName)
+                            full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
+                            if full_was_changed:
+                                if check_merge_table_exists(engine, full_view_name):
+                                    views_updated += 1
+                                    view_changes.append(f"Updated full view: {full_view_name}")
+                                else:
+                                    views_created += 1
+                                    view_changes.append(f"Created full view: {full_view_name}")
                             else:
-                                views_created += 1
-                                print(f"Created view: {view_name}")
+                                view_changes.append(f"Full view already up to date: {full_view_name}")
+                            
+                            # 2. Create live view (only live records with WHERE clause)
+                            live_view_name = generate_live_view_name(dataplatform_name, workspace.name,
+                                                                     dataset_group.name, sink.datasetName)
+                            live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
+                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
+                                                                  merge_table_name, live_where_clause)
+                            if live_was_changed:
+                                if check_merge_table_exists(engine, live_view_name):
+                                    views_updated += 1
+                                    view_changes.append(f"Updated live view: {live_view_name}")
+                                else:
+                                    views_created += 1
+                                    view_changes.append(f"Created live view: {live_view_name}")
+                            else:
+                                view_changes.append(f"Live view already up to date: {live_view_name}")
+                                
                         else:
-                            print(f"View already up to date: {view_name}")
+                            # For live-only platforms: create only _live view (no filtering needed)
+                            live_view_name = generate_live_view_name(dataplatform_name, workspace.name,
+                                                                     dataset_group.name, sink.datasetName)
+                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
+                                                                  merge_table_name, None)
+                            if live_was_changed:
+                                if check_merge_table_exists(engine, live_view_name):
+                                    views_updated += 1
+                                    view_changes.append(f"Updated live view: {live_view_name}")
+                                else:
+                                    views_created += 1
+                                    view_changes.append(f"Created live view: {live_view_name}")
+                            else:
+                                view_changes.append(f"Live view already up to date: {live_view_name}")
+                        
+                        # Print all view changes for this dataset
+                        for change in view_changes:
+                            print(f"  {change}")
+                            
                     except Exception as e:
-                        print(f"Error creating/updating view '{view_name}': {e}")
+                        print(f"Error creating/updating views for dataset '{sink.datasetName}': {e}")
                         views_failed += 1
 
     # Print summary

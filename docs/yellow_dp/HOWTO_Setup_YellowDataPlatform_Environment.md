@@ -281,6 +281,14 @@ kubectl apply -f generated_output/YellowForensic/yellowforensic_model_merge_job.
 kubectl wait --for=condition=complete job/yellowlive-model-merge-job -n ns-yellow-starter --timeout=300s
 kubectl wait --for=condition=complete job/yellowforensic-model-merge-job -n ns-yellow-starter --timeout=300s
 
+# Deploy reconcile views jobs to create/update workspace views
+kubectl apply -f generated_output/YellowLive/yellowlive_reconcile_views_job.yaml
+kubectl apply -f generated_output/YellowForensic/yellowforensic_reconcile_views_job.yaml
+
+# Wait for reconcile views jobs to complete
+kubectl wait --for=condition=complete job/yellowlive-reconcile-views-job -n ns-yellow-starter --timeout=300s
+kubectl wait --for=condition=complete job/yellowforensic-reconcile-views-job -n ns-yellow-starter --timeout=300s
+
 # Restart Airflow scheduler to trigger factory DAGs (creates dynamic ingestion stream DAGs)
 kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
 kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n ns-yellow-starter --timeout=300s
