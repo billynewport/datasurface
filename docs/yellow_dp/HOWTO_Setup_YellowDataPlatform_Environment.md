@@ -201,7 +201,7 @@ kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U 
 kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE datasurface_merge;"
 
 # Create source tables and initial test data using the data simulator
-# This creates the customers and addresses tables with initial data and simulates some changes
+# This creates the customers and addresses tables with initial data and simulates some changes and leaves it running continuously.
 kubectl run data-simulator --rm -i --restart=Never \
   --image=datasurface/datasurface:latest \
   --env="POSTGRES_USER=postgres" \
@@ -214,7 +214,7 @@ kubectl run data-simulator --rm -i --restart=Never \
   --user postgres \
   --password datasurface123 \
   --create-tables \
-  --max-changes 1 \
+  --max-changes 1000000 \
   --verbose
 
 # Apply Ring 1 initialization jobs (creates platform database schemas)
