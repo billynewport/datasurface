@@ -35,6 +35,14 @@ from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
 from pydantic import BaseModel, Field
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
+from datasurface.platforms.yellow.logging_utils import (
+    setup_logging_for_environment, get_contextual_logger, set_context,
+    log_operation_timing
+)
+
+# Setup logging for Kubernetes environment
+setup_logging_for_environment()
+logger = get_contextual_logger(__name__)
 
 
 class BatchStatus(Enum):
@@ -190,7 +198,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Ensure the platform is the correct type early on
         if not isinstance(self.graph.platform, YellowDataPlatform):
-            print("Error: Platform associated with the graph is not a YellowGraphHandler.")
+            logger.error("Platform associated with the graph is not a YellowDataPlatform",
+                         platform_type=type(self.graph.platform).__name__)
             tree.addRaw(ObjectWrongType(self.graph.platform, YellowDataPlatform, ProblemSeverity.ERROR))
             return ""
 
@@ -275,9 +284,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             }
 
             # Render the template once with the full context
-            code: str = template.render(context)
+            with log_operation_timing(logger, "terraform_code_generation", platform_name=platform.name):
+                code: str = template.render(context)
 
-            print(f"Generated Terraform code:\n{code}")
+            logger.info("Generated Terraform code successfully",
+                        platform_name=platform.name,
+                        ingestion_nodes_count=len(ingest_nodes))
             return code
 
         except CredentialNotAvailableException as e:
@@ -628,7 +640,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             with engine.begin() as connection:
                 # First, delete all existing records for this platform to ensure clean state
                 connection.execute(text(f"DELETE FROM {table_name}"))
-                print(f"Cleared existing configurations from {table_name}")
+                logger.info("Cleared existing DAG configurations",
+                            table_name=table_name,
+                            platform_name=self.dp.name)
 
                 # Then insert all current configurations
                 for stream in ingestion_streams:
@@ -648,7 +662,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "config_json": config_json
                     })
 
-            print(f"Populated {len(ingestion_streams)} ingestion stream configurations in {table_name}")
+            logger.info("Populated ingestion stream configurations",
+                        table_name=table_name,
+                        platform_name=self.dp.name,
+                        stream_count=len(ingestion_streams))
 
         except Exception as e:
             issueTree.addRaw(UnexpectedExceptionProblem(e))
@@ -778,7 +795,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             with engine.begin() as connection:
                 # First, delete all existing records for this platform to ensure clean state
                 connection.execute(text(f"DELETE FROM {table_name}"))
-                print(f"Cleared existing configurations from {table_name}")
+                logger.info("Cleared existing DataTransformer configurations",
+                            table_name=table_name,
+                            platform_name=self.dp.name)
 
                 # Then insert all current configurations
                 for dt_config in datatransformer_configs:
@@ -798,7 +817,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "config_json": config_json
                     })
 
-            print(f"Populated {len(datatransformer_configs)} DataTransformer configurations in {table_name}")
+            logger.info("Populated DataTransformer configurations",
+                        table_name=table_name,
+                        platform_name=self.dp.name,
+                        config_count=len(datatransformer_configs))
 
         except Exception as e:
             issueTree.addRaw(UnexpectedExceptionProblem(e))
@@ -1228,6 +1250,9 @@ class YellowDataPlatform(DataPlatform):
             locs=self.locs,
             namespace=namespace
         )
+        
+        # Set logging context for this platform
+        set_context(platform=name)
 
     def getCredentialStore(self) -> CredentialStore:
         return self.credStore
@@ -1350,7 +1375,9 @@ class YellowDataPlatform(DataPlatform):
         Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
         needs to create the DAG for the infrastructure and the factory DAG for dynamic ingestion stream generation."""
 
-        print(f"Generating bootstrap artifacts for {self.name} at ring level '{ringLevel}'")
+        logger.info("Generating bootstrap artifacts",
+                    platform_name=self.name,
+                    ring_level=ringLevel)
         if ringLevel == 0:
             # Create Jinja2 environment
             env: Environment = Environment(
@@ -1518,9 +1545,11 @@ class YellowDataPlatform(DataPlatform):
         batch_counter_table = platform_prefix + "_batch_counter"
         batch_metrics_table = platform_prefix + "_batch_metrics"
 
-        print(f"Resetting batch state for platform {self.name}, store {storeName}" +
-              (f", dataset {datasetName}" if datasetName else ""))
-        print(f"Keys to reset: {keys_to_reset}")
+        logger.info("Starting batch state reset",
+                    platform_name=self.name,
+                    store_name=storeName,
+                    dataset_name=datasetName,
+                    keys_to_reset=keys_to_reset)
 
         # We can only reset a batch there there is an existing open batch. An open batch is one where the batch_status is not committed.
         # Resetting a batch means deleting the ingested data for the current batch from staging. Then reset the state of the batch to
@@ -1547,25 +1576,38 @@ class YellowDataPlatform(DataPlatform):
                     if status_row is not None:
                         batch_status = status_row[0]
                         if batch_status == BatchStatus.COMMITTED.value:
-                            print(f"  Key '{key}': SKIPPED - Batch {current_batch_id} is COMMITTED and cannot be reset")
-                            print("    Committed batches are immutable to preserve data integrity")
-                            print("    If you need to reprocess data, start a new batch instead")
+                            logger.warning("Batch reset skipped - batch is committed",
+                                           key=key,
+                                           batch_id=current_batch_id,
+                                           platform_name=self.name,
+                                           reason="committed_batches_immutable")
                             return "ERROR: Batch is COMMITTED and cannot be reset"
                         else:
-                            print(f"  Key '{key}': Batch {current_batch_id} status is '{batch_status}' - safe to reset")
+                            logger.info("Batch is safe to reset",
+                                        key=key,
+                                        batch_id=current_batch_id,
+                                        batch_status=batch_status,
+                                        platform_name=self.name)
 
                             # Proceed with reset - Get the datastore to access datasets
                             datastore_ce: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(storeName)
                             if datastore_ce is None:
-                                print(f"    ERROR: Could not find datastore '{storeName}' in ecosystem")
+                                logger.error("Could not find datastore in ecosystem",
+                                             store_name=storeName,
+                                             platform_name=self.name)
                                 return "ERROR: Could not find datastore in ecosystem"
 
                             datastore: Datastore = datastore_ce.datastore
                             if datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
-                                print("Cannot specify a dataset name for a multi-dataset datastore {datastore.name}")
+                                logger.error("Cannot specify dataset name for multi-dataset datastore",
+                                             datastore_name=datastore.name,
+                                             dataset_name=datasetName,
+                                             platform_name=self.name)
                                 return "ERROR: Cannot specify a dataset name for a multi-dataset datastore"
                             elif datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET and datasetName is None:
-                                print(f"Cannot reset a single-dataset datastore {datastore.name} without a dataset name")
+                                logger.error("Cannot reset single-dataset datastore without dataset name",
+                                             datastore_name=datastore.name,
+                                             platform_name=self.name)
                                 return "ERROR: Cannot reset a single-dataset datastore without a dataset name"
 
                             # Get the batch state to understand which datasets are involved
@@ -1610,16 +1652,29 @@ class YellowDataPlatform(DataPlatform):
 
                                     records_deleted = result.rowcount
                                     if records_deleted > 0:
-                                        print(f"    Cleared {records_deleted} records from {staging_table_name}")
+                                        logger.info("Cleared staging records for dataset",
+                                                    dataset_name=dataset_name,
+                                                    staging_table=staging_table_name,
+                                                    records_deleted=records_deleted,
+                                                    batch_id=current_batch_id)
                                         datasets_cleared += 1
 
-                                print(f"  Key '{key}': reset batch {current_batch_id} successfully")
-                                print(f"    Reset state and cleared staging data for {datasets_cleared} datasets")
+                                logger.info("Batch reset completed successfully",
+                                            key=key,
+                                            batch_id=current_batch_id,
+                                            datasets_cleared=datasets_cleared,
+                                            platform_name=self.name)
                             else:
-                                print(f"    ERROR: Could not find batch state for batch {current_batch_id}")
+                                logger.error("Could not find batch state for batch",
+                                             batch_id=current_batch_id,
+                                             key=key,
+                                             platform_name=self.name)
                                 return "ERROR: Could not find batch state for batch {current_batch_id}"
 
-        print("Batch state reset complete")
+        logger.info("Batch state reset operation completed",
+                    platform_name=self.name,
+                    store_name=storeName,
+                    dataset_name=datasetName)
         return "SUCCESS"
 
 

@@ -219,6 +219,8 @@ spec:
                 name: {{ slack_credential_secret_name }}
             - secretRef:
                 name: {{ git_credential_secret_name }}
+            - configMapRef:
+                name: {{ platform_name }}-logging-config
           env:
             - name: AIRFLOW_UID
               value: "50000"
@@ -230,6 +232,28 @@ spec:
               value: "{{ git_repo_branch }}"
             - name: GIT_REPO_NAME
               value: "{{ git_repo_name }}"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+            - name: YELLOW_JOB_TYPE
+              value: "airflow-scheduler"
             # Factory DAG credentials (needed for dynamic DAG creation)
             - name: postgres_USER
               valueFrom:
@@ -306,6 +330,8 @@ spec:
                 name: {{ slack_credential_secret_name }}
             - secretRef:
                 name: {{ git_credential_secret_name }}
+            - configMapRef:
+                name: {{ platform_name }}-logging-config
           env:
             - name: AIRFLOW_UID
               value: "50000"
@@ -317,6 +343,28 @@ spec:
               value: "{{ git_repo_branch }}"
             - name: GIT_REPO_NAME
               value: "{{ git_repo_name }}"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+            - name: YELLOW_JOB_TYPE
+              value: "airflow-webserver"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
@@ -565,6 +613,28 @@ spec:
       port: 8083
       targetPort: 8083
 ---
+# Logging Configuration ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ platform_name }}-logging-config
+  namespace: {{ namespace_name }}
+data:
+  logging.conf: |
+    # Yellow Data Platform Logging Configuration
+    # This configures structured JSON logging for Kubernetes environments
+    
+    # Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_LEVEL=INFO
+    
+    # Log format: 'json' for production, 'text' for development
+    LOG_FORMAT=json
+    
+    # Platform-specific logging settings
+    YELLOW_ENVIRONMENT=production
+    PLATFORM_NAME={{ original_platform_name }}
+    NAMESPACE={{ namespace_name }}
+---
 # DataSurface Job Pod Template (for KubernetesPodOperator)
 apiVersion: v1
 kind: ConfigMap
@@ -589,6 +659,8 @@ data:
                 name: {{ slack_credential_secret_name }}
             - secretRef:
                 name: {{ kafka_connect_credential_secret_name }}
+            - configMapRef:
+                name: {{ platform_name }}-logging-config
           env:
             - name: PLATFORM_NAME
               value: "{{ platform_name }}"
@@ -596,6 +668,26 @@ data:
               value: "{{ postgres_hostname }}"
             - name: KAFKA_CONNECT_URL
               value: "http://{{ kafka_connect_name }}-service.{{ namespace_name }}.svc.cluster.local:8083"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
           volumeMounts:
             - name: git-repo
               mountPath: /opt/datasurface/model

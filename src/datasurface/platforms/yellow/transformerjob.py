@@ -26,34 +26,17 @@ from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 import sqlalchemy
 from sqlalchemy import Table
 import argparse
-import logging
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.yellow.reconcile_workspace_views import generate_phys_live_view_name
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+from datasurface.platforms.yellow.logging_utils import (
+    setup_logging_for_environment, get_contextual_logger, set_context,
+    log_operation_timing
 )
-logger = logging.getLogger(__name__)
 
-
-# Custom logging functions that include level in message for pod manager visibility
-def log_error(message):
-    """Log error with level prefix for pod manager visibility"""
-    logger.error(f"[ERROR] {message}")
-
-
-def log_warning(message):
-    """Log warning with level prefix for pod manager visibility"""
-    logger.warning(f"[WARNING] {message}")
-
-
-def log_info(message):
-    """Log info with level prefix for pod manager visibility"""
-    logger.info(f"[INFO] {message}")
+# Setup logging for Kubernetes environment
+setup_logging_for_environment()
+logger = get_contextual_logger(__name__)
 
 
 class DataTransformerContext:
@@ -109,6 +92,9 @@ class DataTransformerJob(JobUtilities):
         super().__init__(eco, credStore, dp)
         self.workspaceName: str = workspaceName
         self.workingFolder: str = workingFolder
+        
+        # Set logging context for this job
+        set_context(workspace=workspaceName, platform=dp.name)
 
     def _buildDatasetMapping(self, workspace: Workspace, outputDatastore: Datastore) -> DataTransformerContext:
         """Build a mapping from store#dataset names to table names for the workspace."""
@@ -184,9 +170,14 @@ class DataTransformerJob(JobUtilities):
 
     def run(self, credStore: CredentialStore) -> JobStatus:
         try:
+            logger.info("Starting DataTransformer job",
+                        workspace_name=self.workspaceName,
+                        working_folder=self.workingFolder)
+            
             # Now, get a connection to the merge database
-            systemMergeUser, systemMergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
-            systemMergeEngine: Engine = createEngine(self.dp.mergeStore, systemMergeUser, systemMergePassword)
+            with log_operation_timing(logger, "database_connection_setup"):
+                systemMergeUser, systemMergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)
+                systemMergeEngine: Engine = createEngine(self.dp.mergeStore, systemMergeUser, systemMergePassword)
 
             # Need to create the dt tables for the output datastore if they don't exist
             wce: WorkspaceCacheEntry = self.eco.cache_getWorkspaceOrThrow(self.workspaceName)
@@ -197,7 +188,8 @@ class DataTransformerJob(JobUtilities):
 
             # git clone the code artifact in to the code folder in the working folder
             clone_dir: str = os.path.join(self.workingFolder, "code")
-            finalCodeFolder: str = cloneGitRepository(credStore, code.repo, clone_dir)
+            with log_operation_timing(logger, "git_clone_repository", repo=str(code.repo)):
+                finalCodeFolder: str = cloneGitRepository(credStore, code.repo, clone_dir)
 
             # Get the output datastore
             outputDatastore: Datastore = w.dataTransformer.outputDatastore
@@ -210,24 +202,29 @@ class DataTransformerJob(JobUtilities):
                 createOrUpdateTable(systemMergeEngine, t)
 
             # Execute the transformer in a transaction
-            logger.info("Starting Transaction for job")
-            with systemMergeEngine.begin() as connection:
-                # Truncate output tables before running transformer
-                self._truncateOutputTables(connection, outputDatastore)
+            with log_operation_timing(logger, "transformer_execution"):
+                logger.info("Starting Transaction for job")
+                with systemMergeEngine.begin() as connection:
+                    # Truncate output tables before running transformer
+                    self._truncateOutputTables(connection, outputDatastore)
 
-                # Execute the transformer code
-                result = self.executeTransformer(finalCodeFolder, connection, w, outputDatastore)
+                    # Execute the transformer code
+                    result = self.executeTransformer(finalCodeFolder, connection, w, outputDatastore)
 
-                if result is None:
-                    logger.warning("DataTransformer returned no result")
+                    if result is None:
+                        logger.warning("DataTransformer returned no result")
 
-                logger.info(f"DataTransformer job completed for workspace: {self.workspaceName}")
+                    logger.info("DataTransformer job completed for workspace",
+                                workspace_name=self.workspaceName)
 
             # At this point the data is in the output tables ready for the ingestion job to grab it as a snapshot
             return JobStatus.DONE
 
         except Exception as e:
-            logger.error(f"DataTransformer job failed: {e}")
+            logger.exception("DataTransformer job failed",
+                             exc_info=e,
+                             workspace_name=self.workspaceName,
+                             working_folder=self.workingFolder)
             return JobStatus.ERROR
 
 

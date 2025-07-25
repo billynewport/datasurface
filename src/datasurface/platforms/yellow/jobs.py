@@ -31,7 +31,15 @@ import json
 import hashlib
 from abc import ABC, abstractmethod
 from datasurface.md.repo import GitHubRepository
+from datasurface.platforms.yellow.logging_utils import (
+    setup_logging_for_environment, get_contextual_logger, set_context,
+    log_operation_timing
+)
 import os
+
+# Setup logging for Kubernetes environment
+setup_logging_for_environment()
+logger = get_contextual_logger(__name__)
 
 
 """
@@ -78,6 +86,9 @@ class JobUtilities(ABC):
         self.dp: YellowDataPlatform = dp
         self.credStore: CredentialStore = credStore
         self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
+        
+        # Set logging context for this job
+        set_context(platform=dp.name)
 
     def getPhysBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
@@ -126,10 +137,16 @@ class JobUtilities(ABC):
         current_hash = self.getSchemaHash(dataset)
         return current_hash == stored_hash
 
-    def getRawBaseTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
+    def getRawBaseTableNameForDataset(self, store: Datastore, dataset: Dataset, allowMapping: bool) -> str:
         """This returns the base table name for a dataset"""
         if isinstance(store.cmd, SQLIngestion):
-            return f"{store.name}_{dataset.name if dataset.name not in store.cmd.tableForDataset else store.cmd.tableForDataset[dataset.name]}"
+            if allowMapping:
+                if dataset.name in store.cmd.tableForDataset:
+                    return f"{store.name}_{store.cmd.tableForDataset[dataset.name]}"
+                else:
+                    return f"{store.name}_{dataset.name}"
+            else:
+                return f"{store.name}_{dataset.name}"
         elif isinstance(store.cmd, DataTransformerOutput):
             return f"{store.name}_{dataset.name}"  # ✅ Simple base name without circular call
         else:
@@ -137,14 +154,14 @@ class JobUtilities(ABC):
 
     def getRawMergeTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
-        tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
+        tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
         return self.dp.getTableForPlatform(tableName + "_merge")
 
     def getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self, store: Datastore, dataset: Dataset) -> str:
         """This returns the DataTransformer output table name for a dataset (dt_ prefix) for ingestion only. Merged tables are stored in the
         normal merge table notation. The dt prefix is ONLY used for the output tables for a DataTransformer when doing the ingestion
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
-        tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
+        tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
         return self.dp.namingMapper.mapNoun(self.dp.getTableForPlatform(f"dt_{tableName}"))
 
 
@@ -182,7 +199,7 @@ class YellowDatasetUtilities(JobUtilities):
 
     def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the base table name for a dataset"""
-        return self.getRawBaseTableNameForDataset(self.store, dataset)
+        return self.getRawBaseTableNameForDataset(self.store, dataset, False)
 
     def getPhysStagingTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the staging table name for a dataset"""
@@ -277,10 +294,14 @@ class Job(YellowDatasetUtilities):
 
                 if not index_exists:
                     try:
-                        connection.execute(text(index_sql))
-                        print(f"DEBUG: Created index: {index_name}")
+                        with log_operation_timing(logger, "create_staging_index", index_name=index_name):
+                            connection.execute(text(index_sql))
+                        logger.info("Created staging index successfully", index_name=index_name, table_name=tableName)
                     except Exception as e:
-                        print(f"DEBUG: Failed to create index {index_name}: {e}")
+                        logger.error("Failed to create staging index",
+                                     index_name=index_name,
+                                     table_name=tableName,
+                                     error=str(e))
 
     def createMergeTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
         """Create performance indexes for merge tables"""
@@ -334,10 +355,14 @@ class Job(YellowDatasetUtilities):
 
                 if not index_exists:
                     try:
-                        connection.execute(text(index_sql))
-                        print(f"DEBUG: Created index: {index_name}")
+                        with log_operation_timing(logger, "create_merge_index", index_name=index_name):
+                            connection.execute(text(index_sql))
+                        logger.info("Created merge index successfully", index_name=index_name, table_name=tableName)
                     except Exception as e:
-                        print(f"DEBUG: Failed to create index {index_name}: {e}")
+                        logger.error("Failed to create merge index",
+                                     index_name=index_name,
+                                     table_name=tableName,
+                                     error=str(e))
 
     def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
         """Ensure that a unique constraint exists on the specified column"""
@@ -359,9 +384,15 @@ class Job(YellowDatasetUtilities):
                 # Create the unique constraint
                 constraint_name = f"{tableName}_{columnName}_unique"
                 create_constraint_sql = f"ALTER TABLE {tableName} ADD CONSTRAINT {constraint_name} UNIQUE ({columnName})"
-                print(f"DEBUG: Creating unique constraint: {create_constraint_sql}")
+                logger.debug("Creating unique constraint",
+                             constraint_name=constraint_name,
+                             table_name=tableName,
+                             column_name=columnName)
                 connection.execute(text(create_constraint_sql))
-                print(f"DEBUG: Successfully created unique constraint on {tableName}.{columnName}")
+                logger.info("Successfully created unique constraint",
+                            constraint_name=constraint_name,
+                            table_name=tableName,
+                            column_name=columnName)
 
     def createOrUpdateForensicTable(self, mergeEngine: Engine, mergeTable: Table, tableName: str) -> None:
         """Create or update a forensic table, handling primary key changes by dropping and recreating if needed"""
@@ -371,7 +402,7 @@ class Job(YellowDatasetUtilities):
         if not inspector.has_table(tableName):
             # Table doesn't exist, create it
             mergeTable.create(mergeEngine)
-            print(f"Created forensic table {tableName}")
+            logger.info("Created forensic table", table_name=tableName)
             return
 
         # Table exists, check if primary key needs to be updated
@@ -391,19 +422,20 @@ class Job(YellowDatasetUtilities):
 
         # Check if primary key needs to be changed
         if set(current_pk_columns) != set(desired_pk_columns):
-            print(f"DEBUG: Primary key change detected for {tableName}")
-            print(f"DEBUG: Current PK: {current_pk_columns}")
-            print(f"DEBUG: Desired PK: {desired_pk_columns}")
+            logger.info("Primary key change detected for forensic table",
+                        table_name=tableName,
+                        current_pk=current_pk_columns,
+                        desired_pk=desired_pk_columns)
 
             # Drop and recreate the table with new primary key
             with mergeEngine.begin() as connection:
                 # Drop the existing table
                 connection.execute(text(f"DROP TABLE {tableName} CASCADE"))
-                print(f"DEBUG: Dropped table {tableName}")
+                logger.info("Dropped table for primary key change", table_name=tableName)
 
             # Create the new table
             mergeTable.create(mergeEngine)
-            print(f"DEBUG: Recreated table {tableName} with new primary key")
+            logger.info("Recreated table with new primary key", table_name=tableName)
         else:
             # Primary key is the same, use normal update
             createOrUpdateTable(mergeEngine, mergeTable)
@@ -516,15 +548,15 @@ class Job(YellowDatasetUtilities):
         from sqlalchemy import inspect
         inspector = inspect(connection.engine)
         table_name = self.getPhysBatchCounterTableName()
-        print(f"DEBUG: Checking if table {table_name} exists")
+        logger.debug("Checking if table exists", table_name=table_name)
         if not inspector.has_table(table_name):
-            print(f"DEBUG: Table {table_name} does not exist, creating it")
+            logger.info("Creating batch counter table", table_name=table_name)
             # Create the table
             t = self.getBatchCounterTable()
             t.create(connection.engine)
-            print(f"DEBUG: Table {table_name} created")
+            logger.info("Batch counter table created successfully", table_name=table_name)
         else:
-            print(f"DEBUG: Table {table_name} already exists")
+            logger.debug("Batch counter table already exists", table_name=table_name)
 
         # Now query the table
         result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()} WHERE key = \'{key}\''))
@@ -604,37 +636,37 @@ class Job(YellowDatasetUtilities):
         if currentStatus is None:
             # No batch exists, start a new one
             batchId = self.startBatch(mergeEngine)
-            print(f"Started new batch {batchId} for {key}")
+            logger.info("Started new batch", batch_id=batchId, key=key)
             # Batch is started, continue with ingestion
             with mergeEngine.begin() as connection:
                 batchId = self.getCurrentBatchId(connection, key)
-            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
+            logger.info("Continuing batch ingestion", batch_id=batchId, key=key, status=currentStatus)
             self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
             return JobStatus.KEEP_WORKING
 
         elif currentStatus == BatchStatus.STARTED.value:
             # Batch is started, continue with ingestion
-            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
+            logger.info("Continuing batch ingestion", batch_id=batchId, key=key, status=currentStatus)
             self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
             return JobStatus.KEEP_WORKING
 
         elif currentStatus == BatchStatus.INGESTED.value:
             # Batch is ingested, continue with merge
-            print(f"Continuing batch {batchId} for {key} (status: {currentStatus})")
+            logger.info("Continuing batch merge", batch_id=batchId, key=key, status=currentStatus)
             self.mergeStagingToMerge(mergeEngine, batchId, key)
             # Batch is committed, job is done for this run
             return JobStatus.DONE
 
         elif currentStatus == BatchStatus.COMMITTED.value:
             # Batch is already committed, job is done for this run
-            print(f"Batch for {key} is already committed, start new batch")
+            logger.info("Batch already committed, starting new batch", key=key, batch_id=batchId)
             self.startBatch(mergeEngine)
-            print(f"Started new batch {batchId} for {key}")
+            logger.info("Started new batch after committed batch", key=key, batch_id=batchId)
             return JobStatus.KEEP_WORKING
 
         elif currentStatus == BatchStatus.FAILED.value:
             # Batch failed, we're done
-            print(f"Batch for {key} failed")
+            logger.error("Batch failed", key=key, batch_id=batchId)
             return JobStatus.DONE
         return JobStatus.ERROR
 
@@ -714,7 +746,7 @@ class Job(YellowDatasetUtilities):
             currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus
 
-    def getSourceTableName(self, dataset: Dataset) -> str:
+    def getPhysSourceTableName(self, dataset: Dataset) -> str:
         """This returns the source table name for a dataset"""
         if isinstance(self.store.cmd, DataTransformerOutput):
             return self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
@@ -743,7 +775,11 @@ class Job(YellowDatasetUtilities):
         self.checkForSchemaChanges(state)
 
         # Ingest the source records in a single transaction
-        print(f"DEBUG: Starting ingestion for batch {batchId}, hasMoreDatasets: {state.hasMoreDatasets()}")
+        logger.info("Starting ingestion for batch",
+                    batch_id=batchId,
+                    has_more_datasets=state.hasMoreDatasets(),
+                    current_dataset_index=state.current_dataset_index,
+                    total_datasets=len(state.all_datasets))
         recordsInserted = 0  # Initialize counter for all datasets
         totalRecords = 0  # Initialize total records counter
         with sourceEngine.connect() as sourceConn:
@@ -757,7 +793,7 @@ class Job(YellowDatasetUtilities):
                     sourceTableName: str = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
                 else:
                     # Get source table name using mapping if necessary
-                    sourceTableName: str = self.getSourceTableName(dataset)
+                    sourceTableName: str = self.getPhysSourceTableName(dataset)
 
                 # Get destination staging table name
                 stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
@@ -806,13 +842,21 @@ class Job(YellowDatasetUtilities):
                     FROM {sourceTableName}
                     LIMIT {batchSize} OFFSET {offset}
                     """
-                    print(f"DEBUG: Executing SQL: {selectSql}")
+                    logger.debug("Executing source query",
+                                 dataset_name=datasetToIngestName,
+                                 batch_size=batchSize,
+                                 offset=offset)
                     result = sourceConn.execute(text(selectSql))
                     rows = result.fetchall()
-                    print(f"DEBUG: Got {len(rows)} rows from source table")
+                    logger.debug("Retrieved rows from source table",
+                                 dataset_name=datasetToIngestName,
+                                 row_count=len(rows),
+                                 offset=offset)
 
                     if not rows:
-                        print("DEBUG: No rows returned, breaking out of ingestion loop")
+                        logger.info("No more rows in source table, completed dataset ingestion",
+                                    dataset_name=datasetToIngestName,
+                                    total_records_ingested=recordsInserted)
                         break
 
                     # Process batch and insert into staging
@@ -1394,12 +1438,17 @@ def main():
         return -1  # ERROR
 
     if args.operation == "snapshot-merge":
-        print(f"Running {args.operation} for platform: {args.platform_name}, store: {args.store_name}")
-        if args.dataset_name:
-            print(f"Dataset: {args.dataset_name}")
+        # Set logging context for this job run
+        set_context(platform=args.platform_name, workspace=args.store_name)
+        
+        logger.info("Starting snapshot-merge operation",
+                    operation=args.operation,
+                    platform_name=args.platform_name,
+                    store_name=args.store_name,
+                    dataset_name=args.dataset_name)
 
         if args.store_name is None:
-            print("Store name is required for snapshot-merge operation")
+            logger.error("Store name is required for snapshot-merge operation")
             return -1  # ERROR
 
         dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
@@ -1459,13 +1508,22 @@ def main():
 
         jobStatus: JobStatus = job.run()
         if jobStatus == JobStatus.DONE:
-            print("Job completed successfully")
+            logger.info("Job completed successfully",
+                        platform_name=args.platform_name,
+                        store_name=args.store_name,
+                        dataset_name=args.dataset_name)
             return 0  # DONE
         elif jobStatus == JobStatus.KEEP_WORKING:
-            print("Job is still in progress")
+            logger.info("Job is still in progress",
+                        platform_name=args.platform_name,
+                        store_name=args.store_name,
+                        dataset_name=args.dataset_name)
             return 1  # KEEP_WORKING
         else:
-            print("Job failed")
+            logger.error("Job failed",
+                         platform_name=args.platform_name,
+                         store_name=args.store_name,
+                         dataset_name=args.dataset_name)
             return -1  # ERROR
     elif args.operation == "reconcile-views":
         print(f"Running {args.operation} for platform: {args.platform_name}")
