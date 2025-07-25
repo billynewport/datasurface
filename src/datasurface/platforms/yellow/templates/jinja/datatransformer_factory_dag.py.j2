@@ -2,7 +2,7 @@
 DataTransformer Dynamic DAG Factory for {{ platform_name }}
 Generated automatically by DataSurface YellowDataPlatform
 
-This factory reads from {{ platform_name }}'s {{ platform_name }}_airflow_datatransformer table
+This factory reads from {{ platform_name }}'s {{ phys_datatransformer_table_name }} table
 and creates individual DAGs for each DataTransformer:
 - DataTransformer execution DAG
 - DataTransformer output ingestion DAG
@@ -455,7 +455,7 @@ def load_datatransformer_configurations():
         engine = create_engine(f'postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}')
         
         # Read from the platform-specific airflow_datatransformer table
-        table_name = '{{ platform_name }}_airflow_datatransformer'
+        table_name = '{{ phys_datatransformer_table_name }}'
         with engine.connect() as connection:
             result = connection.execute(text(f"""
                 SELECT workspace_name, config_json 
@@ -517,7 +517,7 @@ def sync_datatransformer_dags(**context):
         task_instance.log.info("🏭 DATATRANSFORMER FACTORY DAG EXECUTION STARTED")
         task_instance.log.info("=" * 80)
         task_instance.log.info("🔧 Platform: {{ platform_name }}")
-        task_instance.log.info("🗃️  DataTransformer Table: {{ platform_name }}_airflow_datatransformer")
+                        task_instance.log.info("🗃️  DataTransformer Table: {{ phys_datatransformer_table_name }}")
         task_instance.log.info("=" * 80)
         
         # Step 1: Load current configuration from database
@@ -622,7 +622,7 @@ def sync_datatransformer_dags(**context):
         task_instance.log.error("")
         task_instance.log.error("🔍 Troubleshooting steps:")
         task_instance.log.error("   1. Check database connectivity")
-        task_instance.log.error("   2. Verify {{ platform_name }}_airflow_datatransformer table exists")
+                    task_instance.log.error("   2. Verify {{ phys_datatransformer_table_name }} table exists")
         task_instance.log.error("   3. Check environment variables are set")
         task_instance.log.error("   4. Review scheduler pod logs for more details")
         task_instance.log.error("=" * 80)

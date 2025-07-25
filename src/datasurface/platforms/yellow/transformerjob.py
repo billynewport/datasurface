@@ -29,7 +29,7 @@ import argparse
 import logging
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
-from datasurface.platforms.yellow.reconcile_workspace_views import generate_live_view_name
+from datasurface.platforms.yellow.reconcile_workspace_views import generate_phys_live_view_name
 
 # Setup logging
 logging.basicConfig(
@@ -121,13 +121,13 @@ class DataTransformerJob(JobUtilities):
                 dataset: Dataset = store.datasets[ds.datasetName]
                 # Use live view name instead of merge table name for DataTransformers
                 # This ensures DataTransformers work with live data only
-                view_name = generate_live_view_name(self.dp.name, workspace.name, dsg.name, ds.storeName, ds.datasetName)
+                view_name = generate_phys_live_view_name(self.dp, workspace.name, dsg.name, ds.storeName, dataset.name)
                 dataset_mapping.addInputDataset(dsg.name, store.name, dataset.name, view_name)
 
         # Add output datasets with dt_ prefix
         for dataset in outputDatastore.datasets.values():
             # Need the prefix incase the output datastore is also in the inputs on the workspace
-            table_name = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
+            table_name = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
             dataset_mapping.addOutputDataset(outputDatastore.name, dataset.name, table_name)
 
         return dataset_mapping
@@ -135,7 +135,7 @@ class DataTransformerJob(JobUtilities):
     def _truncateOutputTables(self, connection: Connection, outputDatastore: Datastore) -> None:
         """Truncate all output tables for the DataTransformer."""
         for dataset in outputDatastore.datasets.values():
-            table_name = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
+            table_name = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(outputDatastore, dataset)
             try:
                 connection.execute(text(f"TRUNCATE TABLE {table_name}"))
                 logger.info(f"Truncated output table: {table_name}")
@@ -206,7 +206,7 @@ class DataTransformerJob(JobUtilities):
             for dataset in outputDatastore.datasets.values():
                 store: Datastore = self.eco.cache_getDatastoreOrThrow(outputDatastore.name).datastore
                 t: Table = datasetToSQLAlchemyTable(
-                    dataset, self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData())
+                    dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData())
                 createOrUpdateTable(systemMergeEngine, t)
 
             # Execute the transformer in a transaction

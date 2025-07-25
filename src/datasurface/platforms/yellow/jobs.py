@@ -79,17 +79,17 @@ class JobUtilities(ABC):
         self.credStore: CredentialStore = credStore
         self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
 
-    def getBatchCounterTableName(self) -> str:
+    def getPhysBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        return self.dp.getTableForPlatform("batch_counter")
+        return self.dp.namingMapper.mapNoun(self.dp.getTableForPlatform("batch_counter"))
 
-    def getBatchMetricsTableName(self) -> str:
+    def getPhysBatchMetricsTableName(self) -> str:
         """This returns the name of the batch metrics table"""
-        return self.dp.getTableForPlatform("batch_metrics")
+        return self.dp.namingMapper.mapNoun(self.dp.getTableForPlatform("batch_metrics"))
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
-        t: Table = Table(self.getBatchCounterTableName(), MetaData(),
+        t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
                          Column("key", String(length=255), primary_key=True),
                          Column("currentBatch", Integer()))
         return t
@@ -97,7 +97,7 @@ class JobUtilities(ABC):
     def getBatchMetricsTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
-        t: Table = Table(self.getBatchMetricsTableName(), MetaData(),
+        t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
                          Column("key", String(length=255), primary_key=True),
                          Column("batch_id", Integer(), primary_key=True),
                          Column("batch_start_time", TIMESTAMP()),
@@ -140,12 +140,12 @@ class JobUtilities(ABC):
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
         return self.dp.getTableForPlatform(tableName + "_merge")
 
-    def getDataTransformerOutputTableNameForDatasetForIngestionOnly(self, store: Datastore, dataset: Dataset) -> str:
+    def getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self, store: Datastore, dataset: Dataset) -> str:
         """This returns the DataTransformer output table name for a dataset (dt_ prefix) for ingestion only. Merged tables are stored in the
         normal merge table notation. The dt prefix is ONLY used for the output tables for a DataTransformer when doing the ingestion
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset)
-        return self.dp.getTableForPlatform(f"dt_{tableName}")
+        return self.dp.namingMapper.mapNoun(self.dp.getTableForPlatform(f"dt_{tableName}"))
 
 
 class YellowDatasetUtilities(JobUtilities):
@@ -184,14 +184,14 @@ class YellowDatasetUtilities(JobUtilities):
         """This returns the base table name for a dataset"""
         return self.getRawBaseTableNameForDataset(self.store, dataset)
 
-    def getStagingTableNameForDataset(self, dataset: Dataset) -> str:
+    def getPhysStagingTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the staging table name for a dataset"""
         tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.dp.getTableForPlatform(tableName + "_staging")
+        return self.dp.namingMapper.mapNoun(self.dp.getTableForPlatform(tableName + "_staging"))
 
-    def getMergeTableNameForDataset(self, dataset: Dataset) -> str:
+    def getPhysMergeTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
-        return self.getRawMergeTableNameForDataset(self.store, dataset)
+        return self.dp.namingMapper.mapNoun(self.getRawMergeTableNameForDataset(self.store, dataset))
 
 
 class Job(YellowDatasetUtilities):
@@ -202,7 +202,7 @@ class Job(YellowDatasetUtilities):
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
-        t: Table = Table(self.getBatchCounterTableName(), MetaData(),
+        t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
                          Column("key", String(length=255), primary_key=True),
                          Column("currentBatch", Integer()))
         return t
@@ -210,7 +210,7 @@ class Job(YellowDatasetUtilities):
     def getBatchMetricsTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
-        t: Table = Table(self.getBatchMetricsTableName(), MetaData(),
+        t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
                          Column("key", String(length=255), primary_key=True),
                          Column("batch_id", Integer(), primary_key=True),
                          Column("batch_start_time", TIMESTAMP()),
@@ -250,16 +250,19 @@ class Job(YellowDatasetUtilities):
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
 
+        batchIdIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_batch_id")
+        keyHashIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_key_hash")
+        batchKeyIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_batch_key")
         indexes = [
             # Primary: batch filtering (used in every query)
-            (f"idx_{tableName}_batch_id", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_id ON {tableName} ({sp.BATCH_ID_COLUMN_NAME})"),
+            (batchIdIndexName, f"CREATE INDEX IF NOT EXISTS {batchIdIndexName} ON {tableName} ({sp.BATCH_ID_COLUMN_NAME})"),
 
             # Secondary: join performance
-            (f"idx_{tableName}_key_hash", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})"),
+            (keyHashIndexName, f"CREATE INDEX IF NOT EXISTS {keyHashIndexName} ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})"),
 
             # Composite: optimal for most queries that filter by batch AND join by key
-            (f"idx_{tableName}_batch_key",
-             f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_key ON {tableName} ({sp.BATCH_ID_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})")
+            (batchKeyIndexName,
+             f"CREATE INDEX IF NOT EXISTS {batchKeyIndexName} ON {tableName} ({sp.BATCH_ID_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})")
         ]
 
         with mergeEngine.begin() as connection:
@@ -284,33 +287,39 @@ class Job(YellowDatasetUtilities):
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
 
+        keyHashIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_key_hash")
         indexes = [
             # Critical: join performance (exists in all modes)
-            (f"idx_{tableName}_key_hash", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_key_hash ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})")
+            (keyHashIndexName, f"CREATE INDEX IF NOT EXISTS {keyHashIndexName} ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})")
         ]
 
         # Add forensic-specific indexes for batch milestoned tables
         if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            batchOutIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_batch_out")
+            liveRecordsIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_live_records")
+            batchInIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_batch_in")
+            batchRangeIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_batch_range")
             indexes.extend([
                 # Critical: live record filtering (batch_out = 2147483647)
-                (f"idx_{tableName}_batch_out", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_out ON {tableName} ({sp.BATCH_OUT_COLUMN_NAME})"),
+                (batchOutIndexName, f"CREATE INDEX IF NOT EXISTS {batchOutIndexName} ON {tableName} ({sp.BATCH_OUT_COLUMN_NAME})"),
 
                 # Composite: optimal for live record joins (most common pattern)
-                (f"idx_{tableName}_live_records",
-                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_live_records ON {tableName} ({sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})"),
+                (liveRecordsIndexName,
+                 f"CREATE INDEX IF NOT EXISTS {liveRecordsIndexName} ON {tableName} ({sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})"),
 
                 # For forensic queries: finding recently closed records
-                (f"idx_{tableName}_batch_in", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_in ON {tableName} ({sp.BATCH_IN_COLUMN_NAME})"),
+                (batchInIndexName, f"CREATE INDEX IF NOT EXISTS {batchInIndexName} ON {tableName} ({sp.BATCH_IN_COLUMN_NAME})"),
 
                 # For forensic history queries
-                (f"idx_{tableName}_batch_range",
-                 f"CREATE INDEX IF NOT EXISTS idx_{tableName}_batch_range ON {tableName} ({sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})")
+                (batchRangeIndexName,
+                 f"CREATE INDEX IF NOT EXISTS {batchRangeIndexName} ON {tableName} ({sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})")
             ])
         else:
             # For live-only mode, we can create an index on ds_surf_all_hash for change detection
+            allHashIndexName: str = self.dp.namingMapper.mapNoun(f"idx_{tableName}_all_hash")
             indexes.extend([
                 # For live-only mode: change detection performance
-                (f"idx_{tableName}_all_hash", f"CREATE INDEX IF NOT EXISTS idx_{tableName}_all_hash ON {tableName} ({sp.ALL_HASH_COLUMN_NAME})")
+                (allHashIndexName, f"CREATE INDEX IF NOT EXISTS {allHashIndexName} ON {tableName} ({sp.ALL_HASH_COLUMN_NAME})")
             ])
 
         with mergeEngine.begin() as connection:
@@ -409,7 +418,7 @@ class Job(YellowDatasetUtilities):
 
         # Check if the current batch is committed
         result = connection.execute(text(
-            f'SELECT "batch_status" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {currentBatchId}'
+            f'SELECT "batch_status" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {currentBatchId}'
         ))
         batchStatusRow: Optional[Row[Any]] = result.fetchone()
         if batchStatusRow is not None:
@@ -417,13 +426,13 @@ class Job(YellowDatasetUtilities):
             if batchStatus != BatchStatus.COMMITTED.value:
                 raise Exception(f"Batch {currentBatchId} is not committed")
             newBatch = currentBatchId + 1
-            connection.execute(text(f'UPDATE {self.getBatchCounterTableName()} SET "currentBatch" = {newBatch} WHERE key = \'{key}\''))
+            connection.execute(text(f'UPDATE {self.getPhysBatchCounterTableName()} SET "currentBatch" = {newBatch} WHERE key = \'{key}\''))
         else:
             newBatch = 1
 
         # Insert a new batch event record with started status
         connection.execute(text(
-            f"INSERT INTO {self.getBatchMetricsTableName()} "
+            f"INSERT INTO {self.getPhysBatchMetricsTableName()} "
             f'("key", "batch_id", "batch_start_time", "batch_status", "state") '
             f"VALUES (:key, :batch_id, NOW(), :batch_status, :state)"
         ), {
@@ -480,13 +489,13 @@ class Job(YellowDatasetUtilities):
             # Truncate the staging table for each dataset in the batch state
             for datasetName in state.all_datasets:
                 dataset: Dataset = self.store.datasets[datasetName]
-                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
+                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
                 connection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
         return newBatchId
 
     def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
         """Get the batch status for a given key and batch id"""
-        result = connection.execute(text(f'SELECT "state" FROM {self.getBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
+        result = connection.execute(text(f'SELECT "state" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
         row = result.fetchone()
 
         return BatchState.model_validate_json(row[0]) if row else BatchState(all_datasets=[])
@@ -495,7 +504,7 @@ class Job(YellowDatasetUtilities):
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""
         result = connection.execute(text(f"""
             SELECT bm."batch_status"
-            FROM {self.getBatchMetricsTableName()} bm
+            FROM {self.getPhysBatchMetricsTableName()} bm
             WHERE bm."key" = '{key}' AND bm."batch_id" = {batchId}
         """))
         row = result.fetchone()
@@ -506,7 +515,7 @@ class Job(YellowDatasetUtilities):
         # First check if the table exists
         from sqlalchemy import inspect
         inspector = inspect(connection.engine)
-        table_name = self.getBatchCounterTableName()
+        table_name = self.getPhysBatchCounterTableName()
         print(f"DEBUG: Checking if table {table_name} exists")
         if not inspector.has_table(table_name):
             print(f"DEBUG: Table {table_name} does not exist, creating it")
@@ -518,11 +527,11 @@ class Job(YellowDatasetUtilities):
             print(f"DEBUG: Table {table_name} already exists")
 
         # Now query the table
-        result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getBatchCounterTableName()} WHERE key = \'{key}\''))
+        result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()} WHERE key = \'{key}\''))
         row = result.fetchone()
         if row is None:
             # Insert a new batch counter
-            connection.execute(text(f'INSERT INTO {self.getBatchCounterTableName()} (key, "currentBatch") VALUES (\'{key}\', 1)'))
+            connection.execute(text(f'INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch") VALUES (\'{key}\', 1)'))
             return 1
         else:
             return row[0]
@@ -555,7 +564,7 @@ class Job(YellowDatasetUtilities):
                 update_parts.append("state = :state")
                 update_params["state"] = state.model_dump_json()
 
-            update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = :key AND "batch_id" = :batch_id'
+            update_sql = f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = :key AND "batch_id" = :batch_id'
             connection.execute(text(update_sql), update_params)
 
     def markBatchMerged(self, connection: Connection, key: str, batchId: int, status: BatchStatus,
@@ -574,7 +583,7 @@ class Job(YellowDatasetUtilities):
         if totalRecords is not None:
             update_parts.append(f"total_records = {totalRecords}")
 
-        update_sql = f'UPDATE {self.getBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
+        update_sql = f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
         connection.execute(text(update_sql))
 
     @abstractmethod
@@ -633,7 +642,7 @@ class Job(YellowDatasetUtilities):
         """This will make sure the staging table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
-            tableName: str = self.getStagingTableNameForDataset(dataset)
+            tableName: str = self.getPhysStagingTableNameForDataset(dataset)
             stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
             createOrUpdateTable(mergeEngine, stagingTable)
             # Create performance indexes for staging table
@@ -643,7 +652,7 @@ class Job(YellowDatasetUtilities):
         """This will make sure the merge table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
-            tableName: str = self.getMergeTableNameForDataset(dataset)
+            tableName: str = self.getPhysMergeTableNameForDataset(dataset)
             mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
 
             # For forensic mode, we need to handle primary key changes
@@ -708,7 +717,7 @@ class Job(YellowDatasetUtilities):
     def getSourceTableName(self, dataset: Dataset) -> str:
         """This returns the source table name for a dataset"""
         if isinstance(self.store.cmd, DataTransformerOutput):
-            return self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
+            return self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
         elif isinstance(self.store.cmd, SQLIngestion):
             if dataset.name not in self.store.cmd.tableForDataset:
                 tableName: str = dataset.name
@@ -745,13 +754,13 @@ class Job(YellowDatasetUtilities):
 
                 # Get source table name - for DataTransformer output, use dt_ prefixed tables
                 if isinstance(self.store.cmd, DataTransformerOutput):
-                    sourceTableName: str = self.getDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
+                    sourceTableName: str = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
                 else:
                     # Get source table name using mapping if necessary
                     sourceTableName: str = self.getSourceTableName(dataset)
 
                 # Get destination staging table name
-                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
+                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
 
                 # Get primary key columns
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
@@ -842,7 +851,7 @@ class Job(YellowDatasetUtilities):
                         state.current_offset = offset + numRowsInserted
                         # Update the state in the batch metrics table
                         mergeConn.execute(text(
-                            f'UPDATE {self.getBatchMetricsTableName()} SET "state" = :state'
+                            f'UPDATE {self.getPhysBatchMetricsTableName()} SET "state" = :state'
                             f' WHERE "key" = :key AND "batch_id" = :batch_id'), {
                                 "state": state.model_dump_json(),
                                 "key": key,
@@ -932,8 +941,8 @@ class SnapshotMergeJobForensic(Job):
 
             for datasetToMergeName in state.all_datasets:
                 dataset: Dataset = self.store.datasets[datasetToMergeName]
-                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
-                mergeTableName: str = self.getMergeTableNameForDataset(dataset)
+                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
+                mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
                 allColumns: list[str] = [col.name for col in schema.columns.values()]
                 quoted_all_columns = [f'"{col}"' for col in allColumns]
@@ -1107,8 +1116,8 @@ class SnapshotMergeJobLiveOnly(Job):
                 # Get the dataset
                 dataset: Dataset = self.store.datasets[datasetToMergeName]
                 # Map the dataset name if necessary
-                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
-                mergeTableName: str = self.getMergeTableNameForDataset(dataset)
+                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
+                mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
 
                 # Get all column names
@@ -1213,8 +1222,8 @@ class SnapshotMergeJobLiveOnly(Job):
                 # Get the dataset
                 dataset: Dataset = self.store.datasets[datasetToMergeName]
                 # Map the dataset name if necessary
-                stagingTableName: str = self.getStagingTableNameForDataset(dataset)
-                mergeTableName: str = self.getMergeTableNameForDataset(dataset)
+                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
+                mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
 
                 # Get all column names
@@ -1332,18 +1341,18 @@ class SnapshotMergeJobLiveOnly(Job):
 
 def reconcileWorkspaceViews(eco: Ecosystem, platformName: str, credStore: CredentialStore) -> int:
     """Reconcile workspace view schemas for the specified YellowDataPlatform.
-    
+
     Args:
         eco: The ecosystem containing the platform
         platformName: Name of the YellowDataPlatform
         credStore: Credential store for database access
-        
+
     Returns:
         0: All views were successfully created/updated
         1: Some views could not be created/updated (missing columns or tables)
     """
     from datasurface.platforms.yellow.reconcile_workspace_views import reconcile_workspace_view_schemas
-    
+
     return reconcile_workspace_view_schemas(eco, platformName, credStore)
 
 
@@ -1460,7 +1469,7 @@ def main():
             return -1  # ERROR
     elif args.operation == "reconcile-views":
         print(f"Running {args.operation} for platform: {args.platform_name}")
-        
+
         dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
         if dp is None:
             print(f"Unknown platform: {args.platform_name}")

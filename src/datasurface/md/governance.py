@@ -229,6 +229,10 @@ class DataContainerNamingMapper:
             s = f'{self.allowQuotes}{s}{self.allowQuotes}'
         return s
 
+    def mapNoun(self, s: str) -> str:
+        """This maps a noun to a string which is a valid identifier for the data container"""
+        return self.truncateIdentifier(s, self.maxLen)
+
     def truncateIdentifier(self, s: str, maxLen: int) -> str:
         """This truncates the string to the maximum length. This truncation will add a 3 digit hex hash
         to the end of the string. This, the string may be truncated to maxLen - 4 and then the hash is added
@@ -584,9 +588,9 @@ class DataContainer(Documentable, JSONable):
         return True
 
     @abstractmethod
-    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
         """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
-        return None
+        raise NotImplementedError("getNamingAdapter is not implemented for this data container")
 
 
 class DataPlatformManagedDataContainer(DataContainer):
@@ -616,8 +620,8 @@ class DataPlatformManagedDataContainer(DataContainer):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         return
 
-    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
-        return None
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        raise NotImplementedError("getNamingAdapter is not implemented for this data container")
 
 
 class SQLDatabase(DataContainer):
@@ -640,7 +644,7 @@ class SQLDatabase(DataContainer):
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
 
-    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
         return DefaultDataContainerNamingMapper(self.identifierLengthLimit)
 
 
@@ -1145,9 +1149,9 @@ class KafkaServer(DataContainer):
     def __str__(self) -> str:
         return f"KafkaServer({self.bootstrapServers})"
 
-    def getNamingAdapter(self) -> Optional[DataContainerNamingMapper]:
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
         """This returns a naming adapter which can be used to map dataset names and attributes to the underlying data container"""
-        return None
+        raise NotImplementedError("getNamingAdapter is not implemented for this data container")
 
 
 class KafkaIngestion(StreamingIngestion):

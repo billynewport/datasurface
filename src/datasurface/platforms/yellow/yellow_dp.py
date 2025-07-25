@@ -622,7 +622,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             }
 
             # Get table name
-            table_name = self.dp.getDAGTableName()
+            table_name = self.dp.getPhysDAGTableName()
 
             # Store configurations in database
             with engine.begin() as connection:
@@ -772,7 +772,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             }
 
             # Get table name
-            table_name = self.dp.getDataTransformerTableName()
+            table_name = self.dp.getPhysDataTransformerTableName()
 
             # Store configurations in database
             with engine.begin() as connection:
@@ -1209,6 +1209,7 @@ class YellowDataPlatform(DataPlatform):
         self.slackChannel: str = slackChannel
         self.gitCredential: Credential = gitCredential
         self.datasurfaceImage: str = datasurfaceImage
+        self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
 
         # Create the required data containers
         self.kafkaConnectCluster = KafkaConnectCluster(
@@ -1314,18 +1315,18 @@ class YellowDataPlatform(DataPlatform):
         """This returns the table name for the platform"""
         return f"{self.name}_{tableName}".lower()
 
-    def getDAGTableName(self) -> str:
+    def getPhysDAGTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        return self.getTableForPlatform("airflow_dsg")
+        return self.namingMapper.mapNoun(self.getTableForPlatform("airflow_dsg"))
 
-    def getDataTransformerTableName(self) -> str:
+    def getPhysDataTransformerTableName(self) -> str:
         """This returns the name of the DataTransformer DAG table"""
-        return self.getTableForPlatform("airflow_datatransformer")
+        return self.namingMapper.mapNoun(self.getTableForPlatform("airflow_datatransformer"))
 
     def getAirflowDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
-        t: Table = Table(self.getDAGTableName(), MetaData(),
+        t: Table = Table(self.getPhysDAGTableName(), MetaData(),
                          Column("stream_key", sqlalchemy.String(length=255), primary_key=True),
                          Column("config_json", sqlalchemy.String(length=2048)),
                          Column("status", sqlalchemy.String(length=50)),
@@ -1335,7 +1336,7 @@ class YellowDataPlatform(DataPlatform):
 
     def getDataTransformerDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for DataTransformer DAG configurations."""
-        t: Table = Table(self.getDataTransformerTableName(), MetaData(),
+        t: Table = Table(self.getPhysDataTransformerTableName(), MetaData(),
                          Column("workspace_name", sqlalchemy.String(length=255), primary_key=True),
                          Column("config_json", sqlalchemy.String(length=4096)),
                          Column("status", sqlalchemy.String(length=50)),
@@ -1412,6 +1413,9 @@ class YellowDataPlatform(DataPlatform):
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
                 "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
+                # Physical table names for factory DAGs to query
+                "phys_dag_table_name": self.getPhysDAGTableName(),
+                "phys_datatransformer_table_name": self.getPhysDataTransformerTableName(),
             }
 
             # Render the templates
