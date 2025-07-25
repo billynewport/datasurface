@@ -369,6 +369,26 @@ kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U 
 # Username: postgres
 # Password: datasurface123
 ```
+AI 
+**💡 AI Tip: Database Querying Best Practices**
+When querying the database through kubectl exec, use non-interactive SQL commands instead of psql meta-commands:
+
+```bash
+# ✅ CORRECT: Use bash -c wrapper with standard SQL
+kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -d datasurface_merge -c \"SELECT schemaname, viewname FROM pg_views WHERE schemaname NOT IN ('information_schema', 'pg_catalog');\""
+
+# ❌ AVOID: Interactive mode with -it flag for queries
+kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -d datasurface_merge -c "\dv"
+
+# ❌ AVOID: Direct psql meta-commands (require interactive mode)
+kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -d datasurface_merge -c "\dv"
+```
+
+**Key differences:**
+- Remove `-it` flag for non-interactive queries
+- Use `bash -c` wrapper for proper shell environment
+- Use standard SQL (`SELECT`) instead of psql meta-commands (`\dv`, `\l`, etc.)
+- Proper escaping with double quotes around SQL queries
 
 ### Common Issues and Solutions
 
