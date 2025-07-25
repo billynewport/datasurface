@@ -4,7 +4,7 @@
 """
 
 from datasurface.md.sqlalchemyutils import createOrUpdateTable
-from datasurface.platforms.yellow.jobs import JobUtilities, JobStatus
+from datasurface.platforms.yellow.yellow_dp import JobUtilities, JobStatus
 from datasurface.md import (
     Ecosystem, CredentialStore, Workspace, WorkspaceCacheEntry, Datastore, Dataset,
     DataPlatform, Credential
@@ -92,7 +92,7 @@ class DataTransformerJob(JobUtilities):
         super().__init__(eco, credStore, dp)
         self.workspaceName: str = workspaceName
         self.workingFolder: str = workingFolder
-        
+
         # Set logging context for this job
         set_context(workspace=workspaceName, platform=dp.name)
 
@@ -173,7 +173,7 @@ class DataTransformerJob(JobUtilities):
             logger.info("Starting DataTransformer job",
                         workspace_name=self.workspaceName,
                         working_folder=self.workingFolder)
-            
+
             # Now, get a connection to the merge database
             with log_operation_timing(logger, "database_connection_setup"):
                 systemMergeUser, systemMergePassword = self.credStore.getAsUserPassword(self.dp.postgresCredential)

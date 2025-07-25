@@ -10,12 +10,11 @@ from sqlalchemy import text, inspect
 from sqlalchemy.engine import Engine
 
 from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, EcosystemPipelineGraph
-from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.sqlalchemyutils import createOrUpdateView
 from datasurface.md.credential import CredentialStore
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowSchemaProjector
 from datasurface.md.schema import DDLTable
-from datasurface.platforms.yellow.jobs import createEngine, YellowDatasetUtilities
+from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, createEngine
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
@@ -95,6 +94,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
         0: All views were successfully created/updated
         1: Some views could not be created/updated (missing columns or tables)
     """
+
     # Find the specified data platform
     dataplatform: Optional[DataPlatform] = None
     try:
@@ -347,6 +347,167 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                                      error=str(e))
                         views_failed += 1
 
+    # STEP 3: Process all workspaces in pipeline graph that weren't already processed by DSG assignments
+    logger.info("=== STEP 3: Processing Pipeline Graph Workspaces ===")
+
+    # Track which workspaces were already processed by DSG assignments
+    processed_workspace_dsgs = set()
+    for dsgAssignment in eco.dsgPlatformMappings.values():
+        for assignment in dsgAssignment.assignments:
+            if assignment.dataPlatform.name == dataplatform_name:
+                processed_workspace_dsgs.add(f"{assignment.workspace}#{assignment.dsgName}")
+
+    logger.debug("Already processed workspace DSGs", processed_count=len(processed_workspace_dsgs), processed_dsgs=list(processed_workspace_dsgs))
+
+    # Now process all workspaces in the pipeline graph
+    for workspace_name, workspace in pipeline_graph.workspaces.items():
+        logger.debug("Checking workspace in pipeline graph", workspace_name=workspace_name, dsg_count=len(workspace.dsgs))
+
+        for dsg_name, dataset_group in workspace.dsgs.items():
+            workspace_dsg_key = f"{workspace_name}#{dsg_name}"
+
+            # Skip if this workspace+dsg was already processed by explicit DSG assignments
+            if workspace_dsg_key in processed_workspace_dsgs:
+                logger.debug("Skipping already processed workspace DSG", workspace_dsg_key=workspace_dsg_key)
+                continue
+
+            logger.info("Processing unassigned workspace DSG", workspace_name=workspace_name, dsg_name=dsg_name, sink_count=len(dataset_group.sinks))
+
+            for sink in dataset_group.sinks.values():
+                logger.debug("Processing unassigned sink", store_name=sink.storeName, dataset_name=sink.datasetName)
+
+                # Create utilities instance for this specific sink
+                try:
+                    store_entry = eco.cache_getDatastoreOrThrow(sink.storeName)
+                    utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store_entry.datastore, sink.datasetName)
+
+                    if utils.dataset is None:
+                        logger.error("Dataset not found in store",
+                                     dataset_name=sink.datasetName,
+                                     store_name=sink.storeName)
+                        views_failed += 1
+                        continue
+
+                except Exception as e:
+                    logger.error("Could not load datastore for unassigned workspace",
+                                 store_name=sink.storeName,
+                                 error=str(e))
+                    views_failed += 1
+                    continue
+
+                # Generate merge table name using utilities
+                merge_table_name = utils.getPhysMergeTableNameForDataset(utils.dataset)
+                logger.debug("Generated merge table name for unassigned workspace",
+                             merge_table_name=merge_table_name,
+                             dataset_name=sink.datasetName)
+
+                # Get the original dataset schema
+                original_schema = utils.dataset.originalSchema
+                if not isinstance(original_schema, DDLTable):
+                    logger.error("Invalid schema type for dataset in unassigned workspace",
+                                 dataset_name=sink.datasetName,
+                                 store_name=sink.storeName,
+                                 schema_type=type(original_schema).__name__)
+                    views_failed += 1
+                    continue
+
+                # Check if merge table exists
+                if not check_merge_table_exists(engine, merge_table_name):
+                    logger.error("Merge table does not exist for dataset in unassigned workspace",
+                                 merge_table_name=merge_table_name,
+                                 dataset_name=sink.datasetName)
+                    views_failed += 1
+                    continue
+
+                # Check if merge table has all required columns
+                required_columns = list(original_schema.columns.keys())
+                has_columns, missing_columns = check_merge_table_has_required_columns(engine, merge_table_name, required_columns)
+
+                if not has_columns:
+                    logger.error("Merge table missing required columns for unassigned workspace",
+                                 merge_table_name=merge_table_name,
+                                 dataset_name=sink.datasetName,
+                                 missing_columns=missing_columns)
+                    views_failed += 1
+                    continue
+
+                # Create views based on platform type
+                try:
+                    view_changes = []
+
+                    if is_forensic_platform:
+                        # For forensic platforms: create both _view_full and _live views
+
+                        # 1. Create full view (all historical records)
+                        full_view_name = generate_phys_full_view_name(
+                            yellow_dp, workspace.name,
+                            dataset_group.name, sink.storeName, sink.datasetName)
+
+                        with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
+                            full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
+
+                        if full_was_changed:
+                            if check_merge_table_exists(engine, full_view_name):
+                                views_updated += 1
+                                view_changes.append(f"Updated full view: {full_view_name}")
+                            else:
+                                views_created += 1
+                                view_changes.append(f"Created full view: {full_view_name}")
+                        else:
+                            view_changes.append(f"Full view already up to date: {full_view_name}")
+
+                        # 2. Create live view (only live records with WHERE clause)
+                        live_view_name = generate_phys_live_view_name(
+                            yellow_dp, workspace.name,
+                            dataset_group.name, sink.storeName, sink.datasetName)
+                        live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
+
+                        with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
+                                                                  merge_table_name, live_where_clause)
+
+                        if live_was_changed:
+                            if check_merge_table_exists(engine, live_view_name):
+                                views_updated += 1
+                                view_changes.append(f"Updated live view: {live_view_name}")
+                            else:
+                                views_created += 1
+                                view_changes.append(f"Created live view: {live_view_name}")
+                        else:
+                            view_changes.append(f"Live view already up to date: {live_view_name}")
+
+                    else:
+                        # For live-only platforms: create only _live view (no filtering needed)
+                        live_view_name = generate_phys_live_view_name(
+                            yellow_dp, workspace.name,
+                            dataset_group.name, sink.storeName, sink.datasetName)
+
+                        with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
+                                                                  merge_table_name, None)
+
+                        if live_was_changed:
+                            if check_merge_table_exists(engine, live_view_name):
+                                views_updated += 1
+                                view_changes.append(f"Updated live view: {live_view_name}")
+                            else:
+                                views_created += 1
+                                view_changes.append(f"Created live view: {live_view_name}")
+                        else:
+                            view_changes.append(f"Live view already up to date: {live_view_name}")
+
+                    # Log all view changes for this dataset
+                    for change in view_changes:
+                        logger.info("View operation completed for unassigned workspace", operation=change)
+
+                except Exception as e:
+                    logger.error("Error creating/updating views for dataset in unassigned workspace",
+                                 dataset_name=sink.datasetName,
+                                 workspace_name=workspace_name,
+                                 dsg_name=dsg_name,
+                                 error=str(e))
+                    views_failed += 1
+
     # Log final summary
     logger.info(
         "View reconciliation summary",
@@ -373,21 +534,50 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python reconcile_workspace_views.py --model my_ecosystem --platform my_yellow_platform
-  python reconcile_workspace_views.py --model eco --platform yellow-dp --credential-store env
+  python -m datasurface.platforms.yellow.reconcile_workspace_views \\
+    --platform-name YellowLive \\
+    --git-repo-path /workspace/git-repo \\
+    --git-repo-owner billynewport \\
+    --git-repo-name yellow_starter \\
+    --git-repo-branch main \\
+    --git-platform-repo-credential-name git
         """
     )
 
     parser.add_argument(
-        "--model",
+        "--platform-name",
         required=True,
-        help="Python module name containing the ecosystem model (e.g., 'my_ecosystem')"
+        help="Name of the YellowDataPlatform to reconcile views for"
     )
 
     parser.add_argument(
-        "--platform",
+        "--git-repo-path",
         required=True,
-        help="Name of the YellowDataPlatform to reconcile views for"
+        help="Path to the git repository"
+    )
+
+    parser.add_argument(
+        "--git-repo-owner",
+        required=True,
+        help="GitHub repository owner (e.g., billynewport)"
+    )
+
+    parser.add_argument(
+        "--git-repo-name",
+        required=True,
+        help="GitHub repository name (e.g., yellow_starter)"
+    )
+
+    parser.add_argument(
+        "--git-repo-branch",
+        required=True,
+        help="GitHub repository branch (e.g., main)"
+    )
+
+    parser.add_argument(
+        "--git-platform-repo-credential-name",
+        required=True,
+        help="GitHub credential name for accessing the model repository (e.g., git)"
     )
 
     parser.add_argument(
@@ -399,28 +589,7 @@ Examples:
     args = parser.parse_args()
 
     try:
-        # Load the ecosystem model
-        print(f"Loading ecosystem model from module: {args.model}")
-        eco, validation_tree = loadEcosystemFromEcoModule(args.model)
-
-        if validation_tree and validation_tree.hasErrors():
-            print("Ecosystem validation failed:")
-            validation_tree.printTree()
-            return 1
-
-        if eco is None:
-            print(f"Error: Could not load ecosystem model from module '{args.model}'")
-            return 1
-
-        # Validate the ecosystem
-        print("Validating ecosystem...")
-        if validation_tree and validation_tree.hasErrors():
-            print("Ecosystem validation failed:")
-            for problem in validation_tree.getProblems():
-                print(f"  {problem}")
-            return 1
-
-        # Create credential store
+        # Create credential store first
         if args.credential_store == "env":
             from datasurface.platforms.yellow.yellow_dp import KubernetesEnvVarsCredentialStore
             cred_store = KubernetesEnvVarsCredentialStore(
@@ -432,15 +601,45 @@ Examples:
             print(f"Error: Unsupported credential store type: {args.credential_store}")
             return 1
 
-        # Reconcile workspace view schemas
-        print(f"Reconciling workspace view schemas for platform: {args.platform}")
-        return reconcile_workspace_view_schemas(eco, args.platform, cred_store)
+        # Load the ecosystem model from git repository
+        from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
+        from datasurface.md.repo import GitHubRepository
+        from datasurface.md.credential import Credential, CredentialType
+        import os
 
-    except ImportError as e:
-        print(f"Error importing ecosystem model '{args.model}': {e}")
-        return 1
+        print(f"Loading ecosystem model from git repository: {args.git_repo_owner}/{args.git_repo_name}")
+
+        # Ensure the directory exists
+        os.makedirs(args.git_repo_path, exist_ok=True)
+
+        eco, validation_tree = getLatestModelAtTimestampedFolder(
+            cred_store,
+            GitHubRepository(
+                f"{args.git_repo_owner}/{args.git_repo_name}",
+                args.git_repo_branch,
+                credential=Credential(args.git_platform_repo_credential_name, CredentialType.API_TOKEN)
+            ),
+            args.git_repo_path,
+            doClone=True
+        )
+
+        if validation_tree and validation_tree.hasErrors():
+            print("Ecosystem model has errors")
+            validation_tree.printTree()
+            return 1
+
+        if eco is None:
+            print("Failed to load ecosystem")
+            return 1
+
+        # Reconcile workspace view schemas
+        print(f"Reconciling workspace view schemas for platform: {args.platform_name}")
+        return reconcile_workspace_view_schemas(eco, args.platform_name, cred_store)
+
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 

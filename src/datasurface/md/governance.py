@@ -231,7 +231,7 @@ class DataContainerNamingMapper:
 
     def mapNoun(self, s: str) -> str:
         """This maps a noun to a string which is a valid identifier for the data container"""
-        return self.truncateIdentifier(s, self.maxLen)
+        return self.formatIdentifier(self.truncateIdentifier(s, self.maxLen))
 
     def truncateIdentifier(self, s: str, maxLen: int) -> str:
         """This truncates the string to the maximum length. This truncation will add a 3 digit hex hash
@@ -266,8 +266,11 @@ class DataContainerNamingMapper:
 
 class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
     """This is a default naming adapter which maps the dataset name to the dataset name and the attribute name to the attribute name"""
-    def __init__(self, identifierLengthLimit: int = 63) -> None:
-        super().__init__(maxLen=identifierLengthLimit)
+    def __init__(
+            self,
+            identifierLengthLimit: int = 63, caseSensitive: CaseSensitiveEnum = CaseSensitiveEnum.CASE_SENSITIVE,
+            allowQuotes: Optional[str] = None) -> None:
+        super().__init__(maxLen=identifierLengthLimit, caseSensitive=caseSensitive, allowQuotes=allowQuotes)
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, DefaultDataContainerNamingMapper)
@@ -746,6 +749,11 @@ class PostgresDatabase(HostPortSQLDatabase):
 
     def __hash__(self) -> int:
         return hash(self.name)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        # Should be using quotes but not right now as many templlates
+        # and code are using quotes.
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes="")
 
 
 class MySQLDatabase(HostPortSQLDatabase):
