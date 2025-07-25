@@ -16,6 +16,14 @@ from datasurface.md.credential import CredentialStore
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowSchemaProjector
 from datasurface.md.schema import DDLTable
 from datasurface.platforms.yellow.jobs import createEngine, YellowDatasetUtilities
+from datasurface.platforms.yellow.logging_utils import (
+    setup_logging_for_environment, get_contextual_logger, set_context,
+    log_operation_timing
+)
+
+# Setup logging for Kubernetes environment
+setup_logging_for_environment()
+logger = get_contextual_logger(__name__)
 
 
 def generate_phys_view_name(dp: YellowDataPlatform, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
@@ -92,73 +100,122 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     try:
         dataplatform = eco.getDataPlatformOrThrow(dataplatform_name)
     except Exception:
-        print(f"Error: Data platform '{dataplatform_name}' not found in ecosystem")
+        logger.error("Data platform not found in ecosystem", platform_name=dataplatform_name)
         return 1
 
     if not isinstance(dataplatform, YellowDataPlatform):
-        print(f"Error: Data platform '{dataplatform_name}' is not a YellowDataPlatform")
+        logger.error("Data platform is not a YellowDataPlatform", platform_name=dataplatform_name, platform_type=type(dataplatform).__name__)
         return 1
 
     yellow_dp: YellowDataPlatform = dataplatform
 
-    print(f"Reconciling workspace view schemas for platform: {dataplatform_name}")
-    print(f"Platform milestone strategy: {yellow_dp.milestoneStrategy.value}")
+    # Set logging context for this reconciliation operation
+    set_context(platform=yellow_dp.name)
+
+    logger.info("Starting workspace view schema reconciliation", platform_name=dataplatform_name, milestone_strategy=yellow_dp.milestoneStrategy.value)
 
     # Generate the platform pipeline graph
     ecoGraph = EcosystemPipelineGraph(eco)
-    print(f"DEBUG: ecoGraph.roots keys: {list(ecoGraph.roots.keys())}")
-    print(f"DEBUG: yellow_dp.name: {yellow_dp.name}")
+    logger.debug("Generated ecosystem pipeline graph", root_platforms=list(ecoGraph.roots.keys()))
 
     pipeline_graph: Optional[PlatformPipelineGraph] = ecoGraph.roots[yellow_dp.name]
 
     if pipeline_graph is None:
-        print(f"Error: No pipeline graph found for platform: {dataplatform_name}")
+        logger.error("No pipeline graph found for platform", platform_name=dataplatform_name)
         return 1
 
-    print(f"DEBUG: Found pipeline graph for platform: {dataplatform_name}")
-    print(f"DEBUG: pipeline_graph.workspaces keys: {list(pipeline_graph.workspaces.keys())}")
+    logger.debug(
+        "Found pipeline graph for platform",
+        platform_name=dataplatform_name,
+        workspace_count=len(pipeline_graph.workspaces),
+        stores_to_ingest=list(pipeline_graph.storesToIngest))
 
     # Get database connection using the comprehensive createEngine method
     try:
-        db_user, db_password = cred_store.getAsUserPassword(yellow_dp.postgresCredential)
-        engine = createEngine(yellow_dp.mergeStore, db_user, db_password)
-        print("Connected to the merge store database")
+        with log_operation_timing(logger, "database_connection_setup"):
+            db_user, db_password = cred_store.getAsUserPassword(yellow_dp.postgresCredential)
+            engine = createEngine(yellow_dp.mergeStore, db_user, db_password)
+        logger.info("Connected to merge store database")
     except Exception as e:
-        print(f"Error connecting to database: {e}")
+        logger.error("Failed to connect to database", error=str(e))
         return 1
 
     # Create schema projector to access constants and determine platform behavior
     schema_projector = YellowSchemaProjector(eco, yellow_dp)
     is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED
 
-    print(f"Platform type: {'Forensic (BATCH_MILESTONED)' if is_forensic_platform else 'Live-only (LIVE_ONLY)'}")
+    logger.info("Platform configuration determined",
+                platform_type="Forensic (BATCH_MILESTONED)" if is_forensic_platform else "Live-only (LIVE_ONLY)")
 
     # Track results
     views_created = 0
     views_updated = 0
     views_failed = 0
 
+    # STEP 1: First, collect all unique stores that need processing and create/update their merge tables
+    logger.info("=== STEP 1: Creating/Updating Merge Tables ===")
+
+    # Get all stores that need to be ingested from the pipeline graph
+    stores_to_process = pipeline_graph.storesToIngest
+
+    logger.info("Found stores to process", store_count=len(stores_to_process), stores=sorted(stores_to_process))
+
+    # Create/update merge tables for each store
+    merge_tables_processed = 0
+    merge_tables_failed = 0
+
+    for store_name in sorted(stores_to_process):
+        try:
+            logger.info("Processing merge tables for store", store_name=store_name)
+            store_entry = eco.cache_getDatastoreOrThrow(store_name)
+            store = store_entry.datastore
+
+            # Create a YellowDatasetUtilities instance for this store
+            utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store)
+
+            # Create/update all merge tables for this store
+            with log_operation_timing(logger, "reconcile_merge_tables", store_name=store_name):
+                utils.reconcileMergeTableSchemas(engine, store)
+
+            logger.info("Successfully processed merge tables for store",
+                        store_name=store_name,
+                        dataset_count=len(store.datasets))
+            merge_tables_processed += 1
+
+        except Exception as e:
+            logger.error("Error processing merge tables for store", store_name=store_name, error=str(e))
+            merge_tables_failed += 1
+
+    logger.info("Merge table processing summary",
+                stores_processed=merge_tables_processed,
+                stores_failed=merge_tables_failed)
+
+    # STEP 2: Now proceed with view creation/update
+    logger.info("=== STEP 2: Creating/Updating Views ===")
+
     # Process all DSG datasinks assigned to our dataplatform
-    print(f"DEBUG: eco.dsgPlatformMappings keys: {list(eco.dsgPlatformMappings.keys())}")
+    logger.debug("Processing DSG platform mappings", mapping_count=len(eco.dsgPlatformMappings))
 
     for dsgAssignment in eco.dsgPlatformMappings.values():
-        print(f"DEBUG: Processing dsgAssignment: {dsgAssignment}")
+        logger.debug("Processing DSG assignment", assignment=str(dsgAssignment))
         for assigment in dsgAssignment.assignments:
-            print(f"DEBUG: Processing assignment: {assigment}")
-            print(f"DEBUG: assignment.dataPlatform.name: {assigment.dataPlatform.name}")
-            print(f"DEBUG: dataplatform_name: {dataplatform_name}")
+            logger.debug("Processing assignment",
+                         assignment_platform=assigment.dataPlatform.name,
+                         target_platform=dataplatform_name)
             if assigment.dataPlatform.name == dataplatform_name:
-                print(f"DEBUG: Found matching assignment for platform: {dataplatform_name}")
+                logger.debug("Found matching assignment for platform", platform_name=dataplatform_name)
                 workspace = pipeline_graph.workspaces.get(assigment.workspace)
-                print(f"DEBUG: workspace: {workspace}")
                 if workspace is None:
-                    print(f"DEBUG: Workspace {assigment.workspace} not found in pipeline graph")
+                    logger.debug("Workspace not found in pipeline graph", workspace_name=assigment.workspace)
                     continue
                 dataset_group = workspace.dsgs[assigment.dsgName]
-                print(f"DEBUG: dataset_group: {dataset_group}")
-                print(f"DEBUG: dataset_group.sinks: {list(dataset_group.sinks.keys())}")
+                logger.debug("Processing dataset group",
+                             dsg_name=dataset_group.name,
+                             sink_count=len(dataset_group.sinks))
                 for sink in dataset_group.sinks.values():
-                    print(f"DEBUG: Processing sink: {sink}")
+                    logger.debug("Processing sink",
+                                 store_name=sink.storeName,
+                                 dataset_name=sink.datasetName)
 
                     # Create utilities instance for this specific sink
                     try:
@@ -166,30 +223,40 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                         utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store_entry.datastore, sink.datasetName)
 
                         if utils.dataset is None:
-                            print(f"Error: Dataset {sink.datasetName} not found in store {sink.storeName}")
+                            logger.error("Dataset not found in store",
+                                         dataset_name=sink.datasetName,
+                                         store_name=sink.storeName)
                             views_failed += 1
                             continue
 
                     except Exception as e:
-                        print(f"Error: Could not load datastore {sink.storeName}: {e}")
+                        logger.error("Could not load datastore",
+                                     store_name=sink.storeName,
+                                     error=str(e))
                         views_failed += 1
                         continue
 
                     # Generate merge table name using utilities
                     merge_table_name = utils.getPhysMergeTableNameForDataset(utils.dataset)
-                    print(f"DEBUG: merge_table_name: {merge_table_name}")
-                    print(f"DEBUG: Processing dataset: {sink.datasetName} in store: {sink.storeName}")
+                    logger.debug("Generated merge table name",
+                                 merge_table_name=merge_table_name,
+                                 dataset_name=sink.datasetName)
 
                     # Get the original dataset schema - we already have it from utils.dataset
                     original_schema = utils.dataset.originalSchema
                     if not isinstance(original_schema, DDLTable):
-                        print(f"Error: Invalid schema type for dataset {sink.datasetName} in store {sink.storeName}")
+                        logger.error("Invalid schema type for dataset",
+                                     dataset_name=sink.datasetName,
+                                     store_name=sink.storeName,
+                                     schema_type=type(original_schema).__name__)
                         views_failed += 1
                         continue
 
                     # Check if merge table exists
                     if not check_merge_table_exists(engine, merge_table_name):
-                        print(f"Error: Merge table '{merge_table_name}' does not exist for dataset '{sink.datasetName}'")
+                        logger.error("Merge table does not exist for dataset",
+                                     merge_table_name=merge_table_name,
+                                     dataset_name=sink.datasetName)
                         views_failed += 1
                         continue
 
@@ -198,7 +265,10 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                     has_columns, missing_columns = check_merge_table_has_required_columns(engine, merge_table_name, required_columns)
 
                     if not has_columns:
-                        print(f"Error: Merge table '{merge_table_name}' missing columns for dataset '{sink.datasetName}': {missing_columns}")
+                        logger.error("Merge table missing required columns",
+                                     merge_table_name=merge_table_name,
+                                     dataset_name=sink.datasetName,
+                                     missing_columns=missing_columns)
                         views_failed += 1
                         continue
 
@@ -213,7 +283,10 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                             full_view_name = generate_phys_full_view_name(
                                 yellow_dp, workspace.name,
                                 dataset_group.name, sink.storeName, sink.datasetName)
-                            full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
+
+                            with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
+                                full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
+
                             if full_was_changed:
                                 if check_merge_table_exists(engine, full_view_name):
                                     views_updated += 1
@@ -229,8 +302,11 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                                 yellow_dp, workspace.name,
                                 dataset_group.name, sink.storeName, sink.datasetName)
                             live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
-                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
-                                                                  merge_table_name, live_where_clause)
+
+                            with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                                live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
+                                                                      merge_table_name, live_where_clause)
+
                             if live_was_changed:
                                 if check_merge_table_exists(engine, live_view_name):
                                     views_updated += 1
@@ -246,8 +322,11 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                             live_view_name = generate_phys_live_view_name(
                                 yellow_dp, workspace.name,
                                 dataset_group.name, sink.storeName, sink.datasetName)
-                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
-                                                                  merge_table_name, None)
+
+                            with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                                live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
+                                                                      merge_table_name, None)
+
                             if live_was_changed:
                                 if check_merge_table_exists(engine, live_view_name):
                                     views_updated += 1
@@ -258,26 +337,32 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
                             else:
                                 view_changes.append(f"Live view already up to date: {live_view_name}")
 
-                        # Print all view changes for this dataset
+                        # Log all view changes for this dataset
                         for change in view_changes:
-                            print(f"  {change}")
+                            logger.info("View operation completed", operation=change)
 
                     except Exception as e:
-                        print(f"Error creating/updating views for dataset '{sink.datasetName}': {e}")
+                        logger.error("Error creating/updating views for dataset",
+                                     dataset_name=sink.datasetName,
+                                     error=str(e))
                         views_failed += 1
 
-    # Print summary
-    print("\nSummary:")
-    print(f"  Views created: {views_created}")
-    print(f"  Views updated: {views_updated}")
-    print(f"  Views failed: {views_failed}")
+    # Log final summary
+    logger.info(
+        "View reconciliation summary",
+        views_created=views_created,
+        views_updated=views_updated,
+        views_failed=views_failed)
 
     # Return appropriate exit code
     if views_failed > 0:
-        print("\nExit code: 1 (some views could not be created/updated)")
+        logger.warning(
+            "Some views could not be created/updated",
+            failed_count=views_failed,
+            exit_code=1)
         return 1
     else:
-        print("\nExit code: 0 (all views successfully processed)")
+        logger.info("All views successfully processed", exit_code=0)
         return 0
 
 

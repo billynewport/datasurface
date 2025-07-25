@@ -10,11 +10,12 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, text
 from datasurface.cmd.platform import generatePlatformBootstrap, handleModelMerge
 from datasurface.md.governance import Ecosystem
-from datasurface.md import DataContainer, PostgresDatabase, DataContainerNamingMapper
+from datasurface.md import DataContainer, PostgresDatabase
 from datasurface.md.lint import ValidationTree
 from typing import Optional, cast
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+
 
 class Test_YellowDataPlatform(unittest.TestCase):
     def setup_test_database(self):

@@ -1262,7 +1262,7 @@ class YellowDataPlatform(DataPlatform):
             locs=self.locs,
             namespace=namespace
         )
-        
+
         # Set logging context for this platform
         set_context(platform=name)
 

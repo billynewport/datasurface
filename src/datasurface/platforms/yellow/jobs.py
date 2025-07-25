@@ -86,7 +86,7 @@ class JobUtilities(ABC):
         self.dp: YellowDataPlatform = dp
         self.credStore: CredentialStore = credStore
         self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
-        
+
         # Set logging context for this job
         set_context(platform=dp.name)
 
@@ -209,58 +209,6 @@ class YellowDatasetUtilities(JobUtilities):
     def getPhysMergeTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
         return self.dp.namingMapper.mapNoun(self.getRawMergeTableNameForDataset(self.store, dataset))
-
-
-class Job(YellowDatasetUtilities):
-    """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
-    step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
-    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
-        super().__init__(eco, credStore, dp, store, datasetName)
-
-    def getBatchCounterTable(self) -> Table:
-        """This constructs the sqlalchemy table for the batch counter table"""
-        t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
-                         Column("key", String(length=255), primary_key=True),
-                         Column("currentBatch", Integer()))
-        return t
-
-    def getBatchMetricsTable(self) -> Table:
-        """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
-        data store name and the dataset name."""
-        t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
-                         Column("key", String(length=255), primary_key=True),
-                         Column("batch_id", Integer(), primary_key=True),
-                         Column("batch_start_time", TIMESTAMP()),
-                         Column("batch_end_time", TIMESTAMP(), nullable=True),
-                         Column("batch_status", String(length=32)),
-                         Column("records_inserted", Integer(), nullable=True),
-                         Column("records_updated", Integer(), nullable=True),
-                         Column("records_deleted", Integer(), nullable=True),
-                         Column("total_records", Integer(), nullable=True),
-                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
-        return t
-
-    def createBatchCounterTable(self, mergeEngine: Engine) -> None:
-        """This creates the batch counter table"""
-        t: Table = self.getBatchCounterTable()
-        createOrUpdateTable(mergeEngine, t)
-
-    def createBatchMetricsTable(self, mergeEngine: Engine) -> None:
-        """This creates the batch metrics table"""
-        t: Table = self.getBatchMetricsTable()
-        createOrUpdateTable(mergeEngine, t)
-
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
-        """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
-        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
-        return t
-
-    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
-        """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
-        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
-        return t
 
     def createStagingTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
         """Create performance indexes for staging tables"""
@@ -439,6 +387,87 @@ class Job(YellowDatasetUtilities):
         else:
             # Primary key is the same, use normal update
             createOrUpdateTable(mergeEngine, mergeTable)
+
+    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
+        """This will make sure the staging table exists and has the current schema for each dataset"""
+        for dataset in store.datasets.values():
+            # Map the dataset name if necessary
+            tableName: str = self.getPhysStagingTableNameForDataset(dataset)
+            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
+            createOrUpdateTable(mergeEngine, stagingTable)
+            # Create performance indexes for staging table
+            self.createStagingTableIndexes(mergeEngine, tableName)
+
+    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
+        """This will make sure the merge table exists and has the current schema for each dataset"""
+        for dataset in store.datasets.values():
+            # Map the dataset name if necessary
+            tableName: str = self.getPhysMergeTableNameForDataset(dataset)
+            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
+
+            # For forensic mode, we need to handle primary key changes
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                self.createOrUpdateForensicTable(mergeEngine, mergeTable, tableName)
+            else:
+                createOrUpdateTable(mergeEngine, mergeTable)
+                # Only add unique constraint on key_hash for live-only mode
+                # In forensic mode, multiple records can have the same key_hash (different versions)
+                self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
+
+            # Create performance indexes for merge table
+            self.createMergeTableIndexes(mergeEngine, tableName)
+
+
+class Job(YellowDatasetUtilities):
+    """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
+    step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
+    def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
+        super().__init__(eco, credStore, dp, store, datasetName)
+
+    def getBatchCounterTable(self) -> Table:
+        """This constructs the sqlalchemy table for the batch counter table"""
+        t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
+                         Column("key", String(length=255), primary_key=True),
+                         Column("currentBatch", Integer()))
+        return t
+
+    def getBatchMetricsTable(self) -> Table:
+        """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
+        data store name and the dataset name."""
+        t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
+                         Column("key", String(length=255), primary_key=True),
+                         Column("batch_id", Integer(), primary_key=True),
+                         Column("batch_start_time", TIMESTAMP()),
+                         Column("batch_end_time", TIMESTAMP(), nullable=True),
+                         Column("batch_status", String(length=32)),
+                         Column("records_inserted", Integer(), nullable=True),
+                         Column("records_updated", Integer(), nullable=True),
+                         Column("records_deleted", Integer(), nullable=True),
+                         Column("total_records", Integer(), nullable=True),
+                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
+        return t
+
+    def createBatchCounterTable(self, mergeEngine: Engine) -> None:
+        """This creates the batch counter table"""
+        t: Table = self.getBatchCounterTable()
+        createOrUpdateTable(mergeEngine, t)
+
+    def createBatchMetricsTable(self, mergeEngine: Engine) -> None:
+        """This creates the batch metrics table"""
+        t: Table = self.getBatchMetricsTable()
+        createOrUpdateTable(mergeEngine, t)
+
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the staging schema for a dataset"""
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
+        return t
+
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+        """This returns the merge schema for a dataset"""
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
+        return t
 
     def createBatchCommon(self, connection: Connection, key: str, state: BatchState) -> int:
         """This creates a batch and returns the batch id. The transaction is managed by the caller.
@@ -669,35 +698,6 @@ class Job(YellowDatasetUtilities):
             logger.error("Batch failed", key=key, batch_id=batchId)
             return JobStatus.DONE
         return JobStatus.ERROR
-
-    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
-        """This will make sure the staging table exists and has the current schema for each dataset"""
-        for dataset in store.datasets.values():
-            # Map the dataset name if necessary
-            tableName: str = self.getPhysStagingTableNameForDataset(dataset)
-            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
-            createOrUpdateTable(mergeEngine, stagingTable)
-            # Create performance indexes for staging table
-            self.createStagingTableIndexes(mergeEngine, tableName)
-
-    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
-        """This will make sure the merge table exists and has the current schema for each dataset"""
-        for dataset in store.datasets.values():
-            # Map the dataset name if necessary
-            tableName: str = self.getPhysMergeTableNameForDataset(dataset)
-            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
-
-            # For forensic mode, we need to handle primary key changes
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
-                self.createOrUpdateForensicTable(mergeEngine, mergeTable, tableName)
-            else:
-                createOrUpdateTable(mergeEngine, mergeTable)
-                # Only add unique constraint on key_hash for live-only mode
-                # In forensic mode, multiple records can have the same key_hash (different versions)
-                self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
-
-            # Create performance indexes for merge table
-            self.createMergeTableIndexes(mergeEngine, tableName)
 
     def run(self) -> JobStatus:
         # Check if this is a DataTransformer output store
@@ -1440,7 +1440,7 @@ def main():
     if args.operation == "snapshot-merge":
         # Set logging context for this job run
         set_context(platform=args.platform_name, workspace=args.store_name)
-        
+
         logger.info("Starting snapshot-merge operation",
                     operation=args.operation,
                     platform_name=args.platform_name,
