@@ -35,6 +35,7 @@ from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
 from pydantic import BaseModel, Field
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
+from datasurface.platforms.yellow.jobs import YellowDatasetUtilities
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
@@ -210,17 +211,18 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             try:
                 storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
                 store: Datastore = storeEntry.datastore
+                yu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.credStore, self.dp, store)
 
                 if isinstance(store.cmd, KafkaIngestion):
                     # For each dataset in the store
                     for dataset in store.datasets.values():
                         datasetName = dataset.name
                         # Example: Create a unique connector name based on store and dataset
-                        connector_name = f"{storeName}_{datasetName}".replace("-", "_")
+                        connector_name = f"{storeName}_{datasetName}".replace("-", "_")  # Terraform identifier
 
                         # Determine other node-specific attributes
                         kafka_topic = f"{storeName}.{datasetName}"  # Example topic naming convention
-                        target_table_name = f"staging_{storeName}_{datasetName}".replace("-", "_")
+                        target_table_name = yu.getPhysStagingTableNameForDataset(dataset)
                         input_data_format = "JSON"  # Default or derive from schema/metadata
 
                         # These should not be None after passing lint

@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, Dataset, IngestionConsistencyType
+    Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, Dataset, IngestionConsistencyType, DataContainerNamingMapper
 )
 from sqlalchemy import Table, MetaData, text
 import sqlalchemy
@@ -1261,6 +1261,7 @@ class SnapshotMergeJobLiveOnly(Job):
 
             # Check for schema changes before merging
             self.checkForSchemaChanges(state)
+            nm: DataContainerNamingMapper = self.dp.mergeStore.getNamingAdapter()
 
             for datasetToMergeName in state.all_datasets:
                 # Get the dataset
@@ -1312,7 +1313,7 @@ class SnapshotMergeJobLiveOnly(Job):
                 """
 
                 # Create temporary staging table with operation column
-                temp_staging_table = f"temp_staging_{batchId}_{datasetToMergeName.replace('-', '_')}"
+                temp_staging_table = nm.mapNoun(f"temp_staging_{batchId}_{datasetToMergeName.replace('-', '_')}")
                 create_temp_sql = f"""
                 CREATE TEMP TABLE {temp_staging_table} AS {staging_with_deletes_sql}
                 """
