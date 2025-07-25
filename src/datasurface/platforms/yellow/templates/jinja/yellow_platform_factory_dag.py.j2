@@ -148,8 +148,16 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         
         dag_run = context['dag_run']
         
-        # Build path to the snapshot_merge_job log file
-        log_dir = f"/opt/airflow/logs/dag_id={dag_run.dag_id}/run_id={dag_run.run_id}/task_id=snapshot_merge_job"
+        # Determine the correct task name based on DAG type
+        # DataTransformer output DAGs use "output_ingestion_job"
+        # Regular ingestion DAGs use "snapshot_merge_job"
+        if "_dt_ingestion" in dag_run.dag_id:
+            task_name = "output_ingestion_job"
+        else:
+            task_name = "snapshot_merge_job"
+        
+        # Build path to the job log file
+        log_dir = f"/opt/airflow/logs/dag_id={dag_run.dag_id}/run_id={dag_run.run_id}/task_id={task_name}"
         
         return_code = -1  # Default to error
         
