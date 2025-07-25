@@ -489,7 +489,7 @@ def sync_dynamic_dags(**context):
         task_instance.log.error("")
         task_instance.log.error("🔍 Troubleshooting steps:")
         task_instance.log.error("   1. Check database connectivity")
-                    task_instance.log.error("   2. Verify {{ phys_dag_table_name }} table exists")
+        task_instance.log.error("   2. Verify {{ phys_dag_table_name }} table exists")
         task_instance.log.error("   3. Check environment variables are set")
         task_instance.log.error("   4. Review scheduler pod logs for more details")
         task_instance.log.error("=" * 80)

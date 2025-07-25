@@ -10,8 +10,11 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, text
 from datasurface.cmd.platform import generatePlatformBootstrap, handleModelMerge
 from datasurface.md.governance import Ecosystem
-from datasurface.md import DataContainer, PostgresDatabase
-
+from datasurface.md import DataContainer, PostgresDatabase, DataContainerNamingMapper
+from datasurface.md.lint import ValidationTree
+from typing import Optional, cast
+from datasurface.md.model_loader import loadEcosystemFromEcoModule
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
 
 class Test_YellowDataPlatform(unittest.TestCase):
     def setup_test_database(self):
@@ -180,6 +183,22 @@ class Test_YellowDataPlatform(unittest.TestCase):
                         print(f"✓ Cleaned up temporary directory: {temp_dir}")
                     except Exception as e:
                         print(f"Warning: Could not clean up temporary directory {temp_dir}: {e}")
+
+    def test_defaultnamemapper(self):
+        modelFolderName = "src/tests/yellow_dp_tests/mvp_model"
+        ecoTree: Optional[ValidationTree]
+        eco, ecoTree = loadEcosystemFromEcoModule("src/tests/yellow_dp_tests/mvp_model")
+        if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
+            if ecoTree is not None:
+                ecoTree.printTree()
+            raise Exception(f"Failed to load ecosystem from {modelFolderName}")
+        assert eco is not None
+        yp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("YellowLive"))
+        assert yp is not None
+        dc: DataContainer = yp.mergeStore
+        assert dc is not None
+        self.assertEqual(yp.getPhysDataTransformerTableName(), "yellowlive_airflow_datatransformer")
+        self.assertEqual(yp.getPhysDAGTableName(), "yellowlive_airflow_dsg")
 
     def test_secrets_documentation_generation(self):
         """Test that secrets documentation is generated correctly with all expected secrets."""

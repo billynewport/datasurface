@@ -244,6 +244,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # SQL snapshot ingestion doesn't need Kafka infrastructure
                     # The SnapshotMergeJob will handle the ingestion directly from source database
                     continue
+                elif isinstance(store.cmd, DataTransformerOutput):
+                    # DataTransformerOutput doesn't need Kafka infrastructure
+                    continue
                 else:
                     tree.addRaw(ObjectMissing(store, "cmd is none or is not supported ingestion type", ProblemSeverity.ERROR))
                     continue
@@ -366,6 +369,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 self.lintKafkaIngestion(store, storeTree)
             elif isinstance(store.cmd, SQLSnapshotIngestion):
                 self.lintSQLSnapshotIngestion(store, storeTree)
+            elif isinstance(store.cmd, DataTransformerOutput):
+                # Nothing to do for DataTransformerOutput
+                pass
             else:
                 storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
 
@@ -453,6 +459,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             "store_name": storeName,
                             "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
                         })
+                elif isinstance(store.cmd, DataTransformerOutput):
+                    # DataTransformerOutput doesn't need Kafka infrastructure
+                    continue
                 else:
                     issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
                     continue
@@ -595,6 +604,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                                 stream_config["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
 
                         ingestion_streams.append(stream_config)
+                elif isinstance(store.cmd, DataTransformerOutput):
+                    # DataTransformerOutput doesn't need Kafka infrastructure
+                    continue
                 else:
                     issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
                     continue

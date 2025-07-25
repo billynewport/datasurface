@@ -517,7 +517,7 @@ def sync_datatransformer_dags(**context):
         task_instance.log.info("🏭 DATATRANSFORMER FACTORY DAG EXECUTION STARTED")
         task_instance.log.info("=" * 80)
         task_instance.log.info("🔧 Platform: {{ platform_name }}")
-                        task_instance.log.info("🗃️  DataTransformer Table: {{ phys_datatransformer_table_name }}")
+        task_instance.log.info("🗃️  DataTransformer Table: {{ phys_datatransformer_table_name }}")
         task_instance.log.info("=" * 80)
         
         # Step 1: Load current configuration from database
@@ -622,7 +622,7 @@ def sync_datatransformer_dags(**context):
         task_instance.log.error("")
         task_instance.log.error("🔍 Troubleshooting steps:")
         task_instance.log.error("   1. Check database connectivity")
-                    task_instance.log.error("   2. Verify {{ phys_datatransformer_table_name }} table exists")
+        task_instance.log.error("   2. Verify {{ phys_datatransformer_table_name }} table exists")
         task_instance.log.error("   3. Check environment variables are set")
         task_instance.log.error("   4. Review scheduler pod logs for more details")
         task_instance.log.error("=" * 80)
