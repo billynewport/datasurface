@@ -43,8 +43,8 @@ def createEcosystem() -> Ecosystem:
                     locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
                     databaseName="test_db"  # Database name
                 ),
-                "airflow",
-                milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY)
+                YellowMilestoneStrategy.LIVE_ONLY,
+                "airflow")
         ],
         default_data_platform=DefaultDataPlatform(DataPlatformKey("Test_DP")),
         governance_zone_declarations=[

@@ -1601,9 +1601,11 @@ class YellowDataPlatform(DataPlatform):
             gitCredential: Credential,
             slackCredential: Credential,
             merge_datacontainer: PostgresDatabase,
+            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY,
             airflowName: str = "airflow",
             kafkaConnectName: str = "kafka-connect",
             kafkaClusterName: str = "kafka",
+            slackChannel: str = "datasurface-events",
             datasurfaceDockerImage: str = "datasurface/datasurface:latest",
             git_cache_storage_class: str = "standard",
             git_cache_access_mode: str = "ReadWriteOnce",
@@ -1613,7 +1615,7 @@ class YellowDataPlatform(DataPlatform):
     ):
         super().__init__(name, doc, YellowPlatformExecutor())
         self.locs: set[LocationKey] = locs
-        self.milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
+        self.milestoneStrategy: YellowMilestoneStrategy = milestoneStrategy
         self.namespace: str = namespace
         self.connectCredentials: Credential = connectCredentials
         self.postgresCredential: Credential = postgresCredential
@@ -1622,7 +1624,7 @@ class YellowDataPlatform(DataPlatform):
         self.kafkaConnectName: str = kafkaConnectName
         self.kafkaClusterName: str = kafkaClusterName
         self.slackCredential: Credential = slackCredential
-        self.slackChannel: str = "datasurface-events"
+        self.slackChannel: str = slackChannel
         self.gitCredential: Credential = gitCredential
         self.datasurfaceImage: str = datasurfaceDockerImage
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
