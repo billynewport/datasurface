@@ -53,6 +53,6 @@ spec:
       volumes:
       - name: git-model-cache
         persistentVolumeClaim:
-          claimName: {{ platform_name }}-git-model-cache
+          claimName: {{ ecosystem_k8s_name }}-git-model-cache
       restartPolicy: Never
-  backoffLimit: 3 
+  backoffLimit: 3

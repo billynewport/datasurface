@@ -194,7 +194,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             k8s.V1Volume(
                 name='git-model-cache',
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name='{{ platform_name }}-git-model-cache'
+                    claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
                 )
             ),
             k8s.V1Volume(
@@ -388,7 +388,7 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             k8s.V1Volume(
                 name='git-model-cache',
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name='{{ platform_name }}-git-model-cache'
+                    claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
                 )
             )
         ],

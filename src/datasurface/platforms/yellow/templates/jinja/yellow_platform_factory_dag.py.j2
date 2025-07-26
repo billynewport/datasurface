@@ -229,7 +229,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             k8s.V1Volume(
                 name='git-model-cache',
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name='{{ platform_name }}-git-model-cache'
+                    claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
                 )
             )
         ],

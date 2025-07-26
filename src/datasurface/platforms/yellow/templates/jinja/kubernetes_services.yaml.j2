@@ -145,7 +145,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ platform_name }}-git-model-cache
+  name: {{ ecosystem_k8s_name }}-git-model-cache
   namespace: {{ namespace_name }}
 spec:
 {% if git_cache_storage_class != "standard" %}

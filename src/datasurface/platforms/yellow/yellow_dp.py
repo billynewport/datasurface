@@ -866,6 +866,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
                 "original_platform_name": self.dp.name,  # Original platform name for job execution
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                 "postgres_hostname": self.dp.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.dp.mergeStore.databaseName,
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
@@ -1008,6 +1010,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
                 "original_platform_name": self.dp.name,  # Original platform name for job execution
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                 "postgres_hostname": self.dp.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.dp.mergeStore.databaseName,
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
@@ -1163,6 +1167,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "namespace_name": self.dp.namespace,
                 "platform_name": self.dp.to_k8s_name(self.dp.name),
                 "original_platform_name": self.dp.name,  # Original platform name for job execution
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                 "postgres_hostname": self.dp.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.dp.mergeStore.databaseName,
                 "postgres_port": self.dp.mergeStore.hostPortPair.port,
@@ -1827,6 +1833,8 @@ class YellowDataPlatform(DataPlatform):
                 "namespace_name": self.namespace,
                 "platform_name": self.to_k8s_name(self.name),
                 "original_platform_name": self.name,  # Original platform name for job execution
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": self.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                 "postgres_hostname": self.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.mergeStore.databaseName,
                 "postgres_port": self.mergeStore.hostPortPair.port,
