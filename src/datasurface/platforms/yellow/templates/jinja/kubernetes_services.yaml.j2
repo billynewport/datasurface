@@ -141,17 +141,22 @@ spec:
       storage: 5Gi
 ---
 # Git Model Cache PVC
+{% if git_cache_enabled %}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ platform_name }}-git-model-cache
   namespace: {{ namespace_name }}
 spec:
+{% if git_cache_storage_class != "standard" %}
+  storageClassName: {{ git_cache_storage_class }}
+{% endif %}
   accessModes:
-    - ReadWriteOnce
+    - {{ git_cache_access_mode }}
   resources:
     requests:
-      storage: 5Gi
+      storage: {{ git_cache_storage_size }}
+{% endif %}
 ---
 # Airflow ConfigMap
 apiVersion: v1

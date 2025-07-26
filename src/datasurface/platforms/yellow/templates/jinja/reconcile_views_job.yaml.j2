@@ -26,7 +26,7 @@ spec:
             --git-repo-branch {{ git_repo_branch }} \
             --git-platform-repo-credential-name {{ git_credential_name }} \
             --use-git-cache \
-            --max-cache-age-minutes 5
+            --max-cache-age-minutes {{ git_cache_max_age_minutes }}
           
           echo "✅ Reconcile views job complete!"
         env:

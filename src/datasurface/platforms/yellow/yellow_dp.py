@@ -1603,14 +1603,17 @@ class YellowDataPlatform(DataPlatform):
             merge_datacontainer: PostgresDatabase,
             airflowName: str = "airflow",
             kafkaConnectName: str = "kafka-connect",
-            kafkaClusterName: str = "kafka-cluster",
-            slackChannel: str = "datasurface-events",
-            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY,
-            datasurfaceImage: str = "datasurface/datasurface:latest"
-            ):
+            kafkaClusterName: str = "kafka",
+            datasurfaceDockerImage: str = "datasurface/datasurface:latest",
+            git_cache_storage_class: str = "standard",
+            git_cache_access_mode: str = "ReadWriteOnce",
+            git_cache_storage_size: str = "5Gi",
+            git_cache_max_age_minutes: int = 5,
+            git_cache_enabled: bool = True
+    ):
         super().__init__(name, doc, YellowPlatformExecutor())
         self.locs: set[LocationKey] = locs
-        self.milestoneStrategy: YellowMilestoneStrategy = milestoneStrategy
+        self.milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
         self.namespace: str = namespace
         self.connectCredentials: Credential = connectCredentials
         self.postgresCredential: Credential = postgresCredential
@@ -1619,10 +1622,17 @@ class YellowDataPlatform(DataPlatform):
         self.kafkaConnectName: str = kafkaConnectName
         self.kafkaClusterName: str = kafkaClusterName
         self.slackCredential: Credential = slackCredential
-        self.slackChannel: str = slackChannel
+        self.slackChannel: str = "datasurface-events"
         self.gitCredential: Credential = gitCredential
-        self.datasurfaceImage: str = datasurfaceImage
+        self.datasurfaceImage: str = datasurfaceDockerImage
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
+
+        # Cloud-specific configuration
+        self.git_cache_storage_class: str = git_cache_storage_class
+        self.git_cache_access_mode: str = git_cache_access_mode
+        self.git_cache_storage_size: str = git_cache_storage_size
+        self.git_cache_max_age_minutes: int = git_cache_max_age_minutes
+        self.git_cache_enabled: bool = git_cache_enabled
 
         # Create the required data containers
         self.kafkaConnectCluster = KafkaConnectCluster(
@@ -1666,7 +1676,12 @@ class YellowDataPlatform(DataPlatform):
                 "kafkaConnectCluster": self.kafkaConnectCluster.to_json(),
                 "mergeStore": self.mergeStore.to_json(),
                 "milestoneStrategy": self.milestoneStrategy.value,
-                "locs": [loc.to_json() for loc in self.locs]
+                "locs": [loc.to_json() for loc in self.locs],
+                "git_cache_storage_class": self.git_cache_storage_class,
+                "git_cache_access_mode": self.git_cache_access_mode,
+                "git_cache_storage_size": self.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
+                "git_cache_enabled": self.git_cache_enabled,
             }
         )
         return rc
@@ -1834,6 +1849,12 @@ class YellowDataPlatform(DataPlatform):
                 # Physical table names for factory DAGs to query
                 "phys_dag_table_name": self.getPhysDAGTableName(),
                 "phys_datatransformer_table_name": self.getPhysDataTransformerTableName(),
+                # Git cache configuration variables
+                "git_cache_storage_class": self.git_cache_storage_class,
+                "git_cache_access_mode": self.git_cache_access_mode,
+                "git_cache_storage_size": self.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
+                "git_cache_enabled": self.git_cache_enabled,
             }
 
             # Render the templates

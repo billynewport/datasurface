@@ -209,7 +209,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         '--git-repo-branch', platform_config['git_repo_branch'],
         '--git-platform-repo-credential-name', platform_config['git_credential_name'],
         '--use-git-cache',  # Enable cache usage
-        '--max-cache-age-minutes', '5'  # Cache freshness threshold
+        '--max-cache-age-minutes', '{{ git_cache_max_age_minutes }}'  # Cache freshness threshold
     ]
     
     # Add dataset name if present
