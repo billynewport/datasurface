@@ -235,11 +235,13 @@ def main():
     parser.add_argument('--workspace-name', required=True, help='Name of the workspace')
     parser.add_argument('--operation', default='run-datatransformer', help='Operation to perform')
     parser.add_argument('--working-folder', default='/tmp/datatransformer', help='Working folder for temporary files')
-    parser.add_argument('--git-repo-path', required=True, help='Path to the git repository')
+    parser.add_argument('--git-repo-path', required=True, help='Path to the git repository or cache')
     parser.add_argument('--git-repo-owner', required=True, help='GitHub repository owner (e.g., billynewport)')
     parser.add_argument('--git-repo-name', required=True, help='GitHub repository name (e.g., mvpmodel)')
     parser.add_argument('--git-repo-branch', required=True, help='GitHub repository branch (e.g., main)')
     parser.add_argument('--git-platform-repo-credential-name', required=True, help='GitHub credential name for accessing the model repository (e.g., git)')
+    parser.add_argument('--use-git-cache', action='store_true', default=True, help='Use shared git cache for better performance (default: True)')
+    parser.add_argument('--max-cache-age-minutes', type=int, default=5, help='Maximum cache age in minutes before checking remote (default: 5)')
 
     args = parser.parse_args()
     credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
@@ -258,7 +260,10 @@ def main():
             f"{args.git_repo_owner}/{args.git_repo_name}",
             args.git_repo_branch,
             credential=Credential(args.git_platform_repo_credential_name, CredentialType.API_TOKEN)),
-        args.git_repo_path, doClone=True)
+        args.git_repo_path, 
+        doClone=not args.use_git_cache,  # Only do direct clone if not using cache
+        useCache=args.use_git_cache,     # Use cache by default
+        maxCacheAgeMinutes=args.max_cache_age_minutes)
     if tree is not None and tree.hasErrors():
         logger.error("Ecosystem model has errors")
         tree.printTree()

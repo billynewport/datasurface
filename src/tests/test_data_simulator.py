@@ -41,7 +41,7 @@ def get_database_state(host="localhost", port=5432, database="customer_db", user
             # Get address count and latest address
             cursor.execute("SELECT COUNT(*) as count FROM addresses")
             result = cursor.fetchone()
-            address_count = result['count'] if result else 0
+            address_count = result.get('count', 0) if result else 0
 
             cursor.execute("SELECT id, customerid, streetname FROM addresses ORDER BY id DESC LIMIT 1")
             latest_address = cursor.fetchone()

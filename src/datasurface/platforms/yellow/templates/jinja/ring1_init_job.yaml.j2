@@ -15,19 +15,17 @@ spec:
           - |
             echo "🔄 Starting Ring 1 Initialization for {{ original_platform_name }}"
             
-            # Clone the model repository using git token
-            echo "📥 Cloning model repository..."
-            git clone {{ git_repo_url }} /workspace/model
-            cd /workspace/model
-            
-            # Switch to the correct branch
-            git checkout {{ git_repo_branch }}
-            
-            # Run Ring 1 initialization for platform
-            echo "🔧 Running Ring 1 initialization for {{ original_platform_name }}..."
+            # Run Ring 1 initialization for platform using cache-aware CLI
+            echo "🔧 Running Ring 1 initialization with shared cache..."
             python -m datasurface.cmd.platform generatePlatformBootstrap \
               --ringLevel 1 \
-              --model /workspace/model \
+              --git-repo-path /cache/git-models \
+              --git-repo-owner {{ git_repo_owner }} \
+              --git-repo-name {{ git_repo_repo_name }} \
+              --git-repo-branch {{ git_repo_branch }} \
+              --git-platform-repo-credential-name {{ git_credential_name }} \
+              --use-git-cache \
+              --max-cache-age-minutes 5 \
               --output /workspace/generated_artifacts \
               --platform {{ original_platform_name }}
             
@@ -51,10 +49,15 @@ spec:
                 name: {{ postgres_credential_secret_name }}
                 key: POSTGRES_PASSWORD
         volumeMounts:
-          - name: git-workspace
+          - name: git-model-cache
+            mountPath: /cache/git-models
+          - name: workspace
             mountPath: /workspace
       volumes:
-        - name: git-workspace
+        - name: git-model-cache
+          persistentVolumeClaim:
+            claimName: {{ platform_name }}-git-model-cache
+        - name: workspace
           emptyDir: {}
       restartPolicy: Never
   backoffLimit: 3 
