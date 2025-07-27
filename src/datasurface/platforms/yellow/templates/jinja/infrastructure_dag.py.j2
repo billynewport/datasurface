@@ -120,10 +120,13 @@ merge_task = KubernetesPodOperator(
         '--git-repo-name', '{{ git_repo_repo_name }}',
         '--git-repo-branch', '{{ git_repo_branch }}',
         '--git-platform-repo-credential-name', '{{ git_credential_name }}',
+        {% if git_cache_enabled %}
         '--use-git-cache',  # Enable cache usage
+        {% endif %}
         '--max-cache-age-minutes', '{{ git_cache_max_age_minutes }}'  # Cache freshness threshold
     ],
     env_vars=common_env_vars,  # type: ignore
+    {% if git_cache_enabled %}
     volumes=[
         k8s.V1Volume(
             name='git-model-cache',
@@ -139,6 +142,7 @@ merge_task = KubernetesPodOperator(
             read_only=False
         )
     ],
+    {% endif %}
     is_delete_operator_pod=True,
     get_logs=True,
     dag=dag

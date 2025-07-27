@@ -881,6 +881,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "git_repo_name": gitRepo.repositoryName,
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
+                # Git cache configuration variables
+                "git_cache_storage_class": self.dp.git_cache_storage_class,
+                "git_cache_access_mode": self.dp.git_cache_access_mode,
+                "git_cache_storage_size": self.dp.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.dp.git_cache_max_age_minutes,
+                "git_cache_enabled": self.dp.git_cache_enabled,
             }
 
             # Generate a DAG for each ingestion stream
@@ -1026,6 +1032,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "git_repo_name": gitRepo.repositoryName,
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
+                # Git cache configuration variables
+                "git_cache_storage_class": self.dp.git_cache_storage_class,
+                "git_cache_access_mode": self.dp.git_cache_access_mode,
+                "git_cache_storage_size": self.dp.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.dp.git_cache_max_age_minutes,
+                "git_cache_enabled": self.dp.git_cache_enabled,
             }
 
             # Get table name
@@ -1183,6 +1195,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "git_repo_name": gitRepo.repositoryName,
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
+                # Git cache configuration variables
+                "git_cache_storage_class": self.dp.git_cache_storage_class,
+                "git_cache_access_mode": self.dp.git_cache_access_mode,
+                "git_cache_storage_size": self.dp.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.dp.git_cache_max_age_minutes,
+                "git_cache_enabled": self.dp.git_cache_enabled,
             }
 
             # Get table name

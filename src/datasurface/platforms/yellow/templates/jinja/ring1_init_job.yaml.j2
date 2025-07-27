@@ -24,8 +24,8 @@ spec:
               --git-repo-name {{ git_repo_repo_name }} \
               --git-repo-branch {{ git_repo_branch }} \
               --git-platform-repo-credential-name {{ git_credential_name }} \
-              --use-git-cache \
-              --max-cache-age-minutes {{ git_cache_max_age_minutes }} \
+            {% if git_cache_enabled %}--use-git-cache \
+            {% endif %}--max-cache-age-minutes {{ git_cache_max_age_minutes }} \
               --output /workspace/generated_artifacts \
               --platform {{ original_platform_name }}
             
@@ -49,15 +49,19 @@ spec:
                 name: {{ postgres_credential_secret_name }}
                 key: POSTGRES_PASSWORD
         volumeMounts:
-          - name: git-model-cache
-            mountPath: /cache/git-models
-          - name: workspace
-            mountPath: /workspace
-      volumes:
+        {% if git_cache_enabled %}
         - name: git-model-cache
-          persistentVolumeClaim:
-            claimName: {{ ecosystem_k8s_name }}-git-model-cache
+          mountPath: /cache/git-models
+        {% endif %}
         - name: workspace
-          emptyDir: {}
+          mountPath: /workspace
+      volumes:
+      {% if git_cache_enabled %}
+      - name: git-model-cache
+        persistentVolumeClaim:
+          claimName: {{ ecosystem_k8s_name }}-git-model-cache
+      {% endif %}
+      - name: workspace
+        emptyDir: {}
       restartPolicy: Never
   backoffLimit: 3 

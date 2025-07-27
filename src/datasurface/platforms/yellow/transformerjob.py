@@ -240,7 +240,7 @@ def main():
     parser.add_argument('--git-repo-name', required=True, help='GitHub repository name (e.g., mvpmodel)')
     parser.add_argument('--git-repo-branch', required=True, help='GitHub repository branch (e.g., main)')
     parser.add_argument('--git-platform-repo-credential-name', required=True, help='GitHub credential name for accessing the model repository (e.g., git)')
-    parser.add_argument('--use-git-cache', action='store_true', default=True, help='Use shared git cache for better performance (default: True)')
+    parser.add_argument('--use-git-cache', action='store_true', default=False, help='Use shared git cache for better performance (default: False)')
     parser.add_argument('--max-cache-age-minutes', type=int, default=5, help='Maximum cache age in minutes before checking remote (default: 5)')
 
     args = parser.parse_args()

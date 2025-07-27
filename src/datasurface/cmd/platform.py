@@ -353,52 +353,6 @@ def resetBatchState(modelFolderName: str, platformName: str, storeName: str, dat
     dp.resetBatchState(eco, storeName, datasetName)
 
 
-def executeDataTransformerJob(modelFolderName: str, platformName: str, workspaceName: str, workingFolder: str) -> None:
-    """Execute a DataTransformer job for a specific workspace.
-
-    Args:
-        modelFolderName: Model folder name (containing eco.py)
-        platformName: Name of the DataPlatform
-        workspaceName: Name of the workspace containing the DataTransformer
-        workingFolder: Working folder for temporary files
-    """
-    from datasurface.platforms.yellow.transformerjob import DataTransformerJob
-    from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
-
-    # Load the model
-    eco: Optional[Ecosystem]
-    ecoTree: Optional[ValidationTree]
-    eco, ecoTree = loadEcosystemFromEcoModule(modelFolderName)
-    if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
-        if ecoTree is not None:
-            ecoTree.printTree()
-        raise Exception(f"Failed to load ecosystem from {modelFolderName}")
-
-    assert eco is not None
-
-    # Find the platform
-    dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
-
-    # Ensure it's a YellowDataPlatform
-    if not isinstance(dp, YellowDataPlatform):
-        raise Exception(f"Platform {platformName} is not a YellowDataPlatform")
-
-    # Get credential store
-    credStore = dp.getCredentialStore()
-
-    # Create and execute the DataTransformer job
-    job = DataTransformerJob(eco, credStore, dp, workspaceName, workingFolder)
-    status = job.run(credStore)
-
-    logger.info(f"DataTransformer job completed with status: {status.name}")
-
-    # Exit with appropriate code for Airflow to understand
-    if status.name == "DONE":
-        exit(0)  # Success
-    else:
-        exit(1)  # Error
-
-
 def getCachedModelPath(cacheBasePath: str, repo: GitHubRepository) -> str:
     """Get the cache directory path for a specific repository."""
     # Create a safe directory name from repo info
@@ -602,7 +556,7 @@ if __name__ == "__main__":
     parser_bootstrap.add_argument("--git-repo-name", help="GitHub repository name")
     parser_bootstrap.add_argument("--git-repo-branch", help="GitHub repository branch")
     parser_bootstrap.add_argument("--git-platform-repo-credential-name", help="GitHub credential name")
-    parser_bootstrap.add_argument("--use-git-cache", action='store_true', default=True, help="Use shared git cache (default: True)")
+    parser_bootstrap.add_argument("--use-git-cache", action='store_true', default=False, help="Use shared git cache (default: False)")
     parser_bootstrap.add_argument("--max-cache-age-minutes", type=int, default=5, help="Maximum cache age in minutes (default: 5)")
 
     # Subcommand: handleModelMerge
@@ -616,7 +570,7 @@ if __name__ == "__main__":
     parser_merge.add_argument("--git-repo-name", help="GitHub repository name")
     parser_merge.add_argument("--git-repo-branch", help="GitHub repository branch")
     parser_merge.add_argument("--git-platform-repo-credential-name", help="GitHub credential name")
-    parser_merge.add_argument("--use-git-cache", action='store_true', default=True, help="Use shared git cache (default: True)")
+    parser_merge.add_argument("--use-git-cache", action='store_true', default=False, help="Use shared git cache (default: False)")
     parser_merge.add_argument("--max-cache-age-minutes", type=int, default=5, help="Maximum cache age in minutes (default: 5)")
 
     # Subcommand: resetBatchState
@@ -625,13 +579,6 @@ if __name__ == "__main__":
     parser_reset.add_argument("--platform", required=True, help="YellowDataPlatform name")
     parser_reset.add_argument("--store", required=True, help="Datastore name to reset")
     parser_reset.add_argument("--dataset", required=False, help="Optional dataset name for single-dataset reset")
-
-    # Subcommand: executeDataTransformerJob
-    parser_dt = subparsers.add_parser("executeDataTransformerJob", help="Execute a DataTransformer job")
-    parser_dt.add_argument("--model", required=True, help="Model folder name (containing eco.py)")
-    parser_dt.add_argument("--platform", required=True, help="DataPlatform name")
-    parser_dt.add_argument("--workspace", required=True, help="Workspace name containing the DataTransformer")
-    parser_dt.add_argument("--working-folder", required=True, help="Working folder for temporary files")
 
     args = parser.parse_args()
     if args.command == "generatePlatformBootstrap":
@@ -704,11 +651,6 @@ if __name__ == "__main__":
         set_context(platform=args.platform, workspace=args.store)
         logger.info("Resetting batch state", platform=args.platform, store=args.store, dataset=args.dataset)
         resetBatchState(args.model, args.platform, args.store, args.dataset)
-    elif args.command == "executeDataTransformerJob":
-        # Set logging context for the operation
-        set_context(platform=args.platform, workspace=args.workspace)
-        logger.info("Executing DataTransformer job", platform=args.platform, workspace=args.workspace)
-        executeDataTransformerJob(args.model, args.platform, args.workspace, getattr(args, 'working_folder'))
     else:
         logger.error("Unknown command", command=args.command)
         parser.print_help()

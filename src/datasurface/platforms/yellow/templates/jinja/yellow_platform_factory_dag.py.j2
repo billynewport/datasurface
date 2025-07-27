@@ -40,6 +40,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         description=f'Ingestion Stream DAG for {platform_name}__{stream_key}',
         schedule=schedule_string,  # External trigger schedule
         catchup=False,
+        is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
         tags=['datasurface', 'ingestion', platform_name, stream_key]
     )
 
@@ -208,7 +209,9 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         '--git-repo-name', platform_config['git_repo_repo_name'],
         '--git-repo-branch', platform_config['git_repo_branch'],
         '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+        {% if git_cache_enabled %}
         '--use-git-cache',  # Enable cache usage
+        {% endif %}
         '--max-cache-age-minutes', '{{ git_cache_max_age_minutes }}'  # Cache freshness threshold
     ]
     
@@ -225,6 +228,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         arguments=job_args,
         env_vars=env_vars,  # type: ignore
         image_pull_policy='Always',
+        {% if git_cache_enabled %}
         volumes=[
             k8s.V1Volume(
                 name='git-model-cache',
@@ -240,6 +244,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 read_only=False
             )
         ],
+        {% endif %}
         is_delete_operator_pod=True,
         get_logs=True,
         do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec

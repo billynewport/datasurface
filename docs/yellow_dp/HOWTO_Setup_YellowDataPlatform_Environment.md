@@ -307,6 +307,8 @@ kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U 
 kubectl port-forward svc/airflow-webserver-service 8080:8080 -n ns-yellow-starter
 ```
 
+The kafka and kafka connect pods are not used and may be ignored.
+
 Open http://localhost:8080 and login with:
 - **Username**: `admin`
 - **Password**: `admin123`

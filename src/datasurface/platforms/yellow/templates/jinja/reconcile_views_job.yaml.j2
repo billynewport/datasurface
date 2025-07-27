@@ -25,7 +25,9 @@ spec:
             --git-repo-name {{ git_repo_repo_name }} \
             --git-repo-branch {{ git_repo_branch }} \
             --git-platform-repo-credential-name {{ git_credential_name }} \
+            {% if git_cache_enabled %}
             --use-git-cache \
+            {% endif %}
             --max-cache-age-minutes {{ git_cache_max_age_minutes }}
           
           echo "✅ Reconcile views job complete!"
@@ -47,6 +49,7 @@ spec:
             secretKeyRef:
               name: {{ postgres_credential_secret_name }}
               key: POSTGRES_PASSWORD
+        {% if git_cache_enabled %}
         volumeMounts:
         - name: git-model-cache
           mountPath: /cache/git-models
@@ -54,5 +57,6 @@ spec:
       - name: git-model-cache
         persistentVolumeClaim:
           claimName: {{ ecosystem_k8s_name }}-git-model-cache
+      {% endif %}
       restartPolicy: Never
   backoffLimit: 3
