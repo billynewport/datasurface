@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "Format Python files on save",
+      "pattern": "**/*.py",
+      "commands": [
+        {
+          "command": "format",
+          "args": {
+            "on_save": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lint Python files",
+      "pattern": "**/*.py",
+      "commands": [
+        {
+          "command": "lint",
+          "args": {
+            "on_save": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "Organize imports in Python files",
+      "pattern": "**/*.py",
+      "commands": [
+        {
+          "command": "organize_imports",
+          "args": {
+            "on_save": true
+          }
+        }
+      ]
+    }
+  ]
+} 

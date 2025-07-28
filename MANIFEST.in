@@ -1,0 +1,13 @@
+include setup.py
+include MANIFEST.in
+include LICENSE
+include README.md
+include requirements.txt
+
+graft tests
+graft examples
+graft docs
+graft src
+
+global-exclude __pycache__
+global-exclude *.py[cod]

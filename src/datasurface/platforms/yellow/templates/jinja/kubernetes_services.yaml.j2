@@ -1,0 +1,781 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ namespace_name }}
+---
+# Airflow Service Account for RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-service-account
+  namespace: {{ namespace_name }}
+---
+# Airflow Role for Pod Management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: {{ namespace_name }}
+  name: airflow-pod-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list"]
+---
+# Airflow RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-pod-manager-binding
+  namespace: {{ namespace_name }}
+subjects:
+- kind: ServiceAccount
+  name: airflow-service-account
+  namespace: {{ namespace_name }}
+roleRef:
+  kind: Role
+  name: airflow-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ platform_name }}-postgres-pvc
+  namespace: {{ namespace_name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ platform_name }}-postgres
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ platform_name }}-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ platform_name }}-postgres
+  template:
+    metadata:
+      labels:
+        app: {{ platform_name }}-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: {{ postgres_port }}
+          envFrom:
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: {{ platform_name }}-postgres-pvc
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ postgres_hostname.split('.')[0] }}
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ platform_name }}-postgres
+  ports:
+    - protocol: TCP
+      port: {{ postgres_port }}
+      targetPort: {{ postgres_port }}
+---
+# Airflow DAGs PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ airflow_name }}-dags-pvc
+  namespace: {{ namespace_name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Airflow Logs PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ airflow_name }}-logs-pvc
+  namespace: {{ namespace_name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Git Model Cache PVC
+{% if git_cache_enabled %}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ ecosystem_k8s_name }}-git-model-cache
+  namespace: {{ namespace_name }}
+spec:
+{% if git_cache_storage_class != "standard" %}
+  storageClassName: {{ git_cache_storage_class }}
+{% endif %}
+  accessModes:
+    - {{ git_cache_access_mode }}
+  resources:
+    requests:
+      storage: {{ git_cache_storage_size }}
+{% endif %}
+---
+# Airflow ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ airflow_name }}-config
+  namespace: {{ namespace_name }}
+data:
+  airflow.cfg: |
+    [core]
+    executor = LocalExecutor
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db
+    dags_folder = /opt/airflow/dags
+    load_examples = False
+
+    [webserver]
+    web_server_host = 0.0.0.0
+    web_server_port = 8080
+
+    [logging]
+    base_log_folder = /opt/airflow/logs
+    remote_logging = False
+
+    [database]
+    sql_alchemy_conn = postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db
+---
+# Airflow Scheduler Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ airflow_name }}-scheduler
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ airflow_name }}-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ airflow_name }}-scheduler
+  template:
+    metadata:
+      labels:
+        app: {{ airflow_name }}-scheduler
+    spec:
+      serviceAccountName: airflow-service-account
+      initContainers:
+      - name: airflow-db-init
+        image: apache/airflow:2.8.1
+        command: ["/bin/bash", "-c"]
+        args:
+          - airflow db init
+        envFrom:
+          - secretRef:
+              name: {{ airflow_credential_secret_name }}
+          - secretRef:
+              name: {{ postgres_credential_secret_name }}
+        env:
+          - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+            value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db"
+        volumeMounts:
+          - name: airflow-dags
+            mountPath: /opt/airflow/dags
+          - name: airflow-logs
+            mountPath: /opt/airflow/logs
+          - name: airflow-config
+            mountPath: /opt/airflow/airflow.cfg
+            subPath: airflow.cfg
+      containers:
+        - name: airflow-scheduler
+          image: apache/airflow:2.8.1
+          command: ["airflow", "scheduler"]
+          envFrom:
+            - secretRef:
+                name: {{ airflow_credential_secret_name }}
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+            - secretRef:
+                name: {{ slack_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - configMapRef:
+                name: {{ platform_name }}-logging-config
+          env:
+            - name: AIRFLOW_UID
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db"
+            - name: GIT_REPO_URL
+              value: "{{ git_repo_url }}"
+            - name: GIT_REPO_BRANCH
+              value: "{{ git_repo_branch }}"
+            - name: GIT_REPO_NAME
+              value: "{{ git_repo_name }}"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+            - name: YELLOW_JOB_TYPE
+              value: "airflow-scheduler"
+            # Factory DAG credentials (needed for dynamic DAG creation)
+            - name: postgres_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ postgres_credential_secret_name }}
+                  key: POSTGRES_USER
+            - name: postgres_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ postgres_credential_secret_name }}
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: airflow-config
+              mountPath: /opt/airflow/airflow.cfg
+              subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: {{ airflow_name }}-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: {{ airflow_name }}-logs-pvc
+        - name: airflow-config
+          configMap:
+            name: {{ airflow_name }}-config
+        - name: git-repo
+          emptyDir: {}
+---
+# Airflow Webserver Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ airflow_name }}-webserver
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ airflow_name }}-webserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ airflow_name }}-webserver
+  template:
+    metadata:
+      labels:
+        app: {{ airflow_name }}-webserver
+    spec:
+      serviceAccountName: airflow-service-account
+      containers:
+        - name: airflow-webserver
+          image: apache/airflow:2.8.1
+          command: ["airflow", "webserver"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: {{ airflow_credential_secret_name }}
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+            - secretRef:
+                name: {{ slack_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - configMapRef:
+                name: {{ platform_name }}-logging-config
+          env:
+            - name: AIRFLOW_UID
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/airflow_db"
+            - name: GIT_REPO_URL
+              value: "{{ git_repo_url }}"
+            - name: GIT_REPO_BRANCH
+              value: "{{ git_repo_branch }}"
+            - name: GIT_REPO_NAME
+              value: "{{ git_repo_name }}"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+            - name: YELLOW_JOB_TYPE
+              value: "airflow-webserver"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: airflow-config
+              mountPath: /opt/airflow/airflow.cfg
+              subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: {{ airflow_name }}-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: {{ airflow_name }}-logs-pvc
+        - name: airflow-config
+          configMap:
+            name: {{ airflow_name }}-config
+        - name: git-repo
+          emptyDir: {}
+---
+# Airflow Webserver Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ airflow_name }}-webserver-service
+  namespace: {{ namespace_name }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: {{ airflow_name }}-webserver
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+# Kafka Cluster Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_cluster_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_cluster_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_cluster_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_cluster_name }}
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          ports:
+            - containerPort: 9092
+            - containerPort: 9093
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "{{ kafka_cluster_name }}-zookeeper-service.{{ namespace_name }}.svc.cluster.local:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ kafka_cluster_name }}-service.{{ namespace_name }}.svc.cluster.local:9092,PLAINTEXT_HOST://localhost:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_cluster_name }}-service
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ kafka_cluster_name }}
+  ports:
+    - protocol: TCP
+      port: 9092
+      targetPort: 9092
+      name: kafka
+---
+# Zookeeper Deployment (required for Kafka)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_cluster_name }}-zookeeper
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_cluster_name }}-zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_cluster_name }}-zookeeper
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_cluster_name }}-zookeeper
+    spec:
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.5.0
+          ports:
+            - containerPort: 2181
+          env:
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: ZOOKEEPER_TICK_TIME
+              value: "2000"
+            - name: ZOOKEEPER_SERVER_ID
+              value: "1"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+# Zookeeper Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_cluster_name }}-zookeeper-service
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ kafka_cluster_name }}-zookeeper
+  ports:
+    - protocol: TCP
+      port: 2181
+      targetPort: 2181
+---
+# Kafka Connect Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_connect_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_connect_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_connect_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_connect_name }}
+    spec:
+      containers:
+        - name: kafka-connect
+          image: confluentinc/cp-kafka-connect:7.5.0
+          ports:
+            - containerPort: 8083
+          envFrom:
+            - secretRef:
+                name: {{ kafka_connect_credential_secret_name }}
+          env:
+            - name: CONNECT_BOOTSTRAP_SERVERS
+              value: "{{ kafka_bootstrap_servers }}"
+            - name: CONNECT_REST_ADVERTISED_HOST_NAME
+              value: "{{ kafka_connect_name }}.{{ namespace_name }}.svc.cluster.local"
+            - name: CONNECT_REST_PORT
+              value: "8083"
+            - name: CONNECT_GROUP_ID
+              value: "{{ kafka_connect_name }}-group"
+            - name: CONNECT_CONFIG_STORAGE_TOPIC
+              value: "{{ kafka_connect_name }}-configs"
+            - name: CONNECT_OFFSET_STORAGE_TOPIC
+              value: "{{ kafka_connect_name }}-offsets"
+            - name: CONNECT_STATUS_STORAGE_TOPIC
+              value: "{{ kafka_connect_name }}-status"
+            - name: CONNECT_KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_INTERNAL_KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_INTERNAL_VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_PLUGIN_PATH
+              value: "/usr/share/java,/usr/share/confluent-hub-components"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Connect Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_connect_name }}-service
+  namespace: {{ namespace_name }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: {{ kafka_connect_name }}
+  ports:
+    - protocol: TCP
+      port: 8083
+      targetPort: 8083
+---
+# Logging Configuration ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ platform_name }}-logging-config
+  namespace: {{ namespace_name }}
+data:
+  logging.conf: |
+    # Yellow Data Platform Logging Configuration
+    # This configures structured JSON logging for Kubernetes environments
+    
+    # Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_LEVEL=INFO
+    
+    # Log format: 'json' for production, 'text' for development
+    LOG_FORMAT=json
+    
+    # Platform-specific logging settings
+    YELLOW_ENVIRONMENT=production
+    PLATFORM_NAME={{ original_platform_name }}
+    NAMESPACE={{ namespace_name }}
+---
+# DataSurface Job Pod Template (for KubernetesPodOperator)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ platform_name }}-datasurface-pod-template
+  namespace: {{ namespace_name }}
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: datasurface-job
+          image: {{ datasurface_docker_image }}
+          envFrom:
+            - secretRef:
+                name: {{ postgres_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - secretRef:
+                name: {{ slack_credential_secret_name }}
+            - secretRef:
+                name: {{ kafka_connect_credential_secret_name }}
+            - configMapRef:
+                name: {{ platform_name }}-logging-config
+          env:
+            - name: PLATFORM_NAME
+              value: "{{ platform_name }}"
+            - name: POSTGRES_HOST
+              value: "{{ postgres_hostname }}"
+            - name: KAFKA_CONNECT_URL
+              value: "http://{{ kafka_connect_name }}-service.{{ namespace_name }}.svc.cluster.local:8083"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+          volumeMounts:
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: git-repo
+          secret:
+            secretName: {{ git_credential_secret_name }}
+            items:
+              - key: git-repo-data
+                path: .
+---
+# Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ platform_name }}-network-policy
+  namespace: {{ namespace_name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ namespace_name }}
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8083
+  egress:
+    # Allow all outbound traffic (needed for external database connections)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow standard database ports for bootstrap
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432  # PostgreSQL
+        - protocol: TCP
+          port: 3306  # MySQL
+        - protocol: TCP
+          port: 1521  # Oracle
+        - protocol: TCP
+          port: 1433  # SQL Server
+        - protocol: TCP
+          port: 50000 # DB2 

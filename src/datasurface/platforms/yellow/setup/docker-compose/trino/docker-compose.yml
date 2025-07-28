@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  trino:
+    image: trinodb/trino:351
+    container_name: trino
+    ports:
+      - "12080:8080"
+    environment:
+      - JAVA_TOOL_OPTIONS=-Xmx4G
+    volumes:
+      - ./trino-data:/data
+      - ./etc/catalog:/etc/catalog
+    networks:
+      - gitlab_default
+
+  mariadb:
+    hostname: mariadb
+    image: mariadb:10.5.8
+    ports:
+      - 3306:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin
+      MYSQL_DATABASE: metastore_db
+    volumes:
+      - ./mariadb_data:/var/lib/mysql
+    networks:
+      - gitlab_default
+
+  hive-metastore:
+    hostname: hive-metastore
+    image: 'bitsondatadev/hive-metastore:latest'
+    ports:
+      - '9083:9083' # Metastore Thrift
+    volumes:
+      - ./conf/metastore-site.xml:/opt/apache-hive-metastore-3.0.0-bin/conf/metastore-site.xml:ro
+    environment:
+      METASTORE_DB_HOSTNAME: mariadb
+    depends_on:
+      - mariadb
+    networks:
+      - gitlab_default
+
+
+networks:
+  gitlab_default:
+    external: true

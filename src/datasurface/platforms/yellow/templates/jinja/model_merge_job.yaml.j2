@@ -1,0 +1,67 @@
+# model-merge-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ platform_name }}-model-merge-job
+  namespace: {{ namespace_name }}
+spec:
+  template:
+    spec:
+      containers:
+      - name: model-merge-handler
+        image: {{ datasurface_docker_image }}
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "🔄 Starting DataSurface Model Merge Handler"
+          
+          # Run merge handler for platform using cache-aware CLI
+          echo "🔧 Running model merge handler with shared cache..."
+          python -m datasurface.cmd.platform handleModelMerge \
+            --git-repo-path /cache/git-models \
+            --git-repo-owner {{ git_repo_owner }} \
+            --git-repo-name {{ git_repo_repo_name }} \
+            --git-repo-branch {{ git_repo_branch }} \
+            --git-platform-repo-credential-name {{ git_credential_name }}{% if git_cache_enabled %} \
+            --use-git-cache{% endif %} \
+            --max-cache-age-minutes {{ git_cache_max_age_minutes }} \
+            --output /workspace/generated_artifacts \
+            --platform {{ original_platform_name }}
+          
+          echo "✅ Model merge handler complete!"
+        env:
+        - name: PYTHONPATH
+          value: "/app/src"
+        - name: {{ git_credential_secret_name | replace('-', '_') }}_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ git_credential_secret_name }}
+              key: token
+        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ postgres_credential_secret_name }}
+              key: POSTGRES_USER
+        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ postgres_credential_secret_name }}
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        {% if git_cache_enabled %}
+        - name: git-model-cache
+          mountPath: /cache/git-models
+        {% endif %}
+        - name: workspace
+          mountPath: /workspace
+      volumes:
+      {% if git_cache_enabled %}
+      - name: git-model-cache
+        persistentVolumeClaim:
+          claimName: {{ ecosystem_k8s_name }}-git-model-cache
+      {% endif %}
+      - name: workspace
+        emptyDir: {}
+      restartPolicy: Never
+  backoffLimit: 3 

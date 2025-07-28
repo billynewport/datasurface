@@ -1,0 +1,95 @@
+# --- Start of Kubernetes Secret for PostgreSQL Credentials ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  labels:
+    app: postgres
+type: Opaque
+data:
+  # Replace these with your actual base64 encoded username and password
+  # To encode: echo -n 'your-username' | base64
+  # To encode: echo -n 'your-password' | base64
+  POSTGRES_USER: eW91ci11c2VybmFtZQ== # Placeholder for base64 encoded 'your-username'
+  POSTGRES_PASSWORD: eW91ci1wYXNzd29yZA== # Placeholder for base64 encoded 'your-password'
+---
+# --- Start of PersistentVolumeClaim for PostgreSQL Data ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  labels:
+    app: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce # Suitable for a single PostgreSQL instance
+  resources:
+    requests:
+      storage: 5Gi # Adjust storage size as needed
+  # For Docker Desktop, a storageClassName is often not needed as it uses the default.
+  # If you have a specific StorageClass, uncomment and set it:
+  # storageClassName: your-storage-class
+---
+# --- Start of PostgreSQL Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+  labels:
+    app: postgres
+spec:
+  replicas: 1 # Running a single instance of PostgreSQL
+  selector:
+    matchLabels:
+      app: postgres # This selector needs to match the labels of the Pod template
+  template:
+    metadata:
+      labels:
+        app: postgres # Labels applied to the Pods created by this deployment
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14-alpine # Using PostgreSQL version 14 on Alpine Linux
+        imagePullPolicy: IfNotPresent # Only pull if not already present locally
+        ports:
+        - containerPort: 5432 # PostgreSQL default port
+          name: postgresdb
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret # Referencing the Secret created above
+              key: POSTGRES_USER   # Key within the Secret for the username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret # Referencing the Secret created above
+              key: POSTGRES_PASSWORD # Key within the Secret for the password
+        # Optional: Define a default database to be created
+        # - name: POSTGRES_DB
+        #   value: "mydatabase"
+        volumeMounts:
+        - name: postgres-storage # Mount for persistent data
+          mountPath: /var/lib/postgresql/data # Standard PostgreSQL data directory
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc # Referencing the PersistentVolumeClaim created above
+---
+# --- Start of PostgreSQL Service ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP # Exposes the service on an internal IP in the cluster.
+                 # Use NodePort if you need to access it from outside the cluster directly via a node's IP and port.
+  ports:
+  - port: 5432       # Port the service will listen on
+    targetPort: 5432 # Port on the Pods that the service will forward traffic to (should match containerPort)
+    protocol: TCP
+    name: tcp-postgres
+  selector:
+    app: postgres # Selects Pods with the label 'app: postgres' to route traffic to

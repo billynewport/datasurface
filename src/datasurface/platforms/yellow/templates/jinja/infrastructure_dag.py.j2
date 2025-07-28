@@ -1,0 +1,246 @@
+"""
+Infrastructure DAG for {{ platform_name }} Data Platform
+Generated automatically by DataSurface KubernetesPGStarter Platform
+
+This DAG contains the core infrastructure tasks:
+- MERGE task: Generates infrastructure terraform files
+- Metrics collector task: Collects and processes metrics
+- Apply security task: Applies security configurations
+- Table removal task: Cleans up unused tables
+"""
+
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from airflow.operators.empty import EmptyOperator
+from kubernetes.client import models as k8s
+
+# Default arguments for the DAG
+default_args = {
+    'owner': 'datasurface',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+# Create the DAG
+dag = DAG(
+    '{{ platform_name }}_infrastructure',
+    default_args=default_args,
+    description='Infrastructure DAG for {{ platform_name }} Data Platform',
+    schedule='@daily',  # Run daily, can be adjusted based on needs
+    catchup=False,
+    tags=['datasurface', 'infrastructure', '{{ platform_name }}']
+)
+
+# Start task
+start_task = EmptyOperator(
+    task_id='start_infrastructure_tasks',
+    dag=dag
+)
+
+# Environment variables for all tasks
+common_env_vars = [
+    # Platform configuration (literal values)
+    k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value='{{ platform_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value='{{ slack_channel_name }}'),
+    
+    # Postgres credentials (for merge store)
+    k8s.V1EnvVar(
+        name='{{ postgres_credential_secret_name }}_USER',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ postgres_credential_secret_name }}',
+                key='POSTGRES_USER'
+            )
+        )
+    ),
+    k8s.V1EnvVar(
+        name='{{ postgres_credential_secret_name }}_PASSWORD',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ postgres_credential_secret_name }}',
+                key='POSTGRES_PASSWORD'
+            )
+        )
+    ),
+    # Git credentials
+    k8s.V1EnvVar(
+        name='{{ git_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ git_credential_secret_name }}',
+                key='token'
+            )
+        )
+    ),
+    # Slack credentials
+    k8s.V1EnvVar(
+        name='{{ slack_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ slack_credential_secret_name }}',
+                key='token'
+            )
+        )
+    )
+]
+
+{% if kafka_connect_credential_secret_name %}
+# Kafka Connect credentials for Kafka ingestion
+common_env_vars.extend([
+    k8s.V1EnvVar(
+        name='{{ kafka_connect_credential_secret_name }}_TOKEN',
+        value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(
+                name='{{ kafka_connect_credential_secret_name }}',
+                key='token'
+            )
+        )
+    )
+])
+{% endif %}
+
+# MERGE Task - Generates infrastructure terraform files
+merge_task = KubernetesPodOperator(
+    task_id='infrastructure_merge_task',
+    name='{{ platform_name }}-infra-merge',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+    arguments=[
+        '--platform-name', '{{ original_platform_name }}',
+        '--operation', 'infrastructure-merge',
+        '--git-repo-path', '/cache/git-models',  # Use cache mount path
+        '--git-repo-owner', '{{ git_repo_owner }}',
+        '--git-repo-name', '{{ git_repo_repo_name }}',
+        '--git-repo-branch', '{{ git_repo_branch }}',
+        '--git-platform-repo-credential-name', '{{ git_credential_name }}',
+        {% if git_cache_enabled %}
+        '--use-git-cache',  # Enable cache usage
+        {% endif %}
+        '--max-cache-age-minutes', '{{ git_cache_max_age_minutes }}'  # Cache freshness threshold
+    ],
+    env_vars=common_env_vars,  # type: ignore
+    {% if git_cache_enabled %}
+    volumes=[
+        k8s.V1Volume(
+            name='git-model-cache',
+            persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
+            )
+        )
+    ],
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='git-model-cache',
+            mount_path='/cache/git-models',
+            read_only=False
+        )
+    ],
+    {% endif %}
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# Metrics Collector Task - Collects and processes platform metrics
+metrics_collector_task = KubernetesPodOperator(
+    task_id='metrics_collector_task',
+    name='{{ platform_name }}-metrics-collector',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+    arguments=[
+        '--platform-name', '{{ original_platform_name }}',
+        '--operation', 'collect-metrics',
+        '--postgres-host', '{{ postgres_hostname }}',
+        '--postgres-port', '{{ postgres_port }}',
+        '--postgres-database', '{{ postgres_database }}'
+    ],
+    env_vars=common_env_vars,  # type: ignore
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# Apply Security Task - Applies security configurations
+apply_security_task = KubernetesPodOperator(
+    task_id='apply_security_task',
+    name='{{ platform_name }}-apply-security',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+    arguments=[
+        '--platform-name', '{{ original_platform_name }}',
+        '--operation', 'apply-security',
+        '--postgres-host', '{{ postgres_hostname }}',
+        '--postgres-port', '{{ postgres_port }}',
+        '--postgres-database', '{{ postgres_database }}'
+    ],
+    env_vars=common_env_vars,  # type: ignore
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# Table Removal Task - Cleans up unused tables
+table_removal_task = KubernetesPodOperator(
+    task_id='table_removal_task',
+    name='{{ platform_name }}-table-removal',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+    arguments=[
+        '--platform-name', '{{ original_platform_name }}',
+        '--operation', 'remove-unused-tables',
+        '--postgres-host', '{{ postgres_hostname }}',
+        '--postgres-port', '{{ postgres_port }}',
+        '--postgres-database', '{{ postgres_database }}',
+        '--git-repo-path', '/workspace/model',
+        '--git-repo-owner', '{{ git_repo_owner }}',
+        '--git-repo-name', '{{ git_repo_repo_name }}',
+        '--git-repo-branch', '{{ git_repo_branch }}',
+        '--git-platform-repo-credential-name', '{{ git_credential_name }}'
+    ],
+    env_vars=common_env_vars,  # type: ignore
+    volumes=[
+        k8s.V1Volume(
+            name='git-workspace',
+            empty_dir=k8s.V1EmptyDirVolumeSource()
+        )
+    ],
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='git-workspace',
+            mount_path='/workspace/model',
+            read_only=False
+        )
+    ],
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# End task
+end_task = EmptyOperator(
+    task_id='end_infrastructure_tasks',
+    dag=dag
+)
+
+# Define task dependencies
+# MERGE task runs first to generate infrastructure
+start_task >> merge_task  # type: ignore
+
+# Security and metrics can run in parallel after merge
+merge_task >> [apply_security_task, metrics_collector_task]  # type: ignore
+
+# Table removal runs after security is applied
+apply_security_task >> table_removal_task  # type: ignore
+
+# All tasks complete before end
+[metrics_collector_task, table_removal_task] >> end_task  # type: ignore 

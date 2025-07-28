@@ -1,0 +1,15 @@
+[
+    {
+      "dsgName": "TestDSG",
+      "workspace": "Consumer1",
+      "assignments": [
+        {
+          "dataPlatform": "Test_DP",
+          "documentation": "Test DataPlatform",
+          "productionStatus": "PRODUCTION",
+          "deprecationsAllowed": "NEVER",
+          "status": "PROVISIONED"
+        }
+      ]
+    }
+  ]

@@ -1,0 +1,62 @@
+# reconcile-views-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ platform_name }}-reconcile-views-job
+  namespace: {{ namespace_name }}
+spec:
+  template:
+    spec:
+      containers:
+      - name: reconcile-views-handler
+        image: {{ datasurface_docker_image }}
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "🔄 Starting DataSurface Reconcile Views Handler"
+          
+          # Run reconcile views job using shared git cache
+          echo "🔧 Running reconcile views job with shared cache..."
+          python -m datasurface.platforms.yellow.reconcile_workspace_views \
+            --platform-name {{ original_platform_name }} \
+            --git-repo-path /cache/git-models \
+            --git-repo-owner {{ git_repo_owner }} \
+            --git-repo-name {{ git_repo_repo_name }} \
+            --git-repo-branch {{ git_repo_branch }} \
+            --git-platform-repo-credential-name {{ git_credential_name }} \
+            {% if git_cache_enabled %}
+            --use-git-cache \
+            {% endif %}
+            --max-cache-age-minutes {{ git_cache_max_age_minutes }}
+          
+          echo "✅ Reconcile views job complete!"
+        env:
+        - name: PYTHONPATH
+          value: "/app/src"
+        - name: {{ git_credential_secret_name | replace('-', '_') }}_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ git_credential_secret_name }}
+              key: token
+        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ postgres_credential_secret_name }}
+              key: POSTGRES_USER
+        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ postgres_credential_secret_name }}
+              key: POSTGRES_PASSWORD
+        {% if git_cache_enabled %}
+        volumeMounts:
+        - name: git-model-cache
+          mountPath: /cache/git-models
+      volumes:
+      - name: git-model-cache
+        persistentVolumeClaim:
+          claimName: {{ ecosystem_k8s_name }}-git-model-cache
+      {% endif %}
+      restartPolicy: Never
+  backoffLimit: 3

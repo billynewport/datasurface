@@ -1,0 +1,18 @@
+from datasurface.md import *
+
+def defineTables(t : Team):
+    t.add(
+        Datastore("{{datastore.name}}",
+{% set datasets = getDatasets(datastore) -%}
+{% for dataset in datasets -%}        
+{%-      set columns = getColumns(dataset) %}
+            Dataset("{{dataset.name}}",
+                DDLTable(
+{%-      for column in columns %}
+                    DDLColumn("{{column.name}}", {{column.type}}{{convertColumnAttributesToString(column)}}){{ "," if not loop.last else "" }}
+{%-      endfor %}
+                )
+            ){{ "," if not loop.last else "" }}
+{%- endfor %}
+        )
+    )

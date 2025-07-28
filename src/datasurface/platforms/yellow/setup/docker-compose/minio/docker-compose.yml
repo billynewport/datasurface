@@ -1,0 +1,26 @@
+version: '2'
+
+services:
+  minio:
+    image: docker.io/bitnami/minio:2024
+    restart: always
+    ports:
+      - '9200:9200'
+      - '9201:9201'
+    volumes:
+      - 'minio_data:/bitnami/minio/data'
+    networks:
+      - gitlab_default
+    environment:
+      - MINIO_ROOT_USER=root
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_API_PORT_NUMBER=9200
+      - MINIO_CONSOLE_PORT_NUMBER=9201
+
+
+volumes:
+  minio_data:
+
+networks:
+  gitlab_default:
+    external: true

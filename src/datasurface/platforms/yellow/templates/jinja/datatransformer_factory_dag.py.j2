@@ -1,0 +1,685 @@
+"""
+DataTransformer Dynamic DAG Factory for {{ platform_name }}
+Generated automatically by DataSurface YellowDataPlatform
+
+This factory reads from {{ platform_name }}'s {{ phys_datatransformer_table_name }} table
+and creates individual DAGs for each DataTransformer:
+- DataTransformer execution DAG
+- DataTransformer output ingestion DAG
+"""
+
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from kubernetes.client import models as k8s
+import json
+
+def determine_next_action(**context):
+    """Determine whether to reschedule immediately or wait for next trigger"""
+    import os
+    
+    # Read the log file to determine if we need to reschedule
+    dag_id = context['dag'].dag_id
+    run_id = context['dag_run'].run_id
+    task_id_suffix = context.get('task_id_suffix', 'job')
+    task_id = f'datatransformer_{task_id_suffix}' if 'datatransformer' in dag_id else f'output_ingestion_{task_id_suffix}'
+    
+    log_file_path = f"/opt/airflow/logs/dag_id={dag_id}/run_id={run_id}/task_id={task_id}/attempt=1.log"
+    
+    try:
+        if os.path.exists(log_file_path):
+            with open(log_file_path, 'r') as f:
+                log_content = f.read()
+                if "RESCHEDULE_IMMEDIATELY" in log_content:
+                    return 'reschedule_immediately'
+                elif "JOB_COMPLETED_SUCCESSFULLY" in log_content:
+                    return 'wait_for_trigger'
+                else:
+                    # Default to waiting if we can't determine
+                    return 'wait_for_trigger'
+        else:
+            return 'wait_for_trigger'
+    except Exception as e:
+        print(f"Error reading log file {log_file_path}: {e}")
+        return 'wait_for_trigger'
+
+def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict) -> DAG:
+    """Create a DataTransformer execution DAG from configuration"""
+    platform_name = platform_config['platform_name']
+    workspace_name = dt_config['workspace_name']
+    output_datastore_name = dt_config['output_datastore_name']
+    input_dag_ids = dt_config.get('input_dag_ids', [])
+    schedule_string = dt_config.get('schedule_string')  # None if sensor-based, cron string if scheduled
+    
+    # Default arguments for the DAG
+    default_args = {
+        'owner': 'datasurface',
+        'depends_on_past': False,
+        'start_date': datetime(2025, 1, 1),
+        'email_on_failure': True,
+        'email_on_retry': False,
+        'retries': 0,  # No retries - the job handles its own retry logic
+        'retry_delay': timedelta(minutes=5),
+    }
+
+    # Determine schedule: use cron string if provided, otherwise None (external trigger/sensor based)
+    dag_schedule = schedule_string if schedule_string else None
+
+    # Create the DAG
+    dag = DAG(
+        f'{platform_name}__{workspace_name}_datatransformer',
+        default_args=default_args,
+        description=f'DataTransformer DAG for {platform_name}__{workspace_name}',
+        schedule=dag_schedule,  # Use trigger schedule or None for sensor-based
+        catchup=False,
+        is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
+        tags=['datasurface', 'datatransformer', platform_name, workspace_name]
+    )
+
+    # Environment variables for the DataTransformer job
+    env_vars = [
+        # Platform configuration (literal values)
+        k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
+        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
+        k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value=platform_config['slack_channel_name']),
+        
+        # Postgres credentials (for merge store)
+        k8s.V1EnvVar(
+            name=f"{platform_config['postgres_credential_secret_name']}_USER",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['postgres_credential_secret_name'],
+                    key='POSTGRES_USER'
+                )
+            )
+        ),
+        k8s.V1EnvVar(
+            name=f"{platform_config['postgres_credential_secret_name']}_PASSWORD",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['postgres_credential_secret_name'],
+                    key='POSTGRES_PASSWORD'
+                )
+            )
+        ),
+        # Git credentials
+        k8s.V1EnvVar(
+            name=f"{platform_config['git_credential_secret_name']}_TOKEN",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['git_credential_secret_name'],
+                    key='token'
+                )
+            )
+        ),
+        # Slack credentials
+        k8s.V1EnvVar(
+            name=f"{platform_config['slack_credential_secret_name']}_TOKEN",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['slack_credential_secret_name'],
+                    key='token'
+                )
+            )
+        )
+    ]
+
+    # DataTransformer-specific repository credential (if different from platform git credential)
+    if (dt_config.get('git_credential_secret_name') and 
+        dt_config['git_credential_secret_name'] != platform_config['git_credential_secret_name']):
+        env_vars.append(
+            k8s.V1EnvVar(
+                name=f"{dt_config['git_credential_secret_name']}_TOKEN",
+                value_from=k8s.V1EnvVarSource(
+                    secret_key_ref=k8s.V1SecretKeySelector(
+                        name=dt_config['git_credential_secret_name'],
+                        key='token'
+                    )
+                )
+            )
+        )
+
+    # Start task
+    start_task = EmptyOperator(
+        task_id='start_datatransformer',
+        dag=dag
+    )
+
+    # Create external task sensors only if no schedule (sensor-based mode)
+    sensors = []
+    if schedule_string is None:
+        # Sensor-based mode: wait for input DAGs to complete
+        for i, input_dag_id in enumerate(input_dag_ids, 1):
+            sensor = ExternalTaskSensor(
+                task_id=f'wait_for_{input_dag_id.replace("__", "_").replace("-", "_")}',
+                external_dag_id=input_dag_id,
+                external_task_id='wait_for_trigger',  # Wait for the completion of the ingestion
+                allowed_states=['success'],
+                failed_states=['failed'],
+                mode='reschedule',
+                timeout=3600,  # 1 hour timeout
+                poke_interval=30,  # Check every 30 seconds
+                dag=dag
+            )
+            sensors.append(sensor)
+    # If scheduled mode: no sensors needed, DAG runs on schedule
+
+    # DataTransformer job
+    datatransformer_job = KubernetesPodOperator(
+        task_id='datatransformer_job',
+        name=f"{platform_name}-{workspace_name.replace('_', '-')}-dt-job",
+        namespace=platform_config['namespace_name'],
+        image=platform_config['datasurface_docker_image'],
+        cmds=['python', '-m', 'datasurface.platforms.yellow.transformerjob'],
+        arguments=[
+            '--platform-name', platform_config['original_platform_name'],
+            '--workspace-name', workspace_name,
+            '--operation', 'run-datatransformer',
+            '--working-folder', '/workspace/datatransformer',
+            '--git-repo-path', '/cache/git-models',  # Use cache mount path
+            '--git-repo-owner', platform_config['git_repo_owner'],
+            '--git-repo-name', platform_config['git_repo_repo_name'],
+            '--git-repo-branch', platform_config['git_repo_branch'],
+            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+            {% if git_cache_enabled %}
+            '--use-git-cache',  # Enable cache usage
+            {% endif %}
+            '--max-cache-age-minutes', '{{ git_cache_max_age_minutes }}'  # Cache freshness threshold
+        ],
+        env_vars=env_vars,  # type: ignore
+        image_pull_policy='Always',
+        volumes=[
+            {% if git_cache_enabled %}k8s.V1Volume(
+                name='git-model-cache',
+                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                    claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
+                )
+            ),
+            {% endif %}k8s.V1Volume(
+                name='datatransformer-workspace',
+                empty_dir=k8s.V1EmptyDirVolumeSource()
+            )
+        ],
+        volume_mounts=[
+            {% if git_cache_enabled %}k8s.V1VolumeMount(
+                name='git-model-cache',
+                mount_path='/cache/git-models',
+                read_only=False
+            ),
+            {% endif %}
+            k8s.V1VolumeMount(
+                name='datatransformer-workspace',
+                mount_path='/workspace/datatransformer',
+                read_only=False
+            )
+        ],
+        is_delete_operator_pod=True,
+        get_logs=True,
+        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
+        container_resources=k8s.V1ResourceRequirements(
+            requests={'memory': '512Mi', 'cpu': '200m'},
+            limits={'memory': '2Gi', 'cpu': '1000m'}
+        ),
+        on_finish_action="delete_pod",
+        dag=dag
+    )
+
+    # Trigger the output ingestion DAG
+    trigger_output_ingestion = TriggerDagRunOperator(
+        task_id='trigger_output_ingestion',
+        trigger_dag_id=f'{platform_name}__{output_datastore_name}_dt_ingestion',
+        conf={'triggered_by': 'datatransformer', 'workspace_name': workspace_name},
+        dag=dag
+    )
+
+    # Branch operator to determine next action
+    branch = BranchPythonOperator(
+        task_id='check_result',
+        python_callable=determine_next_action,
+        op_kwargs={'task_id_suffix': 'job'},
+        dag=dag
+    )
+
+    # Reschedule immediately for continuous processing
+    reschedule = TriggerDagRunOperator(
+        task_id='reschedule_immediately',
+        trigger_dag_id=f'{platform_name}__{workspace_name}_datatransformer',
+        conf={'triggered_by': 'reschedule'},
+        dag=dag
+    )
+
+    # Wait for next external trigger
+    wait = EmptyOperator(
+        task_id='wait_for_trigger',
+        dag=dag
+    )
+
+    # Define task dependencies
+    if sensors:
+        start_task >> sensors
+        sensors >> datatransformer_job
+    else:
+        start_task >> datatransformer_job
+    
+    datatransformer_job >> [trigger_output_ingestion, branch]
+    branch >> [reschedule, wait]
+    
+    return dag
+
+def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config: dict) -> DAG:
+    """Create a DataTransformer output ingestion DAG from configuration"""
+    platform_name = platform_config['platform_name']
+    workspace_name = dt_config['workspace_name']
+    output_datastore_name = dt_config['output_datastore_name']
+    
+    # Default arguments for the DAG
+    default_args = {
+        'owner': 'datasurface',
+        'depends_on_past': False,
+        'start_date': datetime(2025, 1, 1),
+        'email_on_failure': True,
+        'email_on_retry': False,
+        'retries': 0,  # No retries - the job handles its own retry logic
+        'retry_delay': timedelta(minutes=5),
+    }
+
+    # Create the DAG
+    dag = DAG(
+        f'{platform_name}__{output_datastore_name}_dt_ingestion',
+        default_args=default_args,
+        description=f'DataTransformer Output Ingestion DAG for {platform_name}__{output_datastore_name}',
+        schedule=None,  # External trigger only
+        catchup=False,
+        is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
+        tags=['datasurface', 'datatransformer-output', 'ingestion', platform_name, output_datastore_name]
+    )
+
+    # Environment variables for the ingestion job
+    env_vars = [
+        # Platform configuration (literal values)
+        k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
+        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
+        k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value=platform_config['slack_channel_name']),
+        
+        # Postgres credentials (for merge store)
+        k8s.V1EnvVar(
+            name=f"{platform_config['postgres_credential_secret_name']}_USER",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['postgres_credential_secret_name'],
+                    key='POSTGRES_USER'
+                )
+            )
+        ),
+        k8s.V1EnvVar(
+            name=f"{platform_config['postgres_credential_secret_name']}_PASSWORD",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['postgres_credential_secret_name'],
+                    key='POSTGRES_PASSWORD'
+                )
+            )
+        ),
+        # Git credentials
+        k8s.V1EnvVar(
+            name=f"{platform_config['git_credential_secret_name']}_TOKEN",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['git_credential_secret_name'],
+                    key='token'
+                )
+            )
+        ),
+        # Slack credentials
+        k8s.V1EnvVar(
+            name=f"{platform_config['slack_credential_secret_name']}_TOKEN",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['slack_credential_secret_name'],
+                    key='token'
+                )
+            )
+        )
+    ]
+
+    # DataTransformer-specific repository credential (if different from platform git credential)
+    if (dt_config.get('git_credential_secret_name') and 
+        dt_config['git_credential_secret_name'] != platform_config['git_credential_secret_name']):
+        env_vars.append(
+            k8s.V1EnvVar(
+                name=f"{dt_config['git_credential_secret_name']}_TOKEN",
+                value_from=k8s.V1EnvVarSource(
+                    secret_key_ref=k8s.V1SecretKeySelector(
+                        name=dt_config['git_credential_secret_name'],
+                        key='token'
+                    )
+                )
+            )
+        )
+
+    # Start task
+    start_task = EmptyOperator(
+        task_id='start_output_ingestion',
+        dag=dag
+    )
+
+    # DataTransformer output ingestion job
+    output_ingestion_job = KubernetesPodOperator(
+        task_id='output_ingestion_job',
+        name=f"{platform_name}-{output_datastore_name.replace('_', '-')}-output-job",
+        namespace=platform_config['namespace_name'],
+        image=platform_config['datasurface_docker_image'],
+        cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+        arguments=[
+            '--platform-name', platform_config['original_platform_name'],
+            '--operation', 'snapshot-merge',
+            '--store-name', output_datastore_name,
+            '--git-repo-path', '/cache/git-models',  # Use cache mount path
+            '--git-repo-owner', platform_config['git_repo_owner'],
+            '--git-repo-name', platform_config['git_repo_repo_name'],
+            '--git-repo-branch', platform_config['git_repo_branch'],
+            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+            {% if git_cache_enabled %}
+            '--use-git-cache',  # Enable cache usage
+            {% endif %}
+            '--max-cache-age-minutes', '{{ git_cache_max_age_minutes }}'  # Cache freshness threshold
+        ],
+        env_vars=env_vars,  # type: ignore
+        image_pull_policy='Always',
+        {% if git_cache_enabled %}
+        volumes=[
+            k8s.V1Volume(
+                name='git-model-cache',
+                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                    claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
+                )
+            )
+        ],
+        volume_mounts=[
+            k8s.V1VolumeMount(
+                name='git-model-cache',
+                mount_path='/cache/git-models',
+                read_only=False
+            )
+        ],
+        {% endif %}
+        is_delete_operator_pod=True,
+        get_logs=True,
+        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
+        container_resources=k8s.V1ResourceRequirements(
+            requests={'memory': '256Mi', 'cpu': '100m'},
+            limits={'memory': '1Gi', 'cpu': '500m'}
+        ),
+        on_finish_action="delete_pod",
+        dag=dag
+    )
+
+    # Branch operator to determine next action
+    branch = BranchPythonOperator(
+        task_id='check_result',
+        python_callable=determine_next_action,
+        op_kwargs={'task_id_suffix': 'job'},
+        dag=dag
+    )
+
+    # Reschedule immediately for continuous processing
+    reschedule = TriggerDagRunOperator(
+        task_id='reschedule_immediately',
+        trigger_dag_id=f'{platform_name}__{output_datastore_name}_dt_ingestion',
+        conf={'triggered_by': 'reschedule'},
+        dag=dag
+    )
+
+    # Wait for next external trigger
+    wait = EmptyOperator(
+        task_id='wait_for_trigger',
+        dag=dag
+    )
+
+    # Define task dependencies
+    start_task >> output_ingestion_job
+    output_ingestion_job >> branch
+    branch >> [reschedule, wait]
+    
+    return dag
+
+def load_datatransformer_configurations():
+    """Load DataTransformer configurations from database and create DAG objects"""
+    generated_dags = {}
+    
+    try:
+        import sqlalchemy
+        from sqlalchemy import create_engine, text
+        import os
+        
+        # Build database connection string using environment variables
+        postgres_user = os.environ.get('{{ postgres_credential_secret_name }}_USER')
+        postgres_password = os.environ.get('{{ postgres_credential_secret_name }}_PASSWORD')
+        postgres_host = '{{ postgres_hostname }}'
+        postgres_port = {{ postgres_port }}
+        postgres_db = '{{ postgres_database }}'
+        
+        if not postgres_user or not postgres_password:
+            print("Missing PostgreSQL credentials in environment variables")
+            return {}
+        
+        # Create database connection
+        engine = create_engine(f'postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}')
+        
+        # Read from the platform-specific airflow_datatransformer table
+        table_name = '{{ phys_datatransformer_table_name }}'
+        with engine.connect() as connection:
+            result = connection.execute(text(f"""
+                SELECT workspace_name, config_json 
+                FROM {table_name}
+                WHERE status = 'active'
+            """))
+            configs = result.fetchall()
+        
+        # Platform configuration (same for all DataTransformers)
+        platform_config = {
+            'platform_name': '{{ platform_name }}',
+            'original_platform_name': '{{ original_platform_name }}',
+            'namespace_name': '{{ namespace_name }}',
+            'slack_channel_name': '{{ slack_channel_name }}',
+            'postgres_credential_secret_name': '{{ postgres_credential_secret_name }}',
+            'git_credential_secret_name': '{{ git_credential_secret_name }}',
+            'git_credential_name': '{{ git_credential_name }}',
+            'slack_credential_secret_name': '{{ slack_credential_secret_name }}',
+            'datasurface_docker_image': '{{ datasurface_docker_image }}',
+            'postgres_hostname': '{{ postgres_hostname }}',
+            'postgres_port': {{ postgres_port }},
+            'postgres_database': '{{ postgres_database }}',
+            'git_repo_owner': '{{ git_repo_owner }}',
+            'git_repo_repo_name': '{{ git_repo_repo_name }}',
+            'git_repo_branch': '{{ git_repo_branch }}'
+        }
+        
+        # Create DAGs for each DataTransformer configuration
+        for row in configs:
+            workspace_name = row[0]
+            config_json = json.loads(row[1])
+            
+            # Log scheduling mode for debugging
+            schedule_string = config_json.get('schedule_string')
+            if schedule_string:
+                print(f"Creating scheduled DataTransformer DAG for {workspace_name} with schedule: {schedule_string}")
+            else:
+                print(f"Creating sensor-based DataTransformer DAG for {workspace_name}")
+            
+            # Create both execution and output ingestion DAGs
+            execution_dag_id = f"{{ platform_name }}__{workspace_name}_datatransformer"
+            output_dag_id = f"{{ platform_name }}__{config_json['output_datastore_name']}_dt_ingestion"
+            
+            generated_dags[execution_dag_id] = create_datatransformer_execution_dag(platform_config, config_json)
+            generated_dags[output_dag_id] = create_datatransformer_output_ingestion_dag(platform_config, config_json)
+        
+        return generated_dags
+        
+    except Exception as e:
+        print(f"Error loading DataTransformer configurations: {e}")
+        return {}
+
+def sync_datatransformer_dags(**context):
+    """Synchronize dynamic DataTransformer DAGs with database configuration"""
+    task_instance = context['task_instance']
+    
+    try:
+        task_instance.log.info("=" * 80)
+        task_instance.log.info("🏭 DATATRANSFORMER FACTORY DAG EXECUTION STARTED")
+        task_instance.log.info("=" * 80)
+        task_instance.log.info("🔧 Platform: {{ platform_name }}")
+        task_instance.log.info("🗃️  DataTransformer Table: {{ phys_datatransformer_table_name }}")
+        task_instance.log.info("=" * 80)
+        
+        # Step 1: Load current configuration from database
+        task_instance.log.info("📊 LOADING DATATRANSFORMER CONFIGURATIONS FROM DATABASE")
+        task_instance.log.info("=" * 60)
+        
+        current_dags = load_datatransformer_configurations()
+        task_instance.log.info(f"📈 Found {len(current_dags)} DAG configurations in database")
+        
+        if current_dags:
+            task_instance.log.info("📋 DATATRANSFORMER DAG LIST:")
+            for dag_id in sorted(current_dags.keys()):
+                dag_type = "EXECUTION" if "datatransformer" in dag_id else "OUTPUT INGESTION"
+                task_instance.log.info(f"   📄 {dag_type}: {dag_id}")
+        else:
+            task_instance.log.info("📋 No DataTransformer DAGs found in database")
+        
+        # Step 2: Compare with existing DAGs in globals
+        task_instance.log.info("")
+        task_instance.log.info("=" * 60)
+        task_instance.log.info("🔍 ANALYZING DAG LIFECYCLE CHANGES")
+        task_instance.log.info("=" * 60)
+        
+        # Get existing DataTransformer-related DAGs using naming convention
+        existing_dt_dags = {k: v for k, v in globals().items() 
+                           if k.endswith('_datatransformer') or k.endswith('_dt_ingestion')}
+        
+        current_dag_ids = set(current_dags.keys())
+        existing_dag_ids = set(existing_dt_dags.keys())
+        
+        to_create = current_dag_ids - existing_dag_ids
+        to_remove = existing_dag_ids - current_dag_ids
+        to_update = current_dag_ids & existing_dag_ids
+        
+        task_instance.log.info(f"🆕 DAGs to CREATE: {len(to_create)}")
+        task_instance.log.info(f"🗑️  DAGs to REMOVE: {len(to_remove)}")
+        task_instance.log.info(f"🔄 DAGs to UPDATE: {len(to_update)}")
+        
+        # Step 3: Execute lifecycle changes
+        task_instance.log.info("")
+        task_instance.log.info("=" * 60)
+        task_instance.log.info("🔄 EXECUTING DAG LIFECYCLE CHANGES")
+        task_instance.log.info("=" * 60)
+        
+        # Remove obsolete DAGs
+        removed_dags = []
+        if to_remove:
+            task_instance.log.info("🗑️  REMOVING OBSOLETE DAGs:")
+            for dag_id in to_remove:
+                if dag_id in globals():
+                    del globals()[dag_id]
+                    removed_dags.append(dag_id)
+                    task_instance.log.info(f"   🗑️  REMOVED: {dag_id}")
+        else:
+            task_instance.log.info("🗑️  No DAGs to remove")
+        
+        # Create new DAGs  
+        created_dags = []
+        if to_create:
+            task_instance.log.info("")
+            task_instance.log.info("🆕 CREATING NEW DAGs:")
+            for dag_id in to_create:
+                globals()[dag_id] = current_dags[dag_id]
+                created_dags.append(dag_id)
+                task_instance.log.info(f"   ✅ CREATED: {dag_id}")
+        else:
+            task_instance.log.info("🆕 No new DAGs to create")
+        
+        # Update existing DAGs
+        updated_dags = []
+        if to_update:
+            task_instance.log.info("")
+            task_instance.log.info("🔄 UPDATING EXISTING DAGs:")
+            for dag_id in to_update:
+                globals()[dag_id] = current_dags[dag_id]
+                updated_dags.append(dag_id)
+                task_instance.log.info(f"   🔄 UPDATED: {dag_id}")
+        else:
+            task_instance.log.info("🔄 No DAGs to update")
+        
+        # Final summary
+        task_instance.log.info("")
+        task_instance.log.info("=" * 60)
+        task_instance.log.info("📋 DATATRANSFORMER FACTORY DAG SUMMARY")
+        task_instance.log.info("=" * 60)
+        
+        total_changes = len(removed_dags) + len(created_dags) + len(updated_dags)
+        task_instance.log.info(f"📊 TOTAL CHANGES: {total_changes}")
+        task_instance.log.info(f"📊 ACTIVE DATATRANSFORMER DAGS: {len(current_dags)}")
+        task_instance.log.info("💡 All DataTransformer DAGs are now synchronized")
+        task_instance.log.info("=" * 80)
+        
+        summary = f"✅ DataTransformer Lifecycle complete: -{len(removed_dags)} +{len(created_dags)} ~{len(updated_dags)} = {len(current_dags)} active DAGs"
+        return summary
+        
+    except Exception as e:
+        task_instance.log.error("=" * 80)
+        task_instance.log.error("❌ DATATRANSFORMER FACTORY DAG EXECUTION FAILED")
+        task_instance.log.error("=" * 80)
+        task_instance.log.error(f"💥 Error: {str(e)}")
+        task_instance.log.error(f"🔧 Error Type: {type(e).__name__}")
+        task_instance.log.error("")
+        task_instance.log.error("🔍 Troubleshooting steps:")
+        task_instance.log.error("   1. Check database connectivity")
+        task_instance.log.error("   2. Verify {{ phys_datatransformer_table_name }} table exists")
+        task_instance.log.error("   3. Check environment variables are set")
+        task_instance.log.error("   4. Review scheduler pod logs for more details")
+        task_instance.log.error("=" * 80)
+        
+        # Re-raise to mark task as failed
+        error_msg = f"❌ DataTransformer Factory DAG failed: {str(e)}"
+        raise Exception(error_msg)
+
+# Create the factory DAG for DataTransformers
+factory_default_args = {
+    'owner': 'datasurface',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+factory_dag = DAG(
+    '{{ platform_name }}_datatransformer_factory',
+    default_args=factory_default_args,
+    description='DataTransformer Dynamic DAG Factory for {{ platform_name }}',
+    schedule='*/5 * * * *',  # Run every 5 minutes to sync configurations
+    catchup=False,
+    tags=['datasurface', 'factory', 'datatransformer', '{{ platform_name }}']
+)
+
+# Create the factory task
+sync_task = PythonOperator(
+    task_id='sync_datatransformer_dags',
+    python_callable=sync_datatransformer_dags,
+    dag=factory_dag,
+    provide_context=True
+)
+
+# Also execute once during DAG discovery for immediate availability
+try:
+    initial_dags = load_datatransformer_configurations()
+    for dag_id, dag_object in initial_dags.items():
+        globals()[dag_id] = dag_object
+except Exception as e:
+    print(f"Warning: Failed to load initial DataTransformer DAGs during discovery: {e}") 
