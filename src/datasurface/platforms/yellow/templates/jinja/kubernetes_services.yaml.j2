@@ -234,8 +234,6 @@ spec:
             - secretRef:
                 name: {{ postgres_credential_secret_name }}
             - secretRef:
-                name: {{ slack_credential_secret_name }}
-            - secretRef:
                 name: {{ git_credential_secret_name }}
             - configMapRef:
                 name: {{ platform_name }}-logging-config
@@ -344,8 +342,6 @@ spec:
                 name: {{ airflow_credential_secret_name }}
             - secretRef:
                 name: {{ postgres_credential_secret_name }}
-            - secretRef:
-                name: {{ slack_credential_secret_name }}
             - secretRef:
                 name: {{ git_credential_secret_name }}
             - configMapRef:
@@ -673,8 +669,6 @@ data:
                 name: {{ postgres_credential_secret_name }}
             - secretRef:
                 name: {{ git_credential_secret_name }}
-            - secretRef:
-                name: {{ slack_credential_secret_name }}
             - secretRef:
                 name: {{ kafka_connect_credential_secret_name }}
             - configMapRef:

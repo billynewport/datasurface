@@ -86,7 +86,6 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         # Platform configuration (literal values)
         k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
         k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
-        k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value=platform_config['slack_channel_name']),
         
         # Postgres credentials (for merge store)
         k8s.V1EnvVar(
@@ -113,16 +112,6 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['git_credential_secret_name'],
-                    key='token'
-                )
-            )
-        ),
-        # Slack credentials
-        k8s.V1EnvVar(
-            name=f"{platform_config['slack_credential_secret_name']}_TOKEN",
-            value_from=k8s.V1EnvVarSource(
-                secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['slack_credential_secret_name'],
                     key='token'
                 )
             )
@@ -304,7 +293,6 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
         # Platform configuration (literal values)
         k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
         k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
-        k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value=platform_config['slack_channel_name']),
         
         # Postgres credentials (for merge store)
         k8s.V1EnvVar(
@@ -331,16 +319,6 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['git_credential_secret_name'],
-                    key='token'
-                )
-            )
-        ),
-        # Slack credentials
-        k8s.V1EnvVar(
-            name=f"{platform_config['slack_credential_secret_name']}_TOKEN",
-            value_from=k8s.V1EnvVarSource(
-                secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['slack_credential_secret_name'],
                     key='token'
                 )
             )
@@ -486,11 +464,9 @@ def load_datatransformer_configurations():
             'platform_name': '{{ platform_name }}',
             'original_platform_name': '{{ original_platform_name }}',
             'namespace_name': '{{ namespace_name }}',
-            'slack_channel_name': '{{ slack_channel_name }}',
             'postgres_credential_secret_name': '{{ postgres_credential_secret_name }}',
             'git_credential_secret_name': '{{ git_credential_secret_name }}',
             'git_credential_name': '{{ git_credential_name }}',
-            'slack_credential_secret_name': '{{ slack_credential_secret_name }}',
             'datasurface_docker_image': '{{ datasurface_docker_image }}',
             'postgres_hostname': '{{ postgres_hostname }}',
             'postgres_port': {{ postgres_port }},

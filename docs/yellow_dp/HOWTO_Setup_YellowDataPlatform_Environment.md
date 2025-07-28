@@ -168,17 +168,12 @@ kubectl create secret generic git \
   --from-literal=token=your-github-personal-access-token \
   -n ns-yellow-starter
 
-# Create Slack credentials secret (optional)
-kubectl create secret generic slack \
-  --from-literal=token=your-slack-webhook \
-  -n ns-yellow-starter
 ```
 
 **Default Credentials:**
 - **PostgreSQL Database**: `postgres/datasurface123`
 - **Airflow Web UI**: `admin/admin123` (created after deployment)
 - **GitHub Token**: Replace `your-github-token` with your actual GitHub Personal Access Token
-- **Slack Webhook**: Optional - replace with your actual webhook URL or use placeholder
 
 ### Step 2: Deploy PostgreSQL Database
 
@@ -438,15 +433,6 @@ kubectl logs job/yellowlive-ring1-init -n ns-yellow-starter
 kubectl get secret postgres -n ns-yellow-starter -o yaml
 ```
 
-**Issue: DataTransformer pods fail with CreateContainerConfigError**
-```bash
-# Cause: Slack secret using wrong key name
-# Error: "couldn't find key token in Secret ns-yellow-starter/slack"
-# Solution: Verify slack secret uses 'token' key (not 'SLACK_WEBHOOK_URL'):
-kubectl delete secret slack -n ns-yellow-starter
-kubectl create secret generic slack --from-literal=token=your-slack-webhook -n ns-yellow-starter
-```
-
 **Issue: PostgreSQL commands hang or fail in non-interactive environments**
 ```bash
 # Cause: Using interactive psql commands or missing password handling
@@ -637,10 +623,6 @@ sudo kubectl create secret generic postgres \
 
 sudo kubectl create secret generic git \
   --from-literal=token=your-github-personal-access-token \
-  -n ns-yellow-starter
-
-sudo kubectl create secret generic slack \
-  --from-literal=token=your-slack-webhook \
   -n ns-yellow-starter
 
 # Deploy infrastructure

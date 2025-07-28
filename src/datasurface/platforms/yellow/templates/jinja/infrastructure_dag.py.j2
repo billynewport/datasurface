@@ -47,7 +47,6 @@ common_env_vars = [
     # Platform configuration (literal values)
     k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value='{{ platform_name }}'),
     k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
-    k8s.V1EnvVar(name='DATASURFACE_SLACK_CHANNEL', value='{{ slack_channel_name }}'),
     
     # Postgres credentials (for merge store)
     k8s.V1EnvVar(
@@ -74,16 +73,6 @@ common_env_vars = [
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
                 name='{{ git_credential_secret_name }}',
-                key='token'
-            )
-        )
-    ),
-    # Slack credentials
-    k8s.V1EnvVar(
-        name='{{ slack_credential_secret_name }}_TOKEN',
-        value_from=k8s.V1EnvVarSource(
-            secret_key_ref=k8s.V1SecretKeySelector(
-                name='{{ slack_credential_secret_name }}',
                 key='token'
             )
         )
