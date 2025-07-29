@@ -16,13 +16,14 @@ The team git repository manages the team and its associated child objects such a
 
 ## Mechanics of making changes
 
-The repository should be a fork from the ecosystem repository. The repository should be refreshed from the main branch before starting. The changes can then be made, committed and a pull request to the ecosystem repository submitted. The pull request will have a set of automatic validations run against it and humans may inspect it also before it can be merged in to the eco system repository.
+The repository should be a fork from the ecosystem live repository. The repository should be refreshed from the live branch before starting. The changes can then be made, committed and a pull request to the ecosystem repository submitted. The pull request will have a set of automatic validations run against it and humans may inspect it also before it can be merged in to the eco system repository.
 
 ## Automatic validations
 
 - Are the changes coming from the correct repository?
-    Ecosystem, GovernanceZone and team can all be associated with different git repositories. Model changes must come from the appropriate repository.
+    Ecosystem, GovernanceZone and team can all be associated with different git repositories. Model changes must come from the appropriate repository. Changes should not be made directly to the live repository as no validation will be run against them.
 - Does the model pass lint tests?
     Lint checks verify the attributes are appropriately named, references between objects are valid and generally that the model is self-consistent. Primary key columns cannot be nullable. Workspaces cannot reference a deprecated dataset unless its allows deprecated datasets in its definition.
 - Is the new model backwards compatible with the existing model?
     The new model must be backwards compatible with the old model. Dataset schemas can add new nullable columns but columns cannot be deleted for example.
+- Do all the assigned DataPlatforms accept their Workspaces and supporting data pipelines. This can fail because of platform limitations, unsupported database or ingestion types for example.
