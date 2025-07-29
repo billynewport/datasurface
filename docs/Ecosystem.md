@@ -27,7 +27,7 @@ from datasurface.md.Governance import DefaultDataPlatform, Ecosystem, Governance
 
 # Define a test Ecosystem
 def createEcosystem() -> Ecosystem:
-    e : Ecosystem = Ecosystem("Test", GitHubRepository("owner/surfacerepo", "main"),
+    e : Ecosystem = Ecosystem("Test", GitHubRepository("owner/surfacerepo", "edit_main"),
         # Declare the Azure Data Platform and make it the default
         DefaultDataPlatform(AzureDataplatform("Azure Platform", AzureKeyVaultCredential("vault", "maincred"))),
                               
@@ -36,12 +36,13 @@ def createEcosystem() -> Ecosystem:
         InfrastructureVendor("Azure",
             PlainTextDocumentation("Microsoft Azure"),
                 InfrastructureLocation("East US") # Virginia
-            )
+            ),
+        liveRepo=GitHubRepository("owner/surfacerepo", "live_main")
         )
     return e
 ```
 
-This defines a very simple Ecosystem. The main repository is at owner/surfacerepo with the branch main. There is a single Azure DataPlatform available. There is a single GovernanceZone available called Azure_USA which uses the repository owner/azure_usa and branch main.
+This defines a very simple Ecosystem. The live repository is at owner/surfacerepo with the branch live_main. The model at live_main is the model which will actually be used to provision the infrastructure. Edits to it be pull requests from the edit_main branch. There is a single Azure DataPlatform available. There is a single GovernanceZone available called Azure_USA which uses the repository owner/azure_usa and branch main.
 
 Once this has been committed directly against the owner/surfacerepo#main then the Azure_USA zone can be defined from its repository.
 
