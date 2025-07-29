@@ -759,6 +759,140 @@ ssh user@remote-machine-ip "sudo systemctl status k3s"
 ssh user@remote-machine-ip "sudo kubectl get pods -n ns-yellow-starter && sudo kubectl describe pod <pod-name> -n ns-yellow-starter"
 ```
 
+## Troubleshooting: Airflow Webserver Resource Allocation Issues
+
+### Problem: Airflow Webserver Pod Stuck in "Pending" Status
+
+**Symptoms:**
+- Airflow webserver pod shows `STATUS: Pending`
+- Port forwarding fails with error: `unable to forward port because pod is not running. Current status=Pending`
+- Scheduler logs show successful DAG processing, but web interface is inaccessible
+
+**Root Cause:**
+This is typically caused by **resource allocation constraints** in your Kubernetes cluster. The webserver pod requires CPU and memory resources that may not be available on any node due to:
+
+1. **Resource Allocation Lottery**: Pod placement varies between deployments
+2. **Cluster Resource Exhaustion**: Other components consuming available resources
+3. **Node Resource Imbalance**: Uneven distribution of workloads across nodes
+
+### Diagnosis Steps
+
+**Check Current Resource Allocation:**
+```bash
+# View node resource usage
+kubectl describe nodes | grep -A 5 "Allocated resources"
+
+# Check pod placement across nodes
+kubectl get pods -n ns-yellow-starter -o wide
+
+# Verify webserver resource requirements
+kubectl get pod -l app=airflow-webserver -n ns-yellow-starter -o yaml | grep -A 10 "resources:"
+```
+
+**Expected Output Analysis:**
+- Each node typically has 2000m CPU (2 cores)
+- Webserver requests 200m-500m CPU and 256Mi-1Gi memory
+- Look for nodes with sufficient available resources
+
+### Solutions
+
+#### **Solution 1: Add More Kubernetes Nodes (Recommended)**
+
+**For Docker Desktop:**
+1. Open Docker Desktop → Settings → Kubernetes
+2. Increase number of nodes (e.g., from 4 to 6)
+3. Apply & Restart
+4. Redeploy the webserver deployment
+
+**For Remote Kubernetes:**
+```bash
+# Add worker nodes to your cluster
+# Example for k3s:
+curl -sfL https://get.k3s.io | K3S_URL=https://server-ip:6443 K3S_TOKEN=your-token sh -
+```
+
+#### **Solution 2: Reduce Webserver Resource Requirements**
+
+**Temporarily reduce resource requests:**
+```bash
+# Reduce CPU and memory requirements
+kubectl patch deployment airflow-webserver -n ns-yellow-starter --type='json' -p='[
+  {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/cpu", "value": "100m"},
+  {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "256Mi"},
+  {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/cpu", "value": "300m"},
+  {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/memory", "value": "512Mi"}
+]'
+
+# Delete pending pods to trigger recreation
+kubectl delete pod -l app=airflow-webserver -n ns-yellow-starter
+```
+
+#### **Solution 3: Force Pod Placement on Available Node**
+
+**Target a specific node with available resources:**
+```bash
+# Check which node has available resources
+kubectl describe nodes | grep -A 5 "Allocated resources"
+
+# Force placement on control-plane node (usually has more available resources)
+kubectl patch deployment airflow-webserver -n ns-yellow-starter --type='json' -p='[
+  {"op": "add", "path": "/spec/template/spec/nodeSelector", "value": {"kubernetes.io/hostname": "desktop-control-plane"}}
+]'
+
+# Delete pending pods to trigger recreation
+kubectl delete pod -l app=airflow-webserver -n ns-yellow-starter
+```
+
+#### **Solution 4: Stop Non-Essential Components**
+
+**Temporarily free up resources:**
+```bash
+# Stop data simulator if running
+kubectl delete pod data-simulator -n ns-yellow-starter
+
+# Stop Kafka components if not needed for testing
+kubectl scale deployment kafka -n ns-yellow-starter --replicas=0
+kubectl scale deployment kafka-zookeeper -n ns-yellow-starter --replicas=0
+kubectl scale deployment kafka-connect -n ns-yellow-starter --replicas=0
+```
+
+### Prevention
+
+**Recommended Cluster Configuration:**
+- **Minimum 6 nodes** for reliable YellowDataPlatform deployment
+- **2 CPU cores per node** (2000m CPU)
+- **4GB+ RAM per node**
+- **Monitor resource usage** during deployment
+
+**Resource Monitoring:**
+```bash
+# Regular resource checks
+kubectl describe nodes | grep -A 5 "Allocated resources"
+
+# Check for resource pressure
+kubectl get events -n ns-yellow-starter --sort-by='.lastTimestamp'
+
+# Monitor pod resource usage (if metrics server available)
+kubectl top pods -n ns-yellow-starter
+```
+
+### Verification
+
+**After applying fixes:**
+```bash
+# Verify webserver is running
+kubectl get pods -n ns-yellow-starter -l app=airflow-webserver
+
+# Test port forwarding
+kubectl port-forward svc/airflow-webserver-service 8080:8080 -n ns-yellow-starter &
+
+# Access web interface
+# URL: http://localhost:8080
+# Credentials: admin/admin123
+```
+
+---
+
 ## References
 
 - [MVP Dynamic DAG Factory](MVP_DynamicDAG.md)
