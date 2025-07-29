@@ -67,7 +67,8 @@ def createEcosystem() -> Ecosystem:
                     "West",
                     InfrastructureLocation("West US"),  # California
                     InfrastructureLocation("West US 2"),  # Washington
-                    InfrastructureLocation("West US 3"))))  # Arizona
+                    InfrastructureLocation("West US 3")))),  # Arizona
+            liveRepo=GitHubRepository("billynewport/test_step1", "live")
         )
 
     # Add the EU GZ and its policies limiting locations to EU only

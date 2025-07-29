@@ -36,7 +36,8 @@ class TestWorkspace(unittest.TestCase):
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
             LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
-            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test")),
+            liveRepo=GitHubRepository("a", "live")
             )
 
         self.assertEqual(eco, eco)
@@ -66,7 +67,8 @@ class TestWorkspace(unittest.TestCase):
                 chinaZoneName,
                 GitHubRepository("aa", "cc")),
             LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
-            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test")),
+            liveRepo=GitHubRepository("a", "live")
             )
 
         gzUSA: GovernanceZone = eco.getZoneOrThrow(usZoneName)
@@ -558,7 +560,9 @@ class TestWorkspace(unittest.TestCase):
                     CloudVendor.AWS,
                     PlainTextDocumentation("Azure test vendor"),
                     InfrastructureLocation("FL")),
-                GovernanceZoneDeclaration("US", FakeRepository("b")))
+                GovernanceZoneDeclaration("US", FakeRepository("b")),
+                liveRepo=FakeRepository("b")
+            )
 
         # Define US zone and declare a single team Test
         gzUSA: GovernanceZone = e.getZoneOrThrow("US")

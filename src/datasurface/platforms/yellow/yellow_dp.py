@@ -853,7 +853,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         dag_files: dict[str, str] = {}
 
         try:
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
 
             # Extract git repository owner and name from the full repository name
             git_repo_parts = gitRepo.repositoryName.split('/')
@@ -1001,7 +1001,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 continue
 
         try:
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
 
             # Extract git repository owner and name from the full repository name
             git_repo_parts = gitRepo.repositoryName.split('/')
@@ -1162,7 +1162,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     continue
 
         try:
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
 
             # Extract git repository owner and name from the full repository name
             git_repo_parts = gitRepo.repositoryName.split('/')
@@ -1345,7 +1345,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         secrets_info[k8s_name]['purpose'] = f"Git repository access for {', '.join(secrets_info[k8s_name]['workspaces'])} DataTransformer code"
 
         # Generate markdown documentation
-        gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+        gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
 
         markdown_lines = [
             f"# Kubernetes Secrets for {self.dp.name}",
@@ -1688,8 +1688,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             tree.addRaw(CredentialTypeNotSupportedProblem(self.gitCredential, [CredentialType.API_TOKEN]))
 
         # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
-        if not isinstance(eco.owningRepo, GitHubRepository):
-            tree.addRaw(ObjectNotSupportedByDataPlatform(eco.owningRepo, [GitHubRepository], ProblemSeverity.ERROR))
+        if not isinstance(eco.liveRepo, GitHubRepository):
+            tree.addRaw(ObjectNotSupportedByDataPlatform(eco.liveRepo, [GitHubRepository], ProblemSeverity.ERROR))
 
         self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
@@ -1839,7 +1839,7 @@ class YellowDataPlatform(DataPlatform):
             # Load the reconcile views job template
             reconcile_views_template: Template = env.get_template('reconcile_views_job.yaml.j2')
 
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.owningRepo)
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
 
             # Extract git repository owner and name from the full repository name
             git_repo_parts = gitRepo.repositoryName.split('/')

@@ -27,6 +27,7 @@ def createEcosystem() -> Ecosystem:
                 PlainTextDocumentation("Test"))
         ],
         default_data_platform=DefaultDataPlatform(DataPlatformKey("LegacyA")),
+        liveRepo=GitHubRepository("billynewport/repo", "EcoLive"),
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
             GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/repo", "EUmain")),

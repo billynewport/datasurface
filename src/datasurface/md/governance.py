@@ -18,7 +18,7 @@ from datasurface.md.exceptions import AttributeAlreadySetException, ObjectAlread
 from datasurface.md.lint import AttributeNotSet, ConstraintViolation, DataTransformerMissing, DuplicateObject, NameHasBadSynthax, NameMustBeSQLIdentifier, \
         ObjectIsDeprecated, ObjectMissing, ObjectNotCompatibleWithPolicy, ObjectWrongType, ProductionDatastoreMustHaveClassifications, \
         UnauthorizedAttributeChange, ProblemSeverity, UnknownChangeSource, UnknownObjectReference, ValidationProblem, ValidationTree, UserDSLObject, \
-        InternalLintableObject, ANSI_SQL_NamedObject, UnexpectedExceptionProblem, ObjectNotSupportedByDataPlatform
+        InternalLintableObject, ANSI_SQL_NamedObject, UnexpectedExceptionProblem, ObjectNotSupportedByDataPlatform, OwningRepoCannotBeLiveRepo
 from datasurface.md.json import JSONable
 import hashlib
 from datasurface.md.utils import is_valid_sql_identifier, is_valid_hostname_or_ip, validate_cron_string
@@ -1516,17 +1516,19 @@ class Ecosystem(GitControlledObject, JSONable):
     def __init__(self, name: str, repo: Repository,
                  *args: Union[PlatformServicesProvider,
                               'DataPlatform', Documentation, DefaultDataPlatform,
-                              InfrastructureVendor, 'GovernanceZoneDeclaration'],
+                              InfrastructureVendor, 'GovernanceZoneDeclaration', Repository],
                  platform_services_provider: Optional[PlatformServicesProvider] = None,
                  data_platforms: Optional[list['DataPlatform']] = None,
                  documentation: Optional[Documentation] = None,
                  default_data_platform: Optional[DefaultDataPlatform] = None,
                  infrastructure_vendors: Optional[list[InfrastructureVendor]] = None,
+                 liveRepo: Optional[Repository] = None,
                  governance_zone_declarations: Optional[list['GovernanceZoneDeclaration']] = None) -> None:
         GitControlledObject.__init__(self, repo)
         JSONable.__init__(self)
         self.name: str = name
         self.key: EcosystemKey = EcosystemKey(self.name)
+        self.liveRepo: Optional[Repository] = liveRepo
 
         self.zones: AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = \
             AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration]("zones", lambda name, repo: self.createGZone(name, repo), repo)
@@ -1645,7 +1647,7 @@ class Ecosystem(GitControlledObject, JSONable):
     def create_legacy(cls, name: str, repo: Repository,
                       *args: Union[PlatformServicesProvider,
                                    'DataPlatform', Documentation, DefaultDataPlatform,
-                                   InfrastructureVendor, 'GovernanceZoneDeclaration']) -> 'Ecosystem':
+                                   InfrastructureVendor, 'GovernanceZoneDeclaration', Repository]) -> 'Ecosystem':
         """Legacy factory method for backward compatibility with old *args pattern.
         Use this temporarily during migration, then switch to named parameters for better performance."""
         platform_services_provider: Optional[PlatformServicesProvider] = None
@@ -1666,6 +1668,8 @@ class Ecosystem(GitControlledObject, JSONable):
                 data_platforms.append(arg)
             elif isinstance(arg, DefaultDataPlatform):
                 default_data_platform = arg
+            elif isinstance(arg, Repository):
+                liveRepo = arg
             else:
                 # GovernanceZoneDeclaration
                 governance_zone_declarations.append(arg)
@@ -1678,7 +1682,8 @@ class Ecosystem(GitControlledObject, JSONable):
             documentation=documentation,
             default_data_platform=default_data_platform,
             infrastructure_vendors=infrastructure_vendors if infrastructure_vendors else None,
-            governance_zone_declarations=governance_zone_declarations if governance_zone_declarations else None
+            governance_zone_declarations=governance_zone_declarations if governance_zone_declarations else None,
+            liveRepo=liveRepo
         )
 
     def getAsInfraLocation(self, loc: 'LocationKey') -> Optional[InfrastructureLocation]:
@@ -1723,7 +1728,8 @@ class Ecosystem(GitControlledObject, JSONable):
             "zones": {k: k.name for k in self.zones.defineAllObjects()},
             "vendors": {k: k.to_json() for k in self.vendors.values()},
             "dataPlatforms": {k: k.to_json() for k in self.dataPlatforms.values()},
-            "renderEngine": self.platformServicesProvider.to_json() if self.platformServicesProvider else None
+            "renderEngine": self.platformServicesProvider.to_json() if self.platformServicesProvider else None,
+            "liveRepo": self.liveRepo.to_json() if self.liveRepo else None
         }
 
     def resetCaches(self) -> None:
@@ -1758,7 +1764,7 @@ class Ecosystem(GitControlledObject, JSONable):
                 f.write(value)
 
     def add(self, *args: Union[PlatformServicesProvider, 'DataPlatform', DefaultDataPlatform,
-                               Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration']) -> None:
+                               Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration', Repository]) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
                 if self.vendors.get(arg.name) is not None:
@@ -1770,6 +1776,8 @@ class Ecosystem(GitControlledObject, JSONable):
                 self.documentation = arg
             elif isinstance(arg, DataPlatform):
                 self.dataPlatforms[arg.name] = arg
+            elif isinstance(arg, Repository):
+                self.liveRepo = arg
             elif isinstance(arg, DefaultDataPlatform):
                 if (self.defaultDataPlatform is not None):
                     raise AttributeAlreadySetException("Default DataPlatform already specified")
@@ -1896,6 +1904,17 @@ class Ecosystem(GitControlledObject, JSONable):
         # This will lint the ecosystem, zones, teams, datastores and datasets.
         ecoTree: ValidationTree = ValidationTree(self)
 
+        super().superLint(ecoTree)
+
+        if self.liveRepo is None:
+            ecoTree.addRaw(AttributeNotSet("liveRepo"))
+        else:
+            self.liveRepo.lint(ecoTree.addSubTree(self.liveRepo))
+
+        if self.owningRepo == self.liveRepo:
+            # These cannot be the same repository
+            ecoTree.addRaw(OwningRepoCannotBeLiveRepo(self, ProblemSeverity.ERROR))
+
         # This will lint the ecosystem, zones, teams, datastores and datasets.
         # Workspaces are linted in a second pass later.
         # It populates the caches for zones, teams, stores and workspaces.
@@ -1993,6 +2012,7 @@ class Ecosystem(GitControlledObject, JSONable):
             rc = rc and self.defaultDataPlatform == proposed.defaultDataPlatform
             rc = rc and self.platformServicesProvider == proposed.platformServicesProvider
             rc = rc and self.dsgPlatformMappings == proposed.dsgPlatformMappings
+            rc = rc and self.liveRepo == proposed.liveRepo
             return rc
         else:
             return False
@@ -2011,6 +2031,8 @@ class Ecosystem(GitControlledObject, JSONable):
                 if self.owningRepo != proposed.owningRepo:
                     tree.addRaw(UnauthorizedAttributeChange("owningRepo", self.owningRepo, proposed.owningRepo, ProblemSeverity.ERROR))
                     rc = False
+                if self.liveRepo != proposed.liveRepo:
+                    tree.addRaw(UnauthorizedAttributeChange("liveRepo", self.liveRepo, proposed.liveRepo, ProblemSeverity.ERROR))
                 zTree: ValidationTree = tree.addSubTree(self.zones)
                 if not self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree):
                     rc = False

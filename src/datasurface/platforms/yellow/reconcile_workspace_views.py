@@ -584,7 +584,7 @@ Examples:
     parser.add_argument(
         "--git-repo-branch",
         required=True,
-        help="GitHub repository branch (e.g., main)"
+        help="GitHub repository live branch (e.g., main)"
     )
 
     parser.add_argument(

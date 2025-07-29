@@ -46,7 +46,7 @@ class TestZones(unittest.TestCase):
         self.assertIsNotNone(child)
 
     def test_CreateUSAEco(self):
-        eco = Ecosystem("BigCorp", GitHubRepository("o/r", "b"))
+        eco = Ecosystem("BigCorp", GitHubRepository("o/r", "b"), liveRepo=GitHubRepository("o/r", "live"))
         self.assertEqual(eco.name, "BigCorp")
         self.assertEqual(eco.zones.getNumObjects(), 0)
         usZoneName: str = "US"

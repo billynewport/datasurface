@@ -77,7 +77,8 @@ def createEcosystem() -> Ecosystem:
                     )
                 ]
             )
-        ]
+        ],
+        liveRepo=GitHubRepository("billynewport/repo", "live")
     )
     gz: GovernanceZone = ecosys.getZoneOrThrow("USA")
 

@@ -64,6 +64,7 @@ def createEcosystem() -> Ecosystem:
                     "West",
                     InfrastructureLocation("West US"),  # California
                     InfrastructureLocation("West US 2"),  # Washington
-                    InfrastructureLocation("West US 3"))))  # Arizona
+                    InfrastructureLocation("West US 3")))),  # Arizona
+            liveRepo=GitHubRepository("billynewport/test_step1", "live")
         )
     return e

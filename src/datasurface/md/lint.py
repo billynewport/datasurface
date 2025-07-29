@@ -312,6 +312,18 @@ class ConstraintViolation(ValidationProblem):
         return hash(self.description)
 
 
+class OwningRepoCannotBeLiveRepo(ValidationProblem):
+    """This indicates the owning repo cannot be the live repo"""
+    def __init__(self, obj: object, sev: ProblemSeverity) -> None:
+        super().__init__(f"Owning repo for {obj} cannot be the same as its live repo", sev)
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, OwningRepoCannotBeLiveRepo)
+
+    def __hash__(self) -> int:
+        return hash(self.description)
+
+
 class ProductionDatastoreMustHaveClassifications(ValidationProblem):
     """This indicates a production Datastore has a Dataset where the DataClassification of some attributes is unspecified"""
     def __init__(self, store: object, dataset: object) -> None:
