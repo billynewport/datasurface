@@ -336,7 +336,7 @@ CREATE INDEX idx_merge_batch_id ON merge_table(ds_surf_batch_id);
 ### Airflow Scaling Limitations and Solutions
 
 **Current Limitations:**
-- Airflow effectively supports ~500 DAGs maximum
+- Airflow effectively supports thousands of our simple DAGs
 - Each ingestion stream creates one DAG
 - Suitable for most enterprise use cases
 
