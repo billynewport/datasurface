@@ -145,3 +145,9 @@ Security isn't really a DataPlatform problem, the DataPlatform problem is simply
 ## Merge
 
 There are 2 styles of merge supported. Live and milestoned. Live means consumers only need the latest live ingested records from producers. Milestoned means every version of the record is kept in the system so consumers can do historical queries as well as live queries. Effectively milestoned mode means there is a linked list of records for each record key. The linked list shows when record versions were created, updated, deleted and if necessary reinserted.
+
+## How model changes are applied to the running system
+
+When the model changes in the live repo, the handlerModelMerge service must be called. This will clone the repo and then call the handleModelMerge. This will load the model, validates it again and then make the changes. For the YellowDataPlatform, this works by finding all ingestion streams and datatransformers in the model and then creating a record per stream of transformer in database tables in the merge engine. These are the AirflowDAG and transformerDAG tables which are naming after the DataPlatform name. Each instance of the YellowDataPlatform has its own pair of tables.
+
+When the ring 1 bootstrap is run, this generates the factory DAG files. These are copied to the airflow DAGs folder. If a new DataPlatform instance is created then you will need to run the ring 1 bootstrap again and copy the new factory DAG files to the airflow DAGs folder. These factory DAGs run periodically inside the airflow scheduler. When the factory runs, it reads the AirflowDAG and transformerDAG tables and creates the actual DAGs for the streams and transformers.

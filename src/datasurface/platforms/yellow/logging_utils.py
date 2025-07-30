@@ -261,10 +261,10 @@ def log_operation_timing(
         **context: Additional context to include in logs
     """
     start_time = time.time()
-    
+
     # Set operation context
     token = operation_name.set(operation_name_param)
-    
+
     try:
         if isinstance(logger, ContextualLogger):
             logger.info(
@@ -282,11 +282,11 @@ def log_operation_timing(
                     **context
                 }}
             )
-        
+
         yield
-        
+
         duration = time.time() - start_time
-        
+
         if isinstance(logger, ContextualLogger):
             logger.info(
                 f"Operation {operation_name_param} completed successfully",
@@ -307,10 +307,10 @@ def log_operation_timing(
                     **context
                 }}
             )
-            
+
     except Exception as e:
         duration = time.time() - start_time
-        
+
         if isinstance(logger, ContextualLogger):
             logger.exception(
                 f"Operation {operation_name_param} failed",
@@ -375,12 +375,12 @@ def log_startup_info(
         'component': component,
         'timestamp': datetime.utcnow().isoformat() + "Z"
     }
-    
+
     if version:
         startup_data['version'] = version
-        
+
     startup_data.update(context)
-    
+
     if isinstance(logger, ContextualLogger):
         logger.info(f"{component} starting up", **startup_data)
     else:
@@ -403,10 +403,10 @@ def log_health_check(
         'status': status,
         'timestamp': datetime.utcnow().isoformat() + "Z"
     }
-    
+
     if details:
         health_data.update(details)
-    
+
     if isinstance(logger, ContextualLogger):
         logger.info(f"Health check for {component}: {status}", **health_data)
     else:
@@ -432,4 +432,4 @@ def log_warning(message: str, **context: Any) -> None:
 def log_info(message: str, **context: Any) -> None:
     """Log info with level prefix for pod manager visibility (backward compatibility)"""
     logger = logging.getLogger(__name__)
-    logger.info(f"[INFO] {message}", extra={'extra_fields': context}) 
+    logger.info(f"[INFO] {message}", extra={'extra_fields': context})

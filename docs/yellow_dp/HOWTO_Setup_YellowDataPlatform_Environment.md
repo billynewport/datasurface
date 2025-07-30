@@ -126,8 +126,6 @@ ls -la generated_output/YellowForensic/
 **Expected artifacts for each platform:**
 - `kubernetes-bootstrap.yaml` - Kubernetes deployment configuration
 - `{platform}_infrastructure_dag.py` - Platform management DAG
-- `{platform}_factory_dag.py` - Dynamic DAG factory
-- `{platform}_datatransformer_factory_dag.py` - Dynamic DataTransformer DAG factory
 - `{platform}_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
 - `{platform}_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
 
@@ -266,12 +264,8 @@ kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- \
 SCHEDULER_POD=$(kubectl get pods -n ns-yellow-starter -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
 
 # Copy factory DAGs to Airflow
-kubectl cp generated_output/YellowLive/yellowlive_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-kubectl cp generated_output/YellowLive/yellowlive_datatransformer_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 kubectl cp generated_output/YellowLive/yellowlive_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 
-kubectl cp generated_output/YellowForensic/yellowforensic_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-kubectl cp generated_output/YellowForensic/yellowforensic_datatransformer_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 kubectl cp generated_output/YellowForensic/yellowforensic_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 
 # Deploy model merge jobs to populate ingestion stream configurations
@@ -652,11 +646,7 @@ sudo kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- airflow u
 
 # Deploy DAGs and jobs
 SCHEDULER_POD=$(sudo kubectl get pods -n ns-yellow-starter -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
-sudo kubectl cp generated_output/YellowLive/yellowlive_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-sudo kubectl cp generated_output/YellowLive/yellowlive_datatransformer_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 sudo kubectl cp generated_output/YellowLive/yellowlive_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-sudo kubectl cp generated_output/YellowForensic/yellowforensic_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-sudo kubectl cp generated_output/YellowForensic/yellowforensic_datatransformer_factory_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 sudo kubectl cp generated_output/YellowForensic/yellowforensic_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 
 # Deploy model merge and reconcile jobs

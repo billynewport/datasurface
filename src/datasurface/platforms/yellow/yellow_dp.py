@@ -30,6 +30,7 @@ import json
 import sqlalchemy
 from typing import List
 from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
+from sqlalchemy import text
 from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable, datasetToSQLAlchemyTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
@@ -1234,6 +1235,93 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         except Exception as e:
             issueTree.addRaw(UnexpectedExceptionProblem(e))
 
+    def populateFactoryDAGConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
+        """Populate the database with factory DAG configurations for meta-factory creation"""
+
+        # Get database connection
+        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
+        engine = createEngine(self.dp.psp.mergeStore, user, password)
+
+        try:
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
+
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
+
+            # Common context for all factory DAGs (platform-level configuration)
+            common_context: dict[str, Any] = {
+                "namespace_name": self.dp.psp.namespace,
+                "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "original_platform_name": self.dp.name,  # Original platform name for job execution
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
+                "postgres_database": self.dp.psp.mergeStore.databaseName,
+                "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
+                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.postgresCredential.name),
+                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.gitCredential.name),
+                "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
+                "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
+                # Physical table names for factory DAGs to query
+                "phys_dag_table_name": self.dp.getPhysDAGTableName(),
+                "phys_datatransformer_table_name": self.dp.getPhysDataTransformerTableName(),
+                # Git cache configuration variables
+                "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
+                "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
+                "git_cache_storage_size": self.dp.psp.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
+                "git_cache_enabled": self.dp.psp.git_cache_enabled,
+            }
+
+            # Factory DAG configurations to create
+            factory_configs = [
+                {
+                    "platform_name": self.dp.name,
+                    "factory_type": "platform",
+                    "config_json": json.dumps(common_context)
+                },
+                {
+                    "platform_name": self.dp.name,
+                    "factory_type": "datatransformer",
+                    "config_json": json.dumps(common_context)
+                }
+            ]
+
+            # Get table name (use consistent method like other DAG tables)
+            table_name = self.dp.getPhysFactoryDAGTableName()
+
+            # Store configurations in database
+            with engine.begin() as connection:
+                # First, delete all existing records to ensure clean state (same pattern as other methods)
+                connection.execute(text(f"DELETE FROM {table_name}"))
+                logger.info("Cleared existing factory DAG configurations",
+                            table_name=table_name,
+                            platform_name=self.dp.name)
+
+                # Then insert all current configurations
+                for factory_config in factory_configs:
+                    # Insert the new configuration
+                    connection.execute(text(f"""
+                        INSERT INTO {table_name} (platform_name, factory_type, config_json, status, created_at, updated_at)
+                        VALUES (:platform_name, :factory_type, :config_json, 'active', NOW(), NOW())
+                    """), factory_config)
+
+            logger.info("Populated factory DAG configurations",
+                        table_name=table_name,
+                        platform_name=self.dp.name,
+                        config_count=len(factory_configs))
+
+        except Exception as e:
+            issueTree.addRaw(UnexpectedExceptionProblem(e))
+
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages. For this platform it returns a dictionary containing a terraform
@@ -1248,6 +1336,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Populate database with DataTransformer configurations
         self.populateDataTransformerConfigurations(self.graph.eco, issueTree)
+
+        # Populate database with factory DAG configurations
+        self.populateFactoryDAGConfigurations(self.graph.eco, issueTree)
 
         # Generate comprehensive secrets documentation
         secrets_documentation: str = self.generateSecretsDocumentation(self.graph.eco, issueTree)
@@ -1781,6 +1872,10 @@ class YellowDataPlatform(DataPlatform):
         """This returns the name of the DataTransformer DAG table"""
         return self.psp.namingMapper.mapNoun(self.getTableForPlatform("airflow_datatransformer"))
 
+    def getPhysFactoryDAGTableName(self) -> str:
+        """This returns the name of the Factory DAG table"""
+        return self.psp.namingMapper.mapNoun(self.getTableForPlatform("factory_dags"))
+
     def getAirflowDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
@@ -1797,6 +1892,17 @@ class YellowDataPlatform(DataPlatform):
         t: Table = Table(self.getPhysDataTransformerTableName(), MetaData(),
                          Column("workspace_name", sqlalchemy.String(length=255), primary_key=True),
                          Column("config_json", sqlalchemy.String(length=4096)),
+                         Column("status", sqlalchemy.String(length=50)),
+                         Column("created_at", TIMESTAMP()),
+                         Column("updated_at", TIMESTAMP()))
+        return t
+
+    def getFactoryDAGTable(self) -> Table:
+        """This constructs the sqlalchemy table for Factory DAG configurations."""
+        t: Table = Table(self.getPhysFactoryDAGTableName(), MetaData(),
+                         Column("platform_name", sqlalchemy.String(length=255), primary_key=True),
+                         Column("factory_type", sqlalchemy.String(length=50), primary_key=True),
+                         Column("config_json", sqlalchemy.String(length=8192)),
                          Column("status", sqlalchemy.String(length=50)),
                          Column("created_at", TIMESTAMP()),
                          Column("updated_at", TIMESTAMP()))
@@ -1824,11 +1930,7 @@ class YellowDataPlatform(DataPlatform):
             # Load the infrastructure DAG template
             dag_template: Template = env.get_template('infrastructure_dag.py.j2')
 
-            # Load the factory DAG template
-            factory_template: Template = env.get_template('yellow_platform_factory_dag.py.j2')
-
-            # Load the DataTransformer factory DAG template
-            datatransformer_factory_template: Template = env.get_template('datatransformer_factory_dag.py.j2')
+# Factory DAG templates removed - now handled dynamically by infrastructure DAG
 
             # Load the model merge job template
             model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
@@ -1862,12 +1964,12 @@ class YellowDataPlatform(DataPlatform):
                 "airflow_credential_secret_name": self.to_k8s_name(self.psp.postgresCredential.name),  # Airflow uses postgres creds
                 "kafka_cluster_name": self.to_k8s_name(self.psp.kafkaClusterName),
                 "kafka_connect_name": self.to_k8s_name(self.psp.kafkaConnectName),
-                "kafka_connect_credential_secret_name": self.to_k8s_name(self.psp.connectCredentials.name),
                 "kafka_bootstrap_servers": self.psp._getKafkaBootstrapServers(),
                 "datasurface_docker_image": self.psp.datasurfaceDockerImage,
                 "git_credential_secret_name": self.to_k8s_name(self.psp.gitCredential.name),
                 "git_credential_name": self.psp.gitCredential.name,  # Original credential name for job parameter
                 "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
                 "git_repo_branch": gitRepo.branchName,
                 "git_repo_name": gitRepo.repositoryName,
                 "git_repo_owner": git_repo_owner,
@@ -1887,28 +1989,26 @@ class YellowDataPlatform(DataPlatform):
             # Render the templates
             rendered_yaml: str = kubernetes_template.render(context)
             rendered_infrastructure_dag: str = dag_template.render(context)
-            rendered_factory_dag: str = factory_template.render(context)
-            rendered_datatransformer_factory_dag: str = datatransformer_factory_template.render(context)
             rendered_model_merge_job: str = model_merge_template.render(context)
             rendered_ring1_init_job: str = ring1_init_template.render(context)
             rendered_reconcile_views_job: str = reconcile_views_template.render(context)
 
             # Return as dictionary with filename as key
+            # Factory DAG files removed - now handled dynamically by infrastructure DAG
             return {
                 "kubernetes-bootstrap.yaml": rendered_yaml,
                 f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
-                f"{self.to_k8s_name(self.name)}_factory_dag.py": rendered_factory_dag,
-                f"{self.to_k8s_name(self.name)}_datatransformer_factory_dag.py": rendered_datatransformer_factory_dag,
                 f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
                 f"{self.to_k8s_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job,
                 f"{self.to_k8s_name(self.name)}_reconcile_views_job.yaml": rendered_reconcile_views_job
             }
         elif ringLevel == 1:
-            # Create the airflow dsg table and datatransformer table if needed
+            # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
             mergeUser, mergePassword = self.psp.credStore.getAsUserPassword(self.psp.postgresCredential)
             mergeEngine: Engine = createEngine(self.psp.mergeStore, mergeUser, mergePassword)
             createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
             createOrUpdateTable(mergeEngine, self.getDataTransformerDAGTable())
+            createOrUpdateTable(mergeEngine, self.getFactoryDAGTable())
             return {}
         else:
             raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
