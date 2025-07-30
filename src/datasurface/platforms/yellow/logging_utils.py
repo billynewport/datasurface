@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from typing import Dict, Any, Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from contextvars import ContextVar
 import traceback
@@ -30,7 +30,7 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         # Base log entry structure
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",  # ISO format with UTC
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",  # ISO format with UTC
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
