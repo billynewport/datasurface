@@ -7,7 +7,7 @@ from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import LocationKey, VendorKey
 from datasurface.md.repo import GitHubRepository
 from datasurface.md import CloudVendor, DataPlatformPolicy, \
-    DefaultDataPlatform, Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
+    Ecosystem, GovernanceZone, GovernanceZoneDeclaration, DataPlatformKey, \
     InfraStructureLocationPolicy, InfraStructureVendorPolicy, InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 from tests.actionHandlerResources.step3.defineEU_GZ import defineEU_GZ
 from datasurface.platforms.legacy import LegacyDataPlatform
@@ -21,7 +21,6 @@ def createEcosystem() -> Ecosystem:
         LegacyDataPlatform(
             "Azure Platform",
             PlainTextDocumentation("Test")),
-        DefaultDataPlatform(DataPlatformKey("Azure Platform")),
         LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),

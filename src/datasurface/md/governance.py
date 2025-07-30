@@ -1441,35 +1441,6 @@ class DependentWorkspaces(JSONable):
             return False
 
 
-class DefaultDataPlatform(UserDSLObject):
-    def __init__(self, p: 'DataPlatformKey'):
-        UserDSLObject.__init__(self)
-        self.defaultPlatform: 'DataPlatformKey' = p
-
-    def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "defaultPlatform": self.defaultPlatform.name})
-        return rc
-
-    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
-        """Lint just checks the platform exists, the platform will be linted seperatedly"""
-        if (eco.getDataPlatform(self.defaultPlatform.name) is None):
-            tree.addRaw(AttributeNotSet("Default Data Platform not set"))
-        else:
-            dp: Optional['DataPlatform'] = eco.getDataPlatform(self.defaultPlatform.name)
-            if dp is None:
-                tree.addRaw(AttributeNotSet("Default Data Platform not set"))
-
-    def get(self, eco: 'Ecosystem') -> 'DataPlatform':
-        """This returns the default DataPlatform or throws an Exception if it has not been specified"""
-        return eco.getDataPlatformOrThrow(self.defaultPlatform.name)
-
-    def __eq__(self, other: object) -> bool:
-        if (isinstance(other, DefaultDataPlatform)):
-            return self.defaultPlatform == other.defaultPlatform
-        return False
-
-
 class PlatformService(JSONable):
     def __init__(self, name: str):
         JSONable.__init__(self)
@@ -1515,12 +1486,11 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def __init__(self, name: str, repo: Repository,
                  *args: Union[PlatformServicesProvider,
-                              'DataPlatform', Documentation, DefaultDataPlatform,
+                              'DataPlatform', Documentation,
                               InfrastructureVendor, 'GovernanceZoneDeclaration', Repository],
                  platform_services_provider: Optional[PlatformServicesProvider] = None,
                  data_platforms: Optional[list['DataPlatform']] = None,
                  documentation: Optional[Documentation] = None,
-                 default_data_platform: Optional[DefaultDataPlatform] = None,
                  infrastructure_vendors: Optional[list[InfrastructureVendor]] = None,
                  liveRepo: Optional[Repository] = None,
                  governance_zone_declarations: Optional[list['GovernanceZoneDeclaration']] = None) -> None:
@@ -1536,7 +1506,6 @@ class Ecosystem(GitControlledObject, JSONable):
 
         self.vendors: dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.dataPlatforms: dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
-        self.defaultDataPlatform: Optional[DefaultDataPlatform] = None
         self.platformServicesProvider: Optional[PlatformServicesProvider] = None
         self.dsgPlatformMappings: dict[str, DatasetGroupDataPlatformAssignments] = dict[str, DatasetGroupDataPlatformAssignments]()
         self.resetCaches()
@@ -1558,9 +1527,6 @@ class Ecosystem(GitControlledObject, JSONable):
 
             if documentation:
                 self.documentation = documentation
-
-            if default_data_platform:
-                self.defaultDataPlatform = default_data_platform
 
             if infrastructure_vendors:
                 for vendor in infrastructure_vendors:
@@ -1646,14 +1612,13 @@ class Ecosystem(GitControlledObject, JSONable):
     @classmethod
     def create_legacy(cls, name: str, repo: Repository,
                       *args: Union[PlatformServicesProvider,
-                                   'DataPlatform', Documentation, DefaultDataPlatform,
+                                   'DataPlatform', Documentation,
                                    InfrastructureVendor, 'GovernanceZoneDeclaration', Repository]) -> 'Ecosystem':
         """Legacy factory method for backward compatibility with old *args pattern.
         Use this temporarily during migration, then switch to named parameters for better performance."""
         platform_services_provider: Optional[PlatformServicesProvider] = None
         data_platforms: list['DataPlatform'] = []
         documentation: Optional[Documentation] = None
-        default_data_platform: Optional[DefaultDataPlatform] = None
         infrastructure_vendors: list[InfrastructureVendor] = []
         governance_zone_declarations: list['GovernanceZoneDeclaration'] = []
 
@@ -1666,8 +1631,6 @@ class Ecosystem(GitControlledObject, JSONable):
                 documentation = arg
             elif isinstance(arg, DataPlatform):
                 data_platforms.append(arg)
-            elif isinstance(arg, DefaultDataPlatform):
-                default_data_platform = arg
             elif isinstance(arg, Repository):
                 liveRepo = arg
             else:
@@ -1680,7 +1643,6 @@ class Ecosystem(GitControlledObject, JSONable):
             platform_services_provider=platform_services_provider,
             data_platforms=data_platforms if data_platforms else None,
             documentation=documentation,
-            default_data_platform=default_data_platform,
             infrastructure_vendors=infrastructure_vendors if infrastructure_vendors else None,
             governance_zone_declarations=governance_zone_declarations if governance_zone_declarations else None,
             liveRepo=liveRepo
@@ -1763,7 +1725,7 @@ class Ecosystem(GitControlledObject, JSONable):
             with open(os.path.join(folder, key), "w") as f:
                 f.write(value)
 
-    def add(self, *args: Union[PlatformServicesProvider, 'DataPlatform', DefaultDataPlatform,
+    def add(self, *args: Union[PlatformServicesProvider, 'DataPlatform',
                                Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration', Repository]) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
@@ -1778,11 +1740,6 @@ class Ecosystem(GitControlledObject, JSONable):
                 self.dataPlatforms[arg.name] = arg
             elif isinstance(arg, Repository):
                 self.liveRepo = arg
-            elif isinstance(arg, DefaultDataPlatform):
-                if (self.defaultDataPlatform is not None):
-                    raise AttributeAlreadySetException("Default DataPlatform already specified")
-                else:
-                    self.defaultDataPlatform = arg
             else:
                 self.zones.addAuthorization(arg)
                 arg.key = GovernanceZoneKey(self.key, arg.name)
@@ -1791,13 +1748,6 @@ class Ecosystem(GitControlledObject, JSONable):
     def resetKey(self) -> None:
         for vendor in self.vendors.values():
             vendor.setEcosystem(self.key)
-
-    def getDefaultDataPlatform(self) -> 'DataPlatform':
-        """This returns the default DataPlatform or throws an Exception if it has not been specified"""
-        if (self.defaultDataPlatform):
-            return self.defaultDataPlatform.get(self)
-        else:
-            raise Exception("No default data platform specified")
 
     def getVendor(self, name: str) -> Optional[InfrastructureVendor]:
         return self.vendors.get(name)
@@ -1945,9 +1895,6 @@ class Ecosystem(GitControlledObject, JSONable):
         if (self.documentation):
             self.documentation.lint(ecoTree)
 
-        if (self.defaultDataPlatform is not None):
-            self.defaultDataPlatform.lint(self, ecoTree)
-
         # If there are no errors at this point then
         # Generate pipeline graphs and lint them.
         # This will ask each DataPlatform to verify that it
@@ -2009,7 +1956,6 @@ class Ecosystem(GitControlledObject, JSONable):
             rc = rc and self.key == proposed.key
             rc = rc and self.vendors == proposed.vendors
             rc = rc and self.dataPlatforms == proposed.dataPlatforms
-            rc = rc and self.defaultDataPlatform == proposed.defaultDataPlatform
             rc = rc and self.platformServicesProvider == proposed.platformServicesProvider
             rc = rc and self.dsgPlatformMappings == proposed.dsgPlatformMappings
             rc = rc and self.liveRepo == proposed.liveRepo
@@ -2043,10 +1989,6 @@ class Ecosystem(GitControlledObject, JSONable):
                 if self.dsgPlatformMappings != proposed.dsgPlatformMappings:
                     tree.addRaw(UnauthorizedAttributeChange("dsgPlatformMappings", self.dsgPlatformMappings,
                                                             proposed.dsgPlatformMappings, ProblemSeverity.ERROR))
-                    rc = False
-                if self.defaultDataPlatform != proposed.defaultDataPlatform:
-                    tree.addRaw(UnauthorizedAttributeChange("defaultDataPlatformn", self.defaultDataPlatform,
-                                                            proposed.defaultDataPlatform, ProblemSeverity.ERROR))
                     rc = False
             return rc
         else:
@@ -3016,8 +2958,7 @@ class WorkspacePlatformConfig(DataPlatformChooser):
 
     def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         """For now, just return default"""
-        # TODO This should evaluate the parameters provide and choose the 'best' DataPlatform
-        return eco.getDefaultDataPlatform()
+        return None
 
     def __str__(self) -> str:
         return f"WorkspacePlatformConfig({self.retention})"
@@ -3326,9 +3267,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         if (self.platformMD):
             # PlatformChooser needs to choose a platform and that platform must perfectly match the same named platform in the Ecosystem
             platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
-            if (platform is None):
-                tree.addProblem("DSG doesnt choose a dataplatform")
-            else:
+            if (platform is not None):
                 ecoPlat: Optional[DataPlatform] = eco.dataPlatforms.get(platform.name)
                 if (ecoPlat is None):
                     tree.addRaw(UnknownObjectReference(f"DataPlatform {platform.name} is not in the Ecosystem", ProblemSeverity.ERROR))

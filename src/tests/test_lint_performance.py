@@ -4,7 +4,7 @@
 """
 import unittest
 
-from datasurface.md import Ecosystem, DefaultDataPlatform, DataPlatformKey, GovernanceZoneDeclaration, \
+from datasurface.md import Ecosystem, GovernanceZoneDeclaration, \
                            InfrastructureVendor, CloudVendor, InfrastructureLocation, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset, \
                            DDLColumn, DDLTable, PrimaryKeyStatus
 from datasurface.md.repo import GitHubRepository
@@ -51,9 +51,6 @@ class TestLintPerformance(unittest.TestCase):
             LegacyDataPlatform(
                 "LegacyA",
                 PlainTextDocumentation("Test")),
-
-            # Data Platforms
-            DefaultDataPlatform(DataPlatformKey("LegacyA")),
 
             # GovernanceZones
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),

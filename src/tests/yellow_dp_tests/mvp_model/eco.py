@@ -9,8 +9,7 @@ from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
 from datasurface.platforms.yellow import YellowDataPlatform, YellowMilestoneStrategy, YellowPlatformServiceProvider
-from datasurface.md import CloudVendor, DefaultDataPlatform, \
-        DataPlatformKey, WorkspacePlatformConfig
+from datasurface.md import CloudVendor, WorkspacePlatformConfig
 from datasurface.md import ValidationTree
 from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType, \
     ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency
@@ -58,7 +57,6 @@ def createEcosystem() -> Ecosystem:
                 milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
                 )
         ],
-        default_data_platform=DefaultDataPlatform(DataPlatformKey("YellowLive")),
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],

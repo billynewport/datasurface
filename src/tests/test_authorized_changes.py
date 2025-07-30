@@ -10,10 +10,10 @@ import unittest
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
 
-from datasurface.md import CloudVendor, DefaultDataPlatform, Ecosystem, \
+from datasurface.md import CloudVendor, Ecosystem, \
     GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
-from datasurface.md import UnknownChangeSource, ValidationTree, DataPlatformKey
+from datasurface.md import UnknownChangeSource, ValidationTree
 import tests.nwdb.eco
 import tests.nwdb.nwdb
 from datasurface.platforms.legacy import LegacyDataPlatform
@@ -129,7 +129,6 @@ class TestEcoNameChange(unittest.TestCase):
                         InfrastructureLocation("West US"),  # California
                         InfrastructureLocation("West US 2"),  # Washington
                         InfrastructureLocation("West US 3")))),  # Arizona
-                DefaultDataPlatform(DataPlatformKey("AzureBatch")),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
 
@@ -162,7 +161,6 @@ class TestEcoNameChange(unittest.TestCase):
                         InfrastructureLocation("West US"),  # California
                         InfrastructureLocation("West US 2"),  # Washington
                         InfrastructureLocation("West US 3")))),  # Arizona
-                DefaultDataPlatform(DataPlatformKey("AzureBatch")),
                 GovernanceZoneDeclaration("GZ", GitHubRepository("billynewport/test-surface", "gz_edits"))
             )
         gz: GovernanceZone = eProposed.getZoneOrThrow("GZ")

@@ -9,8 +9,8 @@ from datasurface.md import Ecosystem, LocationKey
 from datasurface.platforms.legacy import LegacyDataPlatform
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
-from datasurface.md import CloudVendor, DefaultDataPlatform, InfraStructureLocationPolicy, \
-        DataPlatformKey, DataPlatformChooser
+from datasurface.md import CloudVendor, InfraStructureLocationPolicy, \
+        DataPlatformChooser
 from datasurface.md import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
@@ -26,7 +26,6 @@ def createEcosystem() -> Ecosystem:
                 "LegacyA",
                 PlainTextDocumentation("Test"))
         ],
-        default_data_platform=DefaultDataPlatform(DataPlatformKey("LegacyA")),
         liveRepo=GitHubRepository("billynewport/repo", "EcoLive"),
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
@@ -114,7 +113,7 @@ def createEcosystem() -> Ecosystem:
         PlainTextDocumentation("This is a legacy application that is managed by the LegacyApplicationTeam"),
         set()
     )
-    defineNWTeamWorkspaces(ecosys, nw_team, {LocationKey("MyCorp:USA/NY_1")}, chooser)
+    defineNWTeamWorkspaces(ecosys, nw_team, {LocationKey("MyCorp:USA/NY_1")}, chooser, ecosys.getDataPlatformOrThrow("LegacyA"))
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
     if (tree.hasErrors()):

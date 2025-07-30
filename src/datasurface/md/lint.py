@@ -109,7 +109,7 @@ class UserDSLObject(ValidatableObject, JSONable):
         """This returns a string representing where this object was first constructed"""
         if self._source_ref_cache is None:
             # Lazy computation and caching of the string
-            self._source_ref_cache = f"{self.__class__.__name__}@{self._file_name}::{self._line_number}"
+            self._source_ref_cache = f"{self}@{self._file_name}::{self._line_number}"
         return self._source_ref_cache
 
     def __eq__(self, other: object) -> bool:

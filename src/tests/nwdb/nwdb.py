@@ -13,7 +13,6 @@ from datasurface.md import CDCCaptureIngestion, CronTrigger, LocationKey, \
 from datasurface.md.governance import DSGDataPlatformAssignment, DatasetGroupDataPlatformAssignments, DatasetGroupDataPlatformMappingStatus, ProductionStatus
 from datasurface.md.governance import DeprecationsAllowed
 from datasurface.md import DataContainer
-from typing import Optional
 
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md.schema import DDLColumn, DDLTable, NullableStatus, PrimaryKeyStatus
@@ -242,11 +241,8 @@ def defineTables(eco: Ecosystem, gz: GovernanceZone, t: Team):
     )
 
 
-def addDSGPlatformMappingForWorkspace(eco: Ecosystem, workspace: Workspace, dsg: DatasetGroup):
+def addDSGPlatformMappingForWorkspace(eco: Ecosystem, workspace: Workspace, dsg: DatasetGroup, dp: DataPlatform):
     """Add a DSG platform mapping for a workspace/dsg pair, gets set to the current chooser for the dsg"""
-    dp: Optional[DataPlatform] = dsg.platformMD.choooseDataPlatform(eco)
-    if dp is None:
-        raise Exception(f"No data platform found for {dsg.name}")
     if eco.dsgPlatformMappings.get(f"{workspace.name}#{dsg.name}") is None:
         eco.dsgPlatformMappings[f"{workspace.name}#{dsg.name}"] = DatasetGroupDataPlatformAssignments(
             workspace=workspace.name,
@@ -272,7 +268,7 @@ def addDSGPlatformMappingForWorkspace(eco: Ecosystem, workspace: Workspace, dsg:
                 deprecationsAllowed=DeprecationsAllowed.NEVER, status=DatasetGroupDataPlatformMappingStatus.PROVISIONED))
 
 
-def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], chooser: DataPlatformChooser):
+def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], chooser: DataPlatformChooser, dp: DataPlatform):
     """Create a Workspace and an asset if a location is provided"""
 
     # Warehouse for Workspaces
@@ -291,7 +287,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
             ]
         ))
     t.add(w)
-    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["LiveProducts"])
+    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["LiveProducts"], dp)
 
     # Define Workspace with Refiner to mask customer table
     # This is a DataTransformer that uses NW_Data#customers as its input and produces
@@ -342,4 +338,4 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
             ]
         ))
     t.add(w)
-    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["UseMaskedCustomers"])
+    addDSGPlatformMappingForWorkspace(eco, w, w.dsgs["UseMaskedCustomers"], dp)

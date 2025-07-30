@@ -6,9 +6,9 @@
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
 from datasurface.md import LocationKey
-from datasurface.md import CloudVendor, DefaultDataPlatform, Ecosystem, GovernanceZone, \
+from datasurface.md import CloudVendor, Ecosystem, GovernanceZone, \
     GovernanceZoneDeclaration, InfraStructureLocationPolicy, \
-    InfrastructureLocation, InfrastructureVendor, TeamDeclaration, DataPlatformKey
+    InfrastructureLocation, InfrastructureVendor, TeamDeclaration
 from datasurface.platforms.legacy import LegacyDataPlatform
 
 # Base branch for step 1, define an Ecosystem, data platforms, infrastructure vendors/locations and 3 Governance Zones
@@ -21,7 +21,6 @@ def createEcosystem() -> Ecosystem:
         LegacyDataPlatform(
             "Azure Platform",
             PlainTextDocumentation("Test")),
-        DefaultDataPlatform(DataPlatformKey("Azure Platform")),
         LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),

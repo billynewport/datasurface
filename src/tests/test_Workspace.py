@@ -15,7 +15,7 @@ from datetime import timedelta
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository, FakeRepository
 from datasurface.md import CDCCaptureIngestion, CloudVendor, DataTransformerOutput, \
-    DatastoreCacheEntry, DefaultDataPlatform, DependentWorkspaces, DataPlatformKey, \
+    DatastoreCacheEntry, DependentWorkspaces, \
     DeprecationStatus, DeprecationsAllowed, InfrastructureLocation, InfrastructureVendor, IngestionConsistencyType, ProductionStatus
 from datasurface.md import ValidationTree
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
@@ -554,7 +554,6 @@ class TestWorkspace(unittest.TestCase):
                 LegacyDataPlatform(
                     "Azure",
                     PlainTextDocumentation("Test")),
-                DefaultDataPlatform(DataPlatformKey("Azure")),
                 InfrastructureVendor(
                     "Azure",
                     CloudVendor.AWS,

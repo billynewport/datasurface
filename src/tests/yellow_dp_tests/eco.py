@@ -10,8 +10,7 @@ from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
 from datasurface.platforms.yellow import YellowDataPlatform, YellowMilestoneStrategy, YellowPlatformServiceProvider
-from datasurface.md import CloudVendor, DefaultDataPlatform, \
-        DataPlatformKey, WorkspacePlatformConfig
+from datasurface.md import CloudVendor, WorkspacePlatformConfig
 from datasurface.md import ValidationTree
 from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType, \
     ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency
@@ -19,6 +18,7 @@ from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKe
 from datasurface.md.types import VarChar, Date
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase, DataPlatformManagedDataContainer
+from tests.nwdb.nwdb import addDSGPlatformMappingForWorkspace
 
 
 def createEcosystem() -> Ecosystem:
@@ -49,7 +49,6 @@ def createEcosystem() -> Ecosystem:
                 platformServiceProvider=psp,
                 milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY)
         ],
-        default_data_platform=DefaultDataPlatform(DataPlatformKey("Test_DP")),
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],
@@ -141,6 +140,10 @@ def createEcosystem() -> Ecosystem:
             )
         )
     )
+
+    ecosys.lintAndHydrateCaches()
+    workspace: Workspace = ecosys.cache_getWorkspaceOrThrow("Consumer1").workspace
+    addDSGPlatformMappingForWorkspace(ecosys, workspace, workspace.dsgs["TestDSG"], ecosys.getDataPlatformOrThrow("Test_DP"))
 
     tree: ValidationTree = ecosys.lintAndHydrateCaches()
     if (tree.hasErrors()):
