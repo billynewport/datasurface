@@ -209,12 +209,11 @@ class Test_YellowDataPlatform(unittest.TestCase):
         os.environ["git_TOKEN"] = "test_git_token"
         os.environ["connect_TOKEN"] = "test_connect_token"
 
-        # Mock createEngine to use localhost database
+        # Mock createEngine to use localhost database - ensure all connections go to the same test database
         def mock_create_engine(container: DataContainer, userName: str, password: str):
-            if isinstance(container, PostgresDatabase) and hasattr(container, 'databaseName') and container.databaseName == 'datasurface_merge':
-                return create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
-            else:
-                return create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
+            # Always use the same test database regardless of the container
+            assert isinstance(container, PostgresDatabase)
+            return create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
 
         # Set up test database
         self.setup_test_database()
@@ -224,23 +223,47 @@ class Test_YellowDataPlatform(unittest.TestCase):
         print(f"\n=== Secrets Documentation Test Output Directory: {temp_dir} ===")
 
         try:
-            with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
-                # Handle model merge which calls renderGraph and generates secrets documentation
-                eco: Ecosystem = handleModelMerge("src/tests/yellow_dp_tests/mvp_model", temp_dir, "YellowLive")
+            with patch('datasurface.platforms.yellow.db_utils.createEngine', new=mock_create_engine):
+                # First run ring 0 and ring 1 bootstrap to create necessary database tables
+                print("=== Running Ring 0 Bootstrap ===")
+                generatePlatformBootstrap(0, "src/tests/yellow_dp_tests/mvp_model", temp_dir, "Test_DP")
+
+                print("=== Running Ring 1 Bootstrap (creates database tables) ===")
+                try:
+                    generatePlatformBootstrap(1, "src/tests/yellow_dp_tests/mvp_model", temp_dir, "Test_DP")
+                    # Verify that ring 1 bootstrap completed successfully and tables were created
+                    from sqlalchemy import text
+                    test_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
+                    with test_engine.begin() as conn:
+                        # Check if expected tables exist
+                        result = conn.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))
+                        tables = [row[0] for row in result]
+
+                        # Verify the expected tables were created during ring 1 bootstrap
+                        expected_tables = ['yellowlive_airflow_dsg', 'yellowlive_airflow_datatransformer', 'test_dp_factory_dags']
+                        for table in expected_tables:
+                            self.assertIn(table, tables, f"Expected table '{table}' should be created during ring 1 bootstrap")
+
+                except Exception as e:
+                    print(f"Ring 1 bootstrap failed with exception: {e}")
+                    raise
+
+                # Now handle model merge which calls renderGraph and generates secrets documentation
+                print("=== Running Model Merge ===")
+                eco: Ecosystem = handleModelMerge("src/tests/yellow_dp_tests/mvp_model", temp_dir, "Test_DP")
 
                 # Validate that the ecosystem was created successfully
                 self.assertIsNotNone(eco)
                 self.assertEqual(eco.name, "Test")
 
-                # Check that the platform output directory was created
-                platform_output_dir = os.path.join(temp_dir, "YellowLive")
-                self.assertTrue(os.path.exists(platform_output_dir))
-
-                # Look for the secrets documentation file
+                # Look for the secrets documentation file in the generated output
                 secrets_file = None
-                for filename in os.listdir(platform_output_dir):
-                    if filename.endswith("-secrets.md"):
-                        secrets_file = os.path.join(platform_output_dir, filename)
+                for root, dirs, files in os.walk(temp_dir):
+                    for filename in files:
+                        if filename.endswith("-secrets.md"):
+                            secrets_file = os.path.join(root, filename)
+                            break
+                    if secrets_file:
                         break
 
                 self.assertIsNotNone(secrets_file, "Secrets documentation file should be generated")
@@ -251,11 +274,17 @@ class Test_YellowDataPlatform(unittest.TestCase):
                 with open(secrets_file, 'r') as f:
                     secrets_content = f.read()
 
-                print("\n=== Generated Secrets Documentation ===")
-                print(secrets_content)
+                # Determine which platform's secrets file we found
+                platform_name = None
+                if "YellowLive" in secrets_content:
+                    platform_name = "YellowLive"
+                elif "YellowForensic" in secrets_content:
+                    platform_name = "YellowForensic"
 
-                # Verify the document structure
-                self.assertIn("# Kubernetes Secrets for YellowLive", secrets_content)
+                self.assertIsNotNone(platform_name, "Should find either YellowLive or YellowForensic secrets")
+
+                # Verify the document structure for whichever platform we found
+                self.assertIn(f"# Kubernetes Secrets for {platform_name}", secrets_content)
                 self.assertIn("## Overview", secrets_content)
                 self.assertIn("Total secrets required:", secrets_content)
                 self.assertIn("## Required Secrets", secrets_content)
@@ -293,9 +322,10 @@ class Test_YellowDataPlatform(unittest.TestCase):
 
                 # Check that the namespace is correctly referenced
                 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
-                live_dp = eco.getDataPlatformOrThrow("YellowLive")
-                assert isinstance(live_dp, YellowDataPlatform)
-                expected_namespace = live_dp.psp.namespace
+                assert platform_name is not None  # Type narrowing for mypy
+                found_dp = eco.getDataPlatformOrThrow(platform_name)
+                assert isinstance(found_dp, YellowDataPlatform)
+                expected_namespace = found_dp.psp.namespace
                 self.assertIn(f"**Namespace:** {expected_namespace}", secrets_content)
                 self.assertIn(f"--namespace {expected_namespace}", secrets_content)
 

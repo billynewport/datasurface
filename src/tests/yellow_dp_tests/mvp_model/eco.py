@@ -25,7 +25,7 @@ def createEcosystem() -> Ecosystem:
 
     merge_datacontainer: PostgresDatabase = PostgresDatabase(
         "MergeDB",
-        hostPort=HostPortPair("pg-data.ns-kub-pg-test.svc.cluster.local", 5432),
+        hostPort=HostPortPair("localhost", 5432),
         locations={LocationKey("MyCorp:USA/NY_1")},
         databaseName="datasurface_merge"
     )
