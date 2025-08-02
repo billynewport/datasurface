@@ -1,0 +1,202 @@
+# Kafka Cluster Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_cluster_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_cluster_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_cluster_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_cluster_name }}
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          ports:
+            - containerPort: 9092
+            - containerPort: 9093
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "{{ kafka_cluster_name }}-zookeeper-service.{{ namespace_name }}.svc.cluster.local:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ kafka_cluster_name }}-service.{{ namespace_name }}.svc.cluster.local:9092,PLAINTEXT_HOST://localhost:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_cluster_name }}-service
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ kafka_cluster_name }}
+  ports:
+    - protocol: TCP
+      port: 9092
+      targetPort: 9092
+      name: kafka
+---
+# Zookeeper Deployment (required for Kafka)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_cluster_name }}-zookeeper
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_cluster_name }}-zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_cluster_name }}-zookeeper
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_cluster_name }}-zookeeper
+    spec:
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.5.0
+          ports:
+            - containerPort: 2181
+          env:
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: ZOOKEEPER_TICK_TIME
+              value: "2000"
+            - name: ZOOKEEPER_SERVER_ID
+              value: "1"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+# Zookeeper Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_cluster_name }}-zookeeper-service
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ kafka_cluster_name }}-zookeeper
+  ports:
+    - protocol: TCP
+      port: 2181
+      targetPort: 2181
+---
+# Kafka Connect Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_connect_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ kafka_connect_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ kafka_connect_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ kafka_connect_name }}
+    spec:
+      containers:
+        - name: kafka-connect
+          image: confluentinc/cp-kafka-connect:7.5.0
+          ports:
+            - containerPort: 8083
+          envFrom:
+            - secretRef:
+                name: {{ kafka_connect_credential_secret_name }}
+          env:
+            - name: CONNECT_BOOTSTRAP_SERVERS
+              value: "{{ kafka_bootstrap_servers }}"
+            - name: CONNECT_REST_ADVERTISED_HOST_NAME
+              value: "{{ kafka_connect_name }}.{{ namespace_name }}.svc.cluster.local"
+            - name: CONNECT_REST_PORT
+              value: "8083"
+            - name: CONNECT_GROUP_ID
+              value: "{{ kafka_connect_name }}-group"
+            - name: CONNECT_CONFIG_STORAGE_TOPIC
+              value: "{{ kafka_connect_name }}-configs"
+            - name: CONNECT_OFFSET_STORAGE_TOPIC
+              value: "{{ kafka_connect_name }}-offsets"
+            - name: CONNECT_STATUS_STORAGE_TOPIC
+              value: "{{ kafka_connect_name }}-status"
+            - name: CONNECT_KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_INTERNAL_KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_INTERNAL_VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_PLUGIN_PATH
+              value: "/usr/share/java,/usr/share/confluent-hub-components"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+---
+# Kafka Connect Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_connect_name }}-service
+  namespace: {{ namespace_name }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: {{ kafka_connect_name }}
+  ports:
+    - protocol: TCP
+      port: 8083
+      targetPort: 8083
+---

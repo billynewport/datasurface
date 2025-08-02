@@ -36,19 +36,18 @@ def createEcosystem() -> Ecosystem:
             "Test_DB",  # Model name for database
             hostPort=HostPortPair("localhost", 5432),  # Host and port for database
             locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
-            databaseName="test_db"  # Database name
-        )
-    )
-    ecosys: Ecosystem = Ecosystem(
-        name="Test",
-        repo=GitHubRepository("billynewport/repo", "ECOmain"),
-        data_platforms=[
+            databaseName="test_db"),  # Database name
+        dataPlatforms=[
             YellowDataPlatform(
                 name="Test_DP",
                 doc=PlainTextDocumentation("Test"),
-                platformServiceProvider=psp,
                 milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY)
-        ],
+            ]
+        )
+    ecosys: Ecosystem = Ecosystem(
+        name="Test",
+        repo=GitHubRepository("billynewport/repo", "ECOmain"),
+        platform_services_providers=[psp],
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],

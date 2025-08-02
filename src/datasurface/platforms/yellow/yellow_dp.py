@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ecosystem, ValidationTree, CloudVendor, DataContainer, \
-    PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase, MySQLDatabase, OracleDatabase, SQLServerDatabase
+    PlatformPipelineGraph, DataPlatformGraphHandler, PostgresDatabase, MySQLDatabase, OracleDatabase, SQLServerDatabase, EcosystemPipelineGraph
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
@@ -35,7 +35,7 @@ from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable, datasetToSQLAlchemyTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
 from pydantic import BaseModel, Field
-from abc import ABC
+from abc import ABC, abstractmethod
 import hashlib
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
 from datasurface.platforms.yellow.logging_utils import (
@@ -785,136 +785,13 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     dsgTree.addRaw(AttributeNotSet("platformMD"))
 
         # Check CodeArtifacts on DataTransformer nodes are compatible with the PSP on the Ecosystem
-        if eco.platformServicesProvider is not None:
+        # TODO This is wrong
+        for psp in eco.platformServicesProviders:
             for node in self.graph.nodes.values():
                 if isinstance(node, DataTransformerNode):
                     if node.workspace.dataTransformer is not None:
                         dt: DataTransformer = node.workspace.dataTransformer
                         dt.code.lint(eco, tree)
-
-    def createAirflowDAGs(self, eco: Ecosystem, issueTree: ValidationTree) -> dict[str, str]:
-        """This creates individual AirFlow DAGs for each ingestion stream.
-        Each DAG runs the SnapshotMergeJob and handles the return code to decide whether to
-        reschedule immediately, wait for next trigger, or fail."""
-
-        # Create Jinja2 environment
-        env: Environment = Environment(
-            loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
-            autoescape=select_autoescape(['html', 'xml'])
-        )
-
-        # Load the ingestion stream DAG template
-        dag_template: Template = env.get_template('ingestion_stream_dag.py.j2')
-
-        # Build the ingestion_streams context from the graph
-        ingestion_streams: list[dict[str, Any]] = []
-
-        for storeName in self.graph.storesToIngest:
-            try:
-                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
-                store: Datastore = storeEntry.datastore
-
-                if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion)):
-                    # Determine if this is single or multi dataset ingestion
-                    is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
-
-                    if is_single_dataset:
-                        # For single dataset, create a separate entry for each dataset
-                        for dataset in store.datasets.values():
-                            stream_key = f"{storeName}_{dataset.name}"
-                            ingestion_streams.append({
-                                "stream_key": stream_key,
-                                "single_dataset": True,
-                                "datasets": [dataset.name],
-                                "store_name": storeName,
-                                "dataset_name": dataset.name,
-                                "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
-                            })
-                    else:
-                        # For multi dataset, create one entry for the entire store
-                        ingestion_streams.append({
-                            "stream_key": storeName,
-                            "single_dataset": False,
-                            "datasets": [dataset.name for dataset in store.datasets.values()],
-                            "store_name": storeName,
-                            "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot"
-                        })
-                elif isinstance(store.cmd, DataTransformerOutput):
-                    # DataTransformerOutput doesn't need Kafka infrastructure
-                    continue
-                else:
-                    issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
-                    continue
-
-            except ObjectDoesntExistException:
-                issueTree.addRaw(UnknownObjectReference(storeName, ProblemSeverity.ERROR))
-                continue
-
-        # Generate individual DAGs for each ingestion stream
-        dag_files: dict[str, str] = {}
-
-        try:
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
-
-            # Extract git repository owner and name from the full repository name
-            git_repo_parts = gitRepo.repositoryName.split('/')
-            if len(git_repo_parts) != 2:
-                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
-            git_repo_owner, git_repo_name = git_repo_parts
-
-            # Common context for all DAGs
-            common_context: dict[str, Any] = {
-                "namespace_name": self.dp.psp.namespace,
-                "platform_name": self.dp.to_k8s_name(self.dp.name),
-                "original_platform_name": self.dp.name,  # Original platform name for job execution
-                "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
-                "postgres_database": self.dp.psp.mergeStore.databaseName,
-                "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.postgresCredential.name),
-                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.gitCredential.name),
-                "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
-                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                "git_repo_branch": gitRepo.branchName,
-                "git_repo_name": gitRepo.repositoryName,
-                "git_repo_owner": git_repo_owner,
-                "git_repo_repo_name": git_repo_name,
-                # Git cache configuration variables
-                "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
-                "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
-                "git_cache_storage_size": self.dp.psp.git_cache_storage_size,
-                "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
-                "git_cache_enabled": self.dp.psp.git_cache_enabled,
-            }
-
-            # Generate a DAG for each ingestion stream
-            for stream in ingestion_streams:
-                # Add credential information for this stream
-                storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(stream["store_name"])
-                store: Datastore = storeEntry.datastore
-
-                if stream["ingestion_type"] == "kafka":
-                    stream["kafka_connect_credential_secret_name"] = self.dp.to_k8s_name(self.dp.psp.connectCredentials.name)
-                elif stream["ingestion_type"] == "sql_snapshot":
-                    # For SQL snapshot ingestion, we need the source database credentials
-                    if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
-                        stream["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
-
-                # Create context for this specific stream
-                stream_context = common_context.copy()
-                stream_context.update(stream)  # Add stream properties directly to context
-
-                # Render the DAG for this stream
-                dag_content: str = dag_template.render(stream_context)
-                dag_filename = f"{self.dp.to_k8s_name(self.dp.name)}__{stream['stream_key']}_ingestion.py"
-                dag_files[dag_filename] = dag_content
-
-            return dag_files
-
-        except Exception as e:
-            issueTree.addRaw(UnexpectedExceptionProblem(e))
-            return {}
 
     def getScheduleStringForTrigger(self, trigger: StepTrigger) -> str:
         """This returns the schedule string for a trigger"""
@@ -934,7 +811,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
         engine = createEngine(self.dp.psp.mergeStore, user, password)
 
-        # Build the ingestion_streams context from the graph (same logic as createAirflowDAGs)
+        # Build the ingestion_streams context from the graph
         ingestion_streams: list[dict[str, Any]] = []
 
         for storeName in self.graph.storesToIngest:
@@ -963,11 +840,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                             # Add credential information for this stream
                             if stream_config["ingestion_type"] == "kafka":
-                                stream_config["kafka_connect_credential_secret_name"] = self.dp.to_k8s_name(self.dp.psp.connectCredentials.name)
+                                stream_config["kafka_connect_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(
+                                    self.dp.psp.connectCredentials.name)
                             elif stream_config["ingestion_type"] == "sql_snapshot":
                                 # For SQL snapshot ingestion, we need the source database credentials
                                 if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
-                                    stream_config["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
+                                    stream_config["source_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
 
                             ingestion_streams.append(stream_config)
                     else:
@@ -983,11 +861,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                         # Add credential information for this stream
                         if stream_config["ingestion_type"] == "kafka":
-                            stream_config["kafka_connect_credential_secret_name"] = self.dp.to_k8s_name(self.dp.psp.connectCredentials.name)
+                            stream_config["kafka_connect_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(
+                                self.dp.psp.connectCredentials.name)
                         elif stream_config["ingestion_type"] == "sql_snapshot":
                             # For SQL snapshot ingestion, we need the source database credentials
                             if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
-                                stream_config["source_credential_secret_name"] = self.dp.to_k8s_name(store.cmd.credential.name)
+                                stream_config["source_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
 
                         ingestion_streams.append(stream_config)
                 elif isinstance(store.cmd, DataTransformerOutput):
@@ -1013,15 +892,15 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             # Common context for all streams (platform-level configuration)
             common_context: dict[str, Any] = {
                 "namespace_name": self.dp.psp.namespace,
-                "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "platform_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.name),
                 "original_platform_name": self.dp.name,  # Original platform name for job execution
                 "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                "ecosystem_k8s_name": YellowPlatformServiceProvider.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                 "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.dp.psp.mergeStore.databaseName,
                 "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.postgresCredential.name),
-                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.gitCredential.name),
+                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.postgresCredential.name),
+                "git_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.gitCredential.name),
                 "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
                 "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
                 "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
@@ -1116,11 +995,11 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                                     stream_key = sink.storeName
 
                                 # Regular ingestion DAG naming pattern
-                                dag_id = f"{self.dp.to_k8s_name(self.dp.name)}__{stream_key}_ingestion"
+                                dag_id = f"{YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}__{stream_key}_ingestion"
 
                             elif isinstance(store.cmd, DataTransformerOutput):
                                 # DataTransformer output store - use dt_ingestion naming pattern
-                                dag_id = f"{self.dp.to_k8s_name(self.dp.name)}__{sink.storeName}_dt_ingestion"
+                                dag_id = f"{YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}__{sink.storeName}_dt_ingestion"
 
                             else:
                                 # Unsupported store type, skip
@@ -1145,7 +1024,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                     assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
                     if workspace.dataTransformer.code.repo.credential is not None:
-                        dt_config["git_credential_secret_name"] = self.dp.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
+                        dt_config["git_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
 
                     # Add schedule information if DataTransformer has a trigger
                     if workspace.dataTransformer.trigger is not None:
@@ -1174,15 +1053,15 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             # Common context for all DataTransformers (platform-level configuration)
             common_context: dict[str, Any] = {
                 "namespace_name": self.dp.psp.namespace,
-                "platform_name": self.dp.to_k8s_name(self.dp.name),
+                "platform_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.name),
                 "original_platform_name": self.dp.name,  # Original platform name for job execution
                 "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                "ecosystem_k8s_name": YellowPlatformServiceProvider.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                 "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
                 "postgres_database": self.dp.psp.mergeStore.databaseName,
                 "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.postgresCredential.name),
-                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.gitCredential.name),
+                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.postgresCredential.name),
+                "git_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.gitCredential.name),
                 "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
                 "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
                 "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
@@ -1235,93 +1114,6 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         except Exception as e:
             issueTree.addRaw(UnexpectedExceptionProblem(e))
 
-    def populateFactoryDAGConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
-        """Populate the database with factory DAG configurations for meta-factory creation"""
-
-        # Get database connection
-        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
-        engine = createEngine(self.dp.psp.mergeStore, user, password)
-
-        try:
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
-
-            # Extract git repository owner and name from the full repository name
-            git_repo_parts = gitRepo.repositoryName.split('/')
-            if len(git_repo_parts) != 2:
-                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
-            git_repo_owner, git_repo_name = git_repo_parts
-
-            # Common context for all factory DAGs (platform-level configuration)
-            common_context: dict[str, Any] = {
-                "namespace_name": self.dp.psp.namespace,
-                "platform_name": self.dp.to_k8s_name(self.dp.name),
-                "original_platform_name": self.dp.name,  # Original platform name for job execution
-                "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": self.dp.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
-                "postgres_database": self.dp.psp.mergeStore.databaseName,
-                "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.postgresCredential.name),
-                "git_credential_secret_name": self.dp.to_k8s_name(self.dp.psp.gitCredential.name),
-                "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
-                "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
-                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                "git_repo_branch": gitRepo.branchName,
-                "git_repo_name": gitRepo.repositoryName,
-                "git_repo_owner": git_repo_owner,
-                "git_repo_repo_name": git_repo_name,
-                # Physical table names for factory DAGs to query
-                "phys_dag_table_name": self.dp.getPhysDAGTableName(),
-                "phys_datatransformer_table_name": self.dp.getPhysDataTransformerTableName(),
-                # Git cache configuration variables
-                "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
-                "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
-                "git_cache_storage_size": self.dp.psp.git_cache_storage_size,
-                "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
-                "git_cache_enabled": self.dp.psp.git_cache_enabled,
-            }
-
-            # Factory DAG configurations to create
-            factory_configs = [
-                {
-                    "platform_name": self.dp.name,
-                    "factory_type": "platform",
-                    "config_json": json.dumps(common_context)
-                },
-                {
-                    "platform_name": self.dp.name,
-                    "factory_type": "datatransformer",
-                    "config_json": json.dumps(common_context)
-                }
-            ]
-
-            # Get table name (use consistent method like other DAG tables)
-            table_name = self.dp.getPhysFactoryDAGTableName()
-
-            # Store configurations in database
-            with engine.begin() as connection:
-                # First, delete all existing records to ensure clean state (same pattern as other methods)
-                connection.execute(text(f"DELETE FROM {table_name}"))
-                logger.info("Cleared existing factory DAG configurations",
-                            table_name=table_name,
-                            platform_name=self.dp.name)
-
-                # Then insert all current configurations
-                for factory_config in factory_configs:
-                    # Insert the new configuration
-                    connection.execute(text(f"""
-                        INSERT INTO {table_name} (platform_name, factory_type, config_json, status, created_at, updated_at)
-                        VALUES (:platform_name, :factory_type, :config_json, 'active', NOW(), NOW())
-                    """), factory_config)
-
-            logger.info("Populated factory DAG configurations",
-                        table_name=table_name,
-                        platform_name=self.dp.name,
-                        config_count=len(factory_configs))
-
-        except Exception as e:
-            issueTree.addRaw(UnexpectedExceptionProblem(e))
-
     def renderGraph(self, credStore: 'CredentialStore', issueTree: ValidationTree) -> dict[str, str]:
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages. For this platform it returns a dictionary containing a terraform
@@ -1336,9 +1128,6 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Populate database with DataTransformer configurations
         self.populateDataTransformerConfigurations(self.graph.eco, issueTree)
-
-        # Populate database with factory DAG configurations
-        self.populateFactoryDAGConfigurations(self.graph.eco, issueTree)
 
         # Generate comprehensive secrets documentation
         secrets_documentation: str = self.generateSecretsDocumentation(self.graph.eco, issueTree)
@@ -1365,19 +1154,19 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             {
                 'credential': self.dp.psp.postgresCredential,
                 'purpose': 'PostgreSQL database access for merge store',
-                'k8s_name': self.dp.to_k8s_name(self.dp.psp.postgresCredential.name),
+                'k8s_name': YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.postgresCredential.name),
                 'category': 'Platform Core'
             },
             {
                 'credential': self.dp.psp.gitCredential,
                 'purpose': 'Git repository access for ecosystem model',
-                'k8s_name': self.dp.to_k8s_name(self.dp.psp.gitCredential.name),
+                'k8s_name': YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.gitCredential.name),
                 'category': 'Platform Core'
             },
             {
                 'credential': self.dp.psp.connectCredentials,
                 'purpose': 'Kafka Connect cluster API access',
-                'k8s_name': self.dp.to_k8s_name(self.dp.psp.connectCredentials.name),
+                'k8s_name': YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.connectCredentials.name),
                 'category': 'Platform Core'
             }
         ]
@@ -1393,7 +1182,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 store: Datastore = storeEntry.datastore
 
                 if isinstance(store.cmd, IngestionMetadata) and store.cmd.credential is not None:
-                    k8s_name = self.dp.to_k8s_name(store.cmd.credential.name)
+                    k8s_name = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
                     if k8s_name not in secrets_info:
                         secrets_info[k8s_name] = {
                             'credential': store.cmd.credential,
@@ -1418,7 +1207,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             if workspace.dataTransformer is not None:
                 assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
                 if workspace.dataTransformer.code.repo.credential is not None:
-                    k8s_name = self.dp.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
+                    k8s_name = YellowPlatformServiceProvider.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
                     if k8s_name not in secrets_info:
                         secrets_info[k8s_name] = {
                             'credential': workspace.dataTransformer.code.repo.credential,
@@ -1611,10 +1400,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             "apiVersion: networking.k8s.io/v1",
             "kind: NetworkPolicy",
             "metadata:",
-            f"  name: {self.dp.to_k8s_name(self.dp.name)}-operational-database-access",
+            f"  name: {YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}-operational-database-access",
             f"  namespace: {self.dp.psp.namespace}",
             "  labels:",
-            f"    app: {self.dp.to_k8s_name(self.dp.name)}",
+            f"    app: {YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}",
             "    component: operational-network-policy",
             "spec:",
             "  podSelector: {}",
@@ -1690,6 +1479,223 @@ class YellowMilestoneStrategy(Enum):
     BATCH_MILESTONED = "batch_milestoned"
 
 
+class YellowGenericDataPlatform(DataPlatform['YellowPlatformServiceProvider']):
+    def __init__(self, name: str, doc: Documentation, executor: DataPlatformExecutor) -> None:
+        super().__init__(name, doc, executor)
+
+    @abstractmethod
+    def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine) -> None:
+        """This creates the tables for the data platform in the merge engine."""
+        raise NotImplementedError("This is an abstract method")
+
+
+class Component(ABC):
+    """A component can a hostname, a credential and"""
+    def __init__(self, name: str, namespace: str) -> None:
+        super().__init__()
+        self.name: str = name
+        self.namespace: str = namespace
+
+    @abstractmethod
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        """This renders the component to a string."""
+        raise NotImplementedError("This is an abstract method")
+
+
+class NamespaceComponent(Component):
+    def __init__(self, name: str, namespace: str) -> None:
+        super().__init__(name, namespace)
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        namespace_template: Template = env.get_template('psp_namespace.yaml.j2')
+        ctxt: dict[str, Any] = templateContext.copy()
+        ctxt.update(
+            {
+                "namespace_name": YellowPlatformServiceProvider.to_k8s_name(self.namespace)
+            }
+        )
+        namespace_rendered: str = namespace_template.render(ctxt)
+        yaml += namespace_rendered
+        return yaml
+
+
+class LoggingComponent(Component):
+    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider') -> None:
+        super().__init__(name, namespace)
+        self.psp: 'YellowPlatformServiceProvider' = psp
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        logging_template: Template = env.get_template('psp_logging.yaml.j2')
+        ctxt: dict[str, Any] = templateContext.copy()
+        ctxt.update(
+            {
+                "namespace_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.namespace),
+                "psp_k8s_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.name),
+                "psp_name": self.psp.name,
+            }
+        )
+        logging_rendered: str = logging_template.render(ctxt)
+        yaml += logging_rendered
+        return yaml
+
+
+class NetworkPolicyComponent(Component):
+    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider') -> None:
+        super().__init__(name, namespace)
+        self.psp: 'YellowPlatformServiceProvider' = psp
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        network_policy_template: Template = env.get_template('psp_networkpolicy.yaml.j2')
+        ctxt: dict[str, Any] = templateContext.copy()
+        ctxt.update(
+            {
+                "namespace_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.namespace),
+                "psp_k8s_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.name),
+                "psp_name": self.psp.name,
+            }
+        )
+        network_policy_rendered: str = network_policy_template.render(ctxt)
+        yaml += network_policy_rendered
+        return yaml
+
+
+class AirflowComponent(Component):
+    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase, dagCreds: list[Credential]) -> None:
+        super().__init__(name, namespace)
+        self.dbCred: Credential = dbCred
+        self.db: PostgresDatabase = db
+        self.dagCreds: list[Credential] = dagCreds
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        airflow_template: Template = env.get_template('psp_airflow.yaml.j2')
+        ctxt: dict[str, Any] = templateContext.copy()
+        ctxt.update(
+            {
+                "airflow_k8s_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
+                "postgres_hostname": self.db.hostPortPair.hostName,
+                "postgres_database": self.db.databaseName,
+                "postgres_port": self.db.hostPortPair.port,
+                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),  # Airflow uses postgres creds
+                "extra_credentials": [YellowPlatformServiceProvider.to_k8s_name(cred.name) for cred in self.dagCreds]
+            }
+        )
+        airflow_rendered: str = airflow_template.render(ctxt)
+        yaml += airflow_rendered
+        return yaml
+
+
+class PostgresComponent(Component):
+    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase) -> None:
+        super().__init__(name, namespace)
+        self.dbCred: Credential = dbCred
+        self.db: PostgresDatabase = db
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        postgres_template: Template = env.get_template('psp_postgres.yaml.j2')
+
+        # Add the postgres instance variables to a private template context
+        ctxt: dict[str, Any] = templateContext.copy()
+        ctxt.update(
+            {
+                "instance_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
+                "postgres_hostname": self.db.hostPortPair.hostName,
+                "postgres_port": self.db.hostPortPair.port,
+                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),
+            }
+        )
+        postgres_rendered: str = postgres_template.render(ctxt)
+        yaml += postgres_rendered
+        return yaml
+
+
+class PVCComponent(Component):
+    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider') -> None:
+        super().__init__(name, namespace)
+        self.psp: 'YellowPlatformServiceProvider' = psp
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        pvc_template: Template = env.get_template('psp_pvc.yaml.j2')
+        ctxt: dict[str, Any] = templateContext.copy()
+        ctxt.update(
+            {
+                "pvc_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
+                "pvc_storage_class": self.psp.git_cache_storage_class,
+                "pvc_access_mode": self.psp.git_cache_access_mode,
+                "pvc_storage_size": self.psp.git_cache_storage_size,
+            }
+        )
+        pvc_rendered: str = pvc_template.render(ctxt)
+        yaml += pvc_rendered
+        return yaml
+
+
+class Assembly:
+    def __init__(self, name: str, namespace: str, components: list[Component]) -> None:
+        super().__init__()
+        self.name: str = name
+        self.components: list[Component] = components
+        self.namespace: str = namespace
+
+    def generateYaml(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        """This generates the yaml for the assembly."""
+        yaml: str = ""
+        for component in self.components:
+            yaml += component.render(env, templateContext)
+        return yaml
+
+
+def createYellowAssemblySingleDatabase(
+        name: str,
+        psp: 'YellowPlatformServiceProvider',
+        pgCred: Credential,
+        pgDB: PostgresDatabase,
+        afHostPortPair: HostPortPair) -> Assembly:
+    """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
+    database is used for both the merge store and the airflow database."""
+    assembly: Assembly = Assembly(
+        name, psp.namespace,
+        components=list()
+    )
+    assembly.components.append(NamespaceComponent("ns", psp.namespace))
+    if psp.git_cache_enabled:
+        assembly.components.append(PVCComponent("git-model-cache", psp.namespace, psp))
+    assembly.components.append(LoggingComponent("logging", psp.namespace, psp))
+    assembly.components.append(NetworkPolicyComponent("np", psp.namespace, psp))
+    assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB))
+    assembly.components.append(AirflowComponent("airflow", psp.namespace, pgCred, pgDB, []))  # Airflow uses the same database as the merge store
+    return assembly
+
+
+def createYellowAssemblyTwinDatabase(
+        name: str,
+        psp: 'YellowPlatformServiceProvider',
+        pgCred: Credential,
+        mergeDBD: PostgresDatabase,
+        afDBcred: Credential,
+        afDB: PostgresDatabase,
+        afHostPortPair: HostPortPair) -> Assembly:
+    """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
+    reasons."""
+    assembly: Assembly = Assembly(
+        name, psp.namespace,
+        components=[
+            NamespaceComponent("ns", psp.namespace),
+            LoggingComponent("logging", psp.namespace, psp),
+            NetworkPolicyComponent("np", psp.namespace, psp),
+            PostgresComponent("pg", psp.namespace, pgCred, mergeDBD),
+            PostgresComponent("pg", psp.namespace, afDBcred, afDB),
+            AirflowComponent("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
+        ]
+    )
+    return assembly
+
+
 class YellowPlatformServiceProvider(PlatformServicesProvider):
     """This provides basic kubernetes services to the YellowDataPlatforms it manages. It provides
     a kubernetes namespace, an airflow instance and a merge store."""
@@ -1701,6 +1707,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  kafkaConnectName: str = "kafka-connect",
                  kafkaClusterName: str = "kafka",
                  airflowName: str = "airflow",
+                 dataPlatforms: list['DataPlatform'] = [],
                  datasurfaceDockerImage: str = "datasurface/datasurface:latest", git_cache_storage_class: str = "standard",
                  git_cache_access_mode: str = "ReadWriteOnce", git_cache_storage_size: str = "5Gi", git_cache_max_age_minutes: int = 5,
                  git_cache_enabled: bool = True):
@@ -1709,7 +1716,9 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             locs,
             KubernetesEnvVarsCredentialStore(
                 name=f"{name}-cred-store", locs=locs, namespace=namespace
-                ))
+                ),
+            dataPlatforms=dataPlatforms
+            )
         self.namespace: str = namespace
         self.postgresCredential: Credential = postgresCredential
         self.gitCredential: Credential = gitCredential
@@ -1782,6 +1791,12 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         if not isinstance(eco.liveRepo, GitHubRepository):
             tree.addRaw(ObjectNotSupportedByDataPlatform(eco.liveRepo, [GitHubRepository], ProblemSeverity.ERROR))
 
+        # Check all dataplatforms are generic yellow
+        dp: DataPlatform
+        for dp in self.dataPlatforms.values():
+            if not isinstance(dp, YellowGenericDataPlatform):
+                tree.addRaw(ObjectNotSupportedByDataPlatform(dp, [YellowGenericDataPlatform], ProblemSeverity.ERROR))
+
         self.kafkaConnectCluster.lint(eco, tree.addSubTree(self.kafkaConnectCluster))
         self.mergeStore.lint(eco, tree.addSubTree(self.mergeStore))
         for loc in self.locs:
@@ -1797,29 +1812,347 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         """Calculate the Kafka bootstrap servers from the created Kafka cluster."""
         return f"{self.kafkaClusterName}-service.{self.namespace}.svc.cluster.local:9092"
 
-    def mergeHandler(self, eco: 'Ecosystem'):
+    def mergeHandler(self, eco: 'Ecosystem', basePlatformDir: str):
         """This is the merge handler implementation."""
-        raise NotImplementedError("This is an abstract method")
+        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+        dp: DataPlatform
+        for dp in self.dataPlatforms.values():
+
+            # Get the platform graph
+            platformGraph: PlatformPipelineGraph = graph.roots[dp.name]
+            platformGraphHandler: DataPlatformGraphHandler = dp.createGraphHandler(platformGraph)
+
+            # Create the platform directory if it doesn't exist
+            os.makedirs(os.path.join(basePlatformDir, dp.name), exist_ok=True)
+
+            tree: ValidationTree = ValidationTree(eco)
+            files: dict[str, str] = platformGraphHandler.renderGraph(dp.getCredentialStore(), tree)
+
+            if tree.hasWarnings() or tree.hasErrors():
+                tree.printTree()
+
+            if tree.hasErrors():
+                raise Exception(f"Error generating platform files for {dp.name}")
+
+            # Write the files to the platform directory
+            for name, content in files.items():
+                with open(os.path.join(basePlatformDir, dp.name, name), "w") as f:
+                    f.write(content)
+
+        # Populate the factroy DAG table with a record per active YellowDataPlatform
+        self.populateFactoryDAGConfigurations(eco)
+
+    def populateFactoryDAGConfigurations(self, eco: Ecosystem) -> None:
+        """Populate the database with factory DAG configurations for meta-factory creation"""
+
+        # Get database connection
+        user, password = self.credStore.getAsUserPassword(self.postgresCredential)
+        engine = createEngine(self.mergeStore, user, password)
+
+        try:
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
+
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
+
+            factory_configs: list[dict[str, Any]] = []
+            for dpRaw in self.dataPlatforms.values():
+                dp: YellowDataPlatform = cast(YellowDataPlatform, dpRaw)
+                # Common context for all factory DAGs (platform-level configuration)
+                common_context: dict[str, Any] = {
+                    "namespace_name": self.namespace,
+                    "platform_name": YellowPlatformServiceProvider.to_k8s_name(dp.name),
+                    "original_platform_name": dp.name,  # Original platform name for job execution
+                    "ecosystem_name": eco.name,  # Original ecosystem name
+                    "ecosystem_k8s_name": YellowPlatformServiceProvider.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "postgres_hostname": self.mergeStore.hostPortPair.hostName,
+                    "postgres_database": self.mergeStore.databaseName,
+                    "postgres_port": self.mergeStore.hostPortPair.port,
+                    "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.postgresCredential.name),
+                    "git_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.gitCredential.name),
+                    "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
+                    "datasurface_docker_image": self.datasurfaceDockerImage,
+                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                    "git_repo_branch": gitRepo.branchName,
+                    "git_repo_name": gitRepo.repositoryName,
+                    "git_repo_owner": git_repo_owner,
+                    "git_repo_repo_name": git_repo_name,
+                    # Physical table names for factory DAGs to query
+                    "phys_dag_table_name": dp.getPhysDAGTableName(),
+                    "phys_datatransformer_table_name": dp.getPhysDataTransformerTableName(),
+                    # Git cache configuration variables
+                    "git_cache_storage_class": self.git_cache_storage_class,
+                    "git_cache_access_mode": self.git_cache_access_mode,
+                    "git_cache_storage_size": self.git_cache_storage_size,
+                    "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
+                    "git_cache_enabled": self.git_cache_enabled,
+                }
+
+                # Factory DAG configurations to create
+                factory_configs.append(
+                    {
+                        "platform_name": dp.name,
+                        "factory_type": "platform",
+                        "config_json": json.dumps(common_context)
+                    })
+                factory_configs.append(
+                    {
+                        "platform_name": dp.name,
+                        "factory_type": "datatransformer",
+                        "config_json": json.dumps(common_context)
+                    }
+                )
+
+            # Get table name (use consistent method like other DAG tables)
+            table_name = self.getPhysFactoryDAGTableName()
+
+            # Store configurations in database
+            with engine.begin() as connection:
+                # First, delete all existing records to ensure clean state (same pattern as other methods)
+                connection.execute(text(f"DELETE FROM {table_name}"))
+                logger.info("Cleared existing factory DAG configurations",
+                            table_name=table_name,
+                            psp_name=self.name)
+
+                # Then insert all current configurations
+                for factory_config in factory_configs:
+                    # Insert the new configuration
+                    connection.execute(text(f"""
+                        INSERT INTO {table_name} (platform_name, factory_type, config_json, status, created_at, updated_at)
+                        VALUES (:platform_name, :factory_type, :config_json, 'active', NOW(), NOW())
+                    """), factory_config)
+
+            logger.info("Populated factory DAG configurations",
+                        table_name=table_name,
+                        psp_name=self.name,
+                        config_count=len(factory_configs))
+
+        except Exception:
+            raise
+
+    @staticmethod
+    def to_k8s_name(name: str) -> str:
+        """Convert a name to a valid Kubernetes resource name (RFC 1123)."""
+        name = name.lower().replace('_', '-').replace(' ', '-')
+        name = re.sub(r'[^a-z0-9-]', '', name)
+        name = re.sub(r'-+', '-', name)
+        name = name.strip('-')
+        return name
+
+    def createTemplateContext(self, eco: Ecosystem) -> dict[str, Any]:
+        # Prepare template context with all required variables
+        gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
+
+        # Extract git repository owner and name from the full repository name
+        git_repo_parts = gitRepo.repositoryName.split('/')
+        if len(git_repo_parts) != 2:
+            raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+        git_repo_owner, git_repo_name = git_repo_parts
+
+        context: dict[str, Any] = {
+            "namespace_name": self.namespace,
+            "psp_name": self.name,
+            "psp_k8s_name": self.to_k8s_name(self.name),
+            "ecosystem_name": eco.name,  # Original ecosystem name
+            "ecosystem_k8s_name": self.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+            "datasurface_docker_image": self.datasurfaceDockerImage,
+            "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
+            "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
+            "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+            "git_repo_branch": gitRepo.branchName,
+            "git_repo_name": gitRepo.repositoryName,
+            "git_repo_owner": git_repo_owner,
+            "git_repo_repo_name": git_repo_name,
+            "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
+            # Git cache configuration variables
+            "git_cache_storage_class": self.git_cache_storage_class,
+            "git_cache_access_mode": self.git_cache_access_mode,
+            "git_cache_storage_size": self.git_cache_storage_size,
+            "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
+            "git_cache_enabled": self.git_cache_enabled,
+        }
+        return context
+
+    def createTemplateContextForDataPlatform(self, eco: Ecosystem, dataPlatform: DataPlatform) -> dict[str, Any]:
+        """This creates the template context for a data platform. It's used to generate the kubernetes yaml file for the data platform."""
+        context: dict[str, Any] = self.createTemplateContext(eco)
+        context.update(
+            {
+                "platform_name": self.to_k8s_name(dataPlatform.name),
+                "original_platform_name": dataPlatform.name,
+            }
+        )
+        return context
+
+    def getTableForPSP(self, tableName: str) -> str:
+        """This returns the table name for the platform"""
+        return f"{self.name}_{tableName}".lower()
+
+    def getPhysFactoryDAGTableName(self) -> str:
+        """This returns the name of the Factory DAG table"""
+        return self.namingMapper.mapNoun(self.getTableForPSP("factory_dags"))
+
+    def getFactoryDAGTable(self) -> Table:
+        """This constructs the sqlalchemy table for Factory DAG configurations."""
+        t: Table = Table(self.getPhysFactoryDAGTableName(), MetaData(),
+                         Column("platform_name", sqlalchemy.String(length=255), primary_key=True),
+                         Column("factory_type", sqlalchemy.String(length=50), primary_key=True),
+                         Column("config_json", sqlalchemy.String(length=8192)),
+                         Column("status", sqlalchemy.String(length=50)),
+                         Column("created_at", TIMESTAMP()),
+                         Column("updated_at", TIMESTAMP()))
+        return t
+
+    @staticmethod
+    def to_python_name(name: str) -> str:
+        """Convert a name to a valid Python module name."""
+        name = name.lower().replace(' ', '_').replace('-', '_')
+        name = re.sub(r'[^a-z0-9_]', '', name)
+        name = re.sub(r'_+', '_', name)
+        return name.strip('_')
+
+    def generateBootstrapArtifacts(self, eco: Ecosystem, ringLevel: int) -> dict[str, str]:
+        """This generates a kubernetes yaml file for the data platform using a jinja2 template.
+        This doesn't need an intention graph, it's just for boot-strapping.
+        Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
+        needs to create the DAG for the infrastructure and the factory DAG for dynamic ingestion stream generation."""
+
+        logger.info("Generating bootstrap artifacts",
+                    platform_name=self.name,
+                    ring_level=ringLevel)
+        if ringLevel == 0:
+            # Create Jinja2 environment
+            env: Environment = Environment(
+                loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
+                autoescape=select_autoescape(['html', 'xml'])
+            )
+
+            # Load the bootstrap template
+            # This defines the kubernetes services for the Yellow environment which the data platforms run inside.
+            afHostPort: HostPortPair = HostPortPair(f"{self.airflowName}-service.{self.namespace}.svc.cluster.local", 8080)
+            assembly: Assembly = createYellowAssemblySingleDatabase(
+                name=self.name,
+                psp=self,
+                pgCred=self.postgresCredential,
+                pgDB=self.mergeStore,
+                afHostPortPair=afHostPort
+            )
+
+            # Load the infrastructure DAG template
+
+            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
+
+            # Extract git repository owner and name from the full repository name
+            git_repo_parts = gitRepo.repositoryName.split('/')
+            if len(git_repo_parts) != 2:
+                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
+            git_repo_owner, git_repo_name = git_repo_parts
+
+            # Prepare template context with all required variables
+            context: dict[str, Any] = {
+                "namespace_name": self.namespace,
+                "psp_k8s_name": self.to_k8s_name(self.name),
+                "psp_name": self.name,  # Original platform name for job execution
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": self.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                "postgres_hostname": self.mergeStore.hostPortPair.hostName,
+                "postgres_database": self.mergeStore.databaseName,
+                "postgres_port": self.mergeStore.hostPortPair.port,
+                "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
+                "airflow_name": self.to_k8s_name(self.airflowName),
+                "airflow_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
+                "kafka_cluster_name": self.to_k8s_name(self.kafkaClusterName),
+                "kafka_connect_name": self.to_k8s_name(self.kafkaConnectName),
+                "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
+                "datasurface_docker_image": self.datasurfaceDockerImage,
+                "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
+                "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
+                "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
+                # Git cache configuration variables
+                "git_cache_storage_class": self.git_cache_storage_class,
+                "git_cache_access_mode": self.git_cache_access_mode,
+                "git_cache_storage_size": self.git_cache_storage_size,
+                "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
+                "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
+                "git_cache_enabled": self.git_cache_enabled,
+            }
+
+            # Render the templates
+            rendered_yaml: str = assembly.generateYaml(env, self.createTemplateContext(eco))
+
+            # PSP level DAG to create factory dags for each dataplatform which in turn
+            # create ingestion and transformer DAGs for that dataplatform.
+            dag_template: Template = env.get_template('infrastructure_dag.py.j2')
+            rendered_infrastructure_dag: str = dag_template.render(context)
+
+            #  This now really generates database records for the dataplatforms, ingestion streams and datatransformers
+            # in the newly merged model.
+            model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
+            rendered_model_merge_job: str = model_merge_template.render(context)
+
+            # This is a yaml file which runs in the environment to create database tables needed
+            # and other things required to run the dataplatforms.
+            ring1_init_template: Template = env.get_template('ring1_init_job.yaml.j2')
+            rendered_ring1_init_job: str = ring1_init_template.render(context)
+
+            # This creates all the Workspace views needed for all the dataplatforms in the model.
+            reconcile_views_template: Template = env.get_template('reconcile_views_job.yaml.j2')
+            rendered_reconcile_views_job: str = reconcile_views_template.render(context)
+
+            # Return as dictionary with filename as key
+            # Factory DAG files removed - now handled dynamically by infrastructure DAG
+            return {
+                "kubernetes-bootstrap.yaml": rendered_yaml,
+                f"{self.to_python_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
+                f"{self.to_python_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
+                f"{self.to_python_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job,
+                f"{self.to_python_name(self.name)}_reconcile_views_job.yaml": rendered_reconcile_views_job
+            }
+        elif ringLevel == 1:
+            # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
+            mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
+            mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
+            createOrUpdateTable(mergeEngine, self.getFactoryDAGTable())
+
+            ydp: DataPlatform
+            for ydp in self.dataPlatforms.values():
+                assert isinstance(ydp, YellowGenericDataPlatform)
+                ydp.createPlatformTables(eco, mergeEngine)
+            return {}
+        else:
+            raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
 
 
-class YellowDataPlatform(DataPlatform):
+class YellowDataPlatform(YellowGenericDataPlatform):
     """This defines the kubernetes postgres starter data platform. It can consume data from sources and write them to a postgres based merge store.
       It has the use of a postgres database for staging and merge tables as well as Workspace views"""
     def __init__(
             self,
             name: str,
             doc: Documentation,
-            platformServiceProvider: YellowPlatformServiceProvider,
-            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY,
-            kafkaConnectName: str = "kafka-connect",
-            kafkaClusterName: str = "kafka"):
+            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY):
         super().__init__(name, doc, YellowPlatformExecutor())
-        self.psp: YellowPlatformServiceProvider = platformServiceProvider
         self.milestoneStrategy: YellowMilestoneStrategy = milestoneStrategy
 
         # Create the required data containers
         # Set logging context for this platform
         set_context(platform=name)
+
+    def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine) -> None:
+        """This creates the tables for the data platform in the merge engine during bootstrapping."""
+        createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
+        createOrUpdateTable(mergeEngine, self.getDataTransformerDAGTable())
+
+    def setPSP(self, psp: YellowPlatformServiceProvider) -> None:
+        super().setPSP(psp)
 
     def getCredentialStore(self) -> CredentialStore:
         return self.psp.credStore
@@ -1851,15 +2184,6 @@ class YellowDataPlatform(DataPlatform):
         """This is called to handle merge events on the revised graph."""
         return YellowGraphHandler(self, graph)
 
-    @staticmethod
-    def to_k8s_name(name: str) -> str:
-        """Convert a name to a valid Kubernetes resource name (RFC 1123)."""
-        name = name.lower().replace('_', '-').replace(' ', '-')
-        name = re.sub(r'[^a-z0-9-]', '', name)
-        name = re.sub(r'-+', '-', name)
-        name = name.strip('-')
-        return name
-
     def getTableForPlatform(self, tableName: str) -> str:
         """This returns the table name for the platform"""
         return f"{self.name}_{tableName}".lower()
@@ -1871,10 +2195,6 @@ class YellowDataPlatform(DataPlatform):
     def getPhysDataTransformerTableName(self) -> str:
         """This returns the name of the DataTransformer DAG table"""
         return self.psp.namingMapper.mapNoun(self.getTableForPlatform("airflow_datatransformer"))
-
-    def getPhysFactoryDAGTableName(self) -> str:
-        """This returns the name of the Factory DAG table"""
-        return self.psp.namingMapper.mapNoun(self.getTableForPlatform("factory_dags"))
 
     def getAirflowDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
@@ -1896,122 +2216,6 @@ class YellowDataPlatform(DataPlatform):
                          Column("created_at", TIMESTAMP()),
                          Column("updated_at", TIMESTAMP()))
         return t
-
-    def getFactoryDAGTable(self) -> Table:
-        """This constructs the sqlalchemy table for Factory DAG configurations."""
-        t: Table = Table(self.getPhysFactoryDAGTableName(), MetaData(),
-                         Column("platform_name", sqlalchemy.String(length=255), primary_key=True),
-                         Column("factory_type", sqlalchemy.String(length=50), primary_key=True),
-                         Column("config_json", sqlalchemy.String(length=8192)),
-                         Column("status", sqlalchemy.String(length=50)),
-                         Column("created_at", TIMESTAMP()),
-                         Column("updated_at", TIMESTAMP()))
-        return t
-
-    def generateBootstrapArtifacts(self, eco: Ecosystem, ringLevel: int) -> dict[str, str]:
-        """This generates a kubernetes yaml file for the data platform using a jinja2 template.
-        This doesn't need an intention graph, it's just for boot-strapping.
-        Our bootstrap file would be a postgres instance, a kafka cluster, a kafka connect cluster and an airflow instance. It also
-        needs to create the DAG for the infrastructure and the factory DAG for dynamic ingestion stream generation."""
-
-        logger.info("Generating bootstrap artifacts",
-                    platform_name=self.name,
-                    ring_level=ringLevel)
-        if ringLevel == 0:
-            # Create Jinja2 environment
-            env: Environment = Environment(
-                loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
-                autoescape=select_autoescape(['html', 'xml'])
-            )
-
-            # Load the bootstrap template
-            kubernetes_template: Template = env.get_template('kubernetes_services.yaml.j2')
-
-            # Load the infrastructure DAG template
-            dag_template: Template = env.get_template('infrastructure_dag.py.j2')
-
-# Factory DAG templates removed - now handled dynamically by infrastructure DAG
-
-            # Load the model merge job template
-            model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
-
-            # Load the ring1 initialization job template
-            ring1_init_template: Template = env.get_template('ring1_init_job.yaml.j2')
-
-            # Load the reconcile views job template
-            reconcile_views_template: Template = env.get_template('reconcile_views_job.yaml.j2')
-
-            gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
-
-            # Extract git repository owner and name from the full repository name
-            git_repo_parts = gitRepo.repositoryName.split('/')
-            if len(git_repo_parts) != 2:
-                raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
-            git_repo_owner, git_repo_name = git_repo_parts
-
-            # Prepare template context with all required variables
-            context: dict[str, Any] = {
-                "namespace_name": self.psp.namespace,
-                "platform_name": self.to_k8s_name(self.name),
-                "original_platform_name": self.name,  # Original platform name for job execution
-                "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": self.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                "postgres_hostname": self.psp.mergeStore.hostPortPair.hostName,
-                "postgres_database": self.psp.mergeStore.databaseName,
-                "postgres_port": self.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": self.to_k8s_name(self.psp.postgresCredential.name),
-                "airflow_name": self.to_k8s_name(self.psp.airflowName),
-                "airflow_credential_secret_name": self.to_k8s_name(self.psp.postgresCredential.name),  # Airflow uses postgres creds
-                "kafka_cluster_name": self.to_k8s_name(self.psp.kafkaClusterName),
-                "kafka_connect_name": self.to_k8s_name(self.psp.kafkaConnectName),
-                "kafka_bootstrap_servers": self.psp._getKafkaBootstrapServers(),
-                "datasurface_docker_image": self.psp.datasurfaceDockerImage,
-                "git_credential_secret_name": self.to_k8s_name(self.psp.gitCredential.name),
-                "git_credential_name": self.psp.gitCredential.name,  # Original credential name for job parameter
-                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
-                "git_repo_branch": gitRepo.branchName,
-                "git_repo_name": gitRepo.repositoryName,
-                "git_repo_owner": git_repo_owner,
-                "git_repo_repo_name": git_repo_name,
-                "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
-                # Physical table names for factory DAGs to query
-                "phys_dag_table_name": self.getPhysDAGTableName(),
-                "phys_datatransformer_table_name": self.getPhysDataTransformerTableName(),
-                # Git cache configuration variables
-                "git_cache_storage_class": self.psp.git_cache_storage_class,
-                "git_cache_access_mode": self.psp.git_cache_access_mode,
-                "git_cache_storage_size": self.psp.git_cache_storage_size,
-                "git_cache_max_age_minutes": self.psp.git_cache_max_age_minutes,
-                "git_cache_enabled": self.psp.git_cache_enabled,
-            }
-
-            # Render the templates
-            rendered_yaml: str = kubernetes_template.render(context)
-            rendered_infrastructure_dag: str = dag_template.render(context)
-            rendered_model_merge_job: str = model_merge_template.render(context)
-            rendered_ring1_init_job: str = ring1_init_template.render(context)
-            rendered_reconcile_views_job: str = reconcile_views_template.render(context)
-
-            # Return as dictionary with filename as key
-            # Factory DAG files removed - now handled dynamically by infrastructure DAG
-            return {
-                "kubernetes-bootstrap.yaml": rendered_yaml,
-                f"{self.to_k8s_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
-                f"{self.to_k8s_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
-                f"{self.to_k8s_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job,
-                f"{self.to_k8s_name(self.name)}_reconcile_views_job.yaml": rendered_reconcile_views_job
-            }
-        elif ringLevel == 1:
-            # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
-            mergeUser, mergePassword = self.psp.credStore.getAsUserPassword(self.psp.postgresCredential)
-            mergeEngine: Engine = createEngine(self.psp.mergeStore, mergeUser, mergePassword)
-            createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
-            createOrUpdateTable(mergeEngine, self.getDataTransformerDAGTable())
-            createOrUpdateTable(mergeEngine, self.getFactoryDAGTable())
-            return {}
-        else:
-            raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
 
     def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
         return YellowSchemaProjector(eco, self)

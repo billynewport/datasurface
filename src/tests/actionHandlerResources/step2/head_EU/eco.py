@@ -9,19 +9,29 @@ from datasurface.md import LocationKey
 from datasurface.md import CloudVendor, Ecosystem, GovernanceZone, \
     GovernanceZoneDeclaration, InfraStructureLocationPolicy, \
     InfrastructureLocation, InfrastructureVendor, TeamDeclaration
-from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyPlatformServiceProvider
 
 # Base branch for step 1, define an Ecosystem, data platforms, infrastructure vendors/locations and 3 Governance Zones
 
 
 def createEcosystem() -> Ecosystem:
+    azurePSP: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+        "AzurePSP",
+        {LocationKey("Azure:USA/Central")},
+        [
+            LegacyDataPlatform("Azure Platform", PlainTextDocumentation("Test"))
+        ]
+    )
+    awsPSP: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+        "AWSPSP",
+        {LocationKey("AWS:USA/Virginia")},
+        [
+            LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test"))
+        ]
+    )
     e: Ecosystem = Ecosystem(
         "Test",
         GitHubRepository("billynewport/test_step1", "main"),
-        LegacyDataPlatform(
-            "Azure Platform",
-            PlainTextDocumentation("Test")),
-        LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),
@@ -67,7 +77,8 @@ def createEcosystem() -> Ecosystem:
                     InfrastructureLocation("West US"),  # California
                     InfrastructureLocation("West US 2"),  # Washington
                     InfrastructureLocation("West US 3")))),  # Arizona
-            liveRepo=GitHubRepository("billynewport/test_step1", "live")
+            liveRepo=GitHubRepository("billynewport/test_step1", "live"),
+            platform_services_providers=[azurePSP, awsPSP]
         )
 
     # Add the EU GZ and its policies limiting locations to EU only

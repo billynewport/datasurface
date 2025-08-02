@@ -23,20 +23,32 @@ from datasurface.md import SQLDatabase, CronTrigger
 
 from datasurface.md import NullableStatus, PrimaryKeyStatus
 from tests.nwdb.eco import createEcosystem
-from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyPlatformServiceProvider
 from datasurface.md.credential import Credential, CredentialType
 
 
 class TestWorkspace(unittest.TestCase):
 
     def createEco(self) -> Ecosystem:
+        psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+            "LegacyPSP",
+            {LocationKey("Azure:FL")},
+            [
+                LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
+                LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+            ]
+        )
         eco: Ecosystem = Ecosystem(
             "BigCorp",
             GitHubRepository("a", "b"),
+            InfrastructureVendor(
+                "Azure",
+                CloudVendor.AZURE,
+                PlainTextDocumentation("Azure test vendor"),
+                InfrastructureLocation("FL")),
             GovernanceZoneDeclaration("US", GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration("China", GitHubRepository("aa", "cc")),
-            LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
-            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test")),
+            platform_services_providers=[psp],
             liveRepo=GitHubRepository("a", "live")
             )
 
@@ -59,15 +71,27 @@ class TestWorkspace(unittest.TestCase):
         chinaZoneName: str = "China"
         testTeamName: str = "Test Team A"
         # First define an ecosystem with a single US zone and a single team
+        psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+            "LegacyPSP",
+            {LocationKey("Azure:FL")},
+            [
+                LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
+                LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test"))
+            ]
+        )
         eco: Ecosystem = Ecosystem(
             "BigCorp",
             GitHubRepository("a", "b"),
+            InfrastructureVendor(
+                "Azure",
+                CloudVendor.AZURE,
+                PlainTextDocumentation("Azure test vendor"),
+                InfrastructureLocation("FL")),
             GovernanceZoneDeclaration(usZoneName, GitHubRepository("aa", "bb")),
             GovernanceZoneDeclaration(
                 chinaZoneName,
                 GitHubRepository("aa", "cc")),
-            LegacyDataPlatform("FastPlatform", PlainTextDocumentation("Test")),
-            LegacyDataPlatform("SlowPlatform", PlainTextDocumentation("Test")),
+            platform_services_providers=[psp],
             liveRepo=GitHubRepository("a", "live")
             )
 
@@ -549,17 +573,22 @@ class TestWorkspace(unittest.TestCase):
     def createSimpleEcosystem(self) -> Ecosystem:
 
         # Make ecosystem and declare a single zone US
+        psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+            "LegacyPSP",
+            {LocationKey("Azure:FL")},
+            [
+                LegacyDataPlatform("Azure", PlainTextDocumentation("Test"))
+            ]
+        )
         e: Ecosystem = Ecosystem(
                 "BigCorp", FakeRepository("a"),
-                LegacyDataPlatform(
-                    "Azure",
-                    PlainTextDocumentation("Test")),
                 InfrastructureVendor(
                     "Azure",
-                    CloudVendor.AWS,
+                    CloudVendor.AZURE,
                     PlainTextDocumentation("Azure test vendor"),
                     InfrastructureLocation("FL")),
                 GovernanceZoneDeclaration("US", FakeRepository("b")),
+                platform_services_providers=[psp],
                 liveRepo=FakeRepository("b")
             )
 

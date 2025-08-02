@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy import text, inspect
 from sqlalchemy.engine import Engine
 
-from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, EcosystemPipelineGraph
+from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, EcosystemPipelineGraph, PlatformServicesProvider
 from datasurface.md.sqlalchemyutils import createOrUpdateView
 from datasurface.md.credential import CredentialStore
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowSchemaProjector
@@ -86,7 +86,21 @@ def check_merge_table_has_required_columns(engine: Engine, merge_table_name: str
         return False, required_columns
 
 
-def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cred_store: CredentialStore) -> int:
+def reconcile_workspace_view_schemas(eco: Ecosystem, psp_name: str, cred_store: CredentialStore) -> int:
+    # Find the specified data platform
+    psp: Optional[PlatformServicesProvider] = None
+    for psp_item in eco.platformServicesProviders:
+        if psp_item.name == psp_name:
+            psp = psp_item
+            break
+    for dataplatform in psp.dataPlatforms.values():
+        rc: int = reconcile_workspace_view_schemas_for_dp(eco, psp_name, cred_store, dataplatform)
+        if rc != 0:
+            return rc
+    return 0
+
+
+def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_store: CredentialStore, dataplatform: DataPlatform) -> int:
     """
     Reconcile workspace view schemas for the specified data platform.
 
@@ -95,16 +109,8 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
         1: Some views could not be created/updated (missing columns or tables)
     """
 
-    # Find the specified data platform
-    dataplatform: Optional[DataPlatform] = None
-    try:
-        dataplatform = eco.getDataPlatformOrThrow(dataplatform_name)
-    except Exception:
-        logger.error("Data platform not found in ecosystem", platform_name=dataplatform_name)
-        return 1
-
     if not isinstance(dataplatform, YellowDataPlatform):
-        logger.error("Data platform is not a YellowDataPlatform", platform_name=dataplatform_name, platform_type=type(dataplatform).__name__)
+        logger.error("Data platform is not a YellowDataPlatform", platform_name=dataplatform.name, platform_type=type(dataplatform).__name__)
         return 1
 
     yellow_dp: YellowDataPlatform = dataplatform
@@ -112,7 +118,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     # Set logging context for this reconciliation operation
     set_context(platform=yellow_dp.name)
 
-    logger.info("Starting workspace view schema reconciliation", platform_name=dataplatform_name, milestone_strategy=yellow_dp.milestoneStrategy.value)
+    logger.info("Starting workspace view schema reconciliation", platform_name=dataplatform.name, milestone_strategy=yellow_dp.milestoneStrategy.value)
 
     # Generate the platform pipeline graph
     ecoGraph = EcosystemPipelineGraph(eco)
@@ -121,12 +127,12 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     pipeline_graph: Optional[PlatformPipelineGraph] = ecoGraph.roots[yellow_dp.name]
 
     if pipeline_graph is None:
-        logger.error("No pipeline graph found for platform", platform_name=dataplatform_name)
+        logger.error("No pipeline graph found for platform", platform_name=dataplatform.name)
         return 1
 
     logger.debug(
         "Found pipeline graph for platform",
-        platform_name=dataplatform_name,
+        platform_name=dataplatform.name,
         workspace_count=len(pipeline_graph.workspaces),
         stores_to_ingest=list(pipeline_graph.storesToIngest))
 
@@ -201,9 +207,9 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
         for assigment in dsgAssignment.assignments:
             logger.debug("Processing assignment",
                          assignment_platform=assigment.dataPlatform.name,
-                         target_platform=dataplatform_name)
-            if assigment.dataPlatform.name == dataplatform_name:
-                logger.debug("Found matching assignment for platform", platform_name=dataplatform_name)
+                         target_platform=dataplatform.name)
+            if assigment.dataPlatform.name == dataplatform.name:
+                logger.debug("Found matching assignment for platform", platform_name=dataplatform.name)
                 workspace = pipeline_graph.workspaces.get(assigment.workspace)
                 if workspace is None:
                     logger.debug("Workspace not found in pipeline graph", workspace_name=assigment.workspace)
@@ -354,7 +360,7 @@ def reconcile_workspace_view_schemas(eco: Ecosystem, dataplatform_name: str, cre
     processed_workspace_dsgs = set()
     for dsgAssignment in eco.dsgPlatformMappings.values():
         for assignment in dsgAssignment.assignments:
-            if assignment.dataPlatform.name == dataplatform_name:
+            if assignment.dataPlatform.name == dataplatform.name:
                 processed_workspace_dsgs.add(f"{assignment.workspace}#{assignment.dsgName}")
 
     logger.debug("Already processed workspace DSGs", processed_count=len(processed_workspace_dsgs), processed_dsgs=list(processed_workspace_dsgs))
@@ -536,7 +542,7 @@ def main():
 Examples:
   # Using shared git cache (recommended for production):
   python -m datasurface.platforms.yellow.reconcile_workspace_views \\
-    --platform-name YellowLive \\
+    --psp Test_DP \\
     --git-repo-path /cache/git-models \\
     --git-repo-owner billynewport \\
     --git-repo-name yellow_starter \\
@@ -547,7 +553,7 @@ Examples:
 
   # Direct clone (for testing):
   python -m datasurface.platforms.yellow.reconcile_workspace_views \\
-    --platform-name YellowLive \\
+    --psp Test_DP \\
     --git-repo-path /workspace/git-repo \\
     --git-repo-owner billynewport \\
     --git-repo-name yellow_starter \\
@@ -558,9 +564,9 @@ Examples:
     )
 
     parser.add_argument(
-        "--platform-name",
+        "--psp",
         required=True,
-        help="Name of the YellowDataPlatform to reconcile views for"
+        help="Name of the YellowPlatformServicesProvider to reconcile views for"
     )
 
     parser.add_argument(
@@ -662,8 +668,8 @@ Examples:
             return 1
 
         # Reconcile workspace view schemas
-        print(f"Reconciling workspace view schemas for platform: {args.platform_name}")
-        return reconcile_workspace_view_schemas(eco, args.platform_name, cred_store)
+        print(f"Reconciling workspace view schemas for platform: {args.psp}")
+        return reconcile_workspace_view_schemas(eco, args.psp, cred_store)
 
     except Exception as e:
         print(f"Error: {e}")

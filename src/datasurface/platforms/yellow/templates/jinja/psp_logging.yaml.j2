@@ -1,0 +1,22 @@
+# Logging Configuration ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ psp_k8s_name }}-logging-config
+  namespace: {{ namespace_name }}
+data:
+  logging.conf: |
+    # Yellow Data Platform Logging Configuration
+    # This configures structured JSON logging for Kubernetes environments
+    
+    # Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_LEVEL=INFO
+    
+    # Log format: 'json' for production, 'text' for development
+    LOG_FORMAT=json
+    
+    # Platform-specific logging settings
+    YELLOW_ENVIRONMENT=production
+    PSP_NAME={{ psp_name }}
+    NAMESPACE={{ namespace_name }}
+---

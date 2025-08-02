@@ -38,25 +38,24 @@ def createEcosystem() -> Ecosystem:
         gitCredential=Credential("git", CredentialType.API_TOKEN),
         connectCredentials=Credential("connect", CredentialType.API_TOKEN),
         postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
-        merge_datacontainer=merge_datacontainer
+        merge_datacontainer=merge_datacontainer,
+        dataPlatforms=[
+            YellowDataPlatform(
+                name="YellowLive",
+                doc=PlainTextDocumentation("Live Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY),
+            YellowDataPlatform(
+                "YellowForensic",
+                doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
+                )
+        ]
     )
 
     ecosys: Ecosystem = Ecosystem(
         name="Test",
         repo=GitHubRepository("billynewport/mvpmodel", "main"),
-        data_platforms=[
-            YellowDataPlatform(
-                name="YellowLive",
-                doc=PlainTextDocumentation("Live Yellow DataPlatform"),
-                platformServiceProvider=psp,
-                milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY),
-            YellowDataPlatform(
-                "YellowForensic",
-                doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
-                platformServiceProvider=psp,
-                milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
-                )
-        ],
+        platform_services_providers=[psp],
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],

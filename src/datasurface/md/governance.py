@@ -1450,15 +1450,41 @@ class PlatformService(JSONable):
         return {"_type": self.__class__.__name__, "name": self.name}
 
 
+P = TypeVar('P', bound='PlatformServicesProvider')
+
+
 class PlatformServicesProvider(UserDSLObject):
-    def __init__(self, name: str, locs: set[LocationKey], credStore: CredentialStore):
+    def __init__(self, name: str, locs: set[LocationKey], credStore: CredentialStore, dataPlatforms: list['DataPlatform']):
         UserDSLObject.__init__(self)
         self.name: str = name
         self.locs: set[LocationKey] = locs
         self.credStore: CredentialStore = credStore
+        self.dataPlatforms: dict[str, 'DataPlatform'] = dict()
+        for dp in dataPlatforms:
+            if self.dataPlatforms.get(dp.name) is not None:
+                raise ObjectAlreadyExistsException(f"Duplicate DataPlatform {dp.name}")
+            self.dataPlatforms[dp.name] = dp
+            dp.setPSP(self)
+
+    def getPlatform(self, name: str) -> Optional['DataPlatform']:
+        return self.dataPlatforms.get(name)
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name, "locs": [loc.to_json() for loc in self.locs], "credStore": self.credStore.to_json()}
+        rc: dict[str, Any] = super().to_json()
+        rc.update({
+            "_type": self.__class__.__name__,
+            "name": self.name,
+            "locs": [loc.to_json() for loc in self.locs],
+            "credStore": self.credStore.to_json(),
+            "dataPlatforms": [dp.to_json() for dp in self.dataPlatforms.values()]
+        })
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PlatformServicesProvider):
+            return super().__eq__(other) and self.locs == other.locs and self.credStore == other.credStore and self.dataPlatforms == other.dataPlatforms \
+                and self.name == other.name
+        return False
 
     def render(self):
         pass
@@ -1468,9 +1494,15 @@ class PlatformServicesProvider(UserDSLObject):
         self.credStore.lint(tree.addSubTree(self.credStore))
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
         graph.lint(self.credStore, tree.addSubTree(graph))
+        for dp in self.dataPlatforms.values():
+            dp.lint(eco, tree.addSubTree(dp))
 
     @abstractmethod
-    def mergeHandler(self, eco: 'Ecosystem'):
+    def generateBootstrapArtifacts(self, eco: 'Ecosystem', ringLevel: int) -> dict[str, str]:
+        raise NotImplementedError("This is an abstract method")
+
+    @abstractmethod
+    def mergeHandler(self, eco: 'Ecosystem', basePlatformDir: str):
         """This is the merge handler implementation."""
         raise NotImplementedError("This is an abstract method")
 
@@ -1486,10 +1518,9 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def __init__(self, name: str, repo: Repository,
                  *args: Union[PlatformServicesProvider,
-                              'DataPlatform', Documentation,
+                              Documentation,
                               InfrastructureVendor, 'GovernanceZoneDeclaration', Repository],
-                 platform_services_provider: Optional[PlatformServicesProvider] = None,
-                 data_platforms: Optional[list['DataPlatform']] = None,
+                 platform_services_providers: list[PlatformServicesProvider] = [],
                  documentation: Optional[Documentation] = None,
                  infrastructure_vendors: Optional[list[InfrastructureVendor]] = None,
                  liveRepo: Optional[Repository] = None,
@@ -1505,8 +1536,7 @@ class Ecosystem(GitControlledObject, JSONable):
         """This is the authorative list of governance zones within the ecosystem"""
 
         self.vendors: dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
-        self.dataPlatforms: dict[str, DataPlatform] = OrderedDict[str, DataPlatform]()
-        self.platformServicesProvider: Optional[PlatformServicesProvider] = None
+        self.platformServicesProviders: list[PlatformServicesProvider] = platform_services_providers
         self.dsgPlatformMappings: dict[str, DatasetGroupDataPlatformAssignments] = dict[str, DatasetGroupDataPlatformAssignments]()
         self.resetCaches()
 
@@ -1516,14 +1546,8 @@ class Ecosystem(GitControlledObject, JSONable):
             self.add(*args)
         else:
             # New mode: use named parameters directly (faster!)
-            if platform_services_provider:
-                self.platformServicesProvider = platform_services_provider
-
-            if data_platforms:
-                for platform in data_platforms:
-                    if self.dataPlatforms.get(platform.name) is not None:
-                        raise ObjectAlreadyExistsException(f"Duplicate DataPlatform {platform.name}")
-                    self.dataPlatforms[platform.name] = platform
+            if platform_services_providers:
+                self.platformServicesProviders = platform_services_providers
 
             if documentation:
                 self.documentation = documentation
@@ -1612,12 +1636,11 @@ class Ecosystem(GitControlledObject, JSONable):
     @classmethod
     def create_legacy(cls, name: str, repo: Repository,
                       *args: Union[PlatformServicesProvider,
-                                   'DataPlatform', Documentation,
+                                   Documentation,
                                    InfrastructureVendor, 'GovernanceZoneDeclaration', Repository]) -> 'Ecosystem':
         """Legacy factory method for backward compatibility with old *args pattern.
         Use this temporarily during migration, then switch to named parameters for better performance."""
-        platform_services_provider: Optional[PlatformServicesProvider] = None
-        data_platforms: list['DataPlatform'] = []
+        platform_services_providers: list[PlatformServicesProvider] = list()
         documentation: Optional[Documentation] = None
         infrastructure_vendors: list[InfrastructureVendor] = []
         governance_zone_declarations: list['GovernanceZoneDeclaration'] = []
@@ -1626,11 +1649,9 @@ class Ecosystem(GitControlledObject, JSONable):
             if isinstance(arg, InfrastructureVendor):
                 infrastructure_vendors.append(arg)
             elif isinstance(arg, PlatformServicesProvider):
-                platform_services_provider = arg
+                platform_services_providers.append(arg)
             elif isinstance(arg, Documentation):
                 documentation = arg
-            elif isinstance(arg, DataPlatform):
-                data_platforms.append(arg)
             elif isinstance(arg, Repository):
                 liveRepo = arg
             else:
@@ -1640,8 +1661,7 @@ class Ecosystem(GitControlledObject, JSONable):
         return cls(
             name=name,
             repo=repo,
-            platform_services_provider=platform_services_provider,
-            data_platforms=data_platforms if data_platforms else None,
+            platform_services_providers=platform_services_providers,
             documentation=documentation,
             infrastructure_vendors=infrastructure_vendors if infrastructure_vendors else None,
             governance_zone_declarations=governance_zone_declarations if governance_zone_declarations else None,
@@ -1689,8 +1709,7 @@ class Ecosystem(GitControlledObject, JSONable):
             "name": self.name,
             "zones": {k: k.name for k in self.zones.defineAllObjects()},
             "vendors": {k: k.to_json() for k in self.vendors.values()},
-            "dataPlatforms": {k: k.to_json() for k in self.dataPlatforms.values()},
-            "renderEngine": self.platformServicesProvider.to_json() if self.platformServicesProvider else None,
+            "platformServicesProviders": [psp.to_json() for psp in self.platformServicesProviders],
             "liveRepo": self.liveRepo.to_json() if self.liveRepo else None
         }
 
@@ -1709,23 +1728,23 @@ class Ecosystem(GitControlledObject, JSONable):
         platform and then create a file named after the key and write the value to the file. The caller should provide the location of the volume mounted
         to expose the files to"""
 
-        for dp in self.dataPlatforms.values():
-            self.generateBootstrapArtifacts(folderRoot, dp, ringLevel)
+        for psp in self.platformServicesProviders:
+            self.generateBootstrapArtifacts(folderRoot, psp, ringLevel)
 
-    def generateBootstrapArtifacts(self, folderRoot: str, dp: 'DataPlatform', ringLevel: int):
+    def generateBootstrapArtifacts(self, folderRoot: str, psp: 'PlatformServicesProvider', ringLevel: int):
         """This generates the bootstrap artifacts for all the data platforms in the ecosystem. It will create a folder for each data platform, call the
         platform and then create a file named after the key and write the value to the file. The caller should provide the location of the volume mounted
         to expose the files to"""
 
-        name: str = dp.name
+        name: str = psp.name
         folder: str = f"bootstrap_{name}"
         os.makedirs(folder, exist_ok=True)
-        files: dict[str, str] = dp.generateBootstrapArtifacts(self, ringLevel)
+        files: dict[str, str] = psp.generateBootstrapArtifacts(self, ringLevel)
         for key, value in files.items():
             with open(os.path.join(folder, key), "w") as f:
                 f.write(value)
 
-    def add(self, *args: Union[PlatformServicesProvider, 'DataPlatform',
+    def add(self, *args: Union[PlatformServicesProvider,
                                Documentation, InfrastructureVendor, 'GovernanceZoneDeclaration', Repository]) -> None:
         for arg in args:
             if isinstance(arg, InfrastructureVendor):
@@ -1733,11 +1752,9 @@ class Ecosystem(GitControlledObject, JSONable):
                     raise ObjectAlreadyExistsException(f"Duplicate Vendor {arg.name}")
                 self.vendors[arg.name] = arg
             elif isinstance(arg, PlatformServicesProvider):
-                self.platformServicesProvider = arg
+                self.platformServicesProviders.append(arg)
             elif isinstance(arg, Documentation):
                 self.documentation = arg
-            elif isinstance(arg, DataPlatform):
-                self.dataPlatforms[arg.name] = arg
             elif isinstance(arg, Repository):
                 self.liveRepo = arg
             else:
@@ -1755,8 +1772,9 @@ class Ecosystem(GitControlledObject, JSONable):
     def checkDataPlatformExists(self, d: 'DataPlatform') -> bool:
         """This checks if the data platform exists in the ecosystem and is equal to the one in the ecosystem
         with the same name"""
-        if (d.name in self.dataPlatforms):
-            return self.dataPlatforms[d.name] == d
+        for psp in self.platformServicesProviders:
+            if psp.getPlatform(d.name) is not None:
+                return True
         return False
 
     def getVendorOrThrow(self, name: str) -> InfrastructureVendor:
@@ -1769,7 +1787,12 @@ class Ecosystem(GitControlledObject, JSONable):
             raise ObjectDoesntExistException(f"Unknown vendor {name}")
 
     def getDataPlatform(self, name: str) -> Optional['DataPlatform']:
-        return self.dataPlatforms.get(name)
+        psp: PlatformServicesProvider
+        for psp in self.platformServicesProviders:
+            dp: Optional['DataPlatform'] = psp.getPlatform(name)
+            if dp is not None:
+                return dp
+        return None
 
     def getDataPlatformOrThrow(self, name: str) -> 'DataPlatform':
         p: Optional['DataPlatform'] = self.getDataPlatform(name)
@@ -1879,9 +1902,8 @@ class Ecosystem(GitControlledObject, JSONable):
             vTree: ValidationTree = ecoTree.addSubTree(vendor)
             vendor.lint(vTree)
 
-        for pl in self.dataPlatforms.values():
-            platTree: ValidationTree = ecoTree.addSubTree(pl)
-            pl.lint(self, platTree)
+        for psp in self.platformServicesProviders:
+            psp.lint(self, ecoTree.addSubTree(psp))
 
         # Now lint the workspaces
         for workSpaceCacheEntry in self.workSpaceCache.values():
@@ -1902,14 +1924,6 @@ class Ecosystem(GitControlledObject, JSONable):
         # can fail for a variety of reasons such as the DataPlatform does not
         # support certain DataContainers or even schema mapping issues to underlying
         # infrastructure.
-
-        if not ecoTree.hasErrors():
-            try:
-                if self.platformServicesProvider is not None:
-                    # Lint the renderEngine which lints the intentions graphs
-                    self.platformServicesProvider.lint(self, ecoTree.addSubTree(self.platformServicesProvider))
-            except Exception as e:
-                ecoTree.addProblem(f"Error generating pipeline graph {e}", ProblemSeverity.ERROR)
 
         # Prune the tree to remove objects that have no problems
         ecoTree.prune()
@@ -1955,8 +1969,7 @@ class Ecosystem(GitControlledObject, JSONable):
             rc = rc and self.zones == proposed.zones
             rc = rc and self.key == proposed.key
             rc = rc and self.vendors == proposed.vendors
-            rc = rc and self.dataPlatforms == proposed.dataPlatforms
-            rc = rc and self.platformServicesProvider == proposed.platformServicesProvider
+            rc = rc and self.platformServicesProviders == proposed.platformServicesProviders
             rc = rc and self.dsgPlatformMappings == proposed.dsgPlatformMappings
             rc = rc and self.liveRepo == proposed.liveRepo
             return rc
@@ -1984,7 +1997,11 @@ class Ecosystem(GitControlledObject, JSONable):
                     rc = False
                 if self.dictsAreDifferent(self.vendors, proposed.vendors, tree, "Vendors"):
                     rc = False
-                if self.dictsAreDifferent(self.dataPlatforms, proposed.dataPlatforms, tree, "DataPlatforms"):
+                if self.platformServicesProviders != proposed.platformServicesProviders:
+                    tree.addRaw(
+                        UnauthorizedAttributeChange(
+                            "platformServicesProviders", self.platformServicesProviders,
+                            proposed.platformServicesProviders, ProblemSeverity.ERROR))
                     rc = False
                 if self.dsgPlatformMappings != proposed.dsgPlatformMappings:
                     tree.addRaw(UnauthorizedAttributeChange("dsgPlatformMappings", self.dsgPlatformMappings,
@@ -2732,7 +2749,7 @@ class DataPlatformCICDExecutor(DataPlatformExecutor):
 T = TypeVar('T')
 
 
-class DataPlatform(Documentable, JSONable):
+class DataPlatform(Documentable, JSONable, Generic[P]):
     """This is a system which can interpret data flows in the metadata and realize those flows"""
     def __init__(self, name: str,
                  *args: Union[DataPlatformExecutor, Documentation],
@@ -2741,6 +2758,7 @@ class DataPlatform(Documentable, JSONable):
         Documentable.__init__(self, documentation)
         JSONable.__init__(self)
         self.name: str = name
+        self.psp: Optional[P] = None
 
         # Handle backward compatibility: if *args are provided, parse them the old way
         if args:
@@ -2767,6 +2785,11 @@ class DataPlatform(Documentable, JSONable):
             if executor is None:
                 raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
             self.executor: DataPlatformExecutor = executor
+
+    @abstractmethod
+    def setPSP(self, psp: P) -> None:
+        """This sets the platform service provider for the data platform"""
+        self.psp = psp
 
     @abstractmethod
     def getCredentialStore(self) -> CredentialStore:
@@ -2810,7 +2833,19 @@ class DataPlatform(Documentable, JSONable):
                 self.documentation = arg
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, DataPlatform) and self.name == other.name and self.executor == other.executor and Documentable.__eq__(self, other)
+        if isinstance(other, DataPlatform):
+            rc: bool = self.name == other.name and \
+                       self.executor == other.executor and Documentable.__eq__(self, other)
+
+            if self.psp is None and other.psp is None:
+                return rc
+            if self.psp is None and other.psp is not None:
+                return False
+            if self.psp is not None and other.psp is None:
+                return False
+            return rc and self.psp.name == other.psp.name
+        else:
+            return False
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -2840,11 +2875,6 @@ class DataPlatform(Documentable, JSONable):
         """This is typically called in response to a merge event on a repository. This provides the DataPlatform with the ingestion graph assigned to it. This
         is used to either lint the graph and check the DataPlatform can actually execute the pipeline described in the graph as well as create or modify an
         existing pipeline infrastructure to execute the ingestion graph provided."""
-        pass
-
-    @abstractmethod
-    def generateBootstrapArtifacts(self, eco: Ecosystem, ringLevel: int) -> dict[str, str]:
-        """This generates the bootstrap artifacts from the data platform. The ecosystem is needed to get the eco reposistory among other things"""
         pass
 
     @abstractmethod
@@ -3268,7 +3298,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
             # PlatformChooser needs to choose a platform and that platform must perfectly match the same named platform in the Ecosystem
             platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
             if (platform is not None):
-                ecoPlat: Optional[DataPlatform] = eco.dataPlatforms.get(platform.name)
+                ecoPlat: Optional[DataPlatform] = eco.getDataPlatform(platform.name)
                 if (ecoPlat is None):
                     tree.addRaw(UnknownObjectReference(f"DataPlatform {platform.name} is not in the Ecosystem", ProblemSeverity.ERROR))
                 else:

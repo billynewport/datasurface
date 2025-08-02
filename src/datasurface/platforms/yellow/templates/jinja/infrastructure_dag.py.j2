@@ -1,5 +1,5 @@
 """
-Infrastructure DAG for {{ platform_name }} Data Platform
+Infrastructure DAG for {{ psp_name }} Data Platform
 Generated automatically by DataSurface KubernetesPGStarter Platform
 
 This DAG contains the core infrastructure tasks:
@@ -34,12 +34,12 @@ default_args = {
 
 # Create the DAG
 dag = DAG(
-    '{{ platform_name }}_infrastructure',
+    '{{ psp_k8s_name }}_infrastructure',
     default_args=default_args,
-    description='Infrastructure DAG for {{ platform_name }} Data Platform',
+    description='Infrastructure DAG for {{ psp_k8s_name }} Data Platform',
     schedule='@daily',  # Run daily, can be adjusted based on needs
     catchup=False,
-    tags=['datasurface', 'infrastructure', '{{ platform_name }}']
+    tags=['datasurface', 'infrastructure', '{{ psp_k8s_name }}']
 )
 
 # Start task
@@ -51,7 +51,7 @@ start_task = EmptyOperator(
 # Environment variables for all tasks
 common_env_vars = [
     # Platform configuration (literal values)
-    k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value='{{ platform_name }}'),
+    k8s.V1EnvVar(name='DATASURFACE_PSP_NAME', value='{{ psp_k8s_name }}'),
     k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
     
     # Postgres credentials (for merge store)
@@ -60,7 +60,7 @@ common_env_vars = [
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
                 name='{{ postgres_credential_secret_name }}',
-                key='POSTGRES_USER'
+                key='{{ postgres_credential_secret_name }}_USER'
             )
         )
     ),
@@ -69,7 +69,7 @@ common_env_vars = [
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
                 name='{{ postgres_credential_secret_name }}',
-                key='POSTGRES_PASSWORD'
+                key='{{ postgres_credential_secret_name }}_PASSWORD'
             )
         )
     ),
@@ -103,7 +103,7 @@ common_env_vars.extend([
 # MERGE Task - Generates infrastructure terraform files using model merge handler
 merge_task = KubernetesPodOperator(
     task_id='infrastructure_merge_task',
-    name='{{ platform_name }}-infra-merge',
+    name='{{ psp_k8s_name }}-infra-merge',
     namespace='{{ namespace_name }}',
     image='{{ datasurface_docker_image }}',
     cmds=['/bin/bash'],
@@ -126,7 +126,7 @@ merge_task = KubernetesPodOperator(
           --use-git-cache{% endif %} \\
           --max-cache-age-minutes {{ git_cache_max_age_minutes }} \\
           --output /workspace/generated_artifacts \\
-          --platform {{ original_platform_name }}
+          --psp {{ psp_k8s_name }}
         
         echo "✅ Infrastructure model merge handler complete!"
         '''
@@ -238,7 +238,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='POSTGRES_USER'
+                    key='{{ postgres_credential_secret_name }}_USER'
                 )
             )
         ),
@@ -247,7 +247,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='POSTGRES_PASSWORD'
+                    key='{{ postgres_credential_secret_name }}_PASSWORD'
                 )
             )
         ),
@@ -273,7 +273,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 value_from=k8s.V1EnvVarSource(
                     secret_key_ref=k8s.V1SecretKeySelector(
                         name=stream_config['source_credential_secret_name'],
-                        key='POSTGRES_USER'
+                        key='{{ postgres_credential_secret_name }}_USER'
                     )
                 )
             ),
@@ -282,7 +282,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 value_from=k8s.V1EnvVarSource(
                     secret_key_ref=k8s.V1SecretKeySelector(
                         name=stream_config['source_credential_secret_name'],
-                        key='POSTGRES_PASSWORD'
+                        key='{{ postgres_credential_secret_name }}_PASSWORD'
                     )
                 )
             )
@@ -697,7 +697,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='POSTGRES_USER'
+                    key=f"{platform_config['postgres_credential_secret_name']}_USER"
                 )
             )
         ),
@@ -706,7 +706,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='POSTGRES_PASSWORD'
+                    key=f"{platform_config['postgres_credential_secret_name']}_PASSWORD"
                 )
             )
         ),

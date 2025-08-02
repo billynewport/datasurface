@@ -112,40 +112,23 @@ docker run --rm \
   --ringLevel 0 \
   --model /workspace/model \
   --output /workspace/model/generated_output \
-  --platform YellowLive YellowForensic
+  --psp Test_DP
 ```
 
 ### Step 4: Verify Generated Artifacts
 
 ```bash
 # Check the generated files
-ls -la generated_output/YellowLive/
-ls -la generated_output/YellowForensic/
+ls -la generated_output/Test_DP/
 ```
 
 **Expected artifacts for each platform:**
 - `kubernetes-bootstrap.yaml` - Kubernetes deployment configuration
-- `{platform}_infrastructure_dag.py` - Platform management DAG
-- `{platform}_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
-- `{platform}_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
+- `{pspName}_infrastructure_dag.py` - Platform management DAG
+- `{pspName}_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
+- `{pspName}_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
 
 ### Step 5: Validate Configuration
-
-```bash
-# Verify platforms have correct differences
-diff generated_output/YellowLive/kubernetes-bootstrap.yaml generated_output/YellowForensic/kubernetes-bootstrap.yaml
-```
-
-**Expected differences:**
-- Platform-specific resource names (`yellowlive-*` vs `yellowforensic-*`)
-- Platform environment variables
-
-**Should be identical:**
-- Database hostnames and ports
-- Connection strings
-- Template configurations
-
----
 
 ## Phase 2: Kubernetes Infrastructure Setup (Ring 1)
 
@@ -157,8 +140,8 @@ kubectl create namespace ns-yellow-starter
 
 # Create database credentials secret (consistent format for all components)
 kubectl create secret generic postgres \
-  --from-literal=POSTGRES_USER=postgres \
-  --from-literal=POSTGRES_PASSWORD=datasurface123 \
+  --from-literal=postgres_USER=postgres \
+  --from-literal=postgres_PASSWORD=datasurface123 \
   -n ns-yellow-starter
 
 # Create GitHub credentials secret  

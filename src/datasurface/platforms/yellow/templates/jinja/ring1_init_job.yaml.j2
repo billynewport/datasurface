@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ platform_name }}-ring1-init
+  name: {{ psp_k8s_name }}-ring1-init
   namespace: {{ namespace_name }}
 spec:
   template:
@@ -13,7 +13,7 @@ spec:
         args:
           - -c
           - |
-            echo "🔄 Starting Ring 1 Initialization for {{ original_platform_name }}"
+            echo "🔄 Starting Ring 1 Initialization for {{ psp_name }}"
             
             # Run Ring 1 initialization for platform using cache-aware CLI
             echo "🔧 Running Ring 1 initialization with shared cache..."
@@ -27,9 +27,9 @@ spec:
             {% if git_cache_enabled %}--use-git-cache \
             {% endif %}--max-cache-age-minutes {{ git_cache_max_age_minutes }} \
               --output /workspace/generated_artifacts \
-              --platform {{ original_platform_name }}
+              --psp {{ psp_name }}
             
-            echo "✅ Ring 1 initialization complete for {{ original_platform_name }}!"
+            echo "✅ Ring 1 initialization complete for {{ psp_name }}!"
         env:
           - name: PYTHONPATH
             value: "/app/src"
@@ -38,16 +38,16 @@ spec:
               secretKeyRef:
                 name: {{ git_credential_secret_name }}
                 key: token
-          - name: postgres_USER
+          - name: {{ postgres_credential_secret_name }}_USER
             valueFrom:
               secretKeyRef:
                 name: {{ postgres_credential_secret_name }}
-                key: POSTGRES_USER
-          - name: postgres_PASSWORD
+                key: {{ postgres_credential_secret_name }}_USER
+          - name: {{ postgres_credential_secret_name }}_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: {{ postgres_credential_secret_name }}
-                key: POSTGRES_PASSWORD
+                key: {{ postgres_credential_secret_name }}_PASSWORD
         volumeMounts:
         {% if git_cache_enabled %}
         - name: git-model-cache

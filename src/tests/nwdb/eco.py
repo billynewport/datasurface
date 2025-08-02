@@ -14,18 +14,21 @@ from datasurface.md import CloudVendor, InfraStructureLocationPolicy, \
 from datasurface.md import ValidationTree
 from tests.nwdb.nwdb import defineTables as defineNWTeamTables
 from tests.nwdb.nwdb import defineWorkspaces as defineNWTeamWorkspaces
-from datasurface.platforms.legacy import LegacyDataPlatformChooser
+from datasurface.platforms.legacy import LegacyDataPlatformChooser, LegacyPlatformServiceProvider
 
 
 def createEcosystem() -> Ecosystem:
+    psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+        "LegacyPSP",
+        {LocationKey("MyCorp:USA/NY_1")},
+        [
+            LegacyDataPlatform("LegacyA", PlainTextDocumentation("Test")),
+        ]
+    )
     ecosys: Ecosystem = Ecosystem(
         name="Test",
         repo=GitHubRepository("billynewport/repo", "ECOmain"),
-        data_platforms=[
-            LegacyDataPlatform(
-                "LegacyA",
-                PlainTextDocumentation("Test"))
-        ],
+        platform_services_providers=[psp],
         liveRepo=GitHubRepository("billynewport/repo", "EcoLive"),
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),

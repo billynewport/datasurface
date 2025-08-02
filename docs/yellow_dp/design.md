@@ -150,4 +150,18 @@ There are 2 styles of merge supported. Live and milestoned. Live means consumers
 
 When the model changes in the live repo, the handlerModelMerge service must be called. This will clone the repo and then call the handleModelMerge. This will load the model, validates it again and then make the changes. For the YellowDataPlatform, this works by finding all ingestion streams and datatransformers in the model and then creating a record per stream of transformer in database tables in the merge engine. These are the AirflowDAG and transformerDAG tables which are naming after the DataPlatform name. Each instance of the YellowDataPlatform has its own pair of tables.
 
-When the ring 1 bootstrap is run, this generates the factory DAG files. These are copied to the airflow DAGs folder. If a new DataPlatform instance is created then you will need to run the ring 1 bootstrap again and copy the new factory DAG files to the airflow DAGs folder. These factory DAGs run periodically inside the airflow scheduler. When the factory runs, it reads the AirflowDAG and transformerDAG tables and creates the actual DAGs for the streams and transformers.
+When the ring 1 bootstrap is run, this generates the a single infrastructure DAG file. This is copied to the airflow DAGs folder. This DAG uses 3 tables populated by the handle model merge service. These tables are the AirflowDAG, transformerDAG and factory_dag tables. The factory_dag table is each YellowDataPlatform instance in the model. The infrastructure DAG dynamically creates 2 factory DAGs per record or per DataPlatform instance. One for creating the ingestion DAGs and another for creating the transformer DAGs. The AirflowDAG and transformerDAG tables are used to create the actual DAGs for the streams and transformers.
+
+Thus, the infrastructure DAG is a hierarchy of model driven DAGs needed to run the YellowDataPlatform.
+
+1. Model level DAG, the infrastructure DAG
+2. DataPlatform instance level DAGs, the platform ingestion factory DAG and the platform transformer factory DAG
+3. Ingestion DAGs, dt Ingestion DAGs and transformer DAGs.
+
+Level 2 is dynamically created by the infrastructure DAG using records from the factory_dag table.
+Level 3 is dynamically created by the platform DAGs in level 2 using records from the AirflowDAG and transformerDAG tables.
+
+All these tables are populated by the handle model merge service.
+
+Thus, if the model changes, then nothing changes until the handle model merge service is run. Datasurface customers can choose to just do updates once a day or every few minutes, it's up to them or on the use case. A development system can run very frequently or even be triggered when git commits are detected on the live model repo. Production systems can have no checks and balances.
+

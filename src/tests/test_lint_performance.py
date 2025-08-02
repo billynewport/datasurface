@@ -6,12 +6,12 @@ import unittest
 
 from datasurface.md import Ecosystem, GovernanceZoneDeclaration, \
                            InfrastructureVendor, CloudVendor, InfrastructureLocation, TeamDeclaration, GovernanceZone, Team, Datastore, Dataset, \
-                           DDLColumn, DDLTable, PrimaryKeyStatus
+                           DDLColumn, DDLTable, PrimaryKeyStatus, LocationKey
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import track_sources, enable_source_tracking, disable_source_tracking
 from datasurface.md.types import String
 from datasurface.md.documentation import PlainTextDocumentation
-from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyPlatformServiceProvider
 import time
 import os
 
@@ -45,12 +45,16 @@ class TestLintPerformance(unittest.TestCase):
         return end_time - start_time
 
     def createScaledEcosystem(self, numStores: int, numDatasetsPerStore: int, numColumnsPerDataset: int) -> Ecosystem:
+        psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+            "LegacyPSP",
+            {LocationKey("MyCorp:USA/NY_1")},
+            [
+                LegacyDataPlatform("LegacyA", PlainTextDocumentation("Test")),
+            ]
+        )
         ecosys: Ecosystem = Ecosystem(
             "Test",
             GitHubRepository("billynewport/repo", "ECOmain"),
-            LegacyDataPlatform(
-                "LegacyA",
-                PlainTextDocumentation("Test")),
 
             # GovernanceZones
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain")),
@@ -63,7 +67,8 @@ class TestLintPerformance(unittest.TestCase):
                 InfrastructureLocation(
                     "USA",
                     InfrastructureLocation("ny1"),  # New York City
-                    InfrastructureLocation("nj1")))  # New Jersey
+                    InfrastructureLocation("nj1"))),  # New Jersey
+            platform_services_providers=[psp],
         )
 
         gzUSA: GovernanceZone = ecosys.getZoneOrThrow("USA")

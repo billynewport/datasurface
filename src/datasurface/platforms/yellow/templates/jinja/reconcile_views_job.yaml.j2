@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ platform_name }}-reconcile-views-job
+  name: {{ psp_k8s_name }}-reconcile-views-job
   namespace: {{ namespace_name }}
 spec:
   template:
@@ -43,12 +43,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ postgres_credential_secret_name }}
-              key: POSTGRES_USER
+              key: {{ postgres_credential_secret_name }}_USER
         - name: {{ postgres_credential_secret_name | replace('-', '_') }}_PASSWORD
           valueFrom:
             secretKeyRef:
               name: {{ postgres_credential_secret_name }}
-              key: POSTGRES_PASSWORD
+              key: {{ postgres_credential_secret_name }}_PASSWORD
         {% if git_cache_enabled %}
         volumeMounts:
         - name: git-model-cache

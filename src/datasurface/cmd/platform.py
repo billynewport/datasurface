@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
+from datasurface.platforms.yellow.yellow_dp import KubernetesEnvVarsCredentialStore
 from datasurface.md.repo import GitHubRepository
+from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
-from datasurface.md import Ecosystem, DataPlatform, EcosystemPipelineGraph, PlatformPipelineGraph, DataPlatformGraphHandler, CredentialStore
+from datasurface.md import Ecosystem, DataPlatform, CredentialStore
 from datasurface.md import ValidationTree
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
@@ -19,36 +21,6 @@ import urllib.parse
 # Setup logging for environment
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
-
-
-def generatePlatformBootstrap(ringLevel: int, modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
-    """This will generate the platform bootstrap files for a given platform using the model defined in
-    the model folder, the model must be called 'eco.py'. The files will be generated in the {basePlatformDir}/{platformName} directory."""
-
-    # Load the model
-    eco: Optional[Ecosystem]
-    ecoTree: Optional[ValidationTree]
-    eco, ecoTree = loadEcosystemFromEcoModule(modelFolderName)
-    if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
-        if ecoTree is not None:
-            ecoTree.printTree()
-        raise Exception(f"Failed to load ecosystem from {modelFolderName}")
-
-    # Generate the platform bootstrap files
-    assert eco is not None
-
-    # Find the platform
-    for platformName in platformNames:
-        dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
-        # Generate the bootstrap files
-        bootstrapArtifacts: dict[str, str] = dp.generateBootstrapArtifacts(eco, ringLevel)
-        # Create the platform directory if it doesn't exist
-        os.makedirs(os.path.join(basePlatformDir, platformName), exist_ok=True)
-        for name, content in bootstrapArtifacts.items():
-            with open(os.path.join(basePlatformDir, platformName, name), "w") as f:
-                f.write(content)
-
-    return eco
 
 
 def getNewModelFolder(modelFolderName: str) -> str:
@@ -202,10 +174,10 @@ def getLatestModelAtTimestampedFolder(credStore: CredentialStore, repo: GitHubRe
     return eco, ecoTree
 
 
-def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames: str) -> Ecosystem:
-    """This creates the graph defined by the model and for the specified data platforms, it asks each dataplatform
-    to turns the subset of the graph that it is responsible for in to artifacts to use to execute the data pipelines
-    needed for this subset. These artifacts would include job schedule DAGs, terraform files and so on as needed."""
+def handleModelMerge(modelFolderName: str, basePlatformDir: str, *pspNames: str) -> Ecosystem:
+    """This creates the graph defined by the model and for the specified platform services providers, it asks each
+    platform services provider to generate the artifacts needed to execute the data pipelines needed for this subset.
+    These artifacts would include job schedule DAGs, terraform files and so on as needed."""
 
     # Load the model
     eco: Optional[Ecosystem]
@@ -219,34 +191,16 @@ def handleModelMerge(modelFolderName: str, basePlatformDir: str, *platformNames:
     # Generate the platform bootstrap files
     assert eco is not None
 
-    # Find the platform
-    for platformName in platformNames:
-        dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+    pspNamesSet: set[str] = set(pspNames)
 
-        # Get the platform graph
-        platformGraph: PlatformPipelineGraph = graph.roots[dp.name]
-        platformGraphHandler: DataPlatformGraphHandler = dp.createGraphHandler(platformGraph)
-
-        # Create the platform directory if it doesn't exist
-        os.makedirs(os.path.join(basePlatformDir, platformName), exist_ok=True)
-
-        tree: ValidationTree = ValidationTree(eco)
-        files: dict[str, str] = platformGraphHandler.renderGraph(dp.getCredentialStore(), tree)
-
-        if tree.hasWarnings() or tree.hasErrors():
-            tree.printTree()
-
-        # Write the files to the platform directory
-        for name, content in files.items():
-            with open(os.path.join(basePlatformDir, platformName, name), "w") as f:
-                f.write(content)
-
+    for psp in eco.platformServicesProviders:
+        if psp.name in pspNamesSet:
+            psp.mergeHandler(eco, basePlatformDir)
     return eco
 
 
 def handleModelMergeWithGit(credStore: CredentialStore, repo: GitHubRepository, gitRepoPath: str, useCache: bool,
-                            maxCacheAgeMinutes: int, basePlatformDir: str, *platformNames: str) -> Ecosystem:
+                            maxCacheAgeMinutes: int, basePlatformDir: str, *pspNames: str) -> Ecosystem:
     """Cache-aware version of handleModelMerge that loads ecosystem using git cache."""
 
     # Load the model using cache-aware loading
@@ -265,34 +219,47 @@ def handleModelMergeWithGit(credStore: CredentialStore, repo: GitHubRepository, 
     # Generate the platform bootstrap files
     assert eco is not None
 
+    pspNamesSet: set[str] = set(pspNames)
     # Find the platform
-    for platformName in platformNames:
-        dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+    for psp in eco.platformServicesProviders:
+        if psp.name in pspNamesSet:
+            psp.mergeHandler(eco, basePlatformDir)
+    return eco
 
-        # Get the platform graph
-        platformGraph: PlatformPipelineGraph = graph.roots[dp.name]
-        platformGraphHandler: DataPlatformGraphHandler = dp.createGraphHandler(platformGraph)
 
-        # Create the platform directory if it doesn't exist
-        os.makedirs(os.path.join(basePlatformDir, platformName), exist_ok=True)
+def generatePlatformBootstrap(ringLevel: int, modelFolderName: str, basePlatformDir: str, *pspNames: str) -> Ecosystem:
+    """This will generate the platform bootstrap files for a given platform using the model defined in
+    the model folder, the model must be called 'eco.py'. The files will be generated in the {basePlatformDir}/{platformName} directory."""
 
-        tree: ValidationTree = ValidationTree(eco)
-        files: dict[str, str] = platformGraphHandler.renderGraph(dp.getCredentialStore(), tree)
+    # Load the model
+    eco: Optional[Ecosystem]
+    ecoTree: Optional[ValidationTree]
+    eco, ecoTree = loadEcosystemFromEcoModule(modelFolderName)
+    if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
+        if ecoTree is not None:
+            ecoTree.printTree()
+        raise Exception(f"Failed to load ecosystem from {modelFolderName}")
 
-        if tree.hasWarnings() or tree.hasErrors():
-            tree.printTree()
+    # Generate the platform bootstrap files
+    assert eco is not None
 
-        # Write the files to the platform directory
-        for name, content in files.items():
-            with open(os.path.join(basePlatformDir, platformName, name), "w") as f:
-                f.write(content)
+    # Find the platform
+    pspNamesSet: set[str] = set(pspNames)
+    for psp in eco.platformServicesProviders:
+        if psp.name in pspNamesSet:
+            # Generate the bootstrap files
+            bootstrapArtifacts: dict[str, str] = psp.generateBootstrapArtifacts(eco, ringLevel)
+            # Create the platform directory if it doesn't exist
+            os.makedirs(os.path.join(basePlatformDir, psp.name), exist_ok=True)
+            for name, content in bootstrapArtifacts.items():
+                with open(os.path.join(basePlatformDir, psp.name, name), "w") as f:
+                    f.write(content)
 
     return eco
 
 
 def generatePlatformBootstrapWithGit(credStore: CredentialStore, repo: GitHubRepository, gitRepoPath: str, useCache: bool,
-                                     maxCacheAgeMinutes: int, ringLevel: int, basePlatformDir: str, *platformNames: str) -> Ecosystem:
+                                     maxCacheAgeMinutes: int, ringLevel: int, basePlatformDir: str, *pspNames: str) -> Ecosystem:
     """Cache-aware version of generatePlatformBootstrap that loads ecosystem using git cache."""
 
     # Load the model using cache-aware loading
@@ -312,15 +279,16 @@ def generatePlatformBootstrapWithGit(credStore: CredentialStore, repo: GitHubRep
     assert eco is not None
 
     # Find the platform
-    for platformName in platformNames:
-        dp: DataPlatform = eco.getDataPlatformOrThrow(platformName)
-        # Generate the bootstrap files
-        bootstrapArtifacts: dict[str, str] = dp.generateBootstrapArtifacts(eco, ringLevel)
-        # Create the platform directory if it doesn't exist
-        os.makedirs(os.path.join(basePlatformDir, platformName), exist_ok=True)
-        for name, content in bootstrapArtifacts.items():
-            with open(os.path.join(basePlatformDir, platformName, name), "w") as f:
-                f.write(content)
+    pspNamesSet: set[str] = set(pspNames)
+    for psp in eco.platformServicesProviders:
+        if psp.name in pspNamesSet:
+            # Generate the bootstrap files
+            bootstrapArtifacts: dict[str, str] = psp.generateBootstrapArtifacts(eco, ringLevel)
+            # Create the platform directory if it doesn't exist
+            os.makedirs(os.path.join(basePlatformDir, psp.name), exist_ok=True)
+            for name, content in bootstrapArtifacts.items():
+                with open(os.path.join(basePlatformDir, psp.name, name), "w") as f:
+                    f.write(content)
 
     return eco
 
@@ -549,7 +517,7 @@ if __name__ == "__main__":
     parser_bootstrap.add_argument("--ringLevel", type=int, required=True, help=", 0 to N, Ring level to generate bootstrap artifacts for")
     parser_bootstrap.add_argument("--model", required=False, help="Model folder name (containing eco.py) - legacy mode")
     parser_bootstrap.add_argument("--output", required=True, help="Base output directory for platform files")
-    parser_bootstrap.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
+    parser_bootstrap.add_argument("--psp", required=True, nargs="+", help="One or more platform service provider names")
     # Git repository parameters for cache-aware loading
     parser_bootstrap.add_argument("--git-repo-path", help="Path to git repository cache")
     parser_bootstrap.add_argument("--git-repo-owner", help="GitHub repository owner")
@@ -563,7 +531,7 @@ if __name__ == "__main__":
     parser_merge = subparsers.add_parser("handleModelMerge", help="Generate pipeline artifacts for platforms")
     parser_merge.add_argument("--model", required=False, help="Model folder name (containing eco.py) - legacy mode")
     parser_merge.add_argument("--output", required=True, help="Base output directory for platform files")
-    parser_merge.add_argument("--platform", required=True, nargs="+", help="One or more platform names")
+    parser_merge.add_argument("--psp", required=True, nargs="+", help="One or more platform service provider names")
     # Git repository parameters for cache-aware loading
     parser_merge.add_argument("--git-repo-path", help="Path to git repository cache")
     parser_merge.add_argument("--git-repo-owner", help="GitHub repository owner")
@@ -583,12 +551,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.command == "generatePlatformBootstrap":
         # Set logging context for the operation
-        set_context(platform=",".join(args.platform))
+        set_context(psp=",".join(args.psp))
 
         if args.model:
             # Legacy mode - use direct model folder path
             logger.info("Using legacy mode with direct model folder", model_folder=args.model)
-            generatePlatformBootstrap(args.ringLevel, args.model, args.output, *args.platform)
+            generatePlatformBootstrap(args.ringLevel, args.model, args.output, *args.psp)
         else:
             # New git-aware mode - validate git parameters
             if not all([args.git_repo_path, args.git_repo_owner, args.git_repo_name,
@@ -598,11 +566,7 @@ if __name__ == "__main__":
                 exit(1)
 
             # Create credential store and repository
-            from datasurface.platforms.yellow.yellow_dp import KubernetesEnvVarsCredentialStore
-            from datasurface.md.repo import GitHubRepository
-            from datasurface.md.credential import Credential, CredentialType
-
-            set_context(platform=",".join(args.platform))
+            set_context(psp=",".join(args.psp))
 
             cred_store = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
             repo = GitHubRepository(
@@ -613,15 +577,15 @@ if __name__ == "__main__":
 
             generatePlatformBootstrapWithGit(
                 cred_store, repo, args.git_repo_path, args.use_git_cache,
-                args.max_cache_age_minutes, args.ringLevel, args.output, *args.platform)
+                args.max_cache_age_minutes, args.ringLevel, args.output, *args.psp)
     elif args.command == "handleModelMerge":
         # Set logging context for the operation
-        set_context(platform=",".join(args.platform))
+        set_context(psp=",".join(args.psp))
 
         if args.model:
             # Legacy mode - use direct model folder path
             logger.info("Using legacy mode with direct model folder", model_folder=args.model)
-            handleModelMerge(args.model, args.output, *args.platform)
+            handleModelMerge(args.model, args.output, *args.psp)
         else:
             # New git-aware mode - validate git parameters
             if not all([args.git_repo_path, args.git_repo_owner, args.git_repo_name,
@@ -631,11 +595,7 @@ if __name__ == "__main__":
                 exit(1)
 
             # Create credential store and repository
-            from datasurface.platforms.yellow.yellow_dp import KubernetesEnvVarsCredentialStore
-            from datasurface.md.repo import GitHubRepository
-            from datasurface.md.credential import Credential, CredentialType
-
-            set_context(platform=",".join(args.platform))
+            set_context(psp=",".join(args.psp))
 
             cred_store = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
             repo = GitHubRepository(
@@ -645,7 +605,7 @@ if __name__ == "__main__":
             )
 
             handleModelMergeWithGit(cred_store, repo, args.git_repo_path, args.use_git_cache,
-                                    args.max_cache_age_minutes, args.output, *args.platform)
+                                    args.max_cache_age_minutes, args.output, *args.psp)
     elif args.command == "resetBatchState":
         # Set logging context for the operation
         set_context(platform=args.platform, workspace=args.store)

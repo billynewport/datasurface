@@ -13,10 +13,10 @@ from datasurface.md.repo import GitHubRepository
 from datasurface.md import CloudVendor, Ecosystem, \
     GovernanceZone, InfrastructureLocation, InfrastructureVendor, Repository
 from datasurface.md import TeamDeclaration, Team, GovernanceZoneDeclaration
-from datasurface.md import UnknownChangeSource, ValidationTree
+from datasurface.md import UnknownChangeSource, ValidationTree, LocationKey
 import tests.nwdb.eco
 import tests.nwdb.nwdb
-from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyPlatformServiceProvider
 
 
 class TestGitEquals(unittest.TestCase):
@@ -100,12 +100,17 @@ class TestEcoNameChange(unittest.TestCase):
         # if referenced in the same constructor call. So, create an Ecosystem first with
         # the dataplatform and then add the remaining elements which can now reference
         # the dataplatform by name
+        psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+            "LegacyPSP",
+            {LocationKey("MyCorp:USA/NY_1")},
+            [
+                LegacyDataPlatform("AzureBatch", PlainTextDocumentation("Test")),
+            ]
+        )
         eOriginal: Ecosystem = Ecosystem(
             "AcmeEco",
             GitHubRepository("billynewport/test-surface", "eco_edits"),
-            LegacyDataPlatform(
-                "AzureBatch",
-                PlainTextDocumentation("Azure Batch")))
+            psp)
         eOriginal.add(
             InfrastructureVendor(
                 "Azure",
@@ -135,9 +140,7 @@ class TestEcoNameChange(unittest.TestCase):
         eProposed: Ecosystem = Ecosystem(
             "AcmeEco",
             GitHubRepository("billynewport/test-surface", "eco_edits"),
-            LegacyDataPlatform(
-                "AzureBatch",
-                PlainTextDocumentation("Azure Batch")))
+            psp)
         eProposed.add(
             InfrastructureVendor(
                 "Azure",

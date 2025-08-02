@@ -1,0 +1,55 @@
+# Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ psp_k8s_name }}-network-policy
+  namespace: {{ namespace_name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ namespace_name }}
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8083
+  egress:
+    # Allow all outbound traffic (needed for external database connections)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow standard database ports for bootstrap
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432  # PostgreSQL
+        - protocol: TCP
+          port: 3306  # MySQL
+        - protocol: TCP
+          port: 1521  # Oracle
+        - protocol: TCP
+          port: 1433  # SQL Server
+        - protocol: TCP
+          port: 50000 # DB2 
+---

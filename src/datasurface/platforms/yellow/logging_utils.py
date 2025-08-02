@@ -22,6 +22,7 @@ request_id: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
 workspace_name: ContextVar[Optional[str]] = ContextVar('workspace_name', default=None)
 platform_name: ContextVar[Optional[str]] = ContextVar('platform_name', default=None)
 operation_name: ContextVar[Optional[str]] = ContextVar('operation_name', default=None)
+psp_name: ContextVar[Optional[str]] = ContextVar('psp_name', default=None)
 
 
 class StructuredFormatter(logging.Formatter):
@@ -73,7 +74,8 @@ class StructuredFormatter(logging.Formatter):
             context['platform_name'] = platform_name.get()
         if operation_name.get():
             context['operation_name'] = operation_name.get()
-
+        if psp_name.get():
+            context['psp_name'] = psp_name.get()
         return context
 
     def _get_kubernetes_context(self) -> Dict[str, Any]:
@@ -132,7 +134,8 @@ class ContextualLogger:
             extra_fields['platform_name'] = platform_name.get()
         if operation_name.get():
             extra_fields['operation_name'] = operation_name.get()
-
+        if psp_name.get():
+            extra_fields['psp_name'] = psp_name.get()
         # Add additional fields
         extra_fields.update(kwargs)
 
@@ -344,6 +347,7 @@ def log_operation_timing(
 
 def set_context(
     workspace: Optional[str] = None,
+    psp: Optional[str] = None,
     platform: Optional[str] = None,
     request: Optional[str] = None
 ) -> None:
@@ -357,6 +361,8 @@ def set_context(
     """
     if workspace is not None:
         workspace_name.set(workspace)
+    if psp is not None:
+        psp_name.set(psp)
     if platform is not None:
         platform_name.set(platform)
     if request is not None:

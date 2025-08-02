@@ -1,0 +1,77 @@
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ instance_name }}-postgres-pvc
+  namespace: {{ namespace_name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ instance_name }}-postgres
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ instance_name }}-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ instance_name }}-postgres
+  template:
+    metadata:
+      labels:
+        app: {{ instance_name }}-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: {{ postgres_port }}
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ postgres_credential_secret_name }}
+                  key: {{ postgres_credential_secret_name }}_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ postgres_credential_secret_name }}
+                  key: {{ postgres_credential_secret_name }}_PASSWORD
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: {{ instance_name }}-postgres-pvc
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ postgres_hostname.split('.')[0] }}
+  namespace: {{ namespace_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ instance_name }}-postgres
+  ports:
+    - protocol: TCP
+      port: {{ postgres_port }}
+      targetPort: {{ postgres_port }}
+---

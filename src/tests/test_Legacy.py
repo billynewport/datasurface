@@ -15,7 +15,7 @@ from datasurface.md import ValidationTree, Datastore, Dataset, CDCCaptureIngesti
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import SmallInt, VarChar
-from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDataPlatformChooser
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyDataPlatformChooser, LegacyPlatformServiceProvider
 
 
 """
@@ -113,18 +113,20 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey]):
 
 def createEcosystem() -> Ecosystem:
     """Create an Ecosystem with a LegacyDataPlatform"""
+    psp: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+        "LegacyPSP",
+        {LocationKey("MyCorp:USA/NY_1")},
+        [
+            LegacyDataPlatform("LegacyA", PlainTextDocumentation("Test")),
+        ]
+    )
     ecosys: Ecosystem = Ecosystem(
         name="Test",
         repo=GitHubRepository(
             repo="billynewport/repo",
             branchName="ECOmain"
         ),
-        data_platforms=[
-            LegacyDataPlatform(
-                name="LegacyA",
-                doc=PlainTextDocumentation(description="Test")
-            )
-        ],
+        platform_services_providers=[psp],
         governance_zone_declarations=[
             GovernanceZoneDeclaration(
                 name="USA",

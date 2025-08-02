@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ platform_name }}-model-merge-job
+  name: {{ psp_k8s_name }}-model-merge-job
   namespace: {{ namespace_name }}
 spec:
   template:
@@ -27,7 +27,7 @@ spec:
             --use-git-cache{% endif %} \
             --max-cache-age-minutes {{ git_cache_max_age_minutes }} \
             --output /workspace/generated_artifacts \
-            --platform {{ original_platform_name }}
+            --psp {{ psp_name }}
           
           echo "✅ Model merge handler complete!"
         env:
@@ -42,12 +42,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ postgres_credential_secret_name }}
-              key: POSTGRES_USER
+              key: {{ postgres_credential_secret_name }}_USER
         - name: {{ postgres_credential_secret_name | replace('-', '_') }}_PASSWORD
           valueFrom:
             secretKeyRef:
               name: {{ postgres_credential_secret_name }}
-              key: POSTGRES_PASSWORD
+              key: {{ postgres_credential_secret_name }}_PASSWORD
         volumeMounts:
         {% if git_cache_enabled %}
         - name: git-model-cache

@@ -6,7 +6,7 @@
 from datasurface.md import DataPlatform, Ecosystem, Workspace, \
     DataPlatformChooser, DataContainer, Documentation, DataPlatformExecutor, ValidationTree, \
     CloudVendor, PlatformPipelineGraph, DataPlatformGraphHandler, AttributeNotSet, ObjectWrongType, ProblemSeverity, \
-    CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore, SchemaProjector
+    CodeExecutionEnvironment, CodeArtifact, LocationKey, CredentialStore, SchemaProjector, PlatformServicesProvider
 from datasurface.md.credential import NoopCredentialStore
 
 from typing import Optional, Any
@@ -80,7 +80,34 @@ class LegacyDataPlatformHandler(DataPlatformGraphHandler):
         return {}
 
 
-class LegacyDataPlatform(DataPlatform):
+class LegacyPlatformServiceProvider(PlatformServicesProvider):
+    """This is a no-op PlatformServiceProvider. It's intent is to specify that the data flows are already realized and externally managed
+    by existing systems. However, DataSurface will still track the data flows and manage governance for the data."""
+    def __init__(self, name: str, locs: set[LocationKey], dataPlatforms: list[DataPlatform]) -> None:
+        super().__init__(name, locs, NoopCredentialStore(), dataPlatforms)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        pass
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__})
+        return rc
+
+    def generateBootstrapArtifacts(self, eco: 'Ecosystem', ringLevel: int) -> dict[str, str]:
+        raise NotImplementedError("generateBootstrapArtifacts not implemented")
+
+    def mergeHandler(self, eco: 'Ecosystem'):
+        pass
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, LegacyPlatformServiceProvider):
+            return super().__eq__(other)
+        else:
+            return False
+
+
+class LegacyDataPlatform(DataPlatform[LegacyPlatformServiceProvider]):
     """This is a no-op DataPlatform. It's intent is to specify that the data flows are already realized and externally managed
     by existing systems. However, DataSurface will still track the data flows and manage governance for the data."""
     def __init__(self, name: str, doc: Documentation) -> None:
@@ -90,6 +117,12 @@ class LegacyDataPlatform(DataPlatform):
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__})
         return rc
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, LegacyDataPlatform):
+            return super().__eq__(other)
+        else:
+            return False
 
     def __str__(self) -> str:
         return f"LegacyDataPlatform({self.name})"
@@ -127,6 +160,9 @@ class LegacyDataPlatform(DataPlatform):
     def resetBatchState(self, eco: Ecosystem, storeName: str, datasetName: Optional[str] = None) -> str:
         """This resets the batch state for a datastore"""
         raise NotImplementedError("resetBatchState not implemented")
+
+    def setPSP(self, psp: LegacyPlatformServiceProvider) -> None:
+        super().setPSP(psp)
 
 
 class LegacyDataPlatformChooser(DataPlatformChooser):

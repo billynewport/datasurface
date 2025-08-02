@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from datasurface.platforms.legacy import LegacyDataPlatform
+from datasurface.platforms.legacy import LegacyDataPlatform, LegacyPlatformServiceProvider
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md import LocationKey
 from datasurface.md.repo import GitHubRepository
@@ -16,12 +16,22 @@ from datasurface.md import CloudVendor, DataPlatformPolicy, \
 
 
 def createEcosystem() -> Ecosystem:
+    azurePSP: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+        "AzurePSP",
+        {LocationKey("Azure:USA/Central")},
+        [
+            LegacyDataPlatform("Azure Platform", PlainTextDocumentation("Test"))
+        ]
+    )
+    awsPSP: LegacyPlatformServiceProvider = LegacyPlatformServiceProvider(
+        "AWSPSP",
+        {LocationKey("AWS:USA/Virginia")},
+        [
+            LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test"))
+        ]
+    )
     e: Ecosystem = Ecosystem(
         "Test", GitHubRepository("billynewport/test_step1", "main"),
-        LegacyDataPlatform(
-            "Azure Platform",
-            PlainTextDocumentation("Test")),
-        LegacyDataPlatform("AWS Platform", PlainTextDocumentation("Test")),
 
         GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/test_step1", "USAmain")),
         GovernanceZoneDeclaration("EU", GitHubRepository("billynewport/test_step1", "EUmain")),
@@ -67,7 +77,8 @@ def createEcosystem() -> Ecosystem:
                     InfrastructureLocation("West US"),  # California
                     InfrastructureLocation("West US 2"),  # Washington
                     InfrastructureLocation("West US 3")))),  # Arizona
-            liveRepo=GitHubRepository("billynewport/test_step1", "live")
+            liveRepo=GitHubRepository("billynewport/test_step1", "live"),
+            platform_services_providers=[azurePSP, awsPSP]
         )
 
     # Add the EU GZ and its policies limiting locations to EU only
