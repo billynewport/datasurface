@@ -14,3 +14,4 @@ This section is a diary of the project intended to capture my thinking over time
 * [May 2025](2025_05.md)
 * [June 2025](2025_06.md)
 * [July 2025](2025_07.md)
+* [August 2025](2025_08.md)
