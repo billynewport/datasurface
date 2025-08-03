@@ -118,7 +118,7 @@ merge_task = KubernetesPodOperator(
         # Run merge handler for platform using cache-aware CLI
         echo "🔧 Running infrastructure model merge handler with shared cache..."
         python -m datasurface.cmd.platform handleModelMerge \\
-          --git-repo-path /cache/git-models \\
+          --git-repo-path {{ git_cache_local_path }} \\
           --git-repo-owner {{ git_repo_owner }} \\
           --git-repo-name {{ git_repo_repo_name }} \\
           --git-repo-branch {{ git_repo_branch }} \\
@@ -137,7 +137,7 @@ merge_task = KubernetesPodOperator(
         k8s.V1Volume(
             name='git-model-cache',
             persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                claim_name='{{ ecosystem_k8s_name }}-git-model-cache'
+                claim_name='{{ git_clone_cache_pvc }}'
             )
         ),
         k8s.V1Volume(
@@ -148,7 +148,7 @@ merge_task = KubernetesPodOperator(
     volume_mounts=[
         k8s.V1VolumeMount(
             name='git-model-cache',
-            mount_path='/cache/git-models',
+            mount_path='{{ git_cache_local_path }}',
             read_only=False
         ),
         k8s.V1VolumeMount(
@@ -375,7 +375,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         '--platform-name', platform_config['original_platform_name'],
         '--store-name', stream_config['store_name'],
         '--operation', 'snapshot-merge',
-        '--git-repo-path', '/cache/git-models',  # Use cache mount path
+        '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
         '--git-repo-owner', platform_config['git_repo_owner'],
         '--git-repo-name', platform_config['git_repo_repo_name'],
         '--git-repo-branch', platform_config['git_repo_branch'],
@@ -403,14 +403,14 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             k8s.V1Volume(
                 name='git-model-cache',
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name=platform_config['ecosystem_k8s_name'] + '-git-model-cache'
+                    claim_name='{{ git_clone_cache_pvc }}'
                 )
             )
         ] if platform_config.get('git_cache_enabled') else [],
         volume_mounts=[
             k8s.V1VolumeMount(
                 name='git-model-cache',
-                mount_path='/cache/git-models',
+                mount_path='{{ git_cache_local_path }}',
                 read_only=False
             )
         ] if platform_config.get('git_cache_enabled') else [],
@@ -774,7 +774,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             '--workspace-name', workspace_name,
             '--operation', 'run-datatransformer',
             '--working-folder', '/workspace/datatransformer',
-            '--git-repo-path', '/cache/git-models',  # Use cache mount path
+            '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
             '--git-repo-owner', platform_config['git_repo_owner'],
             '--git-repo-name', platform_config['git_repo_repo_name'],
             '--git-repo-branch', platform_config['git_repo_branch'],
@@ -787,7 +787,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             k8s.V1Volume(
                 name='git-model-cache',
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name=platform_config['ecosystem_k8s_name'] + '-git-model-cache'
+                    claim_name='{{ git_clone_cache_pvc }}'
                 )
             ),
             k8s.V1Volume(
@@ -803,7 +803,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         volume_mounts=[
             k8s.V1VolumeMount(
                 name='git-model-cache',
-                mount_path='/cache/git-models',
+                mount_path='{{ git_cache_local_path }}',
                 read_only=False
             ),
             k8s.V1VolumeMount(
@@ -968,7 +968,7 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             '--platform-name', platform_config['original_platform_name'],
             '--operation', 'snapshot-merge',
             '--store-name', output_datastore_name,
-            '--git-repo-path', '/cache/git-models',  # Use cache mount path
+            '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
             '--git-repo-owner', platform_config['git_repo_owner'],
             '--git-repo-name', platform_config['git_repo_repo_name'],
             '--git-repo-branch', platform_config['git_repo_branch'],
@@ -981,14 +981,14 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             k8s.V1Volume(
                 name='git-model-cache',
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name=platform_config['ecosystem_k8s_name'] + '-git-model-cache'
+                    claim_name='{{ git_clone_cache_pvc }}'
                 )
             )
         ] if platform_config.get('git_cache_enabled') else [],
         volume_mounts=[
             k8s.V1VolumeMount(
                 name='git-model-cache',
-                mount_path='/cache/git-models',
+                mount_path='{{ git_cache_local_path }}',
                 read_only=False
             )
         ] if platform_config.get('git_cache_enabled') else [],

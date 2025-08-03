@@ -1,0 +1,187 @@
+# NFS Server Backend Storage PV
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ nfs_server_pv_name }}
+spec:
+  capacity:
+    storage: {{ nfs_server_storage }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: {{ nfs_server_host_path }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - {{ nfs_server_node }}
+---
+# NFS Server Backend Storage PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ nfs_server_pvc_name }}
+  namespace: {{ namespace_name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ nfs_server_storage }}
+  volumeName: {{ nfs_server_pv_name }}
+  storageClassName: ""
+---
+# NFS Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ instance_name }}-nfs-server
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ instance_name }}-nfs-server
+    component: nfs-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ instance_name }}-nfs-server
+  template:
+    metadata:
+      labels:
+        app: {{ instance_name }}-nfs-server
+        component: nfs-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: {{ nfs_server_node }}
+      containers:
+      - name: nfs-server
+        image: {{ nfs_server_image }}
+        ports:
+        - containerPort: 2049
+          name: nfs
+        - containerPort: 111
+          name: rpcbind
+        - containerPort: 20048
+          name: mountd
+        - containerPort: 32765
+          name: statd
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - SETPCAP
+        env:
+        - name: NFS_EXPORT_0
+          value: "{{ nfs_shared_path }} *(rw,no_subtree_check,no_auth_nlm,insecure,no_root_squash)"
+        - name: NFS_PORT_MOUNTD
+          value: "20048"
+        - name: NFS_PORT_STATD
+          value: "32765"
+        volumeMounts:
+        - name: nfs-persistent-storage
+          mountPath: {{ nfs_shared_path }}
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "showmount -e 127.0.0.1"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 2049
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: {{ nfs_server_memory_request }}
+            cpu: {{ nfs_server_cpu_request }}
+          limits:
+            memory: {{ nfs_server_memory_limit }}
+            cpu: {{ nfs_server_cpu_limit }}
+      volumes:
+      - name: nfs-persistent-storage
+        persistentVolumeClaim:
+          claimName: {{ nfs_server_pvc_name }}
+---
+# NFS Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ nfs_service_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ instance_name }}-nfs-server
+    component: nfs-server
+spec:
+  selector:
+    app: {{ instance_name }}-nfs-server
+  ports:
+  - name: nfs
+    port: 2049
+    targetPort: 2049
+    protocol: TCP
+  - name: rpcbind
+    port: 111
+    targetPort: 111
+    protocol: TCP
+  - name: mountd
+    port: 20048
+    targetPort: 20048
+    protocol: TCP
+  - name: statd
+    port: 32765
+    targetPort: 32765
+    protocol: TCP
+  type: ClusterIP
+---
+# NFS Client PV (ReadWriteMany)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ nfs_client_pv_name }}
+spec:
+  capacity:
+    storage: {{ nfs_client_storage }}
+  accessModes:
+    - ReadWriteMany
+  mountOptions:
+    - vers=3
+    - proto=tcp
+    - mountproto=udp
+    - mountport=20048
+    - local_lock=none
+    - timeo=600
+    - retrans=2
+    - rsize=1048576
+    - wsize=1048576
+    - hard
+  nfs:
+    server: {{ nfs_service_name }}.{{ namespace_name }}.svc.cluster.local
+    path: "{{ nfs_shared_path }}"
+  persistentVolumeReclaimPolicy: Retain
+---
+# NFS Client PVC Template (ReadWriteMany)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ nfs_client_pvc_name }}
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ instance_name }}-nfs-client
+    component: nfs-client
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ nfs_client_storage }}
+  volumeName: {{ nfs_client_pv_name }}
+  storageClassName: ""
+---

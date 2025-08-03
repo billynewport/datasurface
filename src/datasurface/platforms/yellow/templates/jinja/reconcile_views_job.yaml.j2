@@ -20,7 +20,7 @@ spec:
           echo "🔧 Running reconcile views job with shared cache..."
           python -m datasurface.platforms.yellow.reconcile_workspace_views \
             --platform-name {{ original_platform_name }} \
-            --git-repo-path /cache/git-models \
+            --git-repo-path {{ git_cache_local_path }} \
             --git-repo-owner {{ git_repo_owner }} \
             --git-repo-name {{ git_repo_repo_name }} \
             --git-repo-branch {{ git_repo_branch }} \
@@ -52,11 +52,11 @@ spec:
         {% if git_cache_enabled %}
         volumeMounts:
         - name: git-model-cache
-          mountPath: /cache/git-models
+          mountPath: {{ git_cache_local_path }}
       volumes:
       - name: git-model-cache
         persistentVolumeClaim:
-          claimName: {{ ecosystem_k8s_name }}-git-model-cache
+          claimName: {{ git_clone_cache_pvc }}
       {% endif %}
       restartPolicy: Never
   backoffLimit: 3

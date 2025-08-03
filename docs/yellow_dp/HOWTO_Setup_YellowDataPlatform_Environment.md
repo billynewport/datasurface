@@ -703,6 +703,70 @@ sudo kubectl run data-simulator --rm -i --restart=Never \
   --verbose
 ```
 
+### Step 6: Set Up NFS for Git Caching (Required for YellowDataPlatform)
+
+**NFS Server and Client Setup:**
+The YellowDataPlatform uses NFS for shared git repository caching between pods. This requires specific kernel modules and packages to be installed on the host system.
+
+**Install NFS Server Modules (Required):**
+```bash
+# On remote machine - Load NFS kernel modules
+sudo modprobe nfs
+sudo modprobe nfsd
+
+# Verify modules are loaded
+lsmod | grep nfs
+
+# Expected output:
+# nfsd                  847872  0
+# auth_rpcgss           184320  1 nfsd
+# nfs_acl                12288  1 nfsd
+# nfs                   569344  0
+# lockd                 143360  2 nfsd,nfs
+# grace                  12288  2 nfsd,lockd
+# sunrpc                802816  5 nfsd,auth_rpcgss,lockd,nfs_acl,nfs
+```
+
+**Install NFS Client Utilities (Required):**
+```bash
+# On remote machine - Install NFS client packages
+sudo apt update
+sudo apt install -y nfs-common
+
+# Verify installation
+which mount.nfs
+# Expected: /sbin/mount.nfs
+```
+
+**Make NFS Modules Persistent (Recommended):**
+```bash
+# Ensure NFS modules load on boot
+echo 'nfs' | sudo tee -a /etc/modules
+echo 'nfsd' | sudo tee -a /etc/modules
+```
+
+### Step 7: Handle Multi-Platform Docker Images
+
+**For Apple Silicon Development Machines:**
+If developing on Apple Silicon (M1/M2) and deploying to x86/AMD64 remote machines, build multi-platform images:
+
+```bash
+# On local development machine
+cd /path/to/datasurface
+
+# Build and push multi-platform image
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f Dockerfile.datasurface \
+  -t datasurface/datasurface:latest \
+  --push .
+```
+
+**Pull Updated Image on Remote Machine:**
+```bash
+# On remote machine
+docker pull datasurface/datasurface:latest
+```
+
 ### Remote Deployment Considerations
 
 **Network Configuration:**
@@ -720,6 +784,12 @@ sudo kubectl run data-simulator --rm -i --restart=Never \
 - Configure proper network policies
 - Regularly update system packages and container images
 
+**NFS-Specific Requirements:**
+- NFS server requires kernel modules: `nfs`, `nfsd`
+- NFS client requires: `nfs-common` package
+- Host path storage must support NFS exports
+- Node selectors may need adjustment for cluster node names
+
 **Troubleshooting Remote Issues:**
 ```bash
 # Check system resources
@@ -728,8 +798,179 @@ ssh user@remote-machine-ip "free -h && df -h"
 # Verify k3s status
 ssh user@remote-machine-ip "sudo systemctl status k3s"
 
+# Check NFS modules
+ssh user@remote-machine-ip "lsmod | grep nfs"
+
+# Check NFS client tools
+ssh user@remote-machine-ip "which mount.nfs"
+
 # Check pod status and logs
 ssh user@remote-machine-ip "sudo kubectl get pods -n ns-yellow-starter && sudo kubectl describe pod <pod-name> -n ns-yellow-starter"
+```
+
+## Troubleshooting: NFS and Remote Kubernetes Issues
+
+### Problem: NFS Server Pod Stuck in "Pending" Status
+
+**Symptoms:**
+- NFS server pod shows `STATUS: Pending`
+- Ring 1 initialization pod stuck in `ContainerCreating`
+- Events show "FailedScheduling" with node affinity conflicts
+
+**Root Causes and Solutions:**
+
+#### **Issue 1: Incorrect Node Selector**
+**Cause:** Generated YAML uses wrong node name (e.g., `desktop-worker` instead of actual node name)
+
+**Solution:**
+```bash
+# Check actual node names
+kubectl get nodes
+
+# Fix node selector in NFS deployment
+kubectl patch deployment test-dp-nfs-server -n ns-yellow-starter --type='json' -p='[
+  {"op": "replace", "path": "/spec/template/spec/nodeSelector/kubernetes.io~1hostname", "value": "actual-node-name"}
+]'
+```
+
+#### **Issue 2: PV Node Affinity Mismatch**
+**Cause:** Persistent Volume created with wrong node affinity
+
+**Solution:**
+```bash
+# Delete and recreate PV/PVC with correct node affinity
+kubectl delete pvc test-dp-nfs-server-pvc -n ns-yellow-starter
+kubectl delete pv test-dp-nfs-server-pv
+
+# Create corrected PV with proper node affinity
+cat << 'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: test-dp-nfs-server-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /opt/Test_DP-nfs-storage
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - actual-node-name
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-dp-nfs-server-pvc
+  namespace: ns-yellow-starter
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: test-dp-nfs-server-pv
+  storageClassName: ""
+EOF
+```
+
+#### **Issue 3: Missing NFS Kernel Modules**
+**Cause:** NFS server container fails with "nfs module is missing"
+
+**Symptoms:**
+```
+----> ERROR: nfs module is not loaded in the Docker host's kernel (try: modprobe nfs)
+```
+
+**Solution:**
+```bash
+# Load required NFS modules on host
+sudo modprobe nfs
+sudo modprobe nfsd
+
+# Verify modules are loaded
+lsmod | grep nfs
+
+# Restart NFS server pods
+kubectl delete pod -l app=test-dp-nfs-server -n ns-yellow-starter
+```
+
+#### **Issue 4: Missing NFS Client Utilities**
+**Cause:** Kubernetes nodes cannot mount NFS volumes
+
+**Symptoms:**
+```
+MountVolume.SetUp failed for volume "test-dp-git-model-cache-pv" : mount failed: exit status 32
+mount: bad option; for several filesystems (e.g. nfs, cifs) you might need a /sbin/mount.<type> helper program
+```
+
+**Solution:**
+```bash
+# Install NFS client utilities on all nodes
+sudo apt update
+sudo apt install -y nfs-common
+
+# Restart affected pods
+kubectl delete job test-dp-ring1-init -n ns-yellow-starter
+# Reapply the job
+kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
+```
+
+### Problem: Docker Image Architecture Mismatch
+
+**Symptoms:**
+- `docker pull` fails with "no matching manifest for linux/amd64"
+- Pods fail to start with image pull errors
+
+**Cause:** Image built on Apple Silicon (ARM64) but deployed to x86/AMD64 Linux
+
+**Solution:**
+```bash
+# Build multi-platform image on development machine
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f Dockerfile.datasurface \
+  -t datasurface/datasurface:latest \
+  --push .
+
+# Pull updated image on remote machine
+docker pull datasurface/datasurface:latest
+```
+
+### Verification Steps for NFS Setup
+
+**Check NFS Server Status:**
+```bash
+# Verify NFS server is running and ready
+kubectl logs -l app=test-dp-nfs-server -n ns-yellow-starter --tail=10
+
+# Expected success output:
+# ==================================================================
+#       READY AND WAITING FOR NFS CLIENT CONNECTIONS
+# ==================================================================
+```
+
+**Test NFS Mount:**
+```bash
+# Test NFS mount with simple pod
+kubectl run nfs-test --rm -it --restart=Never --image=busybox -n ns-yellow-starter \
+  --overrides='{"spec":{"containers":[{"name":"nfs-test","image":"busybox","command":["ls","-la","/cache"],"volumeMounts":[{"name":"nfs-cache","mountPath":"/cache"}]}],"volumes":[{"name":"nfs-cache","persistentVolumeClaim":{"claimName":"test-dp-git-model-cache-pvc"}}]}}'
+```
+
+**Verify Service Endpoints:**
+```bash
+# Check NFS service has endpoints
+kubectl get endpoints test-dp-nfs-service -n ns-yellow-starter
+
+# Expected output shows IP:PORT combinations
+# NAME                  ENDPOINTS                                         AGE
+# test-dp-nfs-service   10.42.0.98:20048,10.42.0.98:111,10.42.0.98:2049   8m17s
 ```
 
 ## Troubleshooting: Airflow Webserver Resource Allocation Issues

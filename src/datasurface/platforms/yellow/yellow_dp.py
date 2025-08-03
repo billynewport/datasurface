@@ -912,7 +912,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 # Git cache configuration variables
                 "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
                 "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
-                "git_cache_storage_size": self.dp.psp.git_cache_storage_size,
+                "git_cache_storage_size": Component.storageToKubernetesFormat(self.dp.psp.git_cache_storage_size),
                 "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
                 "git_cache_enabled": self.dp.psp.git_cache_enabled,
             }
@@ -1073,7 +1073,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 # Git cache configuration variables
                 "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
                 "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
-                "git_cache_storage_size": self.dp.psp.git_cache_storage_size,
+                "git_cache_storage_size": Component.storageToKubernetesFormat(self.dp.psp.git_cache_storage_size),
                 "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
                 "git_cache_enabled": self.dp.psp.git_cache_enabled,
             }
@@ -1625,9 +1625,10 @@ class PostgresComponent(Component):
 
 
 class PVCComponent(Component):
-    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider') -> None:
+    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider', capacity: StorageRequirement) -> None:
         super().__init__(name, namespace)
         self.psp: 'YellowPlatformServiceProvider' = psp
+        self.capacity: StorageRequirement = capacity
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
@@ -1638,11 +1639,62 @@ class PVCComponent(Component):
                 "pvc_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
                 "pvc_storage_class": self.psp.git_cache_storage_class,
                 "pvc_access_mode": self.psp.git_cache_access_mode,
-                "pvc_storage_size": self.psp.git_cache_storage_size,
+                "pvc_storage_size": Component.storageToKubernetesFormat(self.capacity)
             }
         )
         pvc_rendered: str = pvc_template.render(ctxt)
         yaml += pvc_rendered
+        return yaml
+
+
+class NFSComponent(Component):
+    def __init__(self, name: str, namespace: str, nfs_server_node: str,
+                 nfs_server_pvc_name: str, nfs_server_pv_name: str,
+                 nfs_client_pvc_name: str, nfs_client_pv_name: str,
+                 nfs_server_storage: StorageRequirement = StorageRequirement("20G"),
+                 nfs_client_storage: StorageRequirement = StorageRequirement("10G"), nfs_server_host_path: Optional[str] = None,
+                 nfs_server_image: str = "erichough/nfs-server:2.2.1") -> None:
+        super().__init__(name, namespace)
+        self.nfs_server_node: str = nfs_server_node
+        self.nfs_server_storage: StorageRequirement = nfs_server_storage
+        self.nfs_client_storage: StorageRequirement = nfs_client_storage
+        self.nfs_server_host_path: str = nfs_server_host_path or f"/opt/{name}-nfs-storage"
+        self.nfs_server_image: str = nfs_server_image
+        name_k8s: str = YellowPlatformServiceProvider.to_k8s_name(name)
+        self.nfs_server_pvc_name: str = nfs_server_pvc_name or f"{name_k8s}-nfs-server-pvc"
+        self.nfs_server_pv_name: str = nfs_server_pv_name or f"{name_k8s}-nfs-server-pv"
+        self.nfs_client_pvc_name: str = nfs_client_pvc_name or f"{name_k8s}-nfs-client-pvc"
+        self.nfs_client_pv_name: str = nfs_client_pv_name or f"{name_k8s}-nfs-client-pv"
+
+    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
+        yaml: str = ""
+        nfs_template: Template = env.get_template('psp_nfs.yaml.j2')
+
+        # Add the NFS instance variables to a private template context
+        ctxt: dict[str, Any] = templateContext.copy()
+        name_k8s: str = YellowPlatformServiceProvider.to_k8s_name(self.name)
+        ctxt.update(
+            {
+                "instance_name": name_k8s,
+                "nfs_server_image": self.nfs_server_image,
+                "nfs_server_node": self.nfs_server_node,
+                "nfs_server_host_path": self.nfs_server_host_path,
+                "nfs_server_storage": Component.storageToKubernetesFormat(self.nfs_server_storage),
+                "nfs_service_name": f"{name_k8s}-nfs-service",
+                "nfs_shared_path": "/shared",
+                "nfs_client_storage": Component.storageToKubernetesFormat(self.nfs_client_storage),
+                "nfs_server_pvc_name": self.nfs_server_pvc_name,
+                "nfs_server_pv_name": self.nfs_server_pv_name,
+                "nfs_client_pvc_name": self.nfs_client_pvc_name,
+                "nfs_client_pv_name": self.nfs_client_pv_name,
+                "nfs_server_memory_request": "1Gi",
+                "nfs_server_memory_limit": "2Gi",
+                "nfs_server_cpu_request": "500m",
+                "nfs_server_cpu_limit": "1000m"
+            }
+        )
+        nfs_rendered: str = nfs_template.render(ctxt)
+        yaml += nfs_rendered
         return yaml
 
 
@@ -1664,18 +1716,32 @@ class Assembly:
 def createYellowAssemblySingleDatabase(
         name: str,
         psp: 'YellowPlatformServiceProvider',
+        nfs_server_node: str,
         pgCred: Credential,
         pgDB: PostgresDatabase,
         afHostPortPair: HostPortPair) -> Assembly:
     """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
     database is used for both the merge store and the airflow database."""
+
+    git_cache_pvc_name: str = psp.getGitCachePVC()
+    git_cache_pv_name: str = psp.getGitCachePV()
+    nfs_server_pvc_name: str = psp.getNFSServerPVC()
+    nfs_server_pv_name: str = psp.getNFSServerPV()
+
     assembly: Assembly = Assembly(
         name, psp.namespace,
         components=list()
     )
     assembly.components.append(NamespaceComponent("ns", psp.namespace))
     if psp.git_cache_enabled:
-        assembly.components.append(PVCComponent("git-model-cache", psp.namespace, psp))
+        assembly.components.append(
+            NFSComponent(
+                psp.name, psp.namespace, nfs_server_node,
+                nfs_server_pvc_name=nfs_server_pvc_name,
+                nfs_server_pv_name=nfs_server_pv_name,
+                nfs_client_pvc_name=git_cache_pvc_name,
+                nfs_client_pv_name=git_cache_pv_name,
+                nfs_server_storage=psp.git_cache_storage_size))
     assembly.components.append(LoggingComponent("logging", psp.namespace, psp))
     assembly.components.append(NetworkPolicyComponent("np", psp.namespace, psp))
     assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB))
@@ -1686,6 +1752,7 @@ def createYellowAssemblySingleDatabase(
 def createYellowAssemblyTwinDatabase(
         name: str,
         psp: 'YellowPlatformServiceProvider',
+        nfs_server_node: str,
         pgCred: Credential,
         mergeDBD: PostgresDatabase,
         afDBcred: Credential,
@@ -1693,12 +1760,23 @@ def createYellowAssemblyTwinDatabase(
         afHostPortPair: HostPortPair) -> Assembly:
     """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
     reasons."""
+    git_cache_pvc_name: str = psp.getGitCachePVC()
+    git_cache_pv_name: str = psp.getGitCachePV()
+    nfs_server_pvc_name: str = psp.getNFSServerPVC()
+    nfs_server_pv_name: str = psp.getNFSServerPV()
     assembly: Assembly = Assembly(
         name, psp.namespace,
         components=[
             NamespaceComponent("ns", psp.namespace),
             LoggingComponent("logging", psp.namespace, psp),
             NetworkPolicyComponent("np", psp.namespace, psp),
+            NFSComponent(
+                psp.name, psp.namespace, nfs_server_node,
+                nfs_server_pvc_name=nfs_server_pvc_name,
+                nfs_server_pv_name=nfs_server_pv_name,
+                nfs_client_pvc_name=git_cache_pvc_name,
+                nfs_client_pv_name=git_cache_pv_name,
+                nfs_server_storage=psp.git_cache_storage_size),
             PostgresComponent("pg", psp.namespace, pgCred, mergeDBD),
             PostgresComponent("pg", psp.namespace, afDBcred, afDB),
             AirflowComponent("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
@@ -1720,8 +1798,9 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  airflowName: str = "airflow",
                  dataPlatforms: list['DataPlatform'] = [],
                  datasurfaceDockerImage: str = "datasurface/datasurface:latest", git_cache_storage_class: str = "standard",
-                 git_cache_access_mode: str = "ReadWriteOnce", git_cache_storage_size: str = "5Gi", git_cache_max_age_minutes: int = 5,
-                 git_cache_enabled: bool = True):
+                 git_cache_access_mode: str = "ReadWriteOnce",
+                 git_cache_storage_size: StorageRequirement = StorageRequirement("5G"), git_cache_max_age_minutes: int = 5,
+                 git_cache_enabled: bool = True, git_cache_nfs_server_node: str = "desktop-worker"):
         super().__init__(
             name,
             locs,
@@ -1730,6 +1809,9 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 ),
             dataPlatforms=dataPlatforms
             )
+
+        # TODO: remove this once we have a way to set the git cache nfs server node
+        git_cache_enabled = True
         self.namespace: str = namespace
         self.postgresCredential: Credential = postgresCredential
         self.gitCredential: Credential = gitCredential
@@ -1741,9 +1823,10 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         self.datasurfaceDockerImage: str = datasurfaceDockerImage
         self.git_cache_storage_class: str = git_cache_storage_class
         self.git_cache_access_mode: str = git_cache_access_mode
-        self.git_cache_storage_size: str = git_cache_storage_size
+        self.git_cache_storage_size: StorageRequirement = git_cache_storage_size
         self.git_cache_max_age_minutes: int = git_cache_max_age_minutes
         self.git_cache_enabled: bool = git_cache_enabled
+        self.git_cache_nfs_server_node: str = git_cache_nfs_server_node
         self.mergeStore: PostgresDatabase = merge_datacontainer
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
 
@@ -1757,6 +1840,26 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 bootstrapServers=HostPortPairList([HostPortPair(f"{kafkaClusterName}-service.{namespace}.svc.cluster.local", 9092)])
             )
         )
+
+    def getGitCachePVRootName(self) -> str:
+        """This returns the root name for the git cache PV."""
+        return f"{self.to_k8s_name(self.name)}-git-model-cache"
+
+    def getGitCachePVC(self) -> str:
+        return f"{self.getGitCachePVRootName()}-pvc"
+
+    def getGitCachePV(self) -> str:
+        return f"{self.getGitCachePVRootName()}-pv"
+
+    def getNFSServerPVRootName(self) -> str:
+        """This returns the root name for the NFS server PV."""
+        return f"{self.to_k8s_name(self.name)}-nfs-server"
+
+    def getNFSServerPVC(self) -> str:
+        return f"{self.getNFSServerPVRootName()}-pvc"
+
+    def getNFSServerPV(self) -> str:
+        return f"{self.getNFSServerPVRootName()}-pv"
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -1774,7 +1877,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "datasurfaceDockerImage": self.datasurfaceDockerImage,
                 "git_cache_storage_class": self.git_cache_storage_class,
                 "git_cache_access_mode": self.git_cache_access_mode,
-                "git_cache_storage_size": self.git_cache_storage_size,
+                "git_cache_storage_size": self.git_cache_storage_size.to_json(),
                 "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
                 "git_cache_enabled": self.git_cache_enabled,
             }
@@ -1801,6 +1904,9 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
         if not isinstance(eco.liveRepo, GitHubRepository):
             tree.addRaw(ObjectNotSupportedByDataPlatform(eco.liveRepo, [GitHubRepository], ProblemSeverity.ERROR))
+
+        # Check the git cache storage size is valid
+        self.git_cache_storage_size.lint(tree.addSubTree(self.git_cache_storage_size))
 
         # Check all dataplatforms are generic yellow
         dp: DataPlatform
@@ -1897,7 +2003,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     # Git cache configuration variables
                     "git_cache_storage_class": self.git_cache_storage_class,
                     "git_cache_access_mode": self.git_cache_access_mode,
-                    "git_cache_storage_size": self.git_cache_storage_size,
+                    "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
                     "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
                     "git_cache_enabled": self.git_cache_enabled,
                 }
@@ -1981,7 +2087,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             # Git cache configuration variables
             "git_cache_storage_class": self.git_cache_storage_class,
             "git_cache_access_mode": self.git_cache_access_mode,
-            "git_cache_storage_size": self.git_cache_storage_size,
+            "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
             "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
             "git_cache_enabled": self.git_cache_enabled,
         }
@@ -2047,6 +2153,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             assembly: Assembly = createYellowAssemblySingleDatabase(
                 name=self.name,
                 psp=self,
+                nfs_server_node="desktop-worker",
                 pgCred=self.postgresCredential,
                 pgDB=self.mergeStore,
                 afHostPortPair=afHostPort
@@ -2090,10 +2197,13 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 # Git cache configuration variables
                 "git_cache_storage_class": self.git_cache_storage_class,
                 "git_cache_access_mode": self.git_cache_access_mode,
-                "git_cache_storage_size": self.git_cache_storage_size,
+                "git_clone_cache_pvc": self.getGitCachePVC(),
+                "git_clone_cache_pv": self.getGitCachePV(),
+                "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
                 "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
                 "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
                 "git_cache_enabled": self.git_cache_enabled,
+                "git_cache_local_path": "/cache/git-cache"
             }
 
             # Render the templates

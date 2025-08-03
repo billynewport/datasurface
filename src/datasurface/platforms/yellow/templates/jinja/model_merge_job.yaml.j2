@@ -19,7 +19,7 @@ spec:
           # Run merge handler for platform using cache-aware CLI
           echo "🔧 Running model merge handler with shared cache..."
           python -m datasurface.cmd.platform handleModelMerge \
-            --git-repo-path /cache/git-models \
+            --git-repo-path {{ git_cache_local_path }} \
             --git-repo-owner {{ git_repo_owner }} \
             --git-repo-name {{ git_repo_repo_name }} \
             --git-repo-branch {{ git_repo_branch }} \
@@ -51,7 +51,7 @@ spec:
         volumeMounts:
         {% if git_cache_enabled %}
         - name: git-model-cache
-          mountPath: /cache/git-models
+          mountPath: {{ git_cache_local_path }}
         {% endif %}
         - name: workspace
           mountPath: /workspace
@@ -59,7 +59,7 @@ spec:
       {% if git_cache_enabled %}
       - name: git-model-cache
         persistentVolumeClaim:
-          claimName: {{ ecosystem_k8s_name }}-git-model-cache
+          claimName: {{ git_clone_cache_pvc }}
       {% endif %}
       - name: workspace
         emptyDir: {}
