@@ -9,7 +9,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      storage: {{ postgres_storage }}
 ---
 # PostgreSQL Deployment
 apiVersion: apps/v1

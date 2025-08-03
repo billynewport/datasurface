@@ -20,6 +20,7 @@ from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, 
 from datasurface.md import DataPlatformManagedDataContainer, PlatformServicesProvider
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer, String
+from datasurface.md import StorageRequirement
 import os
 import re
 from datasurface.md.repo import GitHubRepository
@@ -1501,6 +1502,15 @@ class Component(ABC):
         """This renders the component to a string."""
         raise NotImplementedError("This is an abstract method")
 
+    @staticmethod
+    def storageToKubernetesFormat(s: StorageRequirement) -> str:
+        """Convert storage spec to Kubernetes format by ensuring binary units have 'i' suffix"""
+        if s.spec[-1].upper() in ['G', 'T', 'P', 'E', 'Z', 'Y']:
+            # Binary units in Kubernetes should have 'i' suffix
+            return s.spec + 'i'
+        # For other units like M, K, B, return as-is
+        return s.spec
+
 
 class NamespaceComponent(Component):
     def __init__(self, name: str, namespace: str) -> None:
@@ -1606,6 +1616,7 @@ class PostgresComponent(Component):
                 "postgres_hostname": self.db.hostPortPair.hostName,
                 "postgres_port": self.db.hostPortPair.port,
                 "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),
+                "postgres_storage": Component.storageToKubernetesFormat(self.db.storage)
             }
         )
         postgres_rendered: str = postgres_template.render(ctxt)

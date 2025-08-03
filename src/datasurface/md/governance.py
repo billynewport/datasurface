@@ -32,6 +32,7 @@ from datasurface.md.vendor import CloudVendor, InfrastructureVendor, Infrastruct
     UnknownLocationProblem, UnknownVendorProblem
 from datasurface.md.credential import Credential, CredentialStore
 from datasurface.md.keys import InvalidLocationStringProblem
+import re
 
 
 class ProductionStatus(Enum):
@@ -627,25 +628,59 @@ class DataPlatformManagedDataContainer(DataContainer):
         raise NotImplementedError("getNamingAdapter is not implemented for this data container")
 
 
-class SQLDatabase(DataContainer):
-    """A generic SQL Database data container"""
-    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str, identifierLengthLimit: int = 64) -> None:
-        super().__init__(name, locations)
-        self.databaseName: str = databaseName
-        self.identifierLengthLimit: int = identifierLengthLimit
+class StorageRequirement(UserDSLObject):
+    def __init__(self, spec: str):
+        UserDSLObject.__init__(self)
+        self.spec: str = spec
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "databaseName": self.databaseName, "identifierLengthLimit": self.identifierLengthLimit})
+        rc.update({"_type": self.__class__.__name__, "spec": self.spec})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, StorageRequirement)):
+            return self.spec == other.spec
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.spec)
+
+    def lint(self, tree: ValidationTree) -> None:
+        """Strings of the form <size><unit> are valid. Size is an integer and unit is case insensitive and either G,T,P,E,Z,Y,R,M,K,B"""
+        if not re.match(r"^\d+[GTPEZYRMKBgtpezyrmkb]$", self.spec):
+            tree.addRaw(NameHasBadSynthax(
+                f"Invalid storage requirement '{self.spec}'. Format should be <number><unit> where unit is one of: G,T,P,E,Z,Y,R,M,K,B (case insensitive)"))
+
+    def __str__(self) -> str:
+        return f"StorageRequirement({self.spec})"
+
+
+class SQLDatabase(DataContainer):
+    """A generic SQL Database data container"""
+    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str, identifierLengthLimit: int = 64, storage: str = "5G") -> None:
+        super().__init__(name, locations)
+        self.databaseName: str = databaseName
+        self.identifierLengthLimit: int = identifierLengthLimit
+        self.storage: StorageRequirement = StorageRequirement(storage)
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update(
+            {
+                "_type": self.__class__.__name__, "databaseName": self.databaseName,
+                "identifierLengthLimit": self.identifierLengthLimit, "storage": self.storage.to_json()})
         return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, SQLDatabase)):
-            return super().__eq__(other) and self.databaseName == other.databaseName and self.identifierLengthLimit == other.identifierLengthLimit
+            return super().__eq__(other) and self.databaseName == other.databaseName and \
+                self.identifierLengthLimit == other.identifierLengthLimit and self.storage == other.storage
         return False
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
         super().lint(eco, tree)
+        self.storage.lint(tree.addSubTree(self.storage))
 
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         return DefaultDataContainerNamingMapper(self.identifierLengthLimit)
@@ -710,8 +745,9 @@ class HostPortPairList(UserDSLObject):
 
 class HostPortSQLDatabase(SQLDatabase):
     """This is a SQL database with a host and port"""
-    def __init__(self, name: str, locations: set['LocationKey'], hostPort: HostPortPair, databaseName: str, identifierLengthLimit: int = 63) -> None:
-        super().__init__(name, locations, databaseName, identifierLengthLimit)
+    def __init__(self, name: str, locations: set['LocationKey'], hostPort: HostPortPair, databaseName: str,
+                 identifierLengthLimit: int = 63, storage: str = "5G") -> None:
+        super().__init__(name, locations, databaseName, identifierLengthLimit, storage)
         self.hostPortPair: HostPortPair = hostPort
 
     def to_json(self) -> dict[str, Any]:
@@ -734,8 +770,8 @@ class HostPortSQLDatabase(SQLDatabase):
 
 class PostgresDatabase(HostPortSQLDatabase):
     """This is a Postgres database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=63)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str, storage: str = "5G") -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=63, storage=storage)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -758,8 +794,8 @@ class PostgresDatabase(HostPortSQLDatabase):
 
 class MySQLDatabase(HostPortSQLDatabase):
     """This is a MySQL database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=64)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str, storage: str = "5G") -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=64, storage=storage)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -777,8 +813,8 @@ class MySQLDatabase(HostPortSQLDatabase):
 
 class OracleDatabase(HostPortSQLDatabase):
     """This is an Oracle database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str, storage: str = "10G") -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128, storage=storage)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -796,8 +832,8 @@ class OracleDatabase(HostPortSQLDatabase):
 
 class SQLServerDatabase(HostPortSQLDatabase):
     """This is a SQL Server database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str, storage: str = "10G") -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128, storage=storage)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -815,8 +851,8 @@ class SQLServerDatabase(HostPortSQLDatabase):
 
 class DB2Database(HostPortSQLDatabase):
     """This is a DB2 database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str, storage: str = "10G") -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128, storage=storage)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
