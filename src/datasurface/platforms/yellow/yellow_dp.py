@@ -1800,7 +1800,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  datasurfaceDockerImage: str = "datasurface/datasurface:latest", git_cache_storage_class: str = "standard",
                  git_cache_access_mode: str = "ReadWriteOnce",
                  git_cache_storage_size: StorageRequirement = StorageRequirement("5G"), git_cache_max_age_minutes: int = 5,
-                 git_cache_enabled: bool = True, git_cache_nfs_server_node: str = "desktop-worker"):
+                 git_cache_enabled: bool = True, git_cache_nfs_server_node: str = "kub-test"):
         super().__init__(
             name,
             locs,
@@ -2153,7 +2153,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             assembly: Assembly = createYellowAssemblySingleDatabase(
                 name=self.name,
                 psp=self,
-                nfs_server_node="desktop-worker",
+                nfs_server_node=self.git_cache_nfs_server_node,
                 pgCred=self.postgresCredential,
                 pgDB=self.mergeStore,
                 afHostPortPair=afHostPort
