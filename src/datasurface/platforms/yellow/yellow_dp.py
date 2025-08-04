@@ -11,7 +11,7 @@ from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, Kafk
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace, SQLIngestion
 from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
-    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
+    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet, UserDSLObject
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
@@ -1490,6 +1490,39 @@ class YellowGenericDataPlatform(DataPlatform['YellowPlatformServiceProvider']):
         raise NotImplementedError("This is an abstract method")
 
 
+# Model for Kubernetes resource limits
+# Allows the requested and limit for CPU and memory to be specified for a pod.
+class K8sResourceLimits(UserDSLObject):
+    def __init__(self, requested_memory: StorageRequirement, limits_memory: StorageRequirement, requested_cpu: float, limits_cpu: float) -> None:
+        super().__init__()
+        self.requested_memory: StorageRequirement = requested_memory
+        self.limits_memory: StorageRequirement = limits_memory
+        self.requested_cpu: float = requested_cpu
+        self.limits_cpu: float = limits_cpu
+
+    def to_json(self) -> dict[str, Any]:
+        """Convert K8sResourceLimits to JSON-serializable dictionary."""
+        return {
+            "requested_memory": self.requested_memory.to_json(),
+            "limits_memory": self.limits_memory.to_json(),
+            "requested_cpu": self.requested_cpu,
+            "limits_cpu": self.limits_cpu
+        }
+
+    def lint(self, tree: ValidationTree):
+        """This validates the K8sResourceLimits object."""
+        self.requested_memory.lint(tree.addSubTree(self.requested_memory))
+        self.limits_memory.lint(tree.addSubTree(self.limits_memory))
+        if self.requested_memory > self.limits_memory:
+            tree.addProblem(f"Requested memory must be less than or equal to limits memory, got {self.requested_memory} and {self.limits_memory}")
+        if self.requested_cpu < 0:
+            tree.addProblem(f"Requested CPU must be greater than 0, got {self.requested_cpu}")
+        if self.limits_cpu < 0:
+            tree.addProblem(f"Limits CPU must be greater than 0, got {self.limits_cpu}")
+        if self.requested_cpu > self.limits_cpu:
+            tree.addProblem(f"Requested CPU must be less than or equal to limits CPU, got {self.requested_cpu} and {self.limits_cpu}")
+
+
 class Component(ABC):
     """A component can a hostname, a credential and"""
     def __init__(self, name: str, namespace: str) -> None:
@@ -1510,6 +1543,11 @@ class Component(ABC):
             return s.spec + 'i'
         # For other units like M, K, B, return as-is
         return s.spec
+
+    @staticmethod
+    def cpuToKubernetesFormat(cpu: float) -> str:
+        """Convert CPU spec to Kubernetes format by ensuring binary units have 'm' suffix"""
+        return f"{int(cpu * 1000)}m"
 
 
 class NamespaceComponent(Component):
@@ -1573,11 +1611,25 @@ class NetworkPolicyComponent(Component):
 
 
 class AirflowComponent(Component):
-    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase, dagCreds: list[Credential]) -> None:
+    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
+                 dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
+                 schedulerResourceLimits: Optional[K8sResourceLimits] = None) -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
         self.db: PostgresDatabase = db
         self.dagCreds: list[Credential] = dagCreds
+        self.webserverResourceLimits: K8sResourceLimits = webserverResourceLimits or K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=0.5,
+            limits_cpu=1.0
+            )
+        self.schedulerResourceLimits: K8sResourceLimits = schedulerResourceLimits or K8sResourceLimits(
+            requested_memory=StorageRequirement("2G"),
+            limits_memory=StorageRequirement("4G"),
+            requested_cpu=0.5,
+            limits_cpu=1.0
+        )
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
@@ -1590,7 +1642,15 @@ class AirflowComponent(Component):
                 "postgres_database": self.db.databaseName,
                 "postgres_port": self.db.hostPortPair.port,
                 "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),  # Airflow uses postgres creds
-                "extra_credentials": [YellowPlatformServiceProvider.to_k8s_name(cred.name) for cred in self.dagCreds]
+                "extra_credentials": [YellowPlatformServiceProvider.to_k8s_name(cred.name) for cred in self.dagCreds],
+                "webserver_requested_memory": Component.storageToKubernetesFormat(self.webserverResourceLimits.requested_memory),
+                "webserver_limits_memory": Component.storageToKubernetesFormat(self.webserverResourceLimits.limits_memory),
+                "webserver_requested_cpu": Component.cpuToKubernetesFormat(self.webserverResourceLimits.requested_cpu),
+                "webserver_limits_cpu": Component.cpuToKubernetesFormat(self.webserverResourceLimits.limits_cpu),
+                "scheduler_requested_memory": Component.storageToKubernetesFormat(self.schedulerResourceLimits.requested_memory),
+                "scheduler_limits_memory": Component.storageToKubernetesFormat(self.schedulerResourceLimits.limits_memory),
+                "scheduler_requested_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.requested_cpu),
+                "scheduler_limits_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.limits_cpu)
             }
         )
         airflow_rendered: str = airflow_template.render(ctxt)
@@ -1599,10 +1659,18 @@ class AirflowComponent(Component):
 
 
 class PostgresComponent(Component):
-    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase) -> None:
+    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
+                 storageNeeds: StorageRequirement, resourceLimits: Optional[K8sResourceLimits] = None) -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
         self.db: PostgresDatabase = db
+        self.resourceLimits: K8sResourceLimits = resourceLimits or K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=0.5,
+            limits_cpu=1.0
+        )
+        self.storageNeeds: StorageRequirement = storageNeeds
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
@@ -1616,7 +1684,11 @@ class PostgresComponent(Component):
                 "postgres_hostname": self.db.hostPortPair.hostName,
                 "postgres_port": self.db.hostPortPair.port,
                 "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),
-                "postgres_storage": Component.storageToKubernetesFormat(self.db.storage)
+                "postgres_storage": Component.storageToKubernetesFormat(self.storageNeeds),
+                "postgres_requested_memory": Component.storageToKubernetesFormat(self.resourceLimits.requested_memory),
+                "postgres_limits_memory": Component.storageToKubernetesFormat(self.resourceLimits.limits_memory),
+                "postgres_requested_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.requested_cpu),
+                "postgres_limits_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.limits_cpu)
             }
         )
         postgres_rendered: str = postgres_template.render(ctxt)
@@ -1724,7 +1796,12 @@ def createYellowAssemblySingleDatabase(
         nfs_server_node: str,
         pgCred: Credential,
         pgDB: PostgresDatabase,
-        afHostPortPair: HostPortPair) -> Assembly:
+        afHostPortPair: HostPortPair,
+        pgStorageNeeds: StorageRequirement,
+        pgResourceLimits: Optional[K8sResourceLimits] = None,
+        afResourceLimits: Optional[K8sResourceLimits] = None,
+        afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
+        afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> Assembly:
     """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
     database is used for both the merge store and the airflow database."""
 
@@ -1738,8 +1815,11 @@ def createYellowAssemblySingleDatabase(
             PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode))
     assembly.components.append(LoggingComponent("logging", psp.namespace, psp))
     assembly.components.append(NetworkPolicyComponent("np", psp.namespace, psp))
-    assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB))
-    assembly.components.append(AirflowComponent("airflow", psp.namespace, pgCred, pgDB, []))  # Airflow uses the same database as the merge store
+    assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB, pgStorageNeeds, pgResourceLimits))
+    # Airflow uses the same database as the merge store
+    assembly.components.append(
+        AirflowComponent("airflow", psp.namespace, pgCred, pgDB, [],
+                         webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
     return assembly
 
 
@@ -1749,8 +1829,10 @@ def createYellowAssemblyTwinDatabase(
         nfs_server_node: str,
         pgCred: Credential,
         mergeDBD: PostgresDatabase,
+        mergeDBStorageNeeds: StorageRequirement,
         afDBcred: Credential,
         afDB: PostgresDatabase,
+        afDBStorageNeeds: StorageRequirement,
         afHostPortPair: HostPortPair) -> Assembly:
     """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
     reasons."""
@@ -1761,8 +1843,8 @@ def createYellowAssemblyTwinDatabase(
             LoggingComponent("logging", psp.namespace, psp),
             NetworkPolicyComponent("np", psp.namespace, psp),
             PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode),
-            PostgresComponent("pg", psp.namespace, pgCred, mergeDBD),
-            PostgresComponent("pg", psp.namespace, afDBcred, afDB),
+            PostgresComponent("pg", psp.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
+            PostgresComponent("pg", psp.namespace, afDBcred, afDB, afDBStorageNeeds),
             AirflowComponent("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
         ]
     )
@@ -1777,9 +1859,14 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  postgresCredential: Credential, gitCredential: Credential,
                  connectCredentials: Credential,
                  merge_datacontainer: PostgresDatabase,
+                 mergeDBStorageNeeds: StorageRequirement = StorageRequirement("5G"),
+                 mergeDBResourceLimits: Optional[K8sResourceLimits] = None,
                  kafkaConnectName: str = "kafka-connect",
                  kafkaClusterName: str = "kafka",
                  airflowName: str = "airflow",
+                 afDBStorageNeeds: StorageRequirement = StorageRequirement("5G"),
+                 afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
+                 afSchedulerResourceLimits: Optional[K8sResourceLimits] = None,
                  dataPlatforms: list['DataPlatform'] = [],
                  datasurfaceDockerImage: str = "datasurface/datasurface:latest",
                  pv_storage_class: str = "standard",
@@ -1799,6 +1886,11 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         # TODO: remove this once we have a way to set the git cache nfs server node
         # git_cache_enabled = True
         self.namespace: str = namespace
+        self.mergeDBStorageNeeds: StorageRequirement = mergeDBStorageNeeds
+        self.afDBStorageNeeds: StorageRequirement = afDBStorageNeeds
+        self.mergeDBResourceLimits: Optional[K8sResourceLimits] = mergeDBResourceLimits
+        self.afWebserverResourceLimits: Optional[K8sResourceLimits] = afWebserverResourceLimits
+        self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
         self.postgresCredential: Credential = postgresCredential
         self.gitCredential: Credential = gitCredential
         self.connectCredentials: Credential = connectCredentials
@@ -1866,6 +1958,11 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "git_cache_storage_size": self.git_cache_storage_size.to_json(),
                 "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
                 "git_cache_enabled": self.git_cache_enabled,
+                "mergeDBStorageNeeds": self.mergeDBStorageNeeds.to_json(),
+                "mergeDBResourceLimits": self.mergeDBResourceLimits.to_json() if self.mergeDBResourceLimits else None,
+                "afDBStorageNeeds": self.afDBStorageNeeds.to_json(),
+                "afWebserverResourceLimits": self.afWebserverResourceLimits.to_json() if self.afWebserverResourceLimits else None,
+                "afSchedulerResourceLimits": self.afSchedulerResourceLimits.to_json() if self.afSchedulerResourceLimits else None
             }
         )
         return rc
@@ -1886,6 +1983,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             tree.addRaw(CredentialTypeNotSupportedProblem(self.connectCredentials, [CredentialType.API_TOKEN]))
         if self.gitCredential.credentialType != CredentialType.API_TOKEN:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.gitCredential, [CredentialType.API_TOKEN]))
+        self.mergeDBStorageNeeds.lint(tree.addSubTree(self.mergeDBStorageNeeds))
+        self.afDBStorageNeeds.lint(tree.addSubTree(self.afDBStorageNeeds))
 
         # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
         if not isinstance(eco.liveRepo, GitHubRepository):
@@ -1905,6 +2004,12 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         for loc in self.locs:
             loc.lint(tree.addSubTree(loc))
         eco.checkAllRepositoriesInEcosystem(tree, [GitHubRepository])
+        if self.mergeDBResourceLimits:
+            self.mergeDBResourceLimits.lint(tree.addSubTree(self.mergeDBResourceLimits))
+        if self.afWebserverResourceLimits:
+            self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
+        if self.afSchedulerResourceLimits:
+            self.afSchedulerResourceLimits.lint(tree.addSubTree(self.afSchedulerResourceLimits))
 
     @staticmethod
     def isLegalKubernetesNamespaceName(name: str) -> bool:
@@ -2142,6 +2247,10 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 nfs_server_node=self.git_cache_nfs_server_node,
                 pgCred=self.postgresCredential,
                 pgDB=self.mergeStore,
+                pgStorageNeeds=self.mergeDBStorageNeeds,
+                pgResourceLimits=self.mergeDBResourceLimits,
+                afWebserverResourceLimits=self.afWebserverResourceLimits,
+                afSchedulerResourceLimits=self.afSchedulerResourceLimits,
                 afHostPortPair=afHostPort
             )
 

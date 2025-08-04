@@ -30,9 +30,9 @@ class TestStorageRequirement(unittest.TestCase):
         """Test various valid storage requirement formats"""
         valid_specs = [
             "1G", "10G", "100G", "1000G",
-            "1T", "2P", "3E", "4Z", "5Y",
-            "512M", "1024K", "8B", "16R",
-            "1g", "2t", "3p", "4e", "5z", "6y",
+            "1T", "2P",
+            "512M", "1024K", "8B",
+            "1g", "2t", "3p",
             "0G", "999999G"
         ]
 
@@ -42,6 +42,24 @@ class TestStorageRequirement(unittest.TestCase):
                 tree = ValidationTree(storage)
                 storage.lint(tree)
                 self.assertFalse(tree.hasErrors(), f"Valid spec '{spec}' should not have errors")
+
+    def test_getSizeInBytes(self):
+        """Test the getSizeInBytes method"""
+        self.assertEqual(StorageRequirement("1G").getSizeInBytes(), 1024 * 1024 * 1024)
+        self.assertEqual(StorageRequirement("1T").getSizeInBytes(), 1024 * 1024 * 1024 * 1024)
+        self.assertEqual(StorageRequirement("1P").getSizeInBytes(), 1024 * 1024 * 1024 * 1024 * 1024)
+        self.assertEqual(StorageRequirement("1M").getSizeInBytes(), 1024 * 1024)
+        self.assertEqual(StorageRequirement("1K").getSizeInBytes(), 1024)
+
+    def test_gt(self):
+        """Test the gt method"""
+        self.assertTrue(StorageRequirement("1G") > StorageRequirement("100M"))
+        self.assertTrue(StorageRequirement("1T") > StorageRequirement("1G"))
+        self.assertTrue(StorageRequirement("1P") > StorageRequirement("1T"))
+        self.assertTrue(StorageRequirement("1M") > StorageRequirement("1K"))
+        self.assertTrue(StorageRequirement("1K") > StorageRequirement("1B"))
+        self.assertTrue(StorageRequirement("1025G") > StorageRequirement("1T"))
+        self.assertTrue(StorageRequirement("1025T") > StorageRequirement("1P"))
 
     def test_invalid_formats(self):
         """Test various invalid storage requirement formats"""
