@@ -911,7 +911,7 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='POSTGRES_USER'
+                                            key='{{ postgres_credential_secret_name }}_USER'
                 )
             )
         ),
@@ -920,7 +920,7 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
                     name=platform_config['postgres_credential_secret_name'],
-                    key='POSTGRES_PASSWORD'
+                                            key='{{ postgres_credential_secret_name }}_PASSWORD'
                 )
             )
         ),

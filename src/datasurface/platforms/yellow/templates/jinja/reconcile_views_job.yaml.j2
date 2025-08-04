@@ -19,7 +19,7 @@ spec:
           # Run reconcile views job using shared git cache
           echo "🔧 Running reconcile views job with shared cache..."
           python -m datasurface.platforms.yellow.reconcile_workspace_views \
-            --platform-name {{ original_platform_name }} \
+            --psp {{ psp_name }} \
             --git-repo-path {{ git_cache_local_path }} \
             --git-repo-owner {{ git_repo_owner }} \
             --git-repo-name {{ git_repo_repo_name }} \

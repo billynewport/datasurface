@@ -47,6 +47,7 @@ metadata:
   name: {{ airflow_k8s_name }}-dags-pvc
   namespace: {{ namespace_name }}
 spec:
+  storageClassName: {{ pv_storage_class }}
   accessModes:
     - ReadWriteOnce
   resources:
@@ -60,6 +61,7 @@ metadata:
   name: {{ airflow_k8s_name }}-logs-pvc
   namespace: {{ namespace_name }}
 spec:
+  storageClassName: {{ pv_storage_class }}
   accessModes:
     - ReadWriteOnce
   resources:
@@ -110,6 +112,10 @@ spec:
         app: {{ airflow_k8s_name }}-scheduler
     spec:
       serviceAccountName: {{ airflow_k8s_name }}-service-account
+      securityContext:
+        fsGroup: 50000
+        runAsUser: 50000
+        runAsGroup: 50000
       initContainers:
       - name: airflow-db-init
         image: apache/airflow:2.8.1
@@ -237,6 +243,10 @@ spec:
         app: {{ airflow_k8s_name }}-webserver
     spec:
       serviceAccountName: {{ airflow_k8s_name }}-service-account
+      securityContext:
+        fsGroup: 50000
+        runAsUser: 50000
+        runAsGroup: 50000
       containers:
         - name: {{ airflow_k8s_name }}-webserver
           image: apache/airflow:2.8.1

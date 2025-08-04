@@ -5,6 +5,7 @@ metadata:
   name: {{ instance_name }}-postgres-pvc
   namespace: {{ namespace_name }}
 spec:
+  storageClassName: {{ pv_storage_class }}
   accessModes:
     - ReadWriteOnce
   resources:
@@ -45,6 +46,8 @@ spec:
                 secretKeyRef:
                   name: {{ postgres_credential_secret_name }}
                   key: {{ postgres_credential_secret_name }}_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           volumeMounts:
             - name: postgres-storage
               mountPath: /var/lib/postgresql/data

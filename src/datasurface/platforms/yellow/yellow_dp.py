@@ -910,7 +910,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
                 # Git cache configuration variables
-                "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
+                "pv_storage_class": self.dp.psp.pv_storage_class,
                 "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
                 "git_cache_storage_size": Component.storageToKubernetesFormat(self.dp.psp.git_cache_storage_size),
                 "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
@@ -1071,7 +1071,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "git_repo_owner": git_repo_owner,
                 "git_repo_repo_name": git_repo_name,
                 # Git cache configuration variables
-                "git_cache_storage_class": self.dp.psp.git_cache_storage_class,
+                "pv_storage_class": self.dp.psp.pv_storage_class,
                 "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
                 "git_cache_storage_size": Component.storageToKubernetesFormat(self.dp.psp.git_cache_storage_size),
                 "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
@@ -1735,7 +1735,7 @@ def createYellowAssemblySingleDatabase(
     assembly.components.append(NamespaceComponent("ns", psp.namespace))
     if psp.git_cache_enabled:
         assembly.components.append(
-            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.git_cache_storage_class, psp.git_cache_access_mode))
+            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode))
     assembly.components.append(LoggingComponent("logging", psp.namespace, psp))
     assembly.components.append(NetworkPolicyComponent("np", psp.namespace, psp))
     assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB))
@@ -1760,7 +1760,7 @@ def createYellowAssemblyTwinDatabase(
             NamespaceComponent("ns", psp.namespace),
             LoggingComponent("logging", psp.namespace, psp),
             NetworkPolicyComponent("np", psp.namespace, psp),
-            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.git_cache_storage_class, psp.git_cache_access_mode),
+            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode),
             PostgresComponent("pg", psp.namespace, pgCred, mergeDBD),
             PostgresComponent("pg", psp.namespace, afDBcred, afDB),
             AirflowComponent("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
@@ -1781,10 +1781,12 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  kafkaClusterName: str = "kafka",
                  airflowName: str = "airflow",
                  dataPlatforms: list['DataPlatform'] = [],
-                 datasurfaceDockerImage: str = "datasurface/datasurface:latest", git_cache_storage_class: str = "standard",
+                 datasurfaceDockerImage: str = "datasurface/datasurface:latest",
+                 pv_storage_class: str = "standard",
                  git_cache_access_mode: str = "ReadWriteOnce",
                  git_cache_storage_size: StorageRequirement = StorageRequirement("5G"), git_cache_max_age_minutes: int = 5,
-                 git_cache_enabled: bool = True, git_cache_nfs_server_node: str = "kub-test"):
+                 git_cache_enabled: bool = True,
+                 git_cache_nfs_server_node: str = "kub-test"):
         super().__init__(
             name,
             locs,
@@ -1805,7 +1807,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         self.merge_datacontainer: PostgresDatabase = merge_datacontainer
         self.airflowName: str = airflowName
         self.datasurfaceDockerImage: str = datasurfaceDockerImage
-        self.git_cache_storage_class: str = git_cache_storage_class
+        self.pv_storage_class: str = pv_storage_class
         self.git_cache_access_mode: str = git_cache_access_mode
         self.git_cache_storage_size: StorageRequirement = git_cache_storage_size
         self.git_cache_max_age_minutes: int = git_cache_max_age_minutes
@@ -1859,7 +1861,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "merge_datacontainer": self.merge_datacontainer.to_json(),
                 "airflowName": self.airflowName,
                 "datasurfaceDockerImage": self.datasurfaceDockerImage,
-                "git_cache_storage_class": self.git_cache_storage_class,
+                "pv_storage_class": self.pv_storage_class,
                 "git_cache_access_mode": self.git_cache_access_mode,
                 "git_cache_storage_size": self.git_cache_storage_size.to_json(),
                 "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
@@ -1985,7 +1987,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     "phys_dag_table_name": dp.getPhysDAGTableName(),
                     "phys_datatransformer_table_name": dp.getPhysDataTransformerTableName(),
                     # Git cache configuration variables
-                    "git_cache_storage_class": self.git_cache_storage_class,
+                    "pv_storage_class": self.pv_storage_class,
                     "git_cache_access_mode": self.git_cache_access_mode,
                     "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
                     "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
@@ -2069,7 +2071,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             "git_repo_repo_name": git_repo_name,
             "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
             # Git cache configuration variables
-            "git_cache_storage_class": self.git_cache_storage_class,
+            "pv_storage_class": self.pv_storage_class,
             "git_cache_access_mode": self.git_cache_access_mode,
             "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
             "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
@@ -2179,7 +2181,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "git_repo_repo_name": git_repo_name,
                 "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
                 # Git cache configuration variables
-                "git_cache_storage_class": self.git_cache_storage_class,
+                "pv_storage_class": self.pv_storage_class,
                 "git_cache_access_mode": self.git_cache_access_mode,
                 "git_clone_cache_pvc": self.getGitCachePVC(),
                 "git_clone_cache_pv": self.getGitCachePV(),
