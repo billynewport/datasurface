@@ -923,6 +923,42 @@ kubectl delete job test-dp-ring1-init -n ns-yellow-starter
 kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
 ```
 
+#### **Issue 5: DNS Resolution for NFS Service Names**
+**Cause:** Kubelet uses host DNS (not cluster DNS) for NFS mounts, but host cannot resolve Kubernetes service names
+
+**Symptoms:**
+```
+MountVolume.SetUp failed for volume "test-dp-git-model-cache-pv" : mount failed: exit status 32
+Output: mount.nfs: Failed to resolve server test-dp-nfs-service.ns-yellow-starter.svc.cluster.local: Name or service not known
+```
+
+**Verification:**
+```bash
+# Test if host can resolve Kubernetes service names
+getent hosts test-dp-nfs-service.ns-yellow-starter.svc.cluster.local
+
+# If this fails but cluster DNS works:
+kubectl run dns-test --image=busybox --rm -it --restart=Never -n ns-yellow-starter -- nslookup test-dp-nfs-service.ns-yellow-starter.svc.cluster.local
+```
+
+**Solution:**
+```bash
+# Add cluster DNS to host /etc/resolv.conf
+echo 'nameserver 10.43.0.10' | sudo tee -a /etc/resolv.conf
+
+# Verify host can now resolve service names
+getent hosts test-dp-nfs-service.ns-yellow-starter.svc.cluster.local
+
+# Expected output:
+# 10.43.161.139   test-dp-nfs-service.ns-yellow-starter.svc.cluster.local
+```
+
+**Why This Works:**
+- Kubernetes pods use cluster DNS (10.43.0.10) for service name resolution
+- NFS mount operations are performed by kubelet on the host, using host DNS
+- Host DNS typically only resolves external domains, not cluster service names
+- Adding cluster DNS to host configuration enables DNS-based NFS mounting
+
 ### Problem: Docker Image Architecture Mismatch
 
 **Symptoms:**

@@ -1811,7 +1811,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             )
 
         # TODO: remove this once we have a way to set the git cache nfs server node
-        git_cache_enabled = True
+        # git_cache_enabled = True
         self.namespace: str = namespace
         self.postgresCredential: Credential = postgresCredential
         self.gitCredential: Credential = gitCredential

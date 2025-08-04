@@ -151,17 +151,7 @@ spec:
     storage: {{ nfs_client_storage }}
   accessModes:
     - ReadWriteMany
-  mountOptions:
-    - vers=3
-    - proto=tcp
-    - mountproto=udp
-    - mountport=20048
-    - local_lock=none
-    - timeo=600
-    - retrans=2
-    - rsize=1048576
-    - wsize=1048576
-    - hard
+
   nfs:
     server: {{ nfs_service_name }}.{{ namespace_name }}.svc.cluster.local
     path: "{{ nfs_shared_path }}"
