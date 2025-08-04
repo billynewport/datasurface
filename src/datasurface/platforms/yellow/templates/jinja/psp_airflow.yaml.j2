@@ -114,6 +114,7 @@ spec:
       serviceAccountName: {{ airflow_k8s_name }}-service-account
       securityContext:
         fsGroup: 50000
+        fsGroupChangePolicy: "OnRootMismatch"
         runAsUser: 50000
         runAsGroup: 50000
       initContainers:
@@ -245,6 +246,7 @@ spec:
       serviceAccountName: {{ airflow_k8s_name }}-service-account
       securityContext:
         fsGroup: 50000
+        fsGroupChangePolicy: "OnRootMismatch"
         runAsUser: 50000
         runAsGroup: 50000
       containers:

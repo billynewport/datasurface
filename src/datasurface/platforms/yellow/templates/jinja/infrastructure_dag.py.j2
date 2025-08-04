@@ -39,6 +39,7 @@ dag = DAG(
     description='Infrastructure DAG for {{ psp_k8s_name }} Data Platform',
     schedule='@daily',  # Run daily, can be adjusted based on needs
     catchup=False,
+    max_active_runs=1,
     tags=['datasurface', 'infrastructure', '{{ psp_k8s_name }}']
 )
 
@@ -221,6 +222,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         default_args=default_args,
         description=f'Ingestion Stream DAG for {platform_name}__{stream_key}',
         schedule=schedule_string,  # External trigger schedule
+        max_active_runs=1,
         catchup=False,
         is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
         tags=['datasurface', 'ingestion', platform_name, stream_key]
@@ -596,6 +598,7 @@ def create_platform_factory_dag(config: dict) -> DAG:
         description=f'Factory DAG for {platform_name} - Creates and manages dynamic ingestion stream DAGs',
         schedule='*/5 * * * *',  # Check for configuration changes every 5 minutes
         start_date=datetime(2025, 1, 1),
+        max_active_runs=1,
         catchup=False,
         is_paused_upon_creation=False,
         tags=['datasurface', 'factory', platform_name, 'dynamic-dag-manager']
@@ -680,6 +683,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         default_args=default_args,
         description=f'DataTransformer DAG for {platform_name}__{workspace_name}',
         schedule=dag_schedule,  # Use trigger schedule or None for sensor-based
+        max_active_runs=1,
         catchup=False,
         is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
         tags=['datasurface', 'datatransformer', platform_name, workspace_name]
@@ -894,6 +898,7 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
         default_args=default_args,
         description=f'DataTransformer Output Ingestion DAG for {platform_name}__{output_datastore_name}',
         schedule=None,  # External trigger only
+        max_active_runs=1,
         catchup=False,
         is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
         tags=['datasurface', 'datatransformer-output', 'ingestion', platform_name, output_datastore_name]
@@ -1186,6 +1191,7 @@ def create_datatransformer_factory_dag(config: dict) -> DAG:
         description=f'DataTransformer Dynamic DAG Factory for {platform_name}',
         schedule='*/5 * * * *',  # Run every 5 minutes to sync configurations
         catchup=False,
+        max_active_runs=1,
         tags=['datasurface', 'factory', 'datatransformer', platform_name]
     )
 

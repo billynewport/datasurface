@@ -585,7 +585,7 @@ docker run --rm \
   --ringLevel 0 \
   --model /workspace/model \
   --output /workspace/model/generated_output \
-  --platform YellowLive YellowForensic
+  --psp Test_DP
 ```
 
 **Deploy to Remote Kubernetes:**
@@ -1008,6 +1008,191 @@ kubectl get endpoints test-dp-nfs-service -n ns-yellow-starter
 # NAME                  ENDPOINTS                                         AGE
 # test-dp-nfs-service   10.42.0.98:20048,10.42.0.98:111,10.42.0.98:2049   8m17s
 ```
+
+## Troubleshooting: Longhorn RWX Performance Issues
+
+### Summary: Inherent NFS Mount Delays
+
+**Key Finding**: Longhorn ReadWriteMany (RWX) volumes have **inherent 20-40 second mount delays** due to their NFS-based implementation. This is **normal behavior**, not a configuration issue.
+
+**Typical Symptoms**: Airflow jobs taking 25-45 seconds total (39s mount + 3s execution)
+
+### Problem: Slow Container Startup Times Due to Volume Mount Delays
+
+**Symptoms:**
+- Pods stuck in `ContainerCreating` state for 30+ seconds
+- Volume attach failures with error: `volume pvc-xxxxx is not ready for workloads`
+- Events show repeated `FailedAttachVolume` followed by eventual `SuccessfulAttachVolume`
+- High-frequency job creation (like Airflow tasks) experiences significant delays
+
+**Root Cause:**
+This is caused by a **Flannel CNI bug** affecting NFS mounts for Longhorn ReadWriteMany (RWX) volumes. The issue occurs due to TX checksum offloading problems in Flannel that cause slow or failing NFS handshakes between the kubelet and Longhorn's share-manager pods.
+
+**Diagnosis Steps:**
+
+**1. Identify RWX Volume Mount Issues:**
+```bash
+# Check for volume-related events
+kubectl get events --sort-by=.metadata.creationTimestamp -n ns-yellow-starter | grep -i volume
+
+# Look for share-manager pod restarts
+kubectl get pods -n longhorn-system | grep share-manager
+
+# Check for ReadWriteMany volumes
+kubectl get pvc -n ns-yellow-starter -o yaml | grep -A 2 -B 2 ReadWriteMany
+```
+
+**2. Verify Flannel Interface:**
+```bash
+# Check if Flannel interface exists
+ip addr show flannel.1
+```
+
+**3. Monitor Container Creation Times:**
+```bash
+# Monitor stuck pods
+kubectl get pods -n ns-yellow-starter | grep ContainerCreating
+
+# Check share-manager logs
+kubectl logs share-manager-pvc-<volume-id> -n longhorn-system
+```
+
+### Solution: Apply Flannel TX Checksum Fix
+
+**Immediate Fix:**
+```bash
+# Disable TX checksum offloading on Flannel interface
+sudo ethtool -K flannel.1 tx-checksum-ip-generic off
+```
+
+**Make Fix Persistent (Required for Reboots):**
+```bash
+# Add to system startup
+echo '# Flannel NFS fix for Longhorn RWX performance' | sudo tee -a /etc/rc.local
+echo 'ethtool -K flannel.1 tx-checksum-ip-generic off' | sudo tee -a /etc/rc.local
+chmod +x /etc/rc.local
+```
+
+**Alternative: Systemd Service Approach:**
+```bash
+# Create a systemd service for the fix
+sudo tee /etc/systemd/system/flannel-nfs-fix.service << 'EOF'
+[Unit]
+Description=Fix Flannel NFS performance for Longhorn RWX
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ethtool -K flannel.1 tx-checksum-ip-generic off
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable the service
+sudo systemctl enable flannel-nfs-fix.service
+sudo systemctl start flannel-nfs-fix.service
+```
+
+### Verification
+
+**Test Container Creation Speed:**
+```bash
+# Before fix: 30+ seconds
+# After fix: Should be <10 seconds
+start_time=$(date +%s)
+kubectl run test-mount-speed --rm -i --restart=Never \
+  --image=datasurface/datasurface:latest \
+  --overrides='{"spec":{"containers":[{"name":"test","image":"datasurface/datasurface:latest","command":["sleep","5"],"volumeMounts":[{"name":"git-cache","mountPath":"/test"}]}],"volumes":[{"name":"git-cache","persistentVolumeClaim":{"claimName":"test-dp-git-model-cache-pvc"}}]}}' \
+  -n ns-yellow-starter
+end_time=$(date +%s)
+echo "Pod creation time: $((end_time - start_time)) seconds"
+```
+
+**Monitor Improvement:**
+```bash
+# Check for reduced stuck pods
+for i in {1..6}; do
+  echo "=== Check $i/6 ==="
+  kubectl get pods -n ns-yellow-starter | grep ContainerCreating | wc -l | xargs echo 'Stuck pods:'
+  sleep 5
+done
+```
+
+### Expected Results
+
+**Performance Characteristics:**
+- **Longhorn RWX (NFS) Mount Time**: 20-40 seconds (this is normal/expected)
+- **Job Execution Time**: 2-5 seconds (fast once mounted)
+- **Total Job Time**: 25-45 seconds per Airflow task
+
+**Success Indicators:**
+- Zero pods stuck in `ContainerCreating` state
+- No `FailedAttachVolume` events
+- Fast Airflow job execution
+- Consistent pod scheduling performance
+
+### Additional Optimizations (Optional)
+
+**Airflow Configuration Improvements:**
+```python
+# In KubernetesPodOperator tasks
+startup_timeout_seconds=30  # Reduced from default 120
+is_delete_operator_pod=False  # Reuse pods when possible
+```
+
+**Longhorn Storage Class Optimization:**
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-fast-rwx
+provisioner: driver.longhorn.io
+parameters:
+  numberOfReplicas: "1"  # Reduce for faster mounts if HA not critical
+  fsType: ext4
+mountOptions:
+  - vers=4.1
+  - norelatime
+```
+
+### Performance Acceptance vs. Alternatives
+
+**If 25-45 second job times are acceptable:**
+- ✅ **Keep current setup** - system is working as designed
+- ✅ **Longhorn RWX provides** shared storage with data persistence
+- ✅ **Jobs execute quickly** once mounted (2-5 seconds)
+
+**If faster startup is required:**
+
+1. **Switch to RWO Volumes (Recommended):**
+   ```bash
+   # Use ReadWriteOnce volumes - typically 5-10 second startup
+   # Trade-off: No shared storage between pods
+   # Solution: Use external storage (S3) for shared data
+   ```
+
+2. **External Shared Storage:**
+   ```bash
+   # Replace git cache with S3/MinIO/NFS server
+   # Startup time: 5-10 seconds
+   # Trade-off: Additional infrastructure complexity
+   ```
+
+3. **Hardware/Infrastructure Improvements:**
+   - Upgrade to faster storage (NVMe SSD)
+   - Increase node resources (CPU/Memory)  
+   - Consider cloud-managed storage (EFS, Azure Files)
+
+### References
+
+- **Longhorn Issue**: Known performance issue with RWX volumes on Flannel
+- **Flannel Bug**: TX checksum offloading causes NFS mount delays
+- **K3s/Rancher**: Common in k3s deployments using default Flannel CNI
+
+---
 
 ## Troubleshooting: Airflow Webserver Resource Allocation Issues
 
