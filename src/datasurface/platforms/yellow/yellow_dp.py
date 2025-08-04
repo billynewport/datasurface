@@ -1625,10 +1625,11 @@ class PostgresComponent(Component):
 
 
 class PVCComponent(Component):
-    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider', capacity: StorageRequirement) -> None:
+    def __init__(self, name: str, namespace: str, capacity: StorageRequirement, storageClass: str, accessMode: str) -> None:
         super().__init__(name, namespace)
-        self.psp: 'YellowPlatformServiceProvider' = psp
         self.capacity: StorageRequirement = capacity
+        self.storageClass: str = storageClass
+        self.accessMode: str = accessMode
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
@@ -1637,8 +1638,8 @@ class PVCComponent(Component):
         ctxt.update(
             {
                 "pvc_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
-                "pvc_storage_class": self.psp.git_cache_storage_class,
-                "pvc_access_mode": self.psp.git_cache_access_mode,
+                "pvc_storage_class": self.storageClass,
+                "pvc_access_mode": self.accessMode,
                 "pvc_storage_size": Component.storageToKubernetesFormat(self.capacity)
             }
         )
@@ -1707,10 +1708,14 @@ class Assembly:
 
     def generateYaml(self, env: Environment, templateContext: dict[str, Any]) -> str:
         """This generates the yaml for the assembly."""
-        yaml: str = ""
+        yaml_parts: list[str] = []
         for component in self.components:
-            yaml += component.render(env, templateContext)
-        return yaml
+            rendered = component.render(env, templateContext)
+            if rendered.strip():  # Only add non-empty templates
+                yaml_parts.append(rendered.rstrip())  # Remove trailing whitespace
+
+        # Join with proper YAML document separator
+        return '\n'.join(yaml_parts) + '\n'
 
 
 def createYellowAssemblySingleDatabase(
@@ -1723,11 +1728,6 @@ def createYellowAssemblySingleDatabase(
     """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
     database is used for both the merge store and the airflow database."""
 
-    git_cache_pvc_name: str = psp.getGitCachePVC()
-    git_cache_pv_name: str = psp.getGitCachePV()
-    nfs_server_pvc_name: str = psp.getNFSServerPVC()
-    nfs_server_pv_name: str = psp.getNFSServerPV()
-
     assembly: Assembly = Assembly(
         name, psp.namespace,
         components=list()
@@ -1735,13 +1735,7 @@ def createYellowAssemblySingleDatabase(
     assembly.components.append(NamespaceComponent("ns", psp.namespace))
     if psp.git_cache_enabled:
         assembly.components.append(
-            NFSComponent(
-                psp.name, psp.namespace, nfs_server_node,
-                nfs_server_pvc_name=nfs_server_pvc_name,
-                nfs_server_pv_name=nfs_server_pv_name,
-                nfs_client_pvc_name=git_cache_pvc_name,
-                nfs_client_pv_name=git_cache_pv_name,
-                nfs_server_storage=psp.git_cache_storage_size))
+            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.git_cache_storage_class, psp.git_cache_access_mode))
     assembly.components.append(LoggingComponent("logging", psp.namespace, psp))
     assembly.components.append(NetworkPolicyComponent("np", psp.namespace, psp))
     assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB))
@@ -1760,23 +1754,13 @@ def createYellowAssemblyTwinDatabase(
         afHostPortPair: HostPortPair) -> Assembly:
     """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
     reasons."""
-    git_cache_pvc_name: str = psp.getGitCachePVC()
-    git_cache_pv_name: str = psp.getGitCachePV()
-    nfs_server_pvc_name: str = psp.getNFSServerPVC()
-    nfs_server_pv_name: str = psp.getNFSServerPV()
     assembly: Assembly = Assembly(
         name, psp.namespace,
         components=[
             NamespaceComponent("ns", psp.namespace),
             LoggingComponent("logging", psp.namespace, psp),
             NetworkPolicyComponent("np", psp.namespace, psp),
-            NFSComponent(
-                psp.name, psp.namespace, nfs_server_node,
-                nfs_server_pvc_name=nfs_server_pvc_name,
-                nfs_server_pv_name=nfs_server_pv_name,
-                nfs_client_pvc_name=git_cache_pvc_name,
-                nfs_client_pv_name=git_cache_pv_name,
-                nfs_server_storage=psp.git_cache_storage_size),
+            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.git_cache_storage_class, psp.git_cache_access_mode),
             PostgresComponent("pg", psp.namespace, pgCred, mergeDBD),
             PostgresComponent("pg", psp.namespace, afDBcred, afDB),
             AirflowComponent("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
