@@ -1011,11 +1011,37 @@ kubectl get endpoints test-dp-nfs-service -n ns-yellow-starter
 
 ## Troubleshooting: Longhorn RWX Performance Issues
 
+### Problem: Longhorn Single-Node Configuration Issues
+
+**Symptoms:**
+- **Inconsistent mount times**: Some jobs 6-10 seconds, others 30-40 seconds
+- **Volume status "degraded"** instead of "healthy"
+- **Share-manager pod restarts** every few minutes
+- **Multiple stopped replicas** in `kubectl get replicas -n longhorn-system`
+
+**Root Cause:** Default replica count of 3 in single-node clusters
+
+**Solution:**
+```bash
+# Fix replica count for single-node setup
+kubectl patch setting default-replica-count -n longhorn-system --type='merge' -p='{"value":"1"}'
+
+# Find your RWX volume ID
+kubectl get pvc -n ns-yellow-starter | grep RWX
+kubectl get volumes -n longhorn-system
+
+# Fix existing RWX volume (replace with your volume ID)
+kubectl patch volume pvc-<volume-id> -n longhorn-system --type='merge' -p='{"spec":{"numberOfReplicas":1}}'
+
+# Verify fix - should show "healthy" not "degraded"
+kubectl get volumes -n longhorn-system
+```
+
 ### Summary: Inherent NFS Mount Delays
 
-**Key Finding**: Longhorn ReadWriteMany (RWX) volumes have **inherent 20-40 second mount delays** due to their NFS-based implementation. This is **normal behavior**, not a configuration issue.
+**Key Finding**: After fixing Longhorn configuration, RWX volumes have **6-16 second mount delays**. Unfixed systems show 20-40 second delays due to configuration issues.
 
-**Typical Symptoms**: Airflow jobs taking 25-45 seconds total (39s mount + 3s execution)
+**Typical Symptoms After Fix**: Airflow jobs taking 10-20 seconds total (6-16s mount + 3s execution)
 
 ### Problem: Slow Container Startup Times Due to Volume Mount Delays
 
@@ -1024,13 +1050,38 @@ kubectl get endpoints test-dp-nfs-service -n ns-yellow-starter
 - Volume attach failures with error: `volume pvc-xxxxx is not ready for workloads`
 - Events show repeated `FailedAttachVolume` followed by eventual `SuccessfulAttachVolume`
 - High-frequency job creation (like Airflow tasks) experiences significant delays
+- **Inconsistent timing**: Some jobs 6-10 seconds, others 30-40 seconds
+- **Share-manager pod restarts**: Frequent restarts of share-manager pods
 
-**Root Cause:**
+**Root Causes:**
+
+**Primary Cause - Longhorn Single-Node Configuration:**
+- **Default replica count of 3** in single-node clusters
+- **Degraded volume states** due to inability to place multiple replicas
+- **Share-manager instability** causing intermittent 30-40 second delays
+- **Volume status shows "degraded"** instead of "healthy"
+
+**Secondary Cause - Flannel CNI Issue:**
 This is caused by a **Flannel CNI bug** affecting NFS mounts for Longhorn ReadWriteMany (RWX) volumes. The issue occurs due to TX checksum offloading problems in Flannel that cause slow or failing NFS handshakes between the kubelet and Longhorn's share-manager pods.
 
 **Diagnosis Steps:**
 
-**1. Identify RWX Volume Mount Issues:**
+**1. Check Longhorn Volume Health (Primary):**
+```bash
+# Check volume status - look for "degraded" instead of "healthy"
+kubectl get volumes -n longhorn-system
+
+# Check replica count settings
+kubectl get setting default-replica-count -n longhorn-system -o yaml | grep value
+
+# Check replica distribution
+kubectl get replicas -n longhorn-system | grep -E 'stopped|running'
+
+# Check share-manager stability
+kubectl get pods -n longhorn-system | grep share-manager
+```
+
+**2. Identify RWX Volume Mount Issues:**
 ```bash
 # Check for volume-related events
 kubectl get events --sort-by=.metadata.creationTimestamp -n ns-yellow-starter | grep -i volume
@@ -1042,13 +1093,13 @@ kubectl get pods -n longhorn-system | grep share-manager
 kubectl get pvc -n ns-yellow-starter -o yaml | grep -A 2 -B 2 ReadWriteMany
 ```
 
-**2. Verify Flannel Interface:**
+**3. Verify Flannel Interface:**
 ```bash
 # Check if Flannel interface exists
 ip addr show flannel.1
 ```
 
-**3. Monitor Container Creation Times:**
+**4. Monitor Container Creation Times:**
 ```bash
 # Monitor stuck pods
 kubectl get pods -n ns-yellow-starter | grep ContainerCreating
@@ -1057,7 +1108,26 @@ kubectl get pods -n ns-yellow-starter | grep ContainerCreating
 kubectl logs share-manager-pvc-<volume-id> -n longhorn-system
 ```
 
-### Solution: Apply Flannel TX Checksum Fix
+### Primary Solution: Fix Longhorn Single-Node Configuration
+
+**Root Cause:** Longhorn default replica count (3) in single-node clusters causes degraded volume states and share-manager restarts.
+
+**Immediate Fix:**
+```bash
+# Fix Longhorn replica count for single-node setup
+kubectl patch setting default-replica-count -n longhorn-system --type='merge' -p='{"value":"1"}'
+
+# Fix existing RWX volume
+kubectl patch volume pvc-<volume-id> -n longhorn-system --type='merge' -p='{"spec":{"numberOfReplicas":1}}'
+
+# Verify fix
+kubectl get volumes -n longhorn-system
+# RWX volume should show "healthy" instead of "degraded"
+```
+
+### Alternative Solution: Apply Flannel TX Checksum Fix
+
+**Note:** This fix has limited effectiveness. Address Longhorn configuration first.
 
 **Immediate Fix:**
 ```bash
@@ -1123,16 +1193,19 @@ done
 
 ### Expected Results
 
-**Performance Characteristics:**
-- **Longhorn RWX (NFS) Mount Time**: 20-40 seconds (this is normal/expected)
+**Performance Characteristics After Longhorn Fix:**
+- **Longhorn RWX (NFS) Mount Time**: 6-16 seconds (improved from 30-40 seconds)
 - **Job Execution Time**: 2-5 seconds (fast once mounted)
-- **Total Job Time**: 25-45 seconds per Airflow task
+- **Total Job Time**: 10-20 seconds per Airflow task (improved from 25-45 seconds)
+- **Consistency**: No more intermittent 40-second delays
 
 **Success Indicators:**
-- Zero pods stuck in `ContainerCreating` state
+- **Volume status shows "healthy"** instead of "degraded"
+- **Share-manager pod stability** (no frequent restarts)
+- **Consistent pod startup times** (6-16 seconds)
+- Zero pods stuck in `ContainerCreating` state for extended periods
 - No `FailedAttachVolume` events
 - Fast Airflow job execution
-- Consistent pod scheduling performance
 
 ### Additional Optimizations (Optional)
 
