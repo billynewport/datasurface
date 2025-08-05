@@ -400,7 +400,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
         arguments=job_args,
         env_vars=env_vars,  # type: ignore
-        image_pull_policy='Always',
+        image_pull_policy='{{ image_pull_policy }}',
         volumes=[
             k8s.V1Volume(
                 name='git-model-cache',
@@ -793,7 +793,7 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
         ] + (['--use-git-cache'] if platform_config.get('git_cache_enabled') else []),
         env_vars=env_vars,  # type: ignore
-        image_pull_policy='Always',
+        image_pull_policy='{{ image_pull_policy }}',
         volumes=[
             k8s.V1Volume(
                 name='git-model-cache',
@@ -994,7 +994,7 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
         ] + (['--use-git-cache'] if platform_config.get('git_cache_enabled') else []),
         env_vars=env_vars,  # type: ignore
-        image_pull_policy='Always',
+        image_pull_policy='{{ image_pull_policy }}',
         volumes=[
             k8s.V1Volume(
                 name='git-model-cache',

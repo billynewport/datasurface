@@ -1963,6 +1963,13 @@ def createYellowAssemblyTwinDatabase(
     return assembly
 
 
+class K8sImagePullPolicy(Enum):
+    """This is the image pull policy for the kubernetes pods."""
+    ALWAYS = "Always"
+    IF_NOT_PRESENT = "IfNotPresent"
+    NEVER = "Never"
+
+
 class YellowPlatformServiceProvider(PlatformServicesProvider):
     """This provides basic kubernetes services to the YellowDataPlatforms it manages. It provides
     a kubernetes namespace, an airflow instance and a merge store."""
@@ -1986,6 +1993,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  git_cache_storage_size: StorageRequirement = StorageRequirement("5G"), git_cache_max_age_minutes: int = 5,
                  git_cache_enabled: bool = True,
                  git_cache_nfs_server_node: str = "kub-test",
+                 image_pull_policy: K8sImagePullPolicy = K8sImagePullPolicy.IF_NOT_PRESENT,
                  hints: dict[str, PlatformRuntimeHint] = dict()):
         super().__init__(
             name,
@@ -2021,7 +2029,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         self.git_cache_nfs_server_node: str = git_cache_nfs_server_node
         self.mergeStore: PostgresDatabase = merge_datacontainer
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
-
+        self.image_pull_policy: K8sImagePullPolicy = image_pull_policy
         self.kafkaConnectCluster = KafkaConnectCluster(
             name=kafkaConnectName,
             locs=self.locs,
@@ -2076,7 +2084,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "mergeDBResourceLimits": self.mergeDBResourceLimits.to_json() if self.mergeDBResourceLimits else None,
                 "afDBStorageNeeds": self.afDBStorageNeeds.to_json(),
                 "afWebserverResourceLimits": self.afWebserverResourceLimits.to_json() if self.afWebserverResourceLimits else None,
-                "afSchedulerResourceLimits": self.afSchedulerResourceLimits.to_json() if self.afSchedulerResourceLimits else None
+                "afSchedulerResourceLimits": self.afSchedulerResourceLimits.to_json() if self.afSchedulerResourceLimits else None,
+                "image_pull_policy": self.image_pull_policy.value
             }
         )
         return rc
@@ -2417,7 +2426,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
                 "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
                 "git_cache_enabled": self.git_cache_enabled,
-                "git_cache_local_path": "/cache/git-cache"
+                "git_cache_local_path": "/cache/git-cache",
+                "image_pull_policy": self.image_pull_policy.value
             }
 
             # Render the templates
