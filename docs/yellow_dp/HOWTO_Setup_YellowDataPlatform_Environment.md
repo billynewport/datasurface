@@ -1348,7 +1348,7 @@ kubectl port-forward svc/airflow-webserver-service 8080:8080 -n ns-yellow-starte
 
 **Deployment Process:**
 - Clean artifact generation (includes all required YAML files)
-- Consistent secret configuration (POSTGRES_USER/POSTGRES_PASSWORD format)
+- Consistent secret configuration ({secret_name}_USER/{secret_name}_PASSWORD format)
 - Automated database schema creation via Ring 1 initialization
 - Automated ingestion stream DAG creation via factory pattern
 - Ready for immediate data pipeline deployment

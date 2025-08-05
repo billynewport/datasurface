@@ -420,7 +420,14 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         get_logs=True,
         do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
         container_resources=k8s.V1ResourceRequirements(
-            requests={'memory': '256Mi', 'cpu': '100m'}
+            requests={
+                'memory': stream_config.get('job_limits', {}).get('requested_memory', '256Mi'),
+                'cpu': stream_config.get('job_limits', {}).get('requested_cpu', '100m')
+            },
+            limits={
+                'memory': stream_config.get('job_limits', {}).get('limits_memory', '256Mi'),
+                'cpu': stream_config.get('job_limits', {}).get('limits_cpu', '100m')
+            }
         ),
         on_finish_action="delete_pod",
         dag=dag
@@ -826,8 +833,14 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         get_logs=True,
         do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
         container_resources=k8s.V1ResourceRequirements(
-            requests={'memory': '512Mi', 'cpu': '200m'},
-            limits={'memory': '2Gi', 'cpu': '1000m'}
+            requests={
+                'memory': dt_config.get('job_limits', {}).get('requested_memory', '512Mi'),
+                'cpu': dt_config.get('job_limits', {}).get('requested_cpu', '200m')
+            },
+            limits={
+                'memory': dt_config.get('job_limits', {}).get('limits_memory', '2Gi'),
+                'cpu': dt_config.get('job_limits', {}).get('limits_cpu', '1000m')
+            }
         ),
         on_finish_action="delete_pod",
         dag=dag
@@ -1001,8 +1014,14 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
         get_logs=True,
         do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
         container_resources=k8s.V1ResourceRequirements(
-            requests={'memory': '256Mi', 'cpu': '100m'},
-            limits={'memory': '1Gi', 'cpu': '500m'}
+            requests={
+                'memory': dt_config.get('job_limits', {}).get('requested_memory', '256Mi'),
+                'cpu': dt_config.get('job_limits', {}).get('requested_cpu', '100m')
+            },
+            limits={
+                'memory': dt_config.get('job_limits', {}).get('limits_memory', '1Gi'),
+                'cpu': dt_config.get('job_limits', {}).get('limits_cpu', '500m')
+            }
         ),
         on_finish_action="delete_pod",
         dag=dag

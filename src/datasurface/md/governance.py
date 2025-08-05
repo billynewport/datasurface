@@ -1507,11 +1507,103 @@ class PlatformService(JSONable):
         return {"_type": self.__class__.__name__, "name": self.name}
 
 
+class PlatformRuntimeHint(UserDSLObject):
+    """These allow hints to be provided by the operations team to a PSP. These allow specific job tuning
+    for ingestion or transformer jobs."""
+    def __init__(self, name: str):
+        UserDSLObject.__init__(self)
+        self.name: str = name
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "name": self.name}
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PlatformRuntimeHint):
+            return super().__eq__(other) and self.name == other.name
+        return False
+
+    @abstractmethod
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        raise NotImplementedError("This is an abstract method")
+
+
+class PlatformIngestionHint(PlatformRuntimeHint):
+    def __init__(self, storeName: str, datasetName: Optional[str] = None):
+        PlatformRuntimeHint.__init__(self, PlatformIngestionHint.getHintName(storeName, datasetName))
+        self.datasetName: Optional[str] = datasetName
+        self.storeName: str = storeName
+
+    @staticmethod
+    def getHintName(storeName: str, datasetName: Optional[str] = None) -> str:
+        return f"IG_{storeName}#{datasetName}" if datasetName else storeName
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"storeName": self.storeName, "datasetName": self.datasetName})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PlatformIngestionHint):
+            return super().__eq__(other) and self.storeName == other.storeName and self.datasetName == other.datasetName
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        storeCE: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(self.storeName)
+        if storeCE is None:
+            tree.addRaw(ObjectMissing(eco, self.storeName, ProblemSeverity.ERROR))
+        else:
+            if self.datasetName is None:
+                if storeCE.datastore.cmd is not None and storeCE.datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
+                    tree.addRaw(AttributeNotSet("Dataset name not set for single dataset ingestion"))
+            else:
+                if storeCE.datastore.cmd is not None and storeCE.datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET:
+                    tree.addRaw(AttributeNotSet("Dataset name set for multi dataset ingestion"))
+                dataset: Optional[Dataset] = storeCE.datastore.datasets.get(self.datasetName)
+                if dataset is None:
+                    tree.addRaw(ObjectMissing(storeCE.datastore, self.datasetName, ProblemSeverity.ERROR))
+
+
+class PlatformDataTransformerHint(PlatformRuntimeHint):
+    def __init__(self, workspaceName: str):
+        PlatformRuntimeHint.__init__(self, PlatformDataTransformerHint.getHintName(workspaceName))
+        self.workspaceName: str = workspaceName
+
+    @staticmethod
+    def getHintName(workspaceName: str) -> str:
+        return f"DT_{workspaceName}"
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"workspaceName": self.workspaceName})
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PlatformDataTransformerHint):
+            return super().__eq__(other) and self.workspaceName == other.workspaceName
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        workspaceCE: Optional[WorkspaceCacheEntry] = eco.cache_getWorkspace(self.workspaceName)
+        if workspaceCE is None:
+            tree.addRaw(ObjectMissing(eco, self.workspaceName, ProblemSeverity.ERROR))
+        else:
+            workspace: Workspace = workspaceCE.workspace
+            if workspace.dataTransformer is None:
+                tree.addRaw(AttributeNotSet("Workspace has no data transformer"))
+
+
 P = TypeVar('P', bound='PlatformServicesProvider')
 
 
 class PlatformServicesProvider(UserDSLObject):
-    def __init__(self, name: str, locs: set[LocationKey], credStore: CredentialStore, dataPlatforms: list['DataPlatform']):
+    def __init__(self, name: str, locs: set[LocationKey], credStore: CredentialStore,
+                 dataPlatforms: list['DataPlatform'], hints: dict[str, PlatformRuntimeHint] = dict()):
         UserDSLObject.__init__(self)
         self.name: str = name
         self.locs: set[LocationKey] = locs
@@ -1522,6 +1614,7 @@ class PlatformServicesProvider(UserDSLObject):
                 raise ObjectAlreadyExistsException(f"Duplicate DataPlatform {dp.name}")
             self.dataPlatforms[dp.name] = dp
             dp.setPSP(self)
+        self.hints: dict[str, PlatformRuntimeHint] = hints
 
     def getPlatform(self, name: str) -> Optional['DataPlatform']:
         return self.dataPlatforms.get(name)
@@ -1533,14 +1626,15 @@ class PlatformServicesProvider(UserDSLObject):
             "name": self.name,
             "locs": [loc.to_json() for loc in self.locs],
             "credStore": self.credStore.to_json(),
-            "dataPlatforms": [dp.to_json() for dp in self.dataPlatforms.values()]
+            "dataPlatforms": [dp.to_json() for dp in self.dataPlatforms.values()],
+            "hints": [hint.to_json() for hint in self.hints.values()]
         })
         return rc
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, PlatformServicesProvider):
             return super().__eq__(other) and self.locs == other.locs and self.credStore == other.credStore and self.dataPlatforms == other.dataPlatforms \
-                and self.name == other.name
+                and self.name == other.name and self.hints == other.hints
         return False
 
     def render(self):
@@ -1553,6 +1647,20 @@ class PlatformServicesProvider(UserDSLObject):
         graph.lint(self.credStore, tree.addSubTree(graph))
         for dp in self.dataPlatforms.values():
             dp.lint(eco, tree.addSubTree(dp))
+        for hint in self.hints.values():
+            hint.lint(eco, tree.addSubTree(hint))
+
+    def getIngestionJobHint(self, storeName: str, datasetName: Optional[str] = None) -> Optional[PlatformIngestionHint]:
+        hint: Optional[PlatformRuntimeHint] = self.hints.get(PlatformIngestionHint.getHintName(storeName, datasetName))
+        if hint is not None and isinstance(hint, PlatformIngestionHint):
+            return hint
+        return None
+
+    def getDataTransformerJobHint(self, workspaceName: str) -> Optional[PlatformDataTransformerHint]:
+        hint: Optional[PlatformRuntimeHint] = self.hints.get(PlatformDataTransformerHint.getHintName(workspaceName))
+        if hint is not None and isinstance(hint, PlatformDataTransformerHint):
+            return hint
+        return None
 
     @abstractmethod
     def generateBootstrapArtifacts(self, eco: 'Ecosystem', ringLevel: int) -> dict[str, str]:

@@ -9,7 +9,8 @@ from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace, SQLIngestion
-from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata
+from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata, PlatformDataTransformerHint, \
+    PlatformIngestionHint, PlatformRuntimeHint
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
     ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet, UserDSLObject
 from datasurface.md.exceptions import ObjectDoesntExistException
@@ -170,6 +171,112 @@ class JobUtilities(ABC):
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
         return self.dp.psp.namingMapper.mapNoun(self.dp.getTableForPlatform(f"dt_{tableName}"))
+
+
+# Model for Kubernetes resource limits
+# Allows the requested and limit for CPU and memory to be specified for a pod.
+class K8sResourceLimits(UserDSLObject):
+    def __init__(self, requested_memory: StorageRequirement, limits_memory: StorageRequirement, requested_cpu: float, limits_cpu: float) -> None:
+        super().__init__()
+        self.requested_memory: StorageRequirement = requested_memory
+        self.limits_memory: StorageRequirement = limits_memory
+        self.requested_cpu: float = requested_cpu
+        self.limits_cpu: float = limits_cpu
+
+    def to_json(self) -> dict[str, Any]:
+        """Convert K8sResourceLimits to JSON-serializable dictionary."""
+        return {
+            "requested_memory": self.requested_memory.to_json(),
+            "limits_memory": self.limits_memory.to_json(),
+            "requested_cpu": self.requested_cpu,
+            "limits_cpu": self.limits_cpu
+        }
+
+    def to_k8s_json(self) -> dict[str, Any]:
+        """Convert K8sResourceLimits to Kubernetes JSON format."""
+        return {
+            "requested_memory": Component.storageToKubernetesFormat(self.requested_memory),
+            "limits_memory": Component.storageToKubernetesFormat(self.limits_memory),
+            "requested_cpu": Component.cpuToKubernetesFormat(self.requested_cpu),
+            "limits_cpu": Component.cpuToKubernetesFormat(self.limits_cpu)
+            }
+
+    def lint(self, tree: ValidationTree):
+        """This validates the K8sResourceLimits object."""
+        self.requested_memory.lint(tree.addSubTree(self.requested_memory))
+        self.limits_memory.lint(tree.addSubTree(self.limits_memory))
+        if self.requested_memory > self.limits_memory:
+            tree.addProblem(f"Requested memory must be less than or equal to limits memory, got {self.requested_memory} and {self.limits_memory}")
+        if self.requested_cpu < 0:
+            tree.addProblem(f"Requested CPU must be greater than 0, got {self.requested_cpu}")
+        if self.limits_cpu < 0:
+            tree.addProblem(f"Limits CPU must be greater than 0, got {self.limits_cpu}")
+        if self.requested_cpu > self.limits_cpu:
+            tree.addProblem(f"Requested CPU must be less than or equal to limits CPU, got {self.requested_cpu} and {self.limits_cpu}")
+
+
+class K8sDataTransformerHint(PlatformDataTransformerHint):
+    def __init__(self, workspaceName: str, resourceLimits: K8sResourceLimits):
+        super().__init__(workspaceName)
+        self.resourceLimits: K8sResourceLimits = resourceLimits
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"resourceLimits": self.resourceLimits.to_json()})
+        return rc
+
+    def to_k8s_json(self) -> dict[str, Any]:
+        """Convert YellowDataTransformerHint to Kubernetes JSON format."""
+        return {
+            "requested_memory": Component.storageToKubernetesFormat(self.resourceLimits.requested_memory),
+            "limits_memory": Component.storageToKubernetesFormat(self.resourceLimits.limits_memory),
+            "requested_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.requested_cpu),
+            "limits_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.limits_cpu)
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, K8sDataTransformerHint):
+            return super().__eq__(other) and self.resourceLimits == other.resourceLimits
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        super().lint(eco, tree)
+        self.resourceLimits.lint(tree.addSubTree(self.resourceLimits))
+
+
+class K8sIngestionHint(PlatformIngestionHint):
+    def __init__(self, storeName: str, resourceLimits: K8sResourceLimits, datasetName: Optional[str] = None):
+        super().__init__(storeName, datasetName)
+        self.resourceLimits: K8sResourceLimits = resourceLimits
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"resourceLimits": self.resourceLimits.to_json()})
+        return rc
+
+    def to_k8s_json(self) -> dict[str, Any]:
+        """Convert YellowIngestionHint to Kubernetes JSON format."""
+        return {
+            "requested_memory": Component.storageToKubernetesFormat(self.resourceLimits.requested_memory),
+            "limits_memory": Component.storageToKubernetesFormat(self.resourceLimits.limits_memory),
+            "requested_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.requested_cpu),
+            "limits_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.limits_cpu)
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, K8sIngestionHint):
+            return super().__eq__(other) and self.resourceLimits == other.resourceLimits
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree):
+        super().lint(eco, tree)
+        self.resourceLimits.lint(tree.addSubTree(self.resourceLimits))
 
 
 class YellowDatasetUtilities(JobUtilities):
@@ -808,6 +915,17 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         from sqlalchemy import text
         from datasurface.platforms.yellow.db_utils import createEngine
 
+        # Default job resource limits
+        default_ingestion_hint: K8sIngestionHint = K8sIngestionHint(
+            storeName=self.dp.name,
+            resourceLimits=K8sResourceLimits(
+                requested_memory=StorageRequirement("256M"),
+                limits_memory=StorageRequirement("1G"),
+                requested_cpu=0.1,
+                limits_cpu=0.5
+            )
+        )
+
         # Get database connection
         user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
         engine = createEngine(self.dp.psp.mergeStore, user, password)
@@ -828,6 +946,14 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     if is_single_dataset:
                         # For single dataset, create a separate entry for each dataset
                         for dataset in store.datasets.values():
+                            job_hint: K8sIngestionHint = default_ingestion_hint
+                            assert self.dp.psp is not None
+                            user_hint: Optional[PlatformIngestionHint] = self.dp.psp.getIngestionJobHint(storeName, dataset.name)
+                            if user_hint is not None:
+                                job_hint = cast(K8sIngestionHint, user_hint)
+                            else:
+                                job_hint = default_ingestion_hint
+
                             stream_key = f"{storeName}_{dataset.name}"
                             stream_config = {
                                 "stream_key": stream_key,
@@ -836,7 +962,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                                 "store_name": storeName,
                                 "dataset_name": dataset.name,
                                 "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot",
-                                "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger)
+                                "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger),
+                                "job_limits": job_hint.to_k8s_json()
                             }
 
                             # Add credential information for this stream
@@ -857,7 +984,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             "datasets": [dataset.name for dataset in store.datasets.values()],
                             "store_name": storeName,
                             "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot",
-                            "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger)
+                            "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger),
+                            "job_limits": default_ingestion_hint.to_k8s_json()
                         }
 
                         # Add credential information for this stream
@@ -963,6 +1091,16 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
         engine = createEngine(self.dp.psp.mergeStore, user, password)
 
+        default_transformer_hint: K8sDataTransformerHint = K8sDataTransformerHint(
+            workspaceName=self.dp.name,
+            resourceLimits=K8sResourceLimits(
+                requested_memory=StorageRequirement("512M"),
+                limits_memory=StorageRequirement("2G"),
+                requested_cpu=0.2,
+                limits_cpu=1.0
+            )
+        )
+
         # Build the DataTransformer configurations from the graph
         datatransformer_configs: list[dict[str, Any]] = []
 
@@ -1014,13 +1152,20 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # Get output dataset list
                     output_dataset_list: list[str] = [dataset.name for dataset in outputDatastore.datasets.values()]
 
+                    user_hint: Optional[PlatformDataTransformerHint] = self.dp.psp.getDataTransformerJobHint(workspaceName)
+                    if user_hint is not None:
+                        job_hint = cast(K8sDataTransformerHint, user_hint)
+                    else:
+                        job_hint = default_transformer_hint
+
                     # Create the configuration
                     dt_config = {
                         "workspace_name": workspaceName,
                         "output_datastore_name": outputDatastore.name,
                         "input_dag_ids": input_dag_ids,
                         "input_dataset_list": input_dataset_list,
-                        "output_dataset_list": output_dataset_list
+                        "output_dataset_list": output_dataset_list,
+                        "job_limits": job_hint.to_k8s_json()
                     }
 
                     assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
@@ -1490,39 +1635,6 @@ class YellowGenericDataPlatform(DataPlatform['YellowPlatformServiceProvider']):
         raise NotImplementedError("This is an abstract method")
 
 
-# Model for Kubernetes resource limits
-# Allows the requested and limit for CPU and memory to be specified for a pod.
-class K8sResourceLimits(UserDSLObject):
-    def __init__(self, requested_memory: StorageRequirement, limits_memory: StorageRequirement, requested_cpu: float, limits_cpu: float) -> None:
-        super().__init__()
-        self.requested_memory: StorageRequirement = requested_memory
-        self.limits_memory: StorageRequirement = limits_memory
-        self.requested_cpu: float = requested_cpu
-        self.limits_cpu: float = limits_cpu
-
-    def to_json(self) -> dict[str, Any]:
-        """Convert K8sResourceLimits to JSON-serializable dictionary."""
-        return {
-            "requested_memory": self.requested_memory.to_json(),
-            "limits_memory": self.limits_memory.to_json(),
-            "requested_cpu": self.requested_cpu,
-            "limits_cpu": self.limits_cpu
-        }
-
-    def lint(self, tree: ValidationTree):
-        """This validates the K8sResourceLimits object."""
-        self.requested_memory.lint(tree.addSubTree(self.requested_memory))
-        self.limits_memory.lint(tree.addSubTree(self.limits_memory))
-        if self.requested_memory > self.limits_memory:
-            tree.addProblem(f"Requested memory must be less than or equal to limits memory, got {self.requested_memory} and {self.limits_memory}")
-        if self.requested_cpu < 0:
-            tree.addProblem(f"Requested CPU must be greater than 0, got {self.requested_cpu}")
-        if self.limits_cpu < 0:
-            tree.addProblem(f"Limits CPU must be greater than 0, got {self.limits_cpu}")
-        if self.requested_cpu > self.limits_cpu:
-            tree.addProblem(f"Requested CPU must be less than or equal to limits CPU, got {self.requested_cpu} and {self.limits_cpu}")
-
-
 class Component(ABC):
     """A component can a hostname, a credential and"""
     def __init__(self, name: str, namespace: str) -> None:
@@ -1873,14 +1985,16 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                  git_cache_access_mode: str = "ReadWriteOnce",
                  git_cache_storage_size: StorageRequirement = StorageRequirement("5G"), git_cache_max_age_minutes: int = 5,
                  git_cache_enabled: bool = True,
-                 git_cache_nfs_server_node: str = "kub-test"):
+                 git_cache_nfs_server_node: str = "kub-test",
+                 hints: dict[str, PlatformRuntimeHint] = dict()):
         super().__init__(
             name,
             locs,
             KubernetesEnvVarsCredentialStore(
                 name=f"{name}-cred-store", locs=locs, namespace=namespace
                 ),
-            dataPlatforms=dataPlatforms
+            dataPlatforms=dataPlatforms,
+            hints=hints
             )
 
         # TODO: remove this once we have a way to set the git cache nfs server node
@@ -1985,6 +2099,11 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             tree.addRaw(CredentialTypeNotSupportedProblem(self.gitCredential, [CredentialType.API_TOKEN]))
         self.mergeDBStorageNeeds.lint(tree.addSubTree(self.mergeDBStorageNeeds))
         self.afDBStorageNeeds.lint(tree.addSubTree(self.afDBStorageNeeds))
+
+        # Check the hints are the right type
+        for hint in self.hints.values():
+            if not isinstance(hint, K8sIngestionHint) and not isinstance(hint, K8sDataTransformerHint):
+                tree.addRaw(ObjectNotSupportedByDataPlatform(hint, [K8sIngestionHint, K8sDataTransformerHint], ProblemSeverity.ERROR))
 
         # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
         if not isinstance(eco.liveRepo, GitHubRepository):
