@@ -1,6 +1,6 @@
 # YellowDataPlatform: A Modern, Kubernetes-Native Data Platform
 
-*How DataSurface's flagship data platform revolutionizes enterprise data ingestion with PostgreSQL, Airflow, and intelligent orchestration*
+*How DataSurface's initial data platform revolutionizes enterprise data ingestion with PostgreSQL, Airflow, and intelligent orchestration*
 
 ## Introduction: The Enterprise Data Pipeline Problem
 

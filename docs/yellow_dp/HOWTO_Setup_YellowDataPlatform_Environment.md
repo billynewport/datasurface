@@ -1037,6 +1037,49 @@ kubectl patch volume pvc-<volume-id> -n longhorn-system --type='merge' -p='{"spe
 kubectl get volumes -n longhorn-system
 ```
 
+### Problem: Longhorn Share-Manager Restart Issues
+
+**Symptoms:**
+- **Share-manager pod restarts frequently** (every 30-60 seconds)
+- **Intermittent mount delays**: Jobs vary between 6-15 seconds vs 30-45 seconds
+- **Logs show**: `"Stopping share manager since it is no longer required"` despite active volume usage
+- **Events show**: Frequent `Killing` and `Started` events for share-manager pods
+
+**Root Cause:** Share-manager controller incorrectly determining volume usage in certain configurations, leading to premature shutdown and restart cycles
+
+**Solutions (in order of effectiveness):**
+
+**Option 1: Configuration Adjustments**
+```bash
+# Enable storage network for RWX volumes (improves stability)
+kubectl patch setting storage-network-for-rwx-volume-enabled -n longhorn-system --type='merge' -p='{"value":"true"}'
+
+# Enable RWX fast failover
+kubectl patch setting rwx-volume-fast-failover -n longhorn-system --type='merge' -p='{"value":"true"}'
+
+# Increase aggressive timeouts
+kubectl patch setting engine-replica-timeout -n longhorn-system --type='merge' -p='{"value":"30"}'
+kubectl patch setting backup-execution-timeout -n longhorn-system --type='merge' -p='{"value":"60"}'
+```
+
+**Option 2: Update Longhorn (if issues persist)**
+```bash
+# Check current version
+kubectl get setting current-longhorn-version -n longhorn-system -o jsonpath='{.value}'
+
+# Consider upgrading to latest stable version if configuration workarounds insufficient
+# Follow official Longhorn upgrade documentation
+```
+
+**Verification:**
+```bash
+# Monitor share-manager stability (should NOT restart frequently)
+kubectl get events -n longhorn-system --sort-by='.lastTimestamp' | grep share-manager | tail -5
+
+# Check for stable mount times (should be consistently 6-15 seconds)
+# Test by triggering Airflow jobs and timing container creation
+```
+
 ### Summary: Inherent NFS Mount Delays
 
 **Key Finding**: After fixing Longhorn configuration, RWX volumes have **6-16 second mount delays**. Unfixed systems show 20-40 second delays due to configuration issues.
