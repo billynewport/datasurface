@@ -12,7 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.schema import Table, Column, PrimaryKeyConstraint
 from sqlalchemy.types import Boolean as SQLBoolean, SmallInteger, Integer as SQLInteger, BigInteger, Float, DECIMAL, Date as SQLDate, \
-    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double, VARBINARY, NCHAR, NVARCHAR
+    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double, NCHAR, NVARCHAR
 from datasurface.md import Dataset, Datastore
 from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
 from datasurface.md import EcosystemPipelineGraph, DataPlatform

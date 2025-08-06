@@ -29,7 +29,7 @@ class Test_WWI_Postgres(unittest.TestCase):
 
         # Connect to the test database
         self.test_engine = create_engine(f'postgresql://postgres:postgres@localhost:5432/{self.test_db_name}')
-        
+
         # Enable PostGIS extension for spatial support
         self.postgis_available = False
         try:
@@ -90,9 +90,9 @@ class Test_WWI_Postgres(unittest.TestCase):
 
     def test_create_wwi_tables_in_postgres(self) -> None:
         """Test creating ALL WWI tables in PostgreSQL using SQLAlchemy utilities.
-        
+
         The WWI ecosystem contains 31 total datasets:
-        - 28 non-spatial tables (always tested)  
+        - 28 non-spatial tables (always tested)
         - 3 spatial tables (only tested if PostGIS is available)
         This test creates real PostgreSQL tables and validates the schema.
         """
@@ -113,7 +113,7 @@ class Test_WWI_Postgres(unittest.TestCase):
 
         # Test creating tables for ALL WWI datasets
         all_datasets = list(wwi_datastore.datasets.keys())
-        
+
         # Filter out spatial tables if PostGIS is not available
         spatial_tables = {'cities', 'countries', 'state_provinces'}
         if not getattr(self, 'postgis_available', False):
