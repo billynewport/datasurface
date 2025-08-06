@@ -5,20 +5,21 @@
 
 from typing import Any, List, Optional, Sequence, TypeVar, Dict
 from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
-    VarChar, NVarChar
+    VarChar, NVarChar, Geography, GeometryType, SpatialReferenceSystem
 import sqlalchemy
 from sqlalchemy import inspect, MetaData, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.schema import Table, Column, PrimaryKeyConstraint
 from sqlalchemy.types import Boolean as SQLBoolean, SmallInteger, Integer as SQLInteger, BigInteger, Float, DECIMAL, Date as SQLDate, \
-    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT
+    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double, VARBINARY, NCHAR, NVARCHAR
 from datasurface.md import Dataset, Datastore
 from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
 from datasurface.md import EcosystemPipelineGraph, DataPlatform
 from datasurface.md.schema import DDLColumn, NullableStatus, PrimaryKeyStatus, DDLTable
 from datasurface.md.types import DataType
 from abc import ABC, abstractmethod
+from geoalchemy2 import Geography as GA2Geography, Geometry as GA2Geometry
 
 
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
@@ -38,7 +39,7 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
     elif isinstance(dataType.type, IEEE32):
         t = Float()
     elif isinstance(dataType.type, IEEE64):
-        t = Float()  # SQLAlchemy 1.4 doesn't have Double, use Float for IEEE64
+        t = Double()
     elif isinstance(dataType.type, Decimal):
         dec: Decimal = dataType.type
         t = DECIMAL(dec.maxSize, dec.precision)
@@ -50,21 +51,24 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
         t = SQLInterval()
     elif isinstance(dataType.type, Variant):
         var: Variant = dataType.type
-        t = LargeBinary(var.maxSize)  # SQLAlchemy 1.4 uses LargeBinary instead of VARBINARY
+        t = VARBINARY(var.maxSize)
     elif isinstance(dataType.type, Char):
         ch: Char = dataType.type
         t = CHAR(ch.maxSize, ch.collationString)
     elif isinstance(dataType.type, NChar):
         nch: NChar = dataType.type
-        # SQLAlchemy 1.4 doesn't have NCHAR, use CHAR with Unicode support
-        t = CHAR(nch.maxSize, collation=nch.collationString)
+        t = NCHAR(nch.maxSize, collation=nch.collationString)
     elif isinstance(dataType.type, VarChar):
         vc: VarChar = dataType.type
         t = VARCHAR(vc.maxSize, vc.collationString)
     elif isinstance(dataType.type, NVarChar):
         nvc: NVarChar = dataType.type
-        # SQLAlchemy 1.4 doesn't have NVARCHAR, use VARCHAR with Unicode support
-        t = VARCHAR(nvc.maxSize, collation=nvc.collationString)
+        t = NVARCHAR(nvc.maxSize, collation=nvc.collationString)
+    elif isinstance(dataType.type, Geography):
+        geo: Geography = dataType.type
+        # Use GeoAlchemy2 for spatial support (always available in DataSurface)
+        geometry_type = geo.geometryType.value if geo.geometryType else 'GEOMETRY'
+        t = GA2Geography(geometry_type=geometry_type, srid=geo.srs.srid)
     else:
         raise Exception(f"Unknown data type {dataType.name}: {type(dataType.type)}")
 
@@ -168,6 +172,21 @@ def convertSQLAlchemyTableToDataset(table: Table) -> Dataset:
             newType = VarChar(getValueOrThrow(colType.length), colType.collation)
         elif isinstance(colType, TEXT):
             newType = VarChar(None, colType.collation)
+        elif isinstance(colType, GA2Geography):
+            # Convert GeoAlchemy2 Geography back to DataSurface Geography
+            geometry_type = None
+            if hasattr(colType, 'geometry_type') and colType.geometry_type != 'GEOMETRY':
+                geometry_type = GeometryType(colType.geometry_type)
+            srs = SpatialReferenceSystem(colType.srid if hasattr(colType, 'srid') and colType.srid != -1 else 4326)
+            newType = Geography(srs=srs, geometryType=geometry_type)
+        elif isinstance(colType, GA2Geometry):
+            # Treat Geometry as Geography for now (could be extended later)
+            geometry_type = None
+            if hasattr(colType, 'geometry_type') and colType.geometry_type != 'GEOMETRY':
+                geometry_type = GeometryType(colType.geometry_type)
+            srs = SpatialReferenceSystem(colType.srid if hasattr(colType, 'srid') and colType.srid != -1 else 4326)
+            newType = Geography(srs=srs, geometryType=geometry_type)
+
         if (newType):
             n: NullableStatus = NullableStatus.NOT_NULLABLE
             if (getValueOrThrow(al_col.nullable)):  # type: ignore[attr-defined]

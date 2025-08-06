@@ -934,3 +934,121 @@ class Vector(ArrayType):
 
     def __eq__(self, other: object) -> bool:
         return super().__eq__(other) and isinstance(other, Vector)
+
+
+class GeometryType(Enum):
+    """Spatial geometry types supported by Geography"""
+    POINT = "POINT"
+    LINESTRING = "LINESTRING"
+    POLYGON = "POLYGON"
+    MULTIPOINT = "MULTIPOINT"
+    MULTILINESTRING = "MULTILINESTRING"
+    MULTIPOLYGON = "MULTIPOLYGON"
+    GEOMETRYCOLLECTION = "GEOMETRYCOLLECTION"
+
+
+class SpatialReferenceSystem:
+    """Spatial Reference System (SRID) definition for geographic coordinates"""
+    def __init__(self, srid: int, name: str = "") -> None:
+        self.srid: int = srid
+        """Spatial Reference System Identifier (e.g., 4326 for WGS84)"""
+        self.name: str = name
+        """Human readable name for the SRS"""
+
+    def to_json(self) -> dict[str, Any]:
+        return {"_type": self.__class__.__name__, "srid": self.srid, "name": self.name}
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, SpatialReferenceSystem) and self.srid == other.srid
+
+    def __str__(self) -> str:
+        if self.name:
+            return f"{self.__class__.__name__}({self.srid}, '{self.name}')"
+        return f"{self.__class__.__name__}({self.srid})"
+
+
+class Geography(DataType):
+    """Geographic/spatial data type for storing geometric objects with coordinate systems.
+
+    Supports standard OGC geometry types (Point, LineString, Polygon, etc.) with
+    spatial reference system information. Can optionally constrain to specific
+    geometry types and has configurable maximum storage size.
+    """
+
+    def __init__(self,
+                 srs: SpatialReferenceSystem = SpatialReferenceSystem(4326, "WGS84"),
+                 geometryType: Optional[GeometryType] = None,
+                 maxSize: Optional[int] = None) -> None:
+        """
+        Creates a Geography data type.
+
+        Args:
+            srs: Spatial reference system (defaults to WGS84)
+            geometryType: Optional constraint to specific geometry type (Point, Polygon, etc.)
+            maxSize: Optional maximum storage size in bytes
+        """
+        super().__init__()
+        self.srs: SpatialReferenceSystem = srs
+        self.geometryType: Optional[GeometryType] = geometryType
+        self.maxSize: Optional[int] = maxSize
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"srs": self.srs.to_json()})
+        if self.geometryType is not None:
+            rc.update({"geometryType": self.geometryType.value})
+        if self.maxSize is not None:
+            rc.update({"maxSize": self.maxSize})
+        return rc
+
+    def lint(self, vTree: ValidationTree) -> None:
+        super().lint(vTree)
+        if self.maxSize is not None and self.maxSize <= 0:
+            vTree.addProblem("Max size must be > 0")
+        if self.srs.srid < 0:
+            vTree.addProblem("SRID must be >= 0")
+
+    def __eq__(self, other: object) -> bool:
+        return (super().__eq__(other) and isinstance(other, Geography) and
+                self.srs == other.srs and
+                self.geometryType == other.geometryType and
+                self.maxSize == other.maxSize)
+
+    def checkIfBackwardsCompatibleWith(self, other: 'DataType', vTree: ValidationTree) -> None:
+        """Geography types are backwards compatible if SRS matches and geometry types are compatible"""
+        if vTree.checkTypeMatches(other, Geography):
+            otherGeo: Geography = cast(Geography, other)
+
+            # SRS must match exactly
+            if self.srs != otherGeo.srs:
+                vTree.addProblem(f"Spatial reference system has changed from {otherGeo.srs} to {self.srs}")
+
+            # Geometry type constraint compatibility
+            if self.geometryType != otherGeo.geometryType:
+                if otherGeo.geometryType is None and self.geometryType is not None:
+                    vTree.addProblem(f"Geometry type constraint added: {self.geometryType}")
+                elif otherGeo.geometryType is not None and self.geometryType is None:
+                    # This is OK - removing constraint is compatible
+                    pass
+                else:
+                    vTree.addProblem(f"Geometry type has changed from {otherGeo.geometryType} to {self.geometryType}")
+
+            # Size constraint compatibility
+            if self.maxSize is not None and otherGeo.maxSize is not None:
+                if self.maxSize < otherGeo.maxSize:
+                    vTree.addProblem(f"Max size has been reduced from {otherGeo.maxSize} to {self.maxSize}")
+            elif self.maxSize is not None and otherGeo.maxSize is None:
+                vTree.addProblem(f"Max size constraint added: {self.maxSize}")
+
+    def __str__(self) -> str:
+        parts = []
+        if self.geometryType is not None:
+            parts.append(f"geometryType={self.geometryType.value}")
+        if self.maxSize is not None:
+            parts.append(f"maxSize={self.maxSize}")
+        if self.srs.srid != 4326:  # Only show if not default WGS84
+            parts.append(f"srs={self.srs}")
+
+        if parts:
+            return f"{self.__class__.__name__}({', '.join(parts)})"
+        return f"{self.__class__.__name__}()"
