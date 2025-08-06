@@ -12,6 +12,8 @@ from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md.governance import Ecosystem
 from typing import Optional
 
+WWI_MODULE_DIR = "src/tests/wwi"
+
 
 class Test_WWI_Postgres(unittest.TestCase):
     def setUp(self) -> None:
@@ -64,7 +66,7 @@ class Test_WWI_Postgres(unittest.TestCase):
         """Test that the WWI ecosystem loads correctly."""
         eco: Optional[Ecosystem]
         ecoTree: Optional[ValidationTree]
-        eco, ecoTree = loadEcosystemFromEcoModule("wwi")
+        eco, ecoTree = loadEcosystemFromEcoModule(WWI_MODULE_DIR)
 
         if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
             if ecoTree is not None:
@@ -99,7 +101,7 @@ class Test_WWI_Postgres(unittest.TestCase):
         # Load the WWI ecosystem
         eco: Optional[Ecosystem]
         ecoTree: Optional[ValidationTree]
-        eco, ecoTree = loadEcosystemFromEcoModule("wwi")
+        eco, ecoTree = loadEcosystemFromEcoModule(WWI_MODULE_DIR)
 
         if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
             if ecoTree is not None:
@@ -133,7 +135,7 @@ class Test_WWI_Postgres(unittest.TestCase):
             dataset = wwi_datastore.datasets[dataset_name]
 
             # Convert DataSurface dataset to SQLAlchemy table
-            sqlalchemy_table = datasetToSQLAlchemyTable(dataset, dataset_name, metadata)
+            sqlalchemy_table = datasetToSQLAlchemyTable(dataset, dataset_name, metadata, self.test_engine)
             created_tables.append(sqlalchemy_table)
 
             print(f"Converted dataset '{dataset_name}' to SQLAlchemy table")
@@ -206,7 +208,7 @@ class Test_WWI_Postgres(unittest.TestCase):
         # Load the WWI ecosystem
         eco: Optional[Ecosystem]
         ecoTree: Optional[ValidationTree]
-        eco, ecoTree = loadEcosystemFromEcoModule("wwi")
+        eco, ecoTree = loadEcosystemFromEcoModule(WWI_MODULE_DIR)
 
         if eco is None or (ecoTree is not None and ecoTree.hasErrors()):
             if ecoTree is not None:
@@ -231,7 +233,7 @@ class Test_WWI_Postgres(unittest.TestCase):
 
         for table_name, geo_column, expected_geom_type in geography_test_cases:
             dataset = wwi_datastore.datasets[table_name]
-            sqlalchemy_table = datasetToSQLAlchemyTable(dataset, table_name, metadata)
+            sqlalchemy_table = datasetToSQLAlchemyTable(dataset, table_name, metadata, self.test_engine)
 
             # Find the geography column
             geo_col = None

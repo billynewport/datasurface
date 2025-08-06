@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:15
+          image: {{ postgres_image }}
           ports:
             - containerPort: {{ postgres_port }}
           env:

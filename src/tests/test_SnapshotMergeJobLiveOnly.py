@@ -184,8 +184,8 @@ class BaseSnapshotMergeJobTest(ABC):
         if self.store is None:
             raise Exception("Store not set")
         people_dataset: Dataset = self.store.datasets["people"]
-        datasetToSQLAlchemyTable(people_dataset, "people", metadata)
         if self.source_engine is not None:
+            datasetToSQLAlchemyTable(people_dataset, "people", metadata, self.source_engine)
             metadata.create_all(self.source_engine)
 
     def createMergeDatabase(self) -> None:

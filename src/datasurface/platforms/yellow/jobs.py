@@ -108,16 +108,16 @@ class Job(YellowDatasetUtilities):
         t: Table = self.getBatchMetricsTable()
         createOrUpdateTable(mergeEngine, t)
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
         stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
-        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
-    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the merge schema for a dataset"""
         mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
-        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
     def createBatchCommon(self, connection: Connection, key: str, state: BatchState) -> int:

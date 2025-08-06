@@ -119,7 +119,7 @@ spec:
         runAsGroup: 50000
       initContainers:
       - name: airflow-db-init
-        image: apache/airflow:2.8.1
+        image: {{ airflow_image }}
         command: ["/bin/bash", "-c"]
         args:
           - airflow db init
@@ -139,7 +139,7 @@ spec:
             subPath: airflow.cfg
       containers:
         - name: {{ airflow_k8s_name }}-scheduler
-          image: apache/airflow:2.8.1
+          image: {{ airflow_image }}
           command: ["airflow", "scheduler"]
           envFrom:
             - secretRef:
@@ -251,7 +251,7 @@ spec:
         runAsGroup: 50000
       containers:
         - name: {{ airflow_k8s_name }}-webserver
-          image: apache/airflow:2.8.1
+          image: {{ airflow_image }}
           command: ["airflow", "webserver"]
           ports:
             - containerPort: 8080

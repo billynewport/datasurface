@@ -12,7 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.schema import Table, Column, PrimaryKeyConstraint
 from sqlalchemy.types import Boolean as SQLBoolean, SmallInteger, Integer as SQLInteger, BigInteger, Float, DECIMAL, Date as SQLDate, \
-    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double, NCHAR, NVARCHAR
+    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double
 from datasurface.md import Dataset, Datastore
 from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
 from datasurface.md import EcosystemPipelineGraph, DataPlatform
@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from geoalchemy2 import Geography as GA2Geography, Geometry as GA2Geometry
 
 
-def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
+def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None) -> Column[Any]:
     """Converts a DataType to a SQLAlchemy type"""
     # TODO: Timestamp support of timezones
 
@@ -57,13 +57,13 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
         t = CHAR(ch.maxSize, ch.collationString)
     elif isinstance(dataType.type, NChar):
         nch: NChar = dataType.type
-        t = NCHAR(nch.maxSize, collation=nch.collationString)
+        t = CHAR(nch.maxSize, nch.collationString)
     elif isinstance(dataType.type, VarChar):
         vc: VarChar = dataType.type
         t = VARCHAR(vc.maxSize, vc.collationString)
     elif isinstance(dataType.type, NVarChar):
         nvc: NVarChar = dataType.type
-        t = NVARCHAR(nvc.maxSize, collation=nvc.collationString)
+        t = VARCHAR(nvc.maxSize, nvc.collationString)
     elif isinstance(dataType.type, Geography):
         geo: Geography = dataType.type
         # Use GeoAlchemy2 for spatial support (always available in DataSurface)
@@ -76,13 +76,13 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
     return c
 
 
-def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str, metadata: MetaData) -> Table:
+def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str, metadata: MetaData, engine: Optional[Any] = None) -> Table:
     """Converts a DDLTable to a SQLAlchemy Table"""
     if (isinstance(dataset.originalSchema, DDLTable)):
         table: DDLTable = dataset.originalSchema
         columns: List[Column[Any]] = []
         for col in table.columns.values():
-            columns.append(ddlColumnToSQLAlchemyType(col))
+            columns.append(ddlColumnToSQLAlchemyType(col, engine))
         if (table.primaryKeyColumns is not None):
             pk: PrimaryKeyConstraint = PrimaryKeyConstraint(*table.primaryKeyColumns.colNames)
             sqTable: Table = Table(tableName, metadata, *columns, pk)

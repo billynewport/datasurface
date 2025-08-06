@@ -20,7 +20,7 @@ from datasurface.md.credential import CredentialStore, CredentialType, Credentia
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataMilestoningStrategy
 from datasurface.md import DataPlatformManagedDataContainer, PlatformServicesProvider
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
-from datasurface.md.types import Integer, String
+from datasurface.md.types import Integer, VarChar
 from datasurface.md import StorageRequirement
 import os
 import re
@@ -299,16 +299,16 @@ class YellowDatasetUtilities(JobUtilities):
         """This returns the key for the batch"""
         return f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
         stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
-        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData())
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
-    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str) -> Table:
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the merge schema for a dataset"""
         mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
-        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData())
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
     def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
@@ -507,7 +507,7 @@ class YellowDatasetUtilities(JobUtilities):
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = self.getPhysStagingTableNameForDataset(dataset)
-            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName)
+            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName, mergeEngine)
             createOrUpdateTable(mergeEngine, stagingTable)
             # Create performance indexes for staging table
             self.createStagingTableIndexes(mergeEngine, tableName)
@@ -517,7 +517,7 @@ class YellowDatasetUtilities(JobUtilities):
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = self.getPhysMergeTableNameForDataset(dataset)
-            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName)
+            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName, mergeEngine)
 
             # For forensic mode, we need to handle primary key changes
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
@@ -1725,7 +1725,7 @@ class NetworkPolicyComponent(Component):
 class AirflowComponent(Component):
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
                  dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
-                 schedulerResourceLimits: Optional[K8sResourceLimits] = None) -> None:
+                 schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.8.1") -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
         self.db: PostgresDatabase = db
@@ -1742,6 +1742,7 @@ class AirflowComponent(Component):
             requested_cpu=0.5,
             limits_cpu=1.0
         )
+        self.airflow_image: str = airflow_image
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
@@ -1762,7 +1763,8 @@ class AirflowComponent(Component):
                 "scheduler_requested_memory": Component.storageToKubernetesFormat(self.schedulerResourceLimits.requested_memory),
                 "scheduler_limits_memory": Component.storageToKubernetesFormat(self.schedulerResourceLimits.limits_memory),
                 "scheduler_requested_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.requested_cpu),
-                "scheduler_limits_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.limits_cpu)
+                "scheduler_limits_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.limits_cpu),
+                "airflow_image": self.airflow_image
             }
         )
         airflow_rendered: str = airflow_template.render(ctxt)
@@ -1772,7 +1774,7 @@ class AirflowComponent(Component):
 
 class PostgresComponent(Component):
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
-                 storageNeeds: StorageRequirement, resourceLimits: Optional[K8sResourceLimits] = None) -> None:
+                 storageNeeds: StorageRequirement, resourceLimits: Optional[K8sResourceLimits] = None, postgres_image: str = "postgres:15") -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
         self.db: PostgresDatabase = db
@@ -1783,6 +1785,7 @@ class PostgresComponent(Component):
             limits_cpu=1.0
         )
         self.storageNeeds: StorageRequirement = storageNeeds
+        self.postgres_image: str = postgres_image
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
@@ -1800,7 +1803,8 @@ class PostgresComponent(Component):
                 "postgres_requested_memory": Component.storageToKubernetesFormat(self.resourceLimits.requested_memory),
                 "postgres_limits_memory": Component.storageToKubernetesFormat(self.resourceLimits.limits_memory),
                 "postgres_requested_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.requested_cpu),
-                "postgres_limits_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.limits_cpu)
+                "postgres_limits_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.limits_cpu),
+                "postgres_image": self.postgres_image
             }
         )
         postgres_rendered: str = postgres_template.render(ctxt)
@@ -2802,8 +2806,8 @@ class YellowSchemaProjector(SchemaProjector):
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
             ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
-            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
-            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
                 ddlSchema.add(DDLColumn(name=self.BATCH_IN_COLUMN_NAME, data_type=Integer()))
                 ddlSchema.add(DDLColumn(name=self.BATCH_OUT_COLUMN_NAME, data_type=Integer()))
@@ -2817,8 +2821,8 @@ class YellowSchemaProjector(SchemaProjector):
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
             ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
-            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
-            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=String(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             return pds
         else:
             raise ValueError(f"Invalid schema type: {schemaType}")

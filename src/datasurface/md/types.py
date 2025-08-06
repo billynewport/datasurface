@@ -959,7 +959,7 @@ class SpatialReferenceSystem:
         return {"_type": self.__class__.__name__, "srid": self.srid, "name": self.name}
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, SpatialReferenceSystem) and self.srid == other.srid
+        return isinstance(other, SpatialReferenceSystem) and self.srid == other.srid and self.name == other.name
 
     def __str__(self) -> str:
         if self.name:

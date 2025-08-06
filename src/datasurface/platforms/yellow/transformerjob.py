@@ -198,7 +198,7 @@ class DataTransformerJob(JobUtilities):
             for dataset in outputDatastore.datasets.values():
                 store: Datastore = self.eco.cache_getDatastoreOrThrow(outputDatastore.name).datastore
                 t: Table = datasetToSQLAlchemyTable(
-                    dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData())
+                    dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData(), systemMergeEngine)
                 createOrUpdateTable(systemMergeEngine, t)
 
             # Execute the transformer in a transaction
