@@ -1959,8 +1959,8 @@ def createYellowAssemblyTwinDatabase(
             LoggingComponent("logging", psp.namespace, psp),
             NetworkPolicyComponent("np", psp.namespace, psp),
             PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode),
-            PostgresComponent("pg", psp.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
-            PostgresComponent("pg", psp.namespace, afDBcred, afDB, afDBStorageNeeds),
+            PostgresComponent("pg-merge", psp.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
+            PostgresComponent("pg-airflow", psp.namespace, afDBcred, afDB, afDBStorageNeeds),
             Airflow281Component("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
         ]
     )
