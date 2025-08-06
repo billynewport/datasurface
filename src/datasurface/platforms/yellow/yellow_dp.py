@@ -1722,7 +1722,7 @@ class NetworkPolicyComponent(Component):
         return yaml
 
 
-class AirflowComponent(Component):
+class Airflow281Component(Component):
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
                  dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
                  schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.8.1") -> None:
@@ -1746,7 +1746,7 @@ class AirflowComponent(Component):
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
-        airflow_template: Template = env.get_template('psp_airflow.yaml.j2')
+        airflow_template: Template = env.get_template('airflow281/psp_airflow.yaml.j2')
         ctxt: dict[str, Any] = templateContext.copy()
         ctxt.update(
             {
@@ -1934,8 +1934,8 @@ def createYellowAssemblySingleDatabase(
     assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB, pgStorageNeeds, pgResourceLimits))
     # Airflow uses the same database as the merge store
     assembly.components.append(
-        AirflowComponent("airflow", psp.namespace, pgCred, pgDB, [],
-                         webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
+        Airflow281Component("airflow", psp.namespace, pgCred, pgDB, [],
+                            webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
     return assembly
 
 
@@ -1961,7 +1961,7 @@ def createYellowAssemblyTwinDatabase(
             PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode),
             PostgresComponent("pg", psp.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
             PostgresComponent("pg", psp.namespace, afDBcred, afDB, afDBStorageNeeds),
-            AirflowComponent("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
+            Airflow281Component("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
         ]
     )
     return assembly
@@ -2439,7 +2439,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
             # PSP level DAG to create factory dags for each dataplatform which in turn
             # create ingestion and transformer DAGs for that dataplatform.
-            dag_template: Template = env.get_template('infrastructure_dag.py.j2')
+            dag_template: Template = env.get_template('airflow281/infrastructure_dag.py.j2')
             rendered_infrastructure_dag: str = dag_template.render(context)
 
             #  This now really generates database records for the dataplatforms, ingestion streams and datatransformers
