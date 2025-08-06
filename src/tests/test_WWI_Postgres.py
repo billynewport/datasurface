@@ -89,7 +89,13 @@ class Test_WWI_Postgres(unittest.TestCase):
         print(f"WWI ecosystem loaded successfully with {len(wwi_datastore.datasets)} datasets")
 
     def test_create_wwi_tables_in_postgres(self) -> None:
-        """Test creating WWI tables in PostgreSQL using SQLAlchemy utilities."""
+        """Test creating ALL WWI tables in PostgreSQL using SQLAlchemy utilities.
+        
+        The WWI ecosystem contains 31 total datasets:
+        - 28 non-spatial tables (always tested)  
+        - 3 spatial tables (only tested if PostGIS is available)
+        This test creates real PostgreSQL tables and validates the schema.
+        """
         # Load the WWI ecosystem
         eco: Optional[Ecosystem]
         ecoTree: Optional[ValidationTree]
@@ -105,14 +111,18 @@ class Test_WWI_Postgres(unittest.TestCase):
         wwi_team = usa_zone.getTeamOrThrow("team1")
         wwi_datastore = wwi_team.dataStores["WWI_Data"]
 
-        # Test creating tables for a subset of datasets (non-spatial ones first)
-        test_datasets = [
-            "customers",
-            "people",
-            "suppliers",
-            "supplier_categories",
-            "colors"
-        ]
+        # Test creating tables for ALL WWI datasets
+        all_datasets = list(wwi_datastore.datasets.keys())
+        
+        # Filter out spatial tables if PostGIS is not available
+        spatial_tables = {'cities', 'countries', 'state_provinces'}
+        if not getattr(self, 'postgis_available', False):
+            test_datasets = [name for name in all_datasets if name not in spatial_tables]
+            print(f"PostGIS not available - testing {len(test_datasets)} non-spatial tables")
+            print(f"Skipping spatial tables: {sorted(spatial_tables)}")
+        else:
+            test_datasets = all_datasets
+            print(f"PostGIS available - testing all {len(test_datasets)} tables including spatial ones")
 
         metadata = MetaData()
         created_tables = []
@@ -142,6 +152,7 @@ class Test_WWI_Postgres(unittest.TestCase):
 
         # Create all tables in the test database
         print(f"\n=== Creating {len(created_tables)} tables in PostgreSQL ===")
+        print(f"Total datasets to create: {len(test_datasets)}")
 
         with self.test_engine.begin() as conn:
             # Create the tables

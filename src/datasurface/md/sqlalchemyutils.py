@@ -51,7 +51,7 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn) -> Column[Any]:
         t = SQLInterval()
     elif isinstance(dataType.type, Variant):
         var: Variant = dataType.type
-        t = VARBINARY(var.maxSize)
+        t = LargeBinary(var.maxSize)
     elif isinstance(dataType.type, Char):
         ch: Char = dataType.type
         t = CHAR(ch.maxSize, ch.collationString)
