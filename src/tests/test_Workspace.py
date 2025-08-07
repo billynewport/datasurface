@@ -656,7 +656,7 @@ class TestWorkspace(unittest.TestCase):
     def test_StoreDependants(self):
         eco: Ecosystem = self.createSimpleEcosystem()
 
-        dep: Sequence[DependentWorkspaces] = eco.calculateDependenciesForDatastore("Store1")
+        dep: Sequence[DependentWorkspaces] = eco.calculateDependenciesForDatastore("Store1", set())
         self.assertEqual(len(dep), 1)
 
         # Check that Transformers are included in the dependency list
@@ -805,7 +805,7 @@ class TestWorkspace(unittest.TestCase):
     def test_StoreDependencies(self):
         eco: Ecosystem = createEcosystem()
 
-        depGraph: list[DependentWorkspaces] = list(eco.calculateDependenciesForDatastore("NW_Data"))
+        depGraph: list[DependentWorkspaces] = list(eco.calculateDependenciesForDatastore("NW_Data", set()))
 
         # One Workspace and a Transformer Workspace and a Workspace using the transformer output store
         ws_set: set[Workspace] = set()

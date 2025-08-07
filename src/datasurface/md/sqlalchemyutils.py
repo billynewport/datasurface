@@ -20,6 +20,7 @@ from datasurface.md.schema import DDLColumn, NullableStatus, PrimaryKeyStatus, D
 from datasurface.md.types import DataType
 from abc import ABC, abstractmethod
 from geoalchemy2 import Geography as GA2Geography, Geometry as GA2Geometry
+from sqlalchemy.engine.url import URL
 
 
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None) -> Column[Any]:
@@ -287,15 +288,15 @@ class SQLAlchemyDataContainerReconciler:
 
     def createEngine(self, container: DataContainer, userName: str, password: str) -> Engine:
         if isinstance(container, PostgresDatabase):
-            return sqlalchemy.create_engine(  # type: ignore[attr-defined]
-                'postgresql://{username}:{password}@{hostName}:{port}/{databaseName}'.format(
-                    username=userName,
-                    password=password,
-                    hostName=container.hostPortPair.hostName,
-                    port=container.hostPortPair.port,
-                    databaseName=container.databaseName
-                    )
+            url = URL.create(
+                "postgresql+psycopg2",
+                username=userName,
+                password=password,
+                host=container.hostPortPair.hostName,
+                port=container.hostPortPair.port,
+                database=container.databaseName,
             )
+            return sqlalchemy.create_engine(url)
         else:
             raise Exception(f"Unsupported container type {type(container)}")
 

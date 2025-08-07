@@ -28,7 +28,7 @@ class TestAllEqualityMethods(unittest.TestCase, EqualityCompletenessTestMixin):
     # Manual exclusions for special cases (now rarely needed due to inheritance detection)
     # These are for attributes that can't be automatically detected (e.g., computed properties, caches)
     MANUAL_EXCLUSIONS: Dict[str, Set[str]] = {
-        'Ecosystem': {'datastoreCache', 'workSpaceCache', 'teamCache'},  # Runtime caches
+        'Ecosystem': {'datastoreCache', 'workSpaceCache', 'teamCache', 'graph'},  # Runtime caches
         'AuthorizedObjectManager': {'factory'},  # Runtime caches
         # Add more specific exclusions only when needed for cache/computed fields
     }

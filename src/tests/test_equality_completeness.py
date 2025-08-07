@@ -322,7 +322,7 @@ class EqualityCompletenessTestMixin:
 
 # Manual exclusions for special cases (attributes to ignore in equality completeness checks)
 MANUAL_EXCLUSIONS = {
-    'Ecosystem': {'datastoreCache', 'workSpaceCache', 'teamCache'},
+    'Ecosystem': {'datastoreCache', 'workSpaceCache', 'teamCache', 'graph'},
     'AuthorizedObjectManager': {'factory'},
 }
 

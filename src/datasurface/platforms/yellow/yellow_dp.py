@@ -872,7 +872,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 if dt.code is None:
                     dtTree.addRaw(AttributeNotSet("code"))
                 if not isinstance(dt.code, PythonRepoCodeArtifact):
-                    dtTree.addRaw(ObjectNotSupportedByDataPlatform(store, [PythonRepoCodeArtifact], ProblemSeverity.ERROR))
+                    dtTree.addRaw(ObjectNotSupportedByDataPlatform(dt, [PythonRepoCodeArtifact], ProblemSeverity.ERROR))
 
                 # YellowDataPlatform supports None (sensor-based) or CronTrigger (scheduled) for DataTransformers
                 if dt.trigger is not None:

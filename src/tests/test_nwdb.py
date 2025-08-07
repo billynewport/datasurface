@@ -16,10 +16,30 @@ from datasurface.md.types import IEEE128, IEEE16, IEEE32, IEEE64, DataType, Date
     String, Vector
 import tests.nwdb.eco
 from datasurface.platforms.legacy import LegacyDataPlatform
-from datasurface.md import Ecosystem, DDLColumn, NullableStatus, PrimaryKeyStatus
+from datasurface.md import Ecosystem, DDLColumn, NullableStatus, PrimaryKeyStatus, DataPlatformKey
+from datasurface.md.governance import PrimaryIngestionPlatform
+from typing import Optional
 
 
 class TestEcosystemValidation(unittest.TestCase):
+
+    def test_pip(self):
+        e: Ecosystem = tests.nwdb.eco.createEcosystem()
+        rc: ValidationTree = e.lintAndHydrateCaches()
+        rc.printTree()
+        self.assertFalse(rc.hasErrors())
+        e.hydratePrimaryIngestionPlatforms("src/tests/nwdb/test_pip.json", rc)
+        rc.printTree()
+        self.assertFalse(rc.hasErrors())
+        self.assertEqual(len(e.primaryIngestionPlatforms), 1)
+        # Check the store has a pip
+        pip: Optional[PrimaryIngestionPlatform] = e.primaryIngestionPlatforms.get("NW_Data")
+        self.assertIsNotNone(pip)
+        self.assertEqual(len(pip.dataPlatforms), 1)
+        self.assertEqual(pip.dataPlatforms, {DataPlatformKey("LegacyA")})
+        rc = e.lintAndHydrateCaches()
+        rc.printTree()
+        self.assertFalse(rc.hasErrors())
 
     def test_validate_nwdb(self):
         e: Ecosystem = tests.nwdb.eco.createEcosystem()

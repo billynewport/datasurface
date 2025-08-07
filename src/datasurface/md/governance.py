@@ -33,6 +33,8 @@ from datasurface.md.vendor import CloudVendor, InfrastructureVendor, Infrastruct
 from datasurface.md.credential import Credential, CredentialStore
 from datasurface.md.keys import InvalidLocationStringProblem
 import re
+import json
+from datasurface.md.documentation import PlainTextDocumentation
 
 
 class ProductionStatus(Enum):
@@ -1643,7 +1645,7 @@ class PlatformServicesProvider(UserDSLObject):
     @abstractmethod
     def lint(self, eco: 'Ecosystem', tree: ValidationTree):
         self.credStore.lint(tree.addSubTree(self.credStore))
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+        graph: EcosystemPipelineGraph = eco.getGraph()
         graph.lint(self.credStore, tree.addSubTree(graph))
         for dp in self.dataPlatforms.values():
             dp.lint(eco, tree.addSubTree(dp))
@@ -1695,6 +1697,7 @@ class Ecosystem(GitControlledObject, JSONable):
         self.name: str = name
         self.key: EcosystemKey = EcosystemKey(self.name)
         self.liveRepo: Optional[Repository] = liveRepo
+        self.graph: Optional[EcosystemPipelineGraph] = None
 
         self.zones: AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration] = \
             AuthorizedObjectManager[GovernanceZone, GovernanceZoneDeclaration]("zones", lambda name, repo: self.createGZone(name, repo), repo)
@@ -1703,6 +1706,7 @@ class Ecosystem(GitControlledObject, JSONable):
         self.vendors: dict[str, InfrastructureVendor] = OrderedDict[str, InfrastructureVendor]()
         self.platformServicesProviders: list[PlatformServicesProvider] = platform_services_providers
         self.dsgPlatformMappings: dict[str, DatasetGroupDataPlatformAssignments] = dict[str, DatasetGroupDataPlatformAssignments]()
+        self.primaryIngestionPlatforms: dict[str, PrimaryIngestionPlatform] = dict[str, PrimaryIngestionPlatform]()
         self.resetCaches()
 
         # Handle backward compatibility: if *args are provided, parse them the old way
@@ -1735,6 +1739,15 @@ class Ecosystem(GitControlledObject, JSONable):
         if not isinstance(obj, tuple(types)):
             tree.addRaw(ObjectNotSupportedByDataPlatform(obj, types, ProblemSeverity.ERROR))
 
+    def createGraph(self) -> 'EcosystemPipelineGraph':
+        self.graph = EcosystemPipelineGraph(self)
+        return self.graph
+
+    def getGraph(self) -> 'EcosystemPipelineGraph':
+        if self.graph is None:
+            self.graph = self.createGraph()
+        return self.graph
+
     def checkAllRepositoriesInEcosystem(self, tree: ValidationTree, types: list[type]) -> None:
         """This checks that all repositories in the ecosystem are one of the specified types only."""
         self.checkObjectIsSupported(self.owningRepo, types, tree)
@@ -1749,10 +1762,37 @@ class Ecosystem(GitControlledObject, JSONable):
             for team in zone.teams.defineAllObjects():
                 self.checkObjectIsSupported(team.owningRepo, types, tree.addSubTree(team))
 
+    def hydratePrimaryIngestionPlatforms(self, jsonFile: str, tree: ValidationTree) -> None:
+        """This uses the file primary_ingestion_platforms.json to hydrate the primaryIngestionPlatforms set"""
+
+        # If the file doesn't exist, there is no mapping.
+        # An example josn file looks like this:
+        """
+        [
+            {
+                "storeName": "store1",
+                "dataPlatforms": ["dp1", "dp2"]
+            }
+        ]
+        """
+        if not os.path.exists(jsonFile):
+            return
+
+        # If there is an exception during the load then add a raw error to the tree
+        try:
+            with open(jsonFile, "r") as f:
+                mappings: list[dict[str, Any]] = json.load(f)
+                for mapping in mappings:
+                    self.primaryIngestionPlatforms[mapping["storeName"]] = PrimaryIngestionPlatform(
+                        storeName=mapping["storeName"],
+                        dpSet=set(DataPlatformKey(dp) for dp in mapping["dataPlatforms"])
+                    )
+        except Exception as e:
+            tree.addRaw(UnexpectedExceptionProblem(e))
+            self.primaryIngestionPlatforms.clear()
+
     def hydrateDSGDataPlatformMappings(self, jsonFile: str, tree: ValidationTree) -> None:
         """This uses the file dsg_platform_mapping.json to hydrate the dsgPlatformMappings set"""
-        import json
-        from datasurface.md.documentation import PlainTextDocumentation
 
         # If the file doesn't exist, there is no mapping.
         if not os.path.exists(jsonFile):
@@ -1875,6 +1915,7 @@ class Ecosystem(GitControlledObject, JSONable):
             "zones": {k: k.name for k in self.zones.defineAllObjects()},
             "vendors": {k: k.to_json() for k in self.vendors.values()},
             "platformServicesProviders": [psp.to_json() for psp in self.platformServicesProviders],
+            "primaryIngestionPlatforms": [pip.to_json() for pip in self.primaryIngestionPlatforms.values()],
             "liveRepo": self.liveRepo.to_json() if self.liveRepo else None
         }
 
@@ -2067,9 +2108,6 @@ class Ecosystem(GitControlledObject, JSONable):
             vTree: ValidationTree = ecoTree.addSubTree(vendor)
             vendor.lint(vTree)
 
-        for psp in self.platformServicesProviders:
-            psp.lint(self, ecoTree.addSubTree(psp))
-
         # Now lint the workspaces
         for workSpaceCacheEntry in self.workSpaceCache.values():
             workSpace = workSpaceCacheEntry.workspace
@@ -2081,6 +2119,16 @@ class Ecosystem(GitControlledObject, JSONable):
         self.zones.lint(ecoTree)
         if (self.documentation):
             self.documentation.lint(ecoTree)
+
+        # Lint the primary ingestion platforms
+        for pip in self.primaryIngestionPlatforms.values():
+            pip.lint(self, ecoTree.addSubTree(pip))
+
+        if not ecoTree.hasErrors():
+            # Force a new graph so it's not stale
+            self.createGraph()
+            for psp in self.platformServicesProviders:
+                psp.lint(self, ecoTree.addSubTree(psp))
 
         # If there are no errors at this point then
         # Generate pipeline graphs and lint them.
@@ -2094,7 +2142,7 @@ class Ecosystem(GitControlledObject, JSONable):
         ecoTree.prune()
         return ecoTree
 
-    def calculateDependenciesForDatastore(self, storeName: str, wsVisitedSet: set[str] = set()) -> Sequence[DependentWorkspaces]:
+    def calculateDependenciesForDatastore(self, storeName: str, wsVisitedSet: set[str]) -> Sequence[DependentWorkspaces]:
         # TODO make tests
         rc: list[DependentWorkspaces] = []
         store: Datastore = self.datastoreCache[storeName].datastore
@@ -2136,6 +2184,7 @@ class Ecosystem(GitControlledObject, JSONable):
             rc = rc and self.vendors == proposed.vendors
             rc = rc and self.platformServicesProviders == proposed.platformServicesProviders
             rc = rc and self.dsgPlatformMappings == proposed.dsgPlatformMappings
+            rc = rc and self.primaryIngestionPlatforms == proposed.primaryIngestionPlatforms
             rc = rc and self.liveRepo == proposed.liveRepo
             return rc
         else:
@@ -2161,6 +2210,10 @@ class Ecosystem(GitControlledObject, JSONable):
                 if not self.zones.areTopLevelChangesAuthorized(proposed.zones, changeSource, zTree):
                     rc = False
                 if self.dictsAreDifferent(self.vendors, proposed.vendors, tree, "Vendors"):
+                    rc = False
+                if self.primaryIngestionPlatforms != proposed.primaryIngestionPlatforms:
+                    tree.addRaw(UnauthorizedAttributeChange("primaryIngestionPlatforms", self.primaryIngestionPlatforms,
+                                                            proposed.primaryIngestionPlatforms, ProblemSeverity.ERROR))
                     rc = False
                 if self.platformServicesProviders != proposed.platformServicesProviders:
                     tree.addRaw(
@@ -3385,6 +3438,40 @@ class DatasetGroupDataPlatformAssignments(UserDSLObject):
             assignment.lint(eco, tree.addSubTree(assignment))
 
 
+class PrimaryIngestionPlatform(UserDSLObject):
+    """This is a reference to a DataPlatform which is designated as the primary ingestion platform for a Workspace. This is deliberately
+    simplified so that the whole datastore is assigned. Stores using single_dataset are still all assigned to the platforms specified here."""
+    def __init__(self, storeName: str, dpSet: set[DataPlatformKey]) -> None:
+        UserDSLObject.__init__(self)
+        self.storeName: str = storeName
+        self.dataPlatforms: set[DataPlatformKey] = dpSet
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({"_type": self.__class__.__name__, "storeName": self.storeName, "dataPlatforms": self.dataPlatforms})
+        return rc
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        # Make sure the store exists
+        store: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(self.storeName)
+        if store is None:
+            tree.addRaw(UnknownObjectReference(f"Unknown datastore {self.storeName}", ProblemSeverity.ERROR))
+        else:
+            # Make sure the data platforms exist
+            dpKey: DataPlatformKey
+            for dpKey in self.dataPlatforms:
+                dp: Optional[DataPlatform] = eco.getDataPlatform(dpKey.name)
+                if dp is None:
+                    tree.addRaw(UnknownObjectReference(f"Unknown data platform {dpKey.name}", ProblemSeverity.ERROR))
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, PrimaryIngestionPlatform) and self.storeName == other.storeName and \
+            self.dataPlatforms == other.dataPlatforms
+
+    def __hash__(self) -> int:
+        return hash((self.storeName, tuple(self.dataPlatforms)))
+
+
 class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
     """A collection of Datasets which are rendered with a specific pipeline spec in a Workspace. The name should be
     ANSI SQL compliant because it could be used as part of a SQL View/Table name in a Workspace database"""
@@ -4474,6 +4561,7 @@ class EcosystemPipelineGraph(InternalLintableObject):
             pinfo.propagateWorkspacePriorities()
 
     def lint(self, credStore: CredentialStore, tree: ValidationTree) -> None:
+        p: PlatformPipelineGraph
         for p in self.roots.values():
             p.lint(credStore, tree.addSubTree(p))
 

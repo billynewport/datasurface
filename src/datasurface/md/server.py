@@ -196,7 +196,7 @@ class ModelServer:
                     return {"datastores": list(self.ecosystem.datastoreCache.keys())}
 
                 case EcosystemCommand.GET_DEPENDENCIES.value:
-                    deps = self.ecosystem.calculateDependenciesForDatastore(params["store_name"])
+                    deps = self.ecosystem.calculateDependenciesForDatastore(params["store_name"], set())
                     return {"dependencies": [serialize_object(dep) for dep in deps]}
 
                 case _:
