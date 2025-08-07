@@ -481,7 +481,8 @@ def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyi
     newViewSql: str = datasetToSQLAlchemyView(dataset, viewName, underlyingTable, MetaData(), where_clause)
 
     # Check if view exists
-    if inspector.has_table(viewName):  # type: ignore[attr-defined]
+    exists: bool = viewName in inspector.get_view_names()
+    if exists:  # type: ignore[attr-defined]
         # View exists, check if it needs to be updated
         try:
             # Get the current view definition
