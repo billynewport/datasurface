@@ -3182,7 +3182,7 @@ class DataPlatformChooser(UserDSLObject):
         UserDSLObject.__init__(self)
 
     @abstractmethod
-    def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
+    def chooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         raise NotImplementedError()
 
     def __str__(self) -> str:
@@ -3204,7 +3204,7 @@ class WorkspacePlatformConfig(DataPlatformChooser):
             return super().__eq__(other) and self.retention == other.retention
         return False
 
-    def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
+    def chooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         """For now, just return default"""
         return None
 
@@ -3229,7 +3229,7 @@ class WorkspaceFixedDataPlatform(DataPlatformChooser):
     def __eq__(self, o: object) -> bool:
         return super().__eq__(o) and isinstance(o, WorkspaceFixedDataPlatform) and self.dataPlatform == o.dataPlatform
 
-    def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
+    def chooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         return eco.getDataPlatform(self.dataPlatform.name)
 
     def __str__(self) -> str:
@@ -3548,7 +3548,7 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
         # If a DSG has a platformMD, it must choose a platform and that platform must perfectly match the same named platform in the Ecosystem
         if (self.platformMD):
             # PlatformChooser needs to choose a platform and that platform must perfectly match the same named platform in the Ecosystem
-            platform: Optional[DataPlatform] = self.platformMD.choooseDataPlatform(eco)
+            platform: Optional[DataPlatform] = self.platformMD.chooseDataPlatform(eco)
             if (platform is not None):
                 ecoPlat: Optional[DataPlatform] = eco.getDataPlatform(platform.name)
                 if (ecoPlat is None):

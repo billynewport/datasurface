@@ -175,7 +175,7 @@ class LegacyDataPlatformChooser(DataPlatformChooser):
         self.containers: set[DataContainer] = containers
         self.doc: Documentation = doc
 
-    def choooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
+    def chooseDataPlatform(self, eco: Ecosystem) -> Optional[DataPlatform]:
         return eco.getDataPlatformOrThrow(self.dataPlatformName)
 
     def __str__(self) -> str:
