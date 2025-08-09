@@ -25,42 +25,6 @@ setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
 
-def generate_phys_view_name(dp: YellowDataPlatform, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
-    """Generate a view name following the pattern: dataplatform/workspace/dsg/store/dataset_view"""
-    # Convert to lowercase and replace spaces/special chars with underscores
-    dp_name = dp.name.lower().replace(' ', '_').replace('-', '_')
-    ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
-    dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
-    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
-    dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
-
-    return dp.psp.namingMapper.mapNoun(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view")
-
-
-def generate_phys_full_view_name(dp: YellowDataPlatform, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
-    """Generate a full view name with _full suffix for forensic platforms"""
-    # Convert to lowercase and replace spaces/special chars with underscores
-    dp_name = dp.name.lower().replace(' ', '_').replace('-', '_')
-    ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
-    dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
-    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
-    dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
-
-    return dp.psp.namingMapper.mapNoun(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full")
-
-
-def generate_phys_live_view_name(dp: YellowDataPlatform, workspace_name: str, dsg_name: str, store_name: str, dataset_name: str) -> str:
-    """Generate a live view name with _live suffix for both platform types"""
-    # Convert to lowercase and replace spaces/special chars with underscores
-    dp_name = dp.name.lower().replace(' ', '_').replace('-', '_')
-    ws_name = workspace_name.lower().replace(' ', '_').replace('-', '_')
-    dsg_name = dsg_name.lower().replace(' ', '_').replace('-', '_')
-    store_name = store_name.lower().replace(' ', '_').replace('-', '_')
-    dataset_name = dataset_name.lower().replace(' ', '_').replace('-', '_')
-
-    return dp.psp.namingMapper.mapNoun(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live")
-
-
 def check_merge_table_exists(engine: Engine, merge_table_name: str) -> bool:
     """Check if the merge table exists in the database"""
     inspector = inspect(engine)
@@ -286,9 +250,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                             # For forensic platforms: create both _view_full and _live views
 
                             # 1. Create full view (all historical records)
-                            full_view_name = generate_phys_full_view_name(
-                                yellow_dp, workspace.name,
-                                dataset_group.name, sink.storeName, sink.datasetName)
+                            full_view_name = utils.getPhysWorkspaceFullViewName(workspace.name, dataset_group.name)
 
                             with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
                                 full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
@@ -304,9 +266,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                                 view_changes.append(f"Full view already up to date: {full_view_name}")
 
                             # 2. Create live view (only live records with WHERE clause)
-                            live_view_name = generate_phys_live_view_name(
-                                yellow_dp, workspace.name,
-                                dataset_group.name, sink.storeName, sink.datasetName)
+                            live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
                             live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
 
                             with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
@@ -325,9 +285,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
                         else:
                             # For live-only platforms: create only _live view (no filtering needed)
-                            live_view_name = generate_phys_live_view_name(
-                                yellow_dp, workspace.name,
-                                dataset_group.name, sink.storeName, sink.datasetName)
+                            live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
 
                             with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
                                 live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
@@ -385,15 +343,6 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                 # Create utilities instance for this specific sink
                 try:
                     store_entry = eco.cache_getDatastoreOrThrow(sink.storeName)
-                    utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store_entry.datastore, sink.datasetName)
-
-                    if utils.dataset is None:
-                        logger.error("Dataset not found in store",
-                                     dataset_name=sink.datasetName,
-                                     store_name=sink.storeName)
-                        views_failed += 1
-                        continue
-
                 except Exception as e:
                     logger.error("Could not load datastore for unassigned workspace",
                                  store_name=sink.storeName,
@@ -401,6 +350,14 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                     views_failed += 1
                     continue
 
+                utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store_entry.datastore, sink.datasetName)
+
+                if utils.dataset is None:
+                    logger.error("Dataset not found in store",
+                                 dataset_name=sink.datasetName,
+                                 store_name=sink.storeName)
+                    views_failed += 1
+                    continue
                 # Generate merge table name using utilities
                 merge_table_name = utils.getPhysMergeTableNameForDataset(utils.dataset)
                 logger.debug("Generated merge table name for unassigned workspace",
@@ -445,9 +402,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                         # For forensic platforms: create both _view_full and _live views
 
                         # 1. Create full view (all historical records)
-                        full_view_name = generate_phys_full_view_name(
-                            yellow_dp, workspace.name,
-                            dataset_group.name, sink.storeName, sink.datasetName)
+                        full_view_name = utils.getPhysWorkspaceFullViewName(workspace.name, dataset_group.name)
 
                         with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
                             full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
@@ -463,9 +418,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                             view_changes.append(f"Full view already up to date: {full_view_name}")
 
                         # 2. Create live view (only live records with WHERE clause)
-                        live_view_name = generate_phys_live_view_name(
-                            yellow_dp, workspace.name,
-                            dataset_group.name, sink.storeName, sink.datasetName)
+                        live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
                         live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
 
                         with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
@@ -484,9 +437,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
                     else:
                         # For live-only platforms: create only _live view (no filtering needed)
-                        live_view_name = generate_phys_live_view_name(
-                            yellow_dp, workspace.name,
-                            dataset_group.name, sink.storeName, sink.datasetName)
+                        live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
 
                         with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
                             live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,

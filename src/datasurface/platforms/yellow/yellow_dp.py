@@ -531,6 +531,40 @@ class YellowDatasetUtilities(JobUtilities):
             # Create performance indexes for merge table
             self.createMergeTableIndexes(mergeEngine, tableName)
 
+    def _normalizeNameComponent(self, name: str) -> str:
+        """Normalize a name component for view naming consistency"""
+        return name.lower().replace(' ', '_').replace('-', '_')
+
+    def getPhysWorkspaceViewName(self, workspace_name: str, dsg_name: str) -> str:
+        """Generate a workspace view name following the pattern: dataplatform/workspace/dsg/store/dataset_view"""
+        dp_name = self._normalizeNameComponent(self.dp.name)
+        ws_name = self._normalizeNameComponent(workspace_name)
+        dsg_name = self._normalizeNameComponent(dsg_name)
+        store_name = self._normalizeNameComponent(self.store.name)
+        dataset_name = self._normalizeNameComponent(self.dataset.name)
+
+        return self.dp.psp.namingMapper.mapNoun(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view")
+
+    def getPhysWorkspaceFullViewName(self, workspace_name: str, dsg_name: str) -> str:
+        """Generate a full workspace view name with _full suffix for forensic platforms"""
+        dp_name = self._normalizeNameComponent(self.dp.name)
+        ws_name = self._normalizeNameComponent(workspace_name)
+        dsg_name = self._normalizeNameComponent(dsg_name)
+        store_name = self._normalizeNameComponent(self.store.name)
+        dataset_name = self._normalizeNameComponent(self.dataset.name)
+
+        return self.dp.psp.namingMapper.mapNoun(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full")
+
+    def getPhysWorkspaceLiveViewName(self, workspace_name: str, dsg_name: str) -> str:
+        """Generate a live workspace view name with _live suffix for both platform types"""
+        dp_name = self._normalizeNameComponent(self.dp.name)
+        ws_name = self._normalizeNameComponent(workspace_name)
+        dsg_name = self._normalizeNameComponent(dsg_name)
+        store_name = self._normalizeNameComponent(self.store.name)
+        dataset_name = self._normalizeNameComponent(self.dataset.name)
+
+        return self.dp.psp.namingMapper.mapNoun(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live")
+
 
 class BatchStatus(Enum):
     """This is the status of a batch"""

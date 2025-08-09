@@ -28,7 +28,8 @@ from sqlalchemy import Table
 import argparse
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
-from datasurface.platforms.yellow.reconcile_workspace_views import generate_phys_live_view_name
+from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities
+
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
@@ -107,7 +108,8 @@ class DataTransformerJob(JobUtilities):
                 dataset: Dataset = store.datasets[ds.datasetName]
                 # Use live view name instead of merge table name for DataTransformers
                 # This ensures DataTransformers work with live data only
-                view_name = generate_phys_live_view_name(self.dp, workspace.name, dsg.name, ds.storeName, dataset.name)
+                utils = YellowDatasetUtilities(self.eco, self.credStore, self.dp, store, dataset.name)
+                view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dsg.name)
                 dataset_mapping.addInputDataset(dsg.name, store.name, dataset.name, view_name)
 
         # Add output datasets with dt_ prefix
