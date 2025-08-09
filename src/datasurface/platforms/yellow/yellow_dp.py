@@ -8,7 +8,7 @@ from datasurface.md import DataPlatform, DataPlatformExecutor, Documentation, Ec
 from typing import Any, Optional
 from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, KafkaIngestion, SQLSnapshotIngestion, ProblemSeverity, UnsupportedIngestionType, \
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
-    DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace, SQLIngestion
+    DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace, SQLIngestion, IngestionNode
 from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata, PlatformDataTransformerHint, \
     PlatformIngestionHint, PlatformRuntimeHint
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
@@ -982,7 +982,13 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Build the ingestion_streams context from the graph
         ingestion_streams: list[dict[str, Any]] = []
 
-        for storeName in self.graph.storesToIngest:
+        # For every ingestion node, create a stream configuration and insert it into the database
+        for node in self.graph.nodes.values():
+            if not isinstance(node, IngestionNode):
+                continue
+
+            storeName = node.storeName
+
             try:
                 storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
                 store: Datastore = storeEntry.datastore
@@ -1007,6 +1013,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             stream_key = f"{storeName}_{dataset.name}"
                             stream_config = {
                                 "stream_key": stream_key,
+                                "priority": node.priority.priority.value,
                                 "single_dataset": True,
                                 "datasets": [dataset.name],
                                 "store_name": storeName,
@@ -1030,6 +1037,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         # For multi dataset, create one entry for the entire store
                         stream_config = {
                             "stream_key": storeName,
+                            "priority": node.priority.priority.value,
                             "single_dataset": False,
                             "datasets": [dataset.name for dataset in store.datasets.values()],
                             "store_name": storeName,
@@ -1154,7 +1162,13 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Build the DataTransformer configurations from the graph
         datatransformer_configs: list[dict[str, Any]] = []
 
-        for workspaceName, workspace in self.graph.workspaces.items():
+        for node in self.graph.nodes.values():
+            if not isinstance(node, DataTransformerNode):
+                continue
+
+            workspaceName = node.workspace.name
+            workspace = self.graph.workspaces[workspaceName]
+
             # Only process workspaces that have a DataTransformer
             if workspace.dataTransformer is not None:
                 try:
@@ -1213,6 +1227,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "workspace_name": workspaceName,
                         "output_datastore_name": outputDatastore.name,
                         "input_dag_ids": input_dag_ids,
+                        "priority": node.priority.priority.value,
                         "input_dataset_list": input_dataset_list,
                         "output_dataset_list": output_dataset_list,
                         "job_limits": job_hint.to_k8s_json()

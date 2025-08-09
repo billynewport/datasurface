@@ -430,7 +430,9 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
             }
         ),
         on_finish_action="delete_pod",
-        dag=dag
+        dag=dag,
+        priority_weight=stream_config.get('priority', 0),
+        weight_rule='absolute'
     )
 
     # Branch operator
@@ -843,7 +845,9 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
             }
         ),
         on_finish_action="delete_pod",
-        dag=dag
+        dag=dag,
+        priority_weight=dt_config.get('priority', 0),
+        weight_rule='absolute'
     )
 
     # Trigger the output ingestion DAG
@@ -1024,7 +1028,9 @@ def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config
             }
         ),
         on_finish_action="delete_pod",
-        dag=dag
+        dag=dag,
+        priority_weight=dt_config.get('priority', 0),
+        weight_rule='absolute'
     )
 
     # Branch operator to determine next action
