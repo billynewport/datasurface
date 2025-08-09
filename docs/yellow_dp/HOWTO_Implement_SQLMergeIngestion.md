@@ -51,7 +51,7 @@ This approach ensures:
 
 **Current Status**: The foundation for SQLMergeIngestion is fully operational! The system now:
 - ✅ Detects when a platform is not in the Primary Ingestion Platform list
-- ✅ Dynamically creates SQLMergeIngestion commands at runtime in both Job constructors and DAG generation
+- ✅ Dynamically creates SQLMergeIngestion commands at runtime in job main functions and DAG generation
 - ✅ Resolves primary platform connections and credentials
 - ✅ Automatically replaces store commands with effective commands throughout the pipeline
 - ✅ Uses type-safe `IngestionType` enum for maintainable code
@@ -60,7 +60,7 @@ This approach ensures:
 **Recent Maintainability Improvements**:
 - ✅ **Type Safety**: Added `IngestionType` enum to replace magic strings
 - ✅ **Consistent Architecture**: Moved `getEffectiveCMDForDatastore()` to `YellowDataPlatform` class
-- ✅ **Automatic Integration**: Job constructors and DAG generation automatically use effective commands
+- ✅ **Explicit Integration**: Job main functions and DAG generation explicitly use effective commands with clear timing control
 - ✅ **Structured Logging**: Enhanced logging throughout the platform for better debugging
 - ✅ **Infrastructure Reuse**: SQLMergeIngestion leverages existing SQL_SOURCE patterns
 
@@ -104,7 +104,7 @@ This approach ensures:
    - ⏳ `SnapshotMergeJobForensic` → `MergeDataJobForensic`
    - ⏳ `SnapshotMergeJobLiveOnly` → `MergeDataJobLiveOnly`
 3. ✅ Update Jobs to use `getEffectiveCMDForDatastore()` 
-   - ✅ Job constructor now calls `dp.getEffectiveCMDForDatastore(eco, store)` at line 80
+   - ✅ Job main functions explicitly call `store.cmd = dp.getEffectiveCMDForDatastore(eco, store)` early (e.g., line 1113)
    - ✅ DAG generation uses effective command at line 948 in `populateDAGConfigurations()`
 4. ✅ Add credential resolution logic to find primary platform's merge database credentials
 
@@ -116,7 +116,8 @@ This approach ensures:
 
 **Implementation Notes**:
 - Method implemented as `getEffectiveCMDForDatastore()` in `YellowDataPlatform` class at line 2512 in `yellow_dp.py`
-- Job constructor automatically replaces `store.cmd` with effective command at line 80 in `jobs.py`
+- Job main functions explicitly call `store.cmd = dp.getEffectiveCMDForDatastore(eco, store)` early (e.g., line 1113 in `jobs.py`)
+- This explicit approach makes command resolution more obvious and ensures it happens upfront before dependent validation checks
 - DAG generation properly uses effective commands in `populateDAGConfigurations()` at line 948
 - Logic correctly checks for PrimaryIngestionPlatform and creates `SQLMergeIngestion` when needed
 - Finds compatible primary platform (YellowDataPlatform) from PIP configuration

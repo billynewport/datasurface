@@ -6,7 +6,7 @@
 
 import unittest
 from datasurface.md import DataPlatform, DataTransformerNode, Ecosystem, EcosystemPipelineGraph, \
-    ExportNode, IngestionNode, PipelineNode, PlatformPipelineGraph, TriggerNode, Workspace, PrioritizedWorkloadTier
+    ExportNode, IngestionNode, PipelineNode, PlatformPipelineGraph, TriggerNode, Workspace
 
 from tests.nwdb.eco import createEcosystem
 from typing import cast
@@ -73,14 +73,14 @@ class Test_PlatformGraphs(unittest.TestCase):
         self.assertEqual(len(pi.storesToIngest), len(ingestionStoreNames))
 
     def test_WorkspacePriority(self):
-        p1: WorkspacePriority = PrioritizedWorkloadTier(WorkloadTier.CRITICAL)
-        p2: WorkspacePriority = PrioritizedWorkloadTier(WorkloadTier.HIGH)
-        self.assertTrue(p1.isMoreImportantThan(p2))
-        self.assertFalse(p2.isMoreImportantThan(p1))
+        p1: WorkspacePriority = WorkspacePriority(WorkloadTier.CRITICAL)
+        p2: WorkspacePriority = WorkspacePriority(WorkloadTier.HIGH)
+        self.assertTrue(p1 > p2)
+        self.assertFalse(p2 > p1)
 
-        p1 = PrioritizedWorkloadTier(WorkloadTier.MEDIUM)
-        p2 = PrioritizedWorkloadTier(WorkloadTier.MEDIUM)
-        self.assertFalse(p1.isMoreImportantThan(p2))
+        p1 = WorkspacePriority(WorkloadTier.MEDIUM)
+        p2 = WorkspacePriority(WorkloadTier.MEDIUM)
+        self.assertFalse(p1 > p2)
 
     def test_PipelineGraph_Priority(self):
         eco: Ecosystem = createEcosystem()
@@ -96,17 +96,17 @@ class Test_PlatformGraphs(unittest.TestCase):
         # C is using data produced by the transformer in B, Masked_NW_Data
 
         # These all use the default priority initially so verify its UNKNOWN
-        p: PrioritizedWorkloadTier = cast(PrioritizedWorkloadTier, workspaceA.priority)
+        p: WorkspacePriority = cast(WorkspacePriority, workspaceA.priority)
         self.assertEqual(p.priority, WorkloadTier.UNKNOWN)
-        p: PrioritizedWorkloadTier = cast(PrioritizedWorkloadTier, workspaceB.priority)
+        p: WorkspacePriority = cast(WorkspacePriority, workspaceB.priority)
         self.assertEqual(p.priority, WorkloadTier.UNKNOWN)
-        p: PrioritizedWorkloadTier = cast(PrioritizedWorkloadTier, workspaceC.priority)
+        p: WorkspacePriority = cast(WorkspacePriority, workspaceC.priority)
         self.assertEqual(p.priority, WorkloadTier.UNKNOWN)
 
         # Now set the priority of workspaceA and B to MEDIUM, set C to LOW
-        workspaceA.add(PrioritizedWorkloadTier(WorkloadTier.MEDIUM))
-        workspaceB.add(PrioritizedWorkloadTier(WorkloadTier.MEDIUM))
-        workspaceC.add(PrioritizedWorkloadTier(WorkloadTier.LOW))
+        workspaceA.add(WorkspacePriority(WorkloadTier.MEDIUM))
+        workspaceB.add(WorkspacePriority(WorkloadTier.MEDIUM))
+        workspaceC.add(WorkspacePriority(WorkloadTier.LOW))
 
         # Recalculate the graph priorities
         graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
@@ -121,22 +121,22 @@ class Test_PlatformGraphs(unittest.TestCase):
         # Workspace A's left hand nodes (exports)should all be MEDIUM
         work_a_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceA)
         for en in work_a_export_nodes:
-            self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.MEDIUM)
+            self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.MEDIUM)
 
         # Workspace B's left hand nodes (exports) should all be MEDIUM
         work_b_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceB)
         for en in work_b_export_nodes:
-            self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.MEDIUM)
+            self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.MEDIUM)
 
         # Workspace C's left hand nodes should all be LOW
         work_c_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceC)
         for en in work_c_export_nodes:
-            self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.LOW)
+            self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.LOW)
 
         # Now set the priority of workspaceA and B to MEDIUM, set C to LOW
-        workspaceA.add(PrioritizedWorkloadTier(WorkloadTier.MEDIUM))
-        workspaceB.add(PrioritizedWorkloadTier(WorkloadTier.MEDIUM))
-        workspaceC.add(PrioritizedWorkloadTier(WorkloadTier.CRITICAL))
+        workspaceA.add(WorkspacePriority(WorkloadTier.MEDIUM))
+        workspaceB.add(WorkspacePriority(WorkloadTier.MEDIUM))
+        workspaceC.add(WorkspacePriority(WorkloadTier.CRITICAL))
 
         # Recalculate the graph priorities
         graph = EcosystemPipelineGraph(eco)
@@ -148,20 +148,20 @@ class Test_PlatformGraphs(unittest.TestCase):
         for en in work_a_export_nodes:
             # export customers is critical because the mask transformer uses it
             if en.datasetName == "customers":
-                self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.CRITICAL)
+                self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.CRITICAL)
             else:
-                self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.MEDIUM)
+                self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.MEDIUM)
 
         work_b_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceB)
         for en in work_b_export_nodes:
-            self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.CRITICAL)
+            self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.CRITICAL)
 
         def checkLeftwardNodePriorityIs(node: PipelineNode, expectedPriority: WorkloadTier):
             for nn in node.leftHandNodes.values():
                 if nn.priority is None:
                     self.fail(f"Node {nn} has no priority")
                 else:
-                    self.assertTrue(cast(PrioritizedWorkloadTier, nn.priority).priority == expectedPriority)
+                    self.assertTrue(cast(WorkspacePriority, nn.priority).priority == expectedPriority)
                     checkLeftwardNodePriorityIs(nn, expectedPriority)
 
         # Masked_NW_Data.customers uses NW_Data.customers
@@ -169,7 +169,7 @@ class Test_PlatformGraphs(unittest.TestCase):
         # NW_Data is multi-dataset ingestion so all datasets use a single node/priority.
         work_c_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceC)
         for en in work_c_export_nodes:
-            self.assertEqual(cast(PrioritizedWorkloadTier, en.priority).priority, WorkloadTier.CRITICAL)
+            self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.CRITICAL)
             # Walk leftwards checking all nodes are CRITICAL
             checkLeftwardNodePriorityIs(en, WorkloadTier.CRITICAL)
 

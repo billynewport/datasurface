@@ -3786,51 +3786,38 @@ class DataTransformer(ANSI_SQL_NamedObject, Documentable, JSONable):
 class WorkloadTier(Enum):
     """This is a relative priority of a Workspace against other Workspaces. This priority propogates backwards to producers whose data a Workspace
     uses. Thus, producers don't set the priority of their data, it's determined by the priority of whose is using it."""
-    CRITICAL = 0
-    HIGH = 1
+    CRITICAL = 4
+    HIGH = 3
     MEDIUM = 2
-    LOW = 3
-    UNKNOWN = 4
+    LOW = 1
+    UNKNOWN = 0
 
 
 class WorkspacePriority(UserDSLObject):
     """This is a relative priority of a Workspace against other Workspaces. This priority propogates backwards to producers whose data a Workspace
     uses. Thus, producers don't set the priority of their data, it's determined by the priority of whose is using it."""
-    def __init__(self):
-        super().__init__()
-
-    def to_json(self) -> dict[str, Any]:
-        """Base implementation that subclasses can extend"""
-        return {"_type": self.__class__.__name__}
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}()"
-
-    @abstractmethod
-    def isMoreImportantThan(self, other: 'WorkspacePriority') -> bool:
-        """This checks if this priority is more important than the other priority"""
-        pass
-
-
-class PrioritizedWorkloadTier(WorkspacePriority):
-    """This uses a simple enum to determine priority"""
     def __init__(self, priority: WorkloadTier):
         super().__init__()
         self.priority: WorkloadTier = priority
 
     def to_json(self) -> dict[str, Any]:
-        rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "priority": self.priority.name})
-        return rc
+        """Base implementation that subclasses can extend"""
+        return {"_type": self.__class__.__name__, "priority": self.priority.name}
 
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.priority})"
+        return f"{self.__class__.__name__}()"
 
-    def isMoreImportantThan(self, other: 'WorkspacePriority') -> bool:
-        if isinstance(other, PrioritizedWorkloadTier):
-            return self.priority.value < other.priority.value
-        else:
-            return super().isMoreImportantThan(other)
+    def __gt__(self, other: 'WorkspacePriority') -> bool:
+        return self.priority.value > other.priority.value
+
+    def __ge__(self, other: 'WorkspacePriority') -> bool:
+        return self.priority.value >= other.priority.value
+
+    def __lt__(self, other: 'WorkspacePriority') -> bool:
+        return self.priority.value < other.priority.value
+
+    def __le__(self, other: 'WorkspacePriority') -> bool:
+        return self.priority.value <= other.priority.value
 
 
 class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
@@ -3843,7 +3830,7 @@ class Workspace(ANSI_SQL_NamedObject, Documentable, JSONable):
         ANSI_SQL_NamedObject.__init__(self, name)
         Documentable.__init__(self, None)
         JSONable.__init__(self)
-        self.priority: WorkspacePriority = PrioritizedWorkloadTier(WorkloadTier.UNKNOWN)
+        self.priority: WorkspacePriority = WorkspacePriority(WorkloadTier.UNKNOWN)
         self.dsgs: dict[str, DatasetGroup] = OrderedDict[str, DatasetGroup]()
         self.dataContainer: Optional[DataContainer] = None
         self.productionStatus: ProductionStatus = ProductionStatus.NOT_PRODUCTION
@@ -3998,7 +3985,7 @@ class PipelineNode(InternalLintableObject, JSONable):
         if proposedPriority is None:
             self.priority = None
         elif (self.priority is not None):
-            if (not self.priority.isMoreImportantThan(proposedPriority)):
+            if (self.priority < proposedPriority):
                 self.priority = proposedPriority
         else:
             self.priority = proposedPriority
@@ -4452,7 +4439,7 @@ class PlatformPipelineGraph(InternalLintableObject):
         # 2. Sort workspaces by priority (highest first)
         sorted_workspaces = sorted(
             self.workspaces.values(),
-            key=lambda w: cast(PrioritizedWorkloadTier, w.priority).priority.value
+            key=lambda w: w.priority.priority.value
         )
 
         def setLeftNodesPriority(node: PipelineNode, priority: WorkspacePriority, visited_nodes: Optional[set[str]] = None):
@@ -4468,7 +4455,7 @@ class PlatformPipelineGraph(InternalLintableObject):
             node.setPriority(priority)
             for left_node in node.leftHandNodes.values():
                 # if left node priority is none or lower than the current priority then set it
-                if left_node.priority is None or not left_node.priority.isMoreImportantThan(priority):
+                if left_node.priority is None or left_node.priority < priority:
                     setLeftNodesPriority(left_node, priority, visited_nodes)
 
         # 3. Set initial priorities on export nodes, starting with highest priority workspaces

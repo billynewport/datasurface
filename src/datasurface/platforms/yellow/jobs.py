@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, SQLSnapshotIngestion, Dataset, IngestionConsistencyType, DataContainerNamingMapper
+    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, DataContainerNamingMapper
 )
 from sqlalchemy import Table, MetaData, text
 import sqlalchemy
@@ -74,10 +74,6 @@ class Job(YellowDatasetUtilities):
     step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
-
-        # This replaces the store.cmd with the effective cmd for the datastore
-        # This is safe because the store is private to us and used exclusively for this job.
-        self.store.cmd = dp.getEffectiveCMDForDatastore(eco, store)
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
@@ -1114,6 +1110,7 @@ def main():
             print(f"Unknown store: {args.store_name}")
             return -1  # ERROR
         store: Datastore = storeEntry.datastore
+        store.cmd = dp.getEffectiveCMDForDatastore(eco, store)
 
         if store.cmd is None:
             print(f"Store {args.store_name} has no capture meta data")
@@ -1129,10 +1126,9 @@ def main():
                     return -1  # ERROR
 
         # DataTransformer output stores don't need external credentials
-        if not isinstance(store.cmd, DataTransformerOutput):
-            cmd = cast(SQLSnapshotIngestion, store.cmd)
-            if cmd.credential is None:
-                print(f"Store {args.store_name} has no credential")
+        if isinstance(store.cmd, SQLIngestion):
+            if store.cmd.credential is None:
+                print(f"Store {args.store_name} with SQLIngestion has no credential")
                 return -1  # ERROR
 
         if args.dataset_name:
