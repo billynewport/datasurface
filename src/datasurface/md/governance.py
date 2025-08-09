@@ -1115,6 +1115,19 @@ class SQLIngestion(IngestionMetadata):
         return "SQLIngestion()"
 
 
+class SQLMergeIngestion(SQLIngestion):
+    """This is an SQL ingestion which ingests from a merge table on a primary platform"""
+    def __init__(self, db: SQLDatabase, dp: 'DataPlatform', *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
+        super().__init__(db, *args)
+        self.dataPlatform: 'DataPlatform' = dp
+
+    def __str__(self) -> str:
+        return "SQLMergeIngestion()"
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and isinstance(other, SQLMergeIngestion) and self.dataPlatform == other.dataPlatform
+
+
 class SQLSnapshotIngestion(SQLIngestion):
     """This is an SQL ingestion which does a select * from each table every batch."""
     def __init__(self, db: SQLDatabase, *args: Union[Credential, StepTrigger, IngestionConsistencyType, dict[str, str]]) -> None:
@@ -1747,6 +1760,13 @@ class Ecosystem(GitControlledObject, JSONable):
         if self.graph is None:
             self.graph = self.createGraph()
         return self.graph
+
+    def getPrimaryIngestionPlatformsForDatastore(self, storeName: str) -> Optional['PrimaryIngestionPlatform']:
+        """This returns the set of data platforms that are the primary ingestion platforms for the given datastore"""
+        pip: Optional[PrimaryIngestionPlatform] = self.primaryIngestionPlatforms.get(storeName)
+        if pip is None:
+            return None
+        return pip
 
     def checkAllRepositoriesInEcosystem(self, tree: ValidationTree, types: list[type]) -> None:
         """This checks that all repositories in the ecosystem are one of the specified types only."""
@@ -4011,27 +4031,30 @@ class ExportNode(PipelineNode):
 
 class IngestionNode(PipelineNode):
     """This is a super class node for ingestion nodes. It represents an ingestion stream source for a pipeline."""
-    def __init__(self, name: str, platform: DataPlatform, storeName: str, captureTrigger: Optional[StepTrigger]):
+    def __init__(self, name: str, platform: DataPlatform, storeName: str, captureTrigger: Optional[StepTrigger], pip: Optional[PrimaryIngestionPlatform]):
         super().__init__(name, platform)
         self.storeName: str = storeName
         self.captureTrigger: Optional[StepTrigger] = captureTrigger
+        self.pip: Optional[PrimaryIngestionPlatform] = pip
 
     def __eq__(self, o: object) -> bool:
-        return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName and self.captureTrigger == o.captureTrigger
+        return super().__eq__(o) and isinstance(o, IngestionNode) and self.storeName == o.storeName and self.captureTrigger == o.captureTrigger and \
+            self.pip == o.pip
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__,
                    "storeName": self.storeName,
-                   "captureTrigger": self.captureTrigger.to_json() if self.captureTrigger else None})
+                   "captureTrigger": self.captureTrigger.to_json() if self.captureTrigger else None,
+                   "pip": self.pip.to_json() if self.pip else None})
         return rc
 
 
 class IngestionMultiNode(IngestionNode):
     """This is a node which represents the ingestion of multiple datasets from a Datastore. Such as Datastore might have N datasets and
     all N datasets are ingested together, transactionally in to a pipeline graph."""
-    def __init__(self, platform: DataPlatform, storeName: str, captureTrigger: Optional[StepTrigger]):
-        super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName, captureTrigger)
+    def __init__(self, platform: DataPlatform, storeName: str, captureTrigger: Optional[StepTrigger], pip: Optional[PrimaryIngestionPlatform]):
+        super().__init__(f"Ingest/{platform.name}/{storeName}", platform, storeName, captureTrigger, pip)
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -4048,8 +4071,8 @@ class IngestionMultiNode(IngestionNode):
 class IngestionSingleNode(IngestionNode):
     """This is a node which represents the ingestion of a single dataset from a Datastore. Such as Datastore might have N datasets
     and each of the datasets is ingested independently in to the pipeline. This node represents the ingestion of a single dataset"""
-    def __init__(self, platform: DataPlatform, storeName: str, dataset: str, captureTrigger: Optional[StepTrigger]):
-        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName, captureTrigger)
+    def __init__(self, platform: DataPlatform, storeName: str, dataset: str, captureTrigger: Optional[StepTrigger], pip: Optional[PrimaryIngestionPlatform]):
+        super().__init__(f"Ingest/{platform.name}/{storeName}/{dataset}", platform, storeName, captureTrigger, pip)
         self.datasetName: str = dataset
 
     def __hash__(self) -> int:
@@ -4136,6 +4159,7 @@ class PlatformPipelineGraph(InternalLintableObject):
     ingested. So we add an ingestion step. If a dataset is produced by a DataTransformer then we need to have the ingestion
     triggered by the execution of the DataTransformer. The DataTransformer is triggered itself by exports to the Workspace which
     owns it.
+    Datastores which has a PIP will not not move leftwards past an ingestion step with the pip which isn't for this platform.
     Thus the right hand side of the graph should all be Exports to Workspaces. The left hand side should be
     all ingestion steps. Every ingestion should have a right hand side node which are exports to Workspaces.
     Exports will have a trigger for each dataset used by a DataTransformer. The trigger will be a join on all the exports to
@@ -4225,37 +4249,44 @@ class PlatformPipelineGraph(InternalLintableObject):
                     exportNodes.add(cast(ExportNode, self.nodes[str(exportNode)]))
         return exportNodes
 
-    def findExistingOrCreateStep(self, step: PipelineNode) -> PipelineNode:
+    P = TypeVar('P', bound=PipelineNode)
+
+    def findExistingOrCreateStep(self, step: P) -> P:
         """This finds an existing step or adds it to the set of steps in the graph"""
-        if self.nodes.get(str(step)) is None:
-            self.nodes[str(step)] = step
-        else:
-            step = self.nodes[str(step)]
-        return step
+        key: str = str(step)
+        existing = self.nodes.get(key)
+        if existing is None:
+            self.nodes[key] = step
+            return step
+        # This works around pylance not being able to infer the type of the existing step
+        return cast(Any, existing)
 
     def createIngestionStep(self, storeName: str):
         """This creates a step to ingest data for a datastore. This results in either a single step for a multi-dataset store
         or one step per dataset in the single dataset stores"""
         store: Datastore = self.eco.cache_getDatastoreOrThrow(storeName).datastore
 
+        pip: Optional[PrimaryIngestionPlatform] = self.eco.getPrimaryIngestionPlatformsForDatastore(storeName)
+
         if store.cmd:
             if (store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
                 for datasetName in store.datasets.keys():
-                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName, store.cmd.stepTrigger))
+                    self.findExistingOrCreateStep(IngestionSingleNode(self.platform, storeName, datasetName, store.cmd.stepTrigger, pip))
             else:  # MULTI_DATASET
-                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName, store.cmd.stepTrigger))
+                self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName, store.cmd.stepTrigger, pip))
         else:
             raise Exception(f"Store {storeName} cmd is None")
 
-    def createIngestionStepForDataStore(self, store: Datastore, exportStep: ExportNode) -> PipelineNode:
+    def createIngestionStepForDataStore(self, store: Datastore, exportStep: ExportNode) -> IngestionNode:
         # Create a step for a single or multi dataset ingestion
-        ingestionStep: Optional[PipelineNode] = None
+        pip: Optional[PrimaryIngestionPlatform] = self.eco.getPrimaryIngestionPlatformsForDatastore(exportStep.storeName)
+        ingestionStep: Optional[IngestionNode] = None
         if store.cmd is None:
             raise Exception(f"Store {store.name} cmd is None")
         if (store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
-            ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger)
+            ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger, pip)
         else:  # MULTI_DATASET
-            ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.stepTrigger)
+            ingestionStep = IngestionMultiNode(exportStep.platform, exportStep.storeName, store.cmd.stepTrigger, pip)
         ingestionStep = self.findExistingOrCreateStep(ingestionStep)
         return ingestionStep
 
@@ -4272,11 +4303,12 @@ class PlatformPipelineGraph(InternalLintableObject):
         try:
             w: Workspace = self.eco.cache_getWorkspaceOrThrow(dt.workSpaceName).workspace
             if w.dataContainer:
+                pip: Optional[PrimaryIngestionPlatform] = self.eco.getPrimaryIngestionPlatformsForDatastore(exportStep.storeName)
                 # Find/Create Trigger, this is a join on all incoming exports needed for the transformer
                 dtStep: DataTransformerNode = cast(DataTransformerNode, self.findExistingOrCreateStep(DataTransformerNode(w, self.platform)))
                 triggerStep: TriggerNode = cast(TriggerNode, self.findExistingOrCreateStep(TriggerNode(w, self.platform)))
                 # Add ingestion for transfomer
-                dtIngestStep: PipelineNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None))
+                dtIngestStep: IngestionMultiNode = self.findExistingOrCreateStep(IngestionMultiNode(self.platform, exportStep.storeName, None, pip))
                 dtStep.addRightHandNode(dtIngestStep)
                 # Ingesting Transformer causes Export
                 dtIngestStep.addRightHandNode(exportStep)
@@ -4296,15 +4328,21 @@ class PlatformPipelineGraph(InternalLintableObject):
             self._datatransformer_processing.discard(transformer_key)
 
     def addExportToPriorIngestion(self, exportStep: ExportNode):
-        """This makes sure the ingestion steps for a the datasets in an export step exist"""
+        """This makes sure the ingestion steps for a the datasets in an export step exist. If the store is managed by a different
+        dataplatform then stop creating left hand nodes once the ingestion step is created."""
         assert (self.nodes.get(str(exportStep)) is not None)
         """Work backwards from export step. The normal chain is INGEST -> EXPORT. In the case of exporting a store from
         a transformer then it is INGEST -> EXPORT -> TRIGGER -> TRANSFORM -> INGEST -> EXPORT"""
         store: Datastore = self.eco.cache_getDatastoreOrThrow(exportStep.storeName).datastore
         if (store.cmd):
             # Create a step for a single or multi dataset ingestion
-            ingestionStep: PipelineNode = self.createIngestionStepForDataStore(store, exportStep)
+            ingestionStep: IngestionNode = self.createIngestionStepForDataStore(store, exportStep)
             ingestionStep.addRightHandNode(exportStep)
+            # If the ingestion step has a pip which doesnt match the current platform then stop. The datatransformer associated
+            # with it is running only on the platforms which are in the pip.
+            platformKey: DataPlatformKey = DataPlatformKey(self.platform.name)
+            if ingestionStep.pip is not None and platformKey not in ingestionStep.pip.dataPlatforms:
+                return
             # If this store is a transformer then we need to create the transformer job
             if isinstance(store.cmd, DataTransformerOutput):
                 self.createGraphForDataTransformer(store.cmd, exportStep)

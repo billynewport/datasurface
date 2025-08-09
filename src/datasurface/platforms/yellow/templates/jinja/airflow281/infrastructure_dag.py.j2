@@ -266,7 +266,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
     ]
 
     # Source database credentials for SQL snapshot ingestion (only if different from merge store)
-    if (stream_config.get('ingestion_type') == 'sql_snapshot' and 
+    if (stream_config.get('ingestion_type') == 'sql_source' and 
         stream_config.get('source_credential_secret_name') and 
         stream_config['source_credential_secret_name'] != platform_config['postgres_credential_secret_name']):
         env_vars.extend([

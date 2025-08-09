@@ -21,7 +21,7 @@ from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, 
 from datasurface.md import DataPlatformManagedDataContainer, PlatformServicesProvider
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer, VarChar
-from datasurface.md import StorageRequirement
+from datasurface.md import StorageRequirement, DataPlatformKey, PrimaryIngestionPlatform
 import os
 import re
 from datasurface.md.repo import GitHubRepository
@@ -35,7 +35,7 @@ from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
 from sqlalchemy import text
 from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.md.sqlalchemyutils import createOrUpdateTable, datasetToSQLAlchemyTable
-from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger
+from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger, SQLMergeIngestion, CaptureMetaData
 from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 import hashlib
@@ -650,6 +650,13 @@ class YellowPlatformExecutor(DataPlatformExecutor):
         pass
 
 
+class IngestionType(Enum):
+    """This is the type of ingestion. This is used in infrastructure DAG generation to figure out which parameters/env variables
+    to provide to the kubernetes ingestion/merge job."""
+    KAFKA = "kafka"  # Provide credentials for a Kafka cluster
+    SQL_SOURCE = "sql_source"  # Provide credentials for a SQL source database, works for all SQL merge types
+
+
 class YellowGraphHandler(DataPlatformGraphHandler):
     """This takes the graph and then implements the data pipeline described in the graph using the technology stack
     pattern implemented by this platform. This platform supports ingesting data from Kafka confluence connectors. It
@@ -849,7 +856,15 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Validate ingestion types for all stores
         for storeName in self.graph.storesToIngest:
             store: Datastore = eco.cache_getDatastoreOrThrow(storeName).datastore
+
             storeTree: ValidationTree = tree.addSubTree(store)
+
+            # If there is a PIP for the datastore, check if there is a compatible PIP for this DataPlatform
+            if eco.getPrimaryIngestionPlatformsForDatastore(storeName) is not None:
+                pip: Optional[YellowDataPlatform] = self.dp.getCompatiblePIPToUseForDatastore(eco, storeName)
+                if pip is None:
+                    storeTree.addRaw(ObjectMissing(store, "No compatible PIP found", ProblemSeverity.ERROR))
+
             if store.cmd is None:
                 storeTree.addRaw(ObjectMissing(store, "cmd", ProblemSeverity.ERROR))
                 return
@@ -937,6 +952,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             try:
                 storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
                 store: Datastore = storeEntry.datastore
+                store.cmd = self.dp.getEffectiveCMDForDatastore(eco, store)
 
                 if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion)):
                     # Determine if this is single or multi dataset ingestion
@@ -961,16 +977,16 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                                 "datasets": [dataset.name],
                                 "store_name": storeName,
                                 "dataset_name": dataset.name,
-                                "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot",
+                                "ingestion_type": IngestionType.KAFKA.value if isinstance(store.cmd, KafkaIngestion) else IngestionType.SQL_SOURCE.value,
                                 "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger),
                                 "job_limits": job_hint.to_k8s_json()
                             }
 
                             # Add credential information for this stream
-                            if stream_config["ingestion_type"] == "kafka":
+                            if stream_config["ingestion_type"] == IngestionType.KAFKA.value:
                                 stream_config["kafka_connect_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(
                                     self.dp.psp.connectCredentials.name)
-                            elif stream_config["ingestion_type"] == "sql_snapshot":
+                            elif stream_config["ingestion_type"] == IngestionType.SQL_SOURCE.value:
                                 # For SQL snapshot ingestion, we need the source database credentials
                                 if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
                                     stream_config["source_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
@@ -983,16 +999,16 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             "single_dataset": False,
                             "datasets": [dataset.name for dataset in store.datasets.values()],
                             "store_name": storeName,
-                            "ingestion_type": "kafka" if isinstance(store.cmd, KafkaIngestion) else "sql_snapshot",
+                            "ingestion_type": IngestionType.KAFKA.value if isinstance(store.cmd, KafkaIngestion) else IngestionType.SQL_SOURCE.value,
                             "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger),
                             "job_limits": default_ingestion_hint.to_k8s_json()
                         }
 
                         # Add credential information for this stream
-                        if stream_config["ingestion_type"] == "kafka":
+                        if stream_config["ingestion_type"] == IngestionType.KAFKA.value:
                             stream_config["kafka_connect_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(
                                 self.dp.psp.connectCredentials.name)
-                        elif stream_config["ingestion_type"] == "sql_snapshot":
+                        elif stream_config["ingestion_type"] == IngestionType.SQL_SOURCE.value:
                             # For SQL snapshot ingestion, we need the source database credentials
                             if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
                                 stream_config["source_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
@@ -2500,6 +2516,49 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
         createOrUpdateTable(mergeEngine, self.getDataTransformerDAGTable())
 
+    def getEffectiveCMDForDatastore(self, eco: Ecosystem, store: Datastore) -> CaptureMetaData:
+        """If there is a pip for the datastore then construct a new SQLMergeIngestion and return it. Otherwise return the current cmd."""
+        pip: Optional[PrimaryIngestionPlatform] = eco.getPrimaryIngestionPlatformsForDatastore(store.name)
+        if pip is None:
+            assert store.cmd is not None
+            return store.cmd
+        else:
+            primDP: Optional[YellowDataPlatform] = None
+            dpKey: DataPlatformKey
+            for dpKey in pip.dataPlatforms:
+                dp: DataPlatform = eco.getDataPlatformOrThrow(dpKey.name)
+                if isinstance(dp, YellowDataPlatform):
+                    primDP = dp
+                    break
+            if primDP is None:
+                raise Exception(f"No compatible primary ingestion platform found for datastore {store.name}")
+            assert store.cmd is not None
+            assert store.cmd.singleOrMultiDatasetIngestion is not None
+            cmd: SQLIngestion = SQLMergeIngestion(
+                primDP.psp.mergeStore,  # The merge tables are in the primary platform's merge store
+                primDP,
+                self.psp.postgresCredential,  # This dataplatforms credentials MUST have read access to the primary platform's merge store
+                store.cmd.singleOrMultiDatasetIngestion
+            )
+            return cmd
+
+    def getCompatiblePIPToUseForDatastore(self, eco: Ecosystem, storeName: str) -> Optional['YellowDataPlatform']:
+        """This returns a DataPlatform which is compatible with this DataPlatform. Datastores with PIPs can have multiple of them.
+        We need to pick one whose merge store we understand can be used to ingest data from the datastore. For now, these
+        are YellowDataPlatforms."""
+        pip: Optional[PrimaryIngestionPlatform] = eco.getPrimaryIngestionPlatformsForDatastore(storeName)
+        if pip is None:
+            return None
+        else:
+            primDP: Optional[YellowDataPlatform] = None
+            dpKey: DataPlatformKey
+            for dpKey in pip.dataPlatforms:
+                dp: DataPlatform = eco.getDataPlatformOrThrow(dpKey.name)
+                if isinstance(dp, YellowDataPlatform):
+                    primDP = dp
+                    break
+            return primDP
+
     def setPSP(self, psp: YellowPlatformServiceProvider) -> None:
         super().setPSP(psp)
 
@@ -2633,9 +2692,9 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             keys_to_reset.append(storeName)
 
         # Get table names
-        platform_prefix = self.name.lower()
-        batch_counter_table = platform_prefix + "_batch_counter"
-        batch_metrics_table = platform_prefix + "_batch_metrics"
+        ypu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)
+        batch_counter_table = ypu.getPhysBatchCounterTableName()
+        batch_metrics_table = ypu.getPhysBatchMetricsTableName()
 
         logger.info("Starting batch state reset",
                     platform_name=self.name,
@@ -2733,9 +2792,8 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                                 datasets_cleared = 0
                                 for dataset_name in state.all_datasets:
                                     # Use the proper staging table naming method
-                                    base_table_name = f"{storeName}_{dataset_name}"
-                                    staging_table_name = f"{platform_prefix}_{base_table_name}_staging"
-
+                                    dataset: Dataset = datastore.datasets[dataset_name]
+                                    staging_table_name = ypu.getPhysStagingTableNameForDataset(dataset)
                                     # Delete staging records for this batch using the correct column name
                                     result = connection.execute(text(f'''
                                         DELETE FROM {staging_table_name}

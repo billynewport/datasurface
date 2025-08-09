@@ -75,6 +75,10 @@ class Job(YellowDatasetUtilities):
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
 
+        # This replaces the store.cmd with the effective cmd for the datastore
+        # This is safe because the store is private to us and used exclusively for this job.
+        self.store.cmd = dp.getEffectiveCMDForDatastore(eco, store)
+
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
         t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
@@ -1095,7 +1099,7 @@ def main():
         if dp is None:
             print(f"Unknown platform: {args.platform_name}")
             return -1  # ERROR
-        graph: EcosystemPipelineGraph = EcosystemPipelineGraph(eco)
+        graph: EcosystemPipelineGraph = eco.getGraph()
         root: Optional[PlatformPipelineGraph] = graph.roots.get(dp.name)
         if root is None:
             print(f"Unknown graph for platform: {args.platform_name}")
