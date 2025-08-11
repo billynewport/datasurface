@@ -172,31 +172,49 @@ class ModelServer:
                     return {"workspaces": [serialize_object(entry.workspace) for entry in self.ecosystem.workSpaceCache.values()]}
 
                 case EcosystemCommand.GET_DATASET.value:
-                    dataset = self.ecosystem.cache_getDataset(params.get("store_name", ""), params["dataset_name"])
+                    store_name: str = params.get("store_name", "")
+                    if len(store_name) == 0:
+                        raise ValueError("store_name is required")
+                    dataset = self.ecosystem.cache_getDataset(store_name, params["dataset_name"])
                     if not dataset:
                         raise ValueError(f"Dataset {params['dataset_name']} not found")
                     return {"dataset": serialize_object(dataset)}
 
                 case EcosystemCommand.GET_WORKSPACE.value:
-                    workspace = self.ecosystem.cache_getWorkspaceOrThrow(params["workspace_name"])
+                    workspace_name: str = params.get("workspace_name", "")
+                    if len(workspace_name) == 0:
+                        raise ValueError("workspace_name is required")
+                    workspace = self.ecosystem.cache_getWorkspaceOrThrow(workspace_name)
                     return {"workspace": serialize_object(workspace.workspace)}
 
                 case EcosystemCommand.LIST_TEAMS.value:
                     return {"teams": list(self.ecosystem.teamCache.keys())}
 
                 case EcosystemCommand.GET_TEAM.value:
-                    team = self.ecosystem.getTeamOrThrow(params["governance_zone"], params["team_name"])
+                    governance_zone: str = params.get("governance_zone", "")
+                    if len(governance_zone) == 0:
+                        raise ValueError("governance_zone is required")
+                    team_name: str = params.get("team_name", "")
+                    if len(team_name) == 0:
+                        raise ValueError("team_name is required")
+                    team = self.ecosystem.getTeamOrThrow(governance_zone, team_name)
                     return {"team": serialize_object(team)}
 
                 case EcosystemCommand.GET_DATASTORE.value:
-                    store_entry = self.ecosystem.cache_getDatastoreOrThrow(params["store_name"])
+                    store_name: str = params.get("store_name", "")
+                    if len(store_name) == 0:
+                        raise ValueError("store_name is required")
+                    store_entry = self.ecosystem.cache_getDatastoreOrThrow(store_name)
                     return {"datastore": serialize_object(store_entry.datastore)}
 
                 case EcosystemCommand.LIST_DATASTORES.value:
                     return {"datastores": list(self.ecosystem.datastoreCache.keys())}
 
                 case EcosystemCommand.GET_DEPENDENCIES.value:
-                    deps = self.ecosystem.calculateDependenciesForDatastore(params["store_name"], set())
+                    store_name: str = params.get("store_name", "")
+                    if len(store_name) == 0:
+                        raise ValueError("store_name is required")
+                    deps = self.ecosystem.calculateDependenciesForDatastore(store_name, set())
                     return {"dependencies": [serialize_object(dep) for dep in deps]}
 
                 case _:

@@ -1,19 +1,27 @@
 # Introduction to Dataplatforms
 
-The main ecosystem model has the current data requirements as its metadata. It has metadata describing producers, consumers, data transformations and data platforms. Data platforms are used to handle clients data transport requests. The model will select a specific platform to service a specific Workspace. Thus, a platform will be handling data store ingestions, exports to workspaces, triggers for and the execution of data transformer computations and all the job scheduling to make the data physically move.
+The main ecosystem model has the current data requirements as its metadata. It has metadata describing producers, consumers, data transformations and data platforms. Data platforms are used to handle clients data requests. The broker will select a specific platform to service a group of Workspaces in the model. The broker can even select multiple platforms to independently deliver data using different implementations/dataplatforms for a single consumer.Thus, a platform will be handling data store ingestions, exports to workspaces, triggers for and the execution of data transformer computations and all the job scheduling to make the data physically move.
 
 There are a couple of ways to describe a DataPlatform. A DataPlatform supports a set of technologies for enabling consumers. It also has a philisophy of how to use those technologies to enable the consumer. For example, 2 DataPlatforms can use the same technological infrastructure but one streams and the other does batch.
 
 An example philosophy could be a DataPlatform which ingests all its Data producers in to a Lakehouse type store. This acts like a persistent buffer between the producers and the consumers. This means the load on the producer data containers is always one no matter how many consumers there are. It also allows consumer data containers to be rehydrated from the buffer and catch up if those data containers were corrupted. The rehydration happens from the buffer, not the producer data containers. The buffer introduces latency but has benefits. There may be future DataPlatforms that instead of using a Lakehouse on DeltaLake or Iceberg, they may use some kind of streaming store which is more efficient and has less latency. This is the benefit of this architecture, when these newer DataPlatforms come along, the ecosystem can be updated to use them and the consumers will get the benefits of the new DataPlatform. When the new DataPlatform becomes available, EVERY consumer can get the benefits on day 1. Nothing needs to be reengineered.
+
+## Command Query Responsibility Segregation (CQRS) and why it's critical
+
+CQRS is real. It's rare for the technology which is best for ingesting data to be the best technology for providing that data to different consumers. It may be convenient/efficient to ingest data in to an iceberg/delta lake lake house. However, if consumers are doing very complex joins/aggregations over subsets of that data then it may be better to physically materialize the data in to a different technology to support the queries. Consumers may want to use OLTP/OLAP/Vector or document databases depending on their use case.Yes, there is more latency, it's 2 hops. But, this may be the only acceptable way to have happy consumers.
 
 ## Materialize an intention graph in to a physical system to fulfill the intentions of the graph
 
 The work that a data platform has to do in terms of the data pipelines is provided as a graph of nodes from the Ecosystem. The DataPlatform must then take that graph and then generate a system which can fulfill the intentions expressed in that graph. The graph consists of nodes depicting the following actions:
 
 * Ingest data from a Data producer
-* Materialize or Export Data in an asset for use by a Workspace
+* Materialize or Export Data in an asset for use by a Workspace  
 * Evaluate a trigger a data transformer job
 * Execute a data transformer
+
+### Pipeline Graph Priority System
+
+DataSurface implements a priority system where Workspaces can be assigned business criticality levels. These priorities automatically propagate through the pipeline graph to ensure that critical workloads receive appropriate resource allocation and scheduling priority from the underlying job orchestration systems.
 
 The following represents a small intention graph. The Dataplatform has a single asset or database for all data pipeline steps to use, "Test Azure SQL". A consumer wants 3 datasets, 2 come from the NW_Data store, 1 comes from the Masked_NW_Data store. These are exported to the Workspace asset in steps 6,7 and 8. The 2 original datasets are ingested in step 1 (all 3 datasets: [products, suppliers and customers] are ingested together). Step 2 exports the original sensitive customer dataset to the datatransformer workspace "MaskCustomersWorkSpace". Then the datatransformer is executed in step 4 after being triggered in 3. The execution of the datatransformer causes the newly processed masked customer records to be ingested to the ecosystem in 5. The masked customer records are then exported to the consumer asset in 6.
 
@@ -39,9 +47,9 @@ When the ecosystem changes then the intention graph will also change. The Datapl
 
 Dataplatforms should be able to render large environments. Maybe 10k datastores, 100k datasets, hundreds of data containers for consumers to query and extract value from the data. Most cloud solutions are incapable of handling such large graphs. The Dataplatform will need a strategy to break up the total graph in to manageable chunks and linking them together in such a way that the infrastructure used by the DataPlatform can deal with it. This is an advantage of DataSurface over using vendor tools directly. This chunking isnt a problem users should need to deal with. Plus, the complexities of how these chunks running on different cloud vendors need to interact or be optimized similarly isn't something users should need to deal with. This is the job of the DataPlatform.
 
-These environments also run thousands to millions of jobs a day to execute the pipeline. These jobs also have to be updated when a new metadata push arrives. It's recommended that platforms can shard themselves to make the catch up renders faster. Data can also be arriving slowly or rapidly.
+Dataplatforms supporting CQRS will likely find this easier to do. The ingestion of the data can be spread over a cluster of data pipeline instances. Consumers are hosted on a seperate database tier which pulls/has pushed changes from the various data platforms for the datasets they need.
 
-Ideally, the ingestion load on a producer DataContainer should be limited to 1 if possible. Some ingestions may use pub/sub and thus already decouple the number of consumers from the load on the producer data container. It's possible that an intermediate DataPlatform would ingest the producer data and then other DataPlatforms would ingest from it's intermediate data container instead of directly from the producer data container.
+These environments also run thousands to millions of jobs a day to execute the pipeline. These jobs also have to be updated when a new metadata push arrives. It's recommended that platforms can shard themselves to make the catch up renders faster. Data can also be arriving slowly or rapidly.
 
 Platform instances should be stored in the Ecosystem and provisioned when data platforms move to a new pipeline render.
 
@@ -53,6 +61,12 @@ A data platform is a mechanism to handle the follow chores:
 * Allow multiplatform fabrics to cooperate to connect data producers to data consumers. There may be a platform handling AWS whilst another platform handles AZURE and so on. The broker is responsible to define a protocol enabling data to flow between platforms.
 * Data platforms will have their own operational state. This state might consist of its place ingestion a database using CDC. This state will likely by kept in an OLTP database.
 * Dataplatforms are typically rendering using a specific branch from the github ecosystem. When the github ecosystem accepts new changes then the Dataplatform will need to advance to the next branch and then figure out what is the delta between the current rendering and the new proposed one. A Dataplatform will typically use generated IaC scripts to render the metadata described in the Ecosystem. The IaC should be completely generated from the Ecosystem metadata. Data platforsm do not need to advanced instantly when the main Ecosystem is updated. Changes may be delayed till long weekends for example. Development environments with a dataplatform need to advance much faster as developers are waiting for their changes to be pushed rapidly.
+
+## Primary DataPlatform Ingestion (PIP)
+
+To minimize load on production databases, DataSurface supports designating certain platforms as primary ingesters for specific data sources. Non-primary platforms can then obtain data from primary platforms rather than directly accessing source systems, creating an efficient data distribution hierarchy.
+
+This is also used to pin ingestion of data from a remote environment to a specific set of machines which may be exposed in a firewall or positioned in a DMZ for this purpose, i.e. an onsite infrastructure and cloud infrastructure. You may want onsite systems to ingest data from a cloud environment through a concentrator to minimize egress costs for example.
 
 ## Example DataPlatform implementations
 
@@ -68,12 +82,17 @@ The DataPlatform implementations are intended to be packaged and distributed as 
 
 However, a simpler approach may be to simply render the IaC code representation the DataPlatform implementation to a folder, check it in to a github branch and then configure Terraform cloud or similar to use that branch to render the infrastructure or keep it up to date when ever it changes. This may be a much simpler approach.
 
-Now, even a simple cron job can be used to run DataSurface to:
+## DataPlatform Automation and Management
+
+DataPlatforms are designed to be highly automated, self-managing systems that:
 
 * Generate the intention graphs for all the DataPlatforms chosen for Consumers
-* Provide each DataPlatform instance with its intention graph
-* The DataPlatform instance will then render the graph in to a physical system and write the IaC code to a folder which is checked in to a github branch
-* Terraform will then see the commit and render the infrastructure from that definition or revise it when it changes
+* Render graphs into physical systems using Infrastructure as Code (IaC)
+* Automatically manage job orchestration and scheduling
+* Provide dynamic scaling based on ecosystem requirements
+* Maintain synchronization with model changes through automated processes
+
+The specific implementation approaches vary by platform - some may use Terraform workflows, others may employ dynamic job generation, and others may use hybrid approaches optimized for their target infrastructure.
 
 ## DataPlatforms need to use the model
 
@@ -83,4 +102,4 @@ If all aspects of a DataPlatform are written in Python then it's likely easiest 
 
 Workspaces represent a collection of DatasetGroups for a consumer, an application. Consumers can describe the their requirements for how they want the data on a per DatasetGroup basis. We expect more consumers will have a single DatasetGroup.
 
-The actual DataPlatform used for a DatasetGroup is assigned by a central team. The assignment is semi-permanent. That DataPlatform will then start ingesting the data from the various data producers which have data required by the consumer and flow it continously to the DataContainer the consumer is using to query the data. Datasurface expects that over time, a consumers requirements will be better served using newer more efficient DataPlatforms which will inevitably come along over time. A newer DataPlatform can be assigned concurrently with the original one and both can serve the consumer until the consumer decides to move to the newer DataPlatform at which time the original DataPlatform will be decommissioned.
+Workspaces/DSGs are assigned to a DataPlatform by the broker. The broker takes the Workspace requirements in to account and decides which DataPlatform or DataPlatforms should be used to serve the consumers of that Workspace. If a new dataplatform becomes available then the broker can assign it as well to a consumer. The consumer can then see their data available in 2 places, the original dataplatform and the new one concurrently. The old dataplatform can be turned off if the new one is working or the new one can be discarded if the old one still has advantages.

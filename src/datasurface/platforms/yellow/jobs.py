@@ -483,6 +483,15 @@ class Job(YellowDatasetUtilities):
                 offset: int = state.current_offset
                 recordsInserted = 0
 
+                # Build insert statement with SQLAlchemy named parameters
+                quoted_columns = [f'"{col}"' for col in allColumns] + \
+                    [
+                        f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
+                        f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
+                        f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"']
+                placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
+                insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
+
                 while True:
                     # Read batch from source with hash calculation in SQL
                     quoted_columns = [f'"{col}"' for col in allColumns]
@@ -526,15 +535,6 @@ class Job(YellowDatasetUtilities):
                             # Add batch metadata
                             insertValues = dataValues + [batchId, allHash, keyHash]
                             batchValues.append(insertValues)
-
-                        # Build insert statement with SQLAlchemy named parameters
-                        quoted_columns = [f'"{col}"' for col in allColumns] + \
-                            [
-                                f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
-                                f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
-                                f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"']
-                        placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
-                        insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
                         # Execute batch insert using proper SQLAlchemy batch execution
                         # Use executemany for true batch efficiency - single execute call for all rows
