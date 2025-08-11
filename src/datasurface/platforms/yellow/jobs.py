@@ -1072,11 +1072,10 @@ def main():
         useCache=args.use_git_cache,     # Use cache by default
         maxCacheAgeMinutes=args.max_cache_age_minutes)
     if tree is not None and tree.hasErrors():
-        print("Ecosystem model has errors")
-        tree.printTree()
+        logger.error("Ecosystem model has errors", tree_display=tree.getErrorsAsStructuredData())
         return -1  # ERROR
     if eco is None or tree is None:
-        print("Failed to load ecosystem")
+        logger.error("Failed to load ecosystem")
         return -1  # ERROR
 
     if args.operation == "snapshot-merge":
@@ -1095,48 +1094,49 @@ def main():
 
         dp: Optional[YellowDataPlatform] = cast(YellowDataPlatform, eco.getDataPlatform(args.platform_name))
         if dp is None:
-            print(f"Unknown platform: {args.platform_name}")
+            logger.error("Unknown platform", platform_name=args.platform_name)
             return -1  # ERROR
         graph: EcosystemPipelineGraph = eco.getGraph()
         root: Optional[PlatformPipelineGraph] = graph.roots.get(dp.name)
         if root is None:
-            print(f"Unknown graph for platform: {args.platform_name}")
+            logger.error("Unknown graph for platform", platform_name=args.platform_name)
             return -1  # ERROR
         # Is this datastore being ingested by this platform?
         if args.store_name not in root.storesToIngest:
-            print(f"Datastore {args.store_name} is not being ingested by platform: {args.platform_name}")
+            logger.error("Datastore is not being ingested by platform",
+                         store_name=args.store_name, platform_name=args.platform_name)
             return -1  # ERROR
 
         storeEntry: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(args.store_name)
         if storeEntry is None:
-            print(f"Unknown store: {args.store_name}")
+            logger.error("Unknown store", store_name=args.store_name)
             return -1  # ERROR
         store: Datastore = storeEntry.datastore
         store.cmd = dp.getEffectiveCMDForDatastore(eco, store)
 
         if store.cmd is None:
-            print(f"Store {args.store_name} has no capture meta data")
+            logger.error("Store has no capture meta data", store_name=args.store_name)
             return -1  # ERROR
         else:
             if store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
                 if args.dataset_name is None:
-                    print("Single dataset ingestion requires a dataset name")
+                    logger.error("Single dataset ingestion requires a dataset name")
                     return -1  # ERROR
             elif store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET:
                 if args.dataset_name is not None:
-                    print("Multi dataset ingestion does not require a dataset name")
+                    logger.error("Multi dataset ingestion does not require a dataset name")
                     return -1  # ERROR
 
         # DataTransformer output stores don't need external credentials
         if isinstance(store.cmd, SQLIngestion):
             if store.cmd.credential is None:
-                print(f"Store {args.store_name} with SQLIngestion has no credential")
+                logger.error("Store with SQLIngestion has no credential", store_name=args.store_name)
                 return -1  # ERROR
 
         if args.dataset_name:
             dataset: Optional[Dataset] = store.datasets.get(args.dataset_name)
             if dataset is None:
-                print(f"Unknown dataset: {args.dataset_name}")
+                logger.error("Unknown dataset", dataset_name=args.dataset_name)
                 return -1  # ERROR
 
         job: Job
@@ -1145,7 +1145,7 @@ def main():
         elif dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
             job = SnapshotMergeJobForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
         else:
-            print(f"Unknown milestone strategy: {dp.milestoneStrategy}")
+            logger.error("Unknown milestone strategy", milestone_strategy=dp.milestoneStrategy)
             return -1  # ERROR
 
         jobStatus: JobStatus = job.run()
@@ -1168,7 +1168,7 @@ def main():
                          dataset_name=args.dataset_name)
             return -1  # ERROR
     else:
-        print(f"Unknown operation: {args.operation}")
+        logger.error("Unknown operation", operation=args.operation)
         return -1  # ERROR
 
 

@@ -458,6 +458,27 @@ class ValidationTree:
         """This returns true if this object or any of its children have a problem of the given type"""
         return next((True for _ in self.findMatchingProblems(lambda p: isinstance(p, type))), False)
 
+    def getErrorsAsStructuredData(self) -> list[dict[str, Any]]:
+        """Returns all validation errors as structured data for logging systems"""
+        structured_errors: list[dict[str, Any]] = []
+
+        def collect_errors(node: 'ValidationTree', path: str = "") -> None:
+            current_path = f"{path}.{node.object.getSourceReferenceString()}" if path else node.object.getSourceReferenceString()
+
+            for problem in node.problems:
+                structured_errors.append({
+                    "path": current_path,
+                    "message": str(problem),
+                    "severity": problem.sev.name,
+                    "object_type": node.object.__class__.__name__
+                })
+
+            for child in node.children:
+                collect_errors(child, current_path)
+
+        collect_errors(self)
+        return structured_errors
+
 
 class ANSI_SQL_NamedObject(UserDSLObject):
     name: str

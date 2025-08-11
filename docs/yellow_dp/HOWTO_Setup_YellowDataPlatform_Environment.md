@@ -122,11 +122,12 @@ docker run --rm \
 ls -la generated_output/Test_DP/
 ```
 
-**Expected artifacts for each platform:**
+**Expected artifacts for PSP (Test_DP):**
 - `kubernetes-bootstrap.yaml` - Kubernetes deployment configuration
-- `{pspName}_infrastructure_dag.py` - Platform management DAG
-- `{pspName}_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
-- `{pspName}_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
+- `test_dp_infrastructure_dag.py` - Platform management DAG
+- `test_dp_model_merge_job.yaml` - Model merge job for populating ingestion stream configurations
+- `test_dp_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
+- `test_dp_reconcile_views_job.yaml` - Workspace views reconciliation job
 
 ### Step 5: Validate Configuration
 
@@ -160,7 +161,7 @@ kubectl create secret generic git \
 
 ```bash
 # Apply the Kubernetes configuration
-kubectl apply -f generated_output/YellowLive/kubernetes-bootstrap.yaml
+kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
 ```
 
 ### Step 3: Run Ring 1 Initialization
@@ -169,12 +170,12 @@ Ring 1 initialization creates the database schemas required for the platform ope
 
 ```bash
 # Wait for PostgreSQL to be ready
-kubectl wait --for=condition=ready pod -l app=yellowlive-postgres -n ns-yellow-starter --timeout=300s
+kubectl wait --for=condition=ready pod -l app=pg-postgres -n ns-yellow-starter --timeout=300s
 
 # Create required databases manually (required before Ring 1 initialization)
-kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE airflow_db;"
-kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE customer_db;"
-kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE datasurface_merge;"
+kubectl exec -it deployment/pg-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE airflow_db;"
+kubectl exec -it deployment/pg-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE customer_db;"
+kubectl exec -it deployment/pg-postgres -n ns-yellow-starter -- psql -U postgres -c "CREATE DATABASE datasurface_merge;"
 
 # Create source tables and initial test data using the data simulator
 # This creates the customers and addresses tables with initial data and simulates some changes and leaves it running continuously.
@@ -199,13 +200,11 @@ echo "Note: The data simulator will run continuously for days, simulating ongoin
 echo "You can monitor it with: kubectl logs data-simulator -n ns-yellow-starter -f"
 sleep 10
 
-# Apply Ring 1 initialization jobs (creates platform database schemas)
-kubectl apply -f generated_output/YellowLive/yellowlive_ring1_init_job.yaml
-kubectl apply -f generated_output/YellowForensic/yellowforensic_ring1_init_job.yaml
+# Apply Ring 1 initialization job (creates platform database schemas)
+kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
 
 # Wait for Ring 1 initialization to complete
-kubectl wait --for=condition=complete job/yellowlive-ring1-init -n ns-yellow-starter --timeout=300s
-kubectl wait --for=condition=complete job/yellowforensic-ring1-init -n ns-yellow-starter --timeout=300s
+kubectl wait --for=condition=complete job/test-dp-ring1-init -n ns-yellow-starter --timeout=300s
 ```
 
 ### Step 4: Verify Airflow Services
@@ -246,26 +245,20 @@ kubectl exec -it deployment/airflow-scheduler -n ns-yellow-starter -- \
 # Get the current scheduler pod name
 SCHEDULER_POD=$(kubectl get pods -n ns-yellow-starter -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
 
-# Copy factory DAGs to Airflow
-kubectl cp generated_output/YellowLive/yellowlive_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+# Copy infrastructure DAG to Airflow
+kubectl cp generated_output/Test_DP/test_dp_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 
-kubectl cp generated_output/YellowForensic/yellowforensic_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+# Deploy model merge job to populate ingestion stream configurations
+kubectl apply -f generated_output/Test_DP/test_dp_model_merge_job.yaml
 
-# Deploy model merge jobs to populate ingestion stream configurations
-kubectl apply -f generated_output/YellowLive/yellowlive_model_merge_job.yaml
-kubectl apply -f generated_output/YellowForensic/yellowforensic_model_merge_job.yaml
+# Wait for model merge job to complete
+kubectl wait --for=condition=complete job/test-dp-model-merge-job -n ns-yellow-starter --timeout=300s
 
-# Wait for model merge jobs to complete
-kubectl wait --for=condition=complete job/yellowlive-model-merge-job -n ns-yellow-starter --timeout=300s
-kubectl wait --for=condition=complete job/yellowforensic-model-merge-job -n ns-yellow-starter --timeout=300s
+# Deploy reconcile views job to create/update workspace views
+kubectl apply -f generated_output/Test_DP/test_dp_reconcile_views_job.yaml
 
-# Deploy reconcile views jobs to create/update workspace views
-kubectl apply -f generated_output/YellowLive/yellowlive_reconcile_views_job.yaml
-kubectl apply -f generated_output/YellowForensic/yellowforensic_reconcile_views_job.yaml
-
-# Wait for reconcile views jobs to complete
-kubectl wait --for=condition=complete job/yellowlive-reconcile-views-job -n ns-yellow-starter --timeout=300s
-kubectl wait --for=condition=complete job/yellowforensic-reconcile-views-job -n ns-yellow-starter --timeout=300s
+# Wait for reconcile views job to complete
+kubectl wait --for=condition=complete job/test-dp-reconcile-views-job -n ns-yellow-starter --timeout=300s
 
 # Restart Airflow scheduler to trigger factory DAGs (creates dynamic ingestion stream DAGs)
 kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
@@ -279,7 +272,7 @@ kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n ns-yellow-sta
 kubectl get pods -n ns-yellow-starter
 
 # Verify databases exist
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
 
 # Access Airflow web interface
 kubectl port-forward svc/airflow-webserver-service 8080:8080 -n ns-yellow-starter
@@ -292,14 +285,17 @@ Open http://localhost:8080 and login with:
 - **Password**: `admin123`
 
 **Expected DAGs in Airflow UI:**
-- `yellowlive_factory_dag` - YellowLive platform factory
-- `yellowlive_datatransformer_factory_dag` - YellowLive datatransformer factory
-- `yellowlive_infrastructure` - YellowLive infrastructure management
-- `yellowlive__CustomerDatabase_ingestion` - YellowLive ingestion stream DAG (created dynamically)
-- `yellowforensic_factory_dag` - YellowForensic platform factory  
-- `yellowforensic_datatransformer_factory_dag` - YellowForensic datatransformer factory
-- `yellowforensic_infrastructure` - YellowForensic infrastructure management
-- `yellowforensic__CustomerDatabase_ingestion` - YellowForensic ingestion stream DAG (created dynamically)
+- `test-dp_infrastructure` - Platform infrastructure management (paused by default)
+- `yellowlive_factory_dag` - YellowLive platform factory (created dynamically)
+- `yellowlive_datatransformer_factory` - YellowLive datatransformer factory (created dynamically, paused)
+- `yellowforensic_factory_dag` - YellowForensic platform factory (created dynamically)
+- `yellowforensic_datatransformer_factory` - YellowForensic datatransformer factory (created dynamically, paused)
+- `yellowlive__Store1_ingestion` - YellowLive Store1 ingestion stream DAG (created dynamically)
+- `yellowforensic__Store1_ingestion` - YellowForensic Store1 ingestion stream DAG (created dynamically)
+- `yellowlive__MaskedCustomers_dt_ingestion` - YellowLive DataTransformer output ingestion (created dynamically)
+- `yellowforensic__MaskedCustomers_dt_ingestion` - YellowForensic DataTransformer output ingestion (created dynamically)
+- `yellowlive__MaskedStoreGenerator_datatransformer` - YellowLive DataTransformer execution DAG (created dynamically)
+- `yellowforensic__MaskedStoreGenerator_datatransformer` - YellowForensic DataTransformer execution DAG (created dynamically)
 
 ## Ring Level Explanation
 
@@ -343,10 +339,10 @@ kubectl get svc -n ns-yellow-starter
 ### Database Connection
 ```bash
 # Test database connectivity (non-interactive)
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "pg_isready -U postgres -h localhost"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "pg_isready -U postgres -h localhost"
 
 # List databases (non-interactive)
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
 
 # Test with expected credentials
 # Username: postgres
@@ -358,22 +354,22 @@ When querying the database through kubectl exec, use non-interactive SQL command
 
 ```bash
 # ✅ CORRECT: Use PGPASSWORD environment variable with bash -c wrapper
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
 
 # ✅ CORRECT: Check specific database tables
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
 
 # ✅ CORRECT: Test database connectivity first
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "pg_isready -U postgres -h localhost"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "pg_isready -U postgres -h localhost"
 
 # ❌ AVOID: Interactive mode with -it flag (hangs in non-interactive environments)
-kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -l
+kubectl exec -it deployment/pg-postgres -n ns-yellow-starter -- psql -U postgres -l
 
 # ❌ AVOID: Without PGPASSWORD (hangs waiting for password input)
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -c 'SELECT datname FROM pg_database;'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -c 'SELECT datname FROM pg_database;'"
 
 # ❌ AVOID: psql meta-commands like \l, \dv (require interactive mode)
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -l"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -l"
 ```
 
 **Key improvements:**
@@ -388,10 +384,10 @@ kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "psq
 
 **Issue: Ingestion stream DAGs not appearing in Airflow UI**
 ```bash
-# Cause: Factory DAGs haven't run yet or model merge jobs failed
-# Solution: Verify model merge jobs completed and restart scheduler
+# Cause: Factory DAGs haven't run yet or model merge job failed
+# Solution: Verify model merge job completed and restart scheduler
 kubectl get jobs -n ns-yellow-starter
-kubectl logs job/yellowlive-model-merge-job -n ns-yellow-starter
+kubectl logs job/test-dp-model-merge-job -n ns-yellow-starter
 kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
 ```
 
@@ -399,14 +395,14 @@ kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
 ```bash
 # Cause: Secret keys mismatch or database not accessible
 # Solution: Verify secret format and database connectivity
-kubectl describe job/yellowlive-ring1-init -n ns-yellow-starter
-kubectl logs job/yellowlive-ring1-init -n ns-yellow-starter
+kubectl describe job/test-dp-ring1-init -n ns-yellow-starter
+kubectl logs job/test-dp-ring1-init -n ns-yellow-starter
 ```
 
 **Issue: Secret configuration errors**
 ```bash
 # Cause: Inconsistent secret key names
-# Verify all secrets use POSTGRES_USER/POSTGRES_PASSWORD format:
+# Verify all secrets use postgres_USER/postgres_PASSWORD format:
 kubectl get secret postgres -n ns-yellow-starter -o yaml
 ```
 
@@ -417,17 +413,17 @@ kubectl get secret postgres -n ns-yellow-starter -o yaml
 # Solution: Use PGPASSWORD environment variable and avoid interactive flags
 
 # ✅ Test database connectivity first:
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "pg_isready -U postgres -h localhost"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "pg_isready -U postgres -h localhost"
 
 # ✅ List databases (non-interactive):
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
 
 # ✅ Check specific database tables:
-kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
+kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
 
 # ❌ AVOID these approaches (they will hang):
-# kubectl exec -it deployment/yellowlive-postgres -n ns-yellow-starter -- psql -U postgres -l
-# kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -c 'SELECT datname FROM pg_database;'"
+# kubectl exec -it deployment/pg-postgres -n ns-yellow-starter -- psql -U postgres -l
+# kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "psql -U postgres -c 'SELECT datname FROM pg_database;'"
 ```
 
 ## Next Steps
@@ -594,8 +590,8 @@ docker run --rm \
 sudo kubectl create namespace ns-yellow-starter
 
 sudo kubectl create secret generic postgres \
-  --from-literal=POSTGRES_USER=postgres \
-  --from-literal=POSTGRES_PASSWORD=datasurface123 \
+  --from-literal=postgres_USER=postgres \
+  --from-literal=postgres_PASSWORD=datasurface123 \
   -n ns-yellow-starter
 
 sudo kubectl create secret generic git \
@@ -603,24 +599,22 @@ sudo kubectl create secret generic git \
   -n ns-yellow-starter
 
 # Deploy infrastructure
-sudo kubectl apply -f generated_output/YellowLive/kubernetes-bootstrap.yaml
+sudo kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
 ```
 
 **Initialize Databases and Deploy DAGs:**
 ```bash
 # Wait for PostgreSQL to be ready
-sudo kubectl wait --for=condition=ready pod -l app=yellowlive-postgres -n ns-yellow-starter --timeout=300s
+sudo kubectl wait --for=condition=ready pod -l app=pg-postgres -n ns-yellow-starter --timeout=300s
 
 # Create required databases
-sudo kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'CREATE DATABASE airflow_db;'"
-sudo kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'CREATE DATABASE customer_db;'"
-sudo kubectl exec deployment/yellowlive-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'CREATE DATABASE datasurface_merge;'"
+sudo kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'CREATE DATABASE airflow_db;'"
+sudo kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'CREATE DATABASE customer_db;'"
+sudo kubectl exec deployment/pg-postgres -n ns-yellow-starter -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'CREATE DATABASE datasurface_merge;'"
 
 # Run Ring 1 initialization
-sudo kubectl apply -f generated_output/YellowLive/yellowlive_ring1_init_job.yaml
-sudo kubectl apply -f generated_output/YellowForensic/yellowforensic_ring1_init_job.yaml
-sudo kubectl wait --for=condition=complete job/yellowlive-ring1-init -n ns-yellow-starter --timeout=300s
-sudo kubectl wait --for=condition=complete job/yellowforensic-ring1-init -n ns-yellow-starter --timeout=300s
+sudo kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
+sudo kubectl wait --for=condition=complete job/test-dp-ring1-init -n ns-yellow-starter --timeout=300s
 
 # Initialize Airflow
 sudo kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n ns-yellow-starter --timeout=300s
@@ -629,19 +623,14 @@ sudo kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- airflow u
 
 # Deploy DAGs and jobs
 SCHEDULER_POD=$(sudo kubectl get pods -n ns-yellow-starter -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
-sudo kubectl cp generated_output/YellowLive/yellowlive_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
-sudo kubectl cp generated_output/YellowForensic/yellowforensic_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
+sudo kubectl cp generated_output/Test_DP/test_dp_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n ns-yellow-starter
 
 # Deploy model merge and reconcile jobs
-sudo kubectl apply -f generated_output/YellowLive/yellowlive_model_merge_job.yaml
-sudo kubectl apply -f generated_output/YellowForensic/yellowforensic_model_merge_job.yaml
-sudo kubectl wait --for=condition=complete job/yellowlive-model-merge-job -n ns-yellow-starter --timeout=300s
-sudo kubectl wait --for=condition=complete job/yellowforensic-model-merge-job -n ns-yellow-starter --timeout=300s
+sudo kubectl apply -f generated_output/Test_DP/test_dp_model_merge_job.yaml
+sudo kubectl wait --for=condition=complete job/test-dp-model-merge-job -n ns-yellow-starter --timeout=300s
 
-sudo kubectl apply -f generated_output/YellowLive/yellowlive_reconcile_views_job.yaml
-sudo kubectl apply -f generated_output/YellowForensic/yellowforensic_reconcile_views_job.yaml
-sudo kubectl wait --for=condition=complete job/yellowlive-reconcile-views-job -n ns-yellow-starter --timeout=300s
-sudo kubectl wait --for=condition=complete job/yellowforensic-reconcile-views-job -n ns-yellow-starter --timeout=300s
+sudo kubectl apply -f generated_output/Test_DP/test_dp_reconcile_views_job.yaml
+sudo kubectl wait --for=condition=complete job/test-dp-reconcile-views-job -n ns-yellow-starter --timeout=300s
 
 # Restart scheduler to trigger factory DAGs
 sudo kubectl delete pod -n ns-yellow-starter -l app=airflow-scheduler
@@ -762,10 +751,20 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 ```
 
 **Pull Updated Image on Remote Machine:**
+
+For Kubernetes environments using containerd (K3s, most modern clusters):
 ```bash
-# On remote machine
+# On remote machine - use crictl for containerd (Kubernetes)
+sudo crictl pull datasurface/datasurface:latest
+```
+
+For Docker-based environments:
+```bash
+# On remote machine - use docker for Docker environments  
 docker pull datasurface/datasurface:latest
 ```
+
+**Note:** Most Kubernetes distributions (including K3s) use containerd as the container runtime, not Docker. Always use `crictl` commands for Kubernetes clusters to ensure images are cached in the correct location that Kubernetes can access.
 
 ### Remote Deployment Considerations
 
@@ -976,7 +975,11 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --push .
 
 # Pull updated image on remote machine
-docker pull datasurface/datasurface:latest
+# For Kubernetes environments (K3s, most modern clusters):
+sudo crictl pull datasurface/datasurface:latest
+
+# For Docker-based environments:
+# docker pull datasurface/datasurface:latest
 ```
 
 ### Verification Steps for NFS Setup
