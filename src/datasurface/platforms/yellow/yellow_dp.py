@@ -87,6 +87,10 @@ class JobStatus(Enum):
     ERROR = -1  # The job failed, stop the job and don't run again
 
 
+# The maximum length of a stream key. This is the key used to identify a stream of data.
+STREAM_KEY_MAX_LENGTH: int = 255
+
+
 class JobUtilities(ABC):
     """This class provides utilities for working with jobs in the Yellow platform."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: 'YellowDataPlatform') -> None:
@@ -109,7 +113,7 @@ class JobUtilities(ABC):
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
         t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
-                         Column("key", sqlalchemy.String(length=255), primary_key=True),
+                         Column("key", sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("currentBatch", sqlalchemy.Integer()))
         return t
 
@@ -117,7 +121,7 @@ class JobUtilities(ABC):
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
         t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
-                         Column("key", sqlalchemy.String(length=255), primary_key=True),
+                         Column("key", sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("batch_id", sqlalchemy.Integer(), primary_key=True),
                          Column("batch_start_time", sqlalchemy.TIMESTAMP()),
                          Column("batch_end_time", sqlalchemy.TIMESTAMP(), nullable=True),
@@ -295,9 +299,11 @@ class YellowDatasetUtilities(JobUtilities):
             if stored_hash and not self.validateSchemaUnchanged(dataset, stored_hash):
                 raise Exception(f"Schema changed for dataset {dataset_name} during batch processing")
 
-    def getKey(self) -> str:
+    def getIngestionStreamKey(self) -> str:
         """This returns the key for the batch"""
-        return f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
+        key: str = f"{self.store.name}#{self.dataset.name}" if self.dataset is not None else self.store.name
+        # If its too long then truncate it with mangling
+        return DataContainerNamingMapper.truncateIdentifier(key, STREAM_KEY_MAX_LENGTH)
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
@@ -1193,9 +1199,11 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                                 # Use the same stream_key logic as the ingestion factory
                                 if is_single_dataset:
-                                    stream_key = f"{sink.storeName}_{sink.datasetName}"
+                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.psp.credStore, self.dp, store, sink.datasetName)
+                                    stream_key = ydu.getIngestionStreamKey()
                                 else:
-                                    stream_key = sink.storeName
+                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.psp.credStore, self.dp, store)
+                                    stream_key = ydu.getIngestionStreamKey()
 
                                 # Regular ingestion DAG naming pattern
                                 dag_id = f"{YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}__{stream_key}_ingestion"
@@ -2735,10 +2743,12 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         keys_to_reset = []
         if datasetName is not None:
             # Single dataset reset
-            keys_to_reset.append(f"{storeName}#{datasetName}")
+            ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore, datasetName)
+            keys_to_reset.append(ydu.getIngestionStreamKey())
         else:
             # Multi-dataset reset - there is just one key for the store.
-            keys_to_reset.append(storeName)
+            ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)
+            keys_to_reset.append(ydu.getIngestionStreamKey())
 
         # Get table names
         ypu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)

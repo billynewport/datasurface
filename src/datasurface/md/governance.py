@@ -236,7 +236,8 @@ class DataContainerNamingMapper:
         """This maps a noun to a string which is a valid identifier for the data container"""
         return self.formatIdentifier(self.truncateIdentifier(s, self.maxLen))
 
-    def truncateIdentifier(self, s: str, maxLen: int) -> str:
+    @staticmethod
+    def truncateIdentifier(s: str, maxLen: int) -> str:
         """This truncates the string to the maximum length. This truncation will add a 3 digit hex hash
         to the end of the string. This, the string may be truncated to maxLen - 4 and then the hash is added
         with an underscore seperator."""

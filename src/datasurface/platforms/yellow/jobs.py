@@ -95,7 +95,7 @@ class Job(YellowDatasetUtilities):
                          Column("records_updated", Integer(), nullable=True),
                          Column("records_deleted", Integer(), nullable=True),
                          Column("total_records", Integer(), nullable=True),
-                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
+                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold a BatchState in JSON format.
         return t
 
     def createBatchCounterTable(self, mergeEngine: Engine) -> None:
@@ -159,7 +159,7 @@ class Job(YellowDatasetUtilities):
     def createSingleBatch(self, store: Datastore, connection: Connection) -> int:
         """This creates a single-dataset batch and returns the batch id. The transaction is managed by the caller."""
         assert self.dataset is not None
-        key: str = self.getKey()
+        key: str = self.getIngestionStreamKey()
         # Create schema hashes for the dataset
         schema_versions = {self.dataset.name: self.getSchemaHash(self.dataset)}
         state: BatchState = BatchState(all_datasets=[self.dataset.name], schema_versions=schema_versions)  # Just one dataset to ingest, start at offset 0
@@ -171,7 +171,7 @@ class Job(YellowDatasetUtilities):
         Get the current batch for the store. The first time, there will be no record in the batch counter table.
         In this case, the current batch is 0.
         """
-        key: str = self.getKey()
+        key: str = self.getIngestionStreamKey()
         allDatasets: List[str] = list(store.datasets.keys())
 
         # Create schema hashes for all datasets
@@ -197,7 +197,7 @@ class Job(YellowDatasetUtilities):
             else:
                 newBatchId = self.createMultiBatch(self.store, connection)
             # Grab batch state from the batch metrics table
-            state: BatchState = self.getBatchState(mergeEngine, connection, self.getKey(), newBatchId)
+            state: BatchState = self.getBatchState(mergeEngine, connection, self.getIngestionStreamKey(), newBatchId)
             # Truncate the staging table for each dataset in the batch state
             for datasetName in state.all_datasets:
                 dataset: Dataset = self.store.datasets[datasetName]
@@ -389,11 +389,13 @@ class Job(YellowDatasetUtilities):
         if ingestionType == IngestionConsistencyType.SINGLE_DATASET:
             # For single dataset ingestion, process each dataset separately
             for dataset in self.store.datasets.values():
-                key = f"{self.store.name}#{dataset.name}"
+                ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, dataset.name)
+                key = ydu.getIngestionStreamKey()
                 currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         else:
             # For multi-dataset ingestion, process all datasets in a single batch
-            key = self.store.name
+            ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store)
+            key = ydu.getIngestionStreamKey()
             currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus
 
