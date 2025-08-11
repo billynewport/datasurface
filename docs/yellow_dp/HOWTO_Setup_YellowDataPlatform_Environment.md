@@ -1472,6 +1472,226 @@ kubectl port-forward svc/airflow-webserver-service 8080:8080 -n ns-yellow-starte
 - Automated ingestion stream DAG creation via factory pattern
 - Ready for immediate data pipeline deployment
 
+## Accessing Airflow DAG Logs
+
+This section explains how to access and analyze Airflow DAG logs for monitoring, debugging, and troubleshooting your YellowDataPlatform pipelines.
+
+### Method 1: Airflow Web Interface (Recommended)
+
+**Access the Web Interface:**
+```bash
+# Set up port forwarding to access Airflow UI
+kubectl port-forward svc/airflow-webserver-service 8080:8080 -n ns-yellow-starter
+```
+
+**Navigate to DAG Logs:**
+1. Open http://localhost:8080 in your browser
+2. Login with credentials: `admin` / `admin123`
+3. Find your DAG (e.g., `yellowlive__Store1_ingestion`)
+4. Click on the DAG name to view the graph
+5. Click on any task box to view task details
+6. Click "Logs" to view detailed execution logs
+
+**Key DAG Examples:**
+- `yellowlive__Store1_ingestion` - Live data ingestion pipeline
+- `yellowforensic__Store1_ingestion` - Forensic data ingestion pipeline
+- `test-dp_infrastructure` - Platform infrastructure management
+- Factory DAGs for dynamic stream creation
+
+### Method 2: Kubernetes Command Line Access
+
+**Access Airflow Scheduler Logs:**
+```bash
+# View real-time scheduler logs
+kubectl logs -f deployment/airflow-scheduler -n ns-yellow-starter
+
+# Search for specific DAG activity
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter | grep "yellowlive__Store1_ingestion"
+
+# View logs for the last hour
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter --since=1h
+```
+
+**Access Specific DAG Task Logs:**
+```bash
+# List available log directories
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- ls -la /opt/airflow/logs/
+
+# View logs for specific DAG
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- ls -la /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/
+
+# Access specific task run logs
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- cat /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/run_id=scheduled__2025-08-11T21:58:00+00:00/task_id=snapshot_merge_job/attempt=1.log
+```
+
+### Method 3: Remote SSH Access
+
+**For Remote Kubernetes Deployments:**
+```bash
+# SSH into remote machine and access logs
+ssh -i ~/.ssh/id_rsa_batch user@remote-host
+
+# View Airflow scheduler logs on remote machine
+sudo kubectl logs -f deployment/airflow-scheduler -n ns-yellow-starter
+
+# Access specific DAG logs
+sudo kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- cat /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/run_id=scheduled__2025-08-11T21:58:00+00:00/task_id=snapshot_merge_job/attempt=1.log
+```
+
+### Understanding Log Structure
+
+**Airflow Log Directory Structure:**
+```
+/opt/airflow/logs/
+├── dag_id=yellowlive__Store1_ingestion/
+│   ├── run_id=scheduled__2025-08-11T21:58:00+00:00/
+│   │   ├── task_id=snapshot_merge_job/
+│   │   │   └── attempt=1.log
+│   │   └── task_id=check_result/
+│   │       └── attempt=1.log
+│   └── run_id=manual__2025-08-11T21:03:02+00:00/
+│       └── ...
+└── dag_id=test-dp_infrastructure/
+    └── ...
+```
+
+**Log Types:**
+- **Scheduler Logs**: Overall DAG scheduling and execution coordination
+- **Task Logs**: Individual task execution details and Python code output
+- **Webserver Logs**: Airflow UI access and authentication logs
+
+### Common Log Analysis Commands
+
+**Monitor Active DAG Runs:**
+```bash
+# Watch for DAG execution in real-time
+kubectl logs -f deployment/airflow-scheduler -n ns-yellow-starter | grep -E "(yellowlive|yellowforensic).*ingestion"
+
+# Check for task failures
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter | grep -i "failed\|error" | tail -10
+
+# Monitor specific task execution
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter | grep "snapshot_merge_job"
+```
+
+**Search Log History:**
+```bash
+# Find recent DAG runs
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- find /opt/airflow/logs -name "*.log" -mtime -1 | head -10
+
+# Search for error patterns in task logs
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- grep -r "ERROR\|Exception" /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/ | tail -5
+
+# Check specific date range logs
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- ls -la /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/ | grep "2025-08-11"
+```
+
+**Extract Structured Log Data:**
+```bash
+# View JSON structured logs from YellowDataPlatform
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- cat /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/run_id=scheduled__2025-08-11T21:58:00+00:00/task_id=snapshot_merge_job/attempt=1.log | grep '"timestamp"'
+
+# Extract error messages with context
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- cat /opt/airflow/logs/dag_id=yellowlive__Store1_ingestion/run_id=scheduled__2025-08-11T21:58:00+00:00/task_id=snapshot_merge_job/attempt=1.log | grep -A 3 -B 3 '"level": "ERROR"'
+```
+
+### Troubleshooting Common Log Issues
+
+**Issue: No Logs Available**
+```bash
+# Check if Airflow pods are running
+kubectl get pods -n ns-yellow-starter | grep airflow
+
+# Verify DAG has been executed
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- airflow dags list | grep yellowlive
+
+# Check DAG parsing errors
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter | grep -i "parsing\|import"
+```
+
+**Issue: Permission Denied Accessing Logs**
+```bash
+# Ensure proper permissions on log directories
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- ls -la /opt/airflow/logs/
+
+# Check pod exec permissions
+kubectl auth can-i exec pods --namespace=ns-yellow-starter
+```
+
+**Issue: Logs Not Showing Python Output**
+The YellowDataPlatform uses structured JSON logging. Python `print()` statements are not captured in Airflow logs. Use the proper logging framework instead:
+
+```python
+# ❌ This will NOT appear in Airflow logs:
+print("Debug message")
+
+# ✅ This WILL appear in Airflow logs:
+from datasurface.platforms.yellow.logging_utils import get_contextual_logger
+logger = get_contextual_logger(__name__)
+logger.info("Debug message")
+```
+
+### Log Monitoring Best Practices
+
+**Regular Health Checks:**
+```bash
+# Daily log health check
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- find /opt/airflow/logs -name "*.log" -mtime -1 | wc -l
+
+# Check for recent failures
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter --since=24h | grep -i "failed\|error" | wc -l
+
+# Monitor disk usage for logs
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- du -sh /opt/airflow/logs/
+```
+
+**Log Retention Management:**
+```bash
+# Clean old logs (older than 7 days)
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- find /opt/airflow/logs -name "*.log" -mtime +7 -delete
+
+# Monitor log directory size
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- du -h /opt/airflow/logs/ | tail -1
+```
+
+**Performance Monitoring:**
+```bash
+# Check for slow-running tasks
+kubectl exec deployment/airflow-scheduler -n ns-yellow-starter -- grep -r "run_duration" /opt/airflow/logs/ | sort -k4 -n | tail -5
+
+# Monitor task success rates
+kubectl logs deployment/airflow-scheduler -n ns-yellow-starter --since=24h | grep -c "Marking task as SUCCESS"
+```
+
+### Expected Log Patterns
+
+**Successful DAG Execution:**
+```
+[2025-08-11T21:59:31.667+0000] {taskinstance.py:2480} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='datasurface' AIRFLOW_CTX_DAG_ID='yellowlive__Store1_ingestion'
+[2025-08-11T21:59:49.030+0000] {pod_manager.py:447} INFO - [base] {"timestamp": "2025-08-11T21:59:48.786715+00:00Z", "level": "INFO", "logger": "datasurface.cmd.platform", "message": "Checking remote repository for updates..."}
+[2025-08-11T21:59:52.094+0000] {taskinstance.py:1138} INFO - Marking task as SUCCESS. dag_id=yellowlive__Store1_ingestion, task_id=snapshot_merge_job
+```
+
+**Failed DAG Execution:**
+```
+[2025-08-11T21:59:52.833+0000] {taskinstance.py:2698} ERROR - Task failed with exception
+Exception: SnapshotMergeJob failed with code -1 - manual intervention required
+[2025-08-11T21:59:52.841+0000] {taskinstance.py:1138} INFO - Marking task as FAILED. dag_id=yellowlive__Store1_ingestion, task_id=check_result
+```
+
+**Structured JSON Log Entries:**
+```json
+{
+  "timestamp": "2025-08-11T21:59:49.034791+00:00Z",
+  "level": "INFO",
+  "logger": "__main__",
+  "message": "Starting snapshot-merge operation",
+  "workspace_name": "Store1",
+  "platform_name": "YellowLive",
+  "operation": "snapshot-merge"
+}
+```
+
 ## References
 
 - [MVP Dynamic DAG Factory](MVP_DynamicDAG.md)

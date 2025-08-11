@@ -21,6 +21,10 @@ from datasurface.md.types import DataType
 from abc import ABC, abstractmethod
 from geoalchemy2 import Geography as GA2Geography, Geometry as GA2Geometry
 from sqlalchemy.engine.url import URL
+import logging
+
+# Standard Python logger - works everywhere
+logger = logging.getLogger(__name__)
 
 
 def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None) -> Column[Any]:
@@ -421,7 +425,7 @@ def createOrUpdateTable(engine: Engine, table: Table) -> bool:
     inspector = inspect(engine)  # type: ignore[attr-defined]
     if not inspector.has_table(table.name):  # type: ignore[attr-defined]
         table.create(engine)
-        print(f"Created table {table.name}")
+        logger.info("Created table %s", table.name)
         return True
     else:
         currentSchema: Table = Table(table.name, MetaData(), autoload_with=engine)
@@ -454,9 +458,9 @@ def createOrUpdateTable(engine: Engine, table: Table) -> bool:
                     alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
                     connection.execute(text(alter_sql))
             if newColumns:
-                print(f"Added columns to table {table.name}: {[col.name for col in newColumns]}")  # type: ignore[attr-defined]
+                logger.info("Added columns to table %s: %s", table.name, [col.name for col in newColumns])  # type: ignore[attr-defined]
             if columnsToAlter:
-                print(f"Altered columns in table {table.name}: {[col.name for col in columnsToAlter]}")  # type: ignore[attr-defined]
+                logger.info("Altered columns in table %s: %s", table.name, [col.name for col in columnsToAlter])  # type: ignore[attr-defined]
             return True
         else:
             return False
@@ -502,33 +506,33 @@ def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyi
                     normalizedNewSelect = ' '.join(newViewSql.replace('\n', ' ').split()).upper().strip()
 
                 # Debug output for troubleshooting
-                print(f"DEBUG: Current view def: {repr(normalizedCurrent)}")
-                print(f"DEBUG: New view def: {repr(normalizedNewSelect)}")
+                logger.debug("Current view def: %s", repr(normalizedCurrent))
+                logger.debug("New view def: %s", repr(normalizedNewSelect))
 
                 # Check if the SELECT part matches
                 if normalizedCurrent == normalizedNewSelect:
                     # No changes needed
-                    print(f"View {viewName} already matches current schema")
+                    logger.info("View %s already matches current schema", viewName)
                     return False
                 else:
                     # View needs to be updated
                     with engine.begin() as connection:
                         connection.execute(text(newViewSql))
-                    print(f"Updated view {viewName} to match current schema")
+                    logger.info("Updated view %s to match current schema", viewName)
                     return True
 
         except Exception as e:
             # If we can't get the current view definition, assume it needs updating
-            print(f"Could not compare view definitions for {viewName}, updating anyway: {e}")
+            logger.warning("Could not compare view definitions for %s, updating anyway: %s", viewName, e)
             with engine.begin() as connection:
                 connection.execute(text(newViewSql))
-            print(f"Updated view {viewName} to match current schema")
+            logger.info("Updated view %s to match current schema", viewName)
             return True
     else:
         # View doesn't exist, create it
         with engine.begin() as connection:
             connection.execute(text(newViewSql))
-        print(f"Created view {viewName} with current schema")
+        logger.info("Created view %s with current schema", viewName)
         return True
 
 

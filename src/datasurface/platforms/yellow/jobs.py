@@ -557,9 +557,9 @@ class Job(YellowDatasetUtilities):
 
                     offset = state.current_offset
 
-                print(f"DEBUG: Exited ingestion loop for dataset {datasetToIngestName}")
+                logger.debug("Exited ingestion loop for dataset", dataset_name=datasetToIngestName)
                 # All rows for this dataset have been ingested, move to next dataset.
-                print(f"DEBUG: Finished ingesting dataset {datasetToIngestName}, hasMoreDatasets: {state.hasMoreDatasets()}")
+                logger.debug("Finished ingesting dataset", dataset_name=datasetToIngestName, has_more_datasets=state.hasMoreDatasets())
 
                 # Move to next dataset if any
                 state.moveToNextDataset()
@@ -568,11 +568,11 @@ class Job(YellowDatasetUtilities):
                 # the job finishes and waits for the next trigger for MERGE to start.
                 if state.hasMoreDatasets():
                     # Move to next dataset
-                    print(f"DEBUG: Moving to next dataset: {state.getCurrentDataset()}")
+                    logger.debug("Moving to next dataset", next_dataset=state.getCurrentDataset())
                     self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.STARTED, state=state)
                 else:
                     # No more datasets to ingest, set the state to merging
-                    print("DEBUG: No more datasets to ingest, setting status to INGESTED")
+                    logger.debug("No more datasets to ingest, setting status to INGESTED")
                     self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         # If we get here, all datasets have been processed (even if they had no data)
@@ -580,7 +580,7 @@ class Job(YellowDatasetUtilities):
         with mergeEngine.begin() as connection:
             currentStatus = self.checkBatchStatus(connection, key, batchId)
             if currentStatus == BatchStatus.STARTED.value:
-                print("DEBUG: Ensuring batch status is set to INGESTED after processing all datasets")
+                logger.debug("Ensuring batch status is set to INGESTED after processing all datasets")
                 self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
@@ -694,24 +694,24 @@ class SnapshotMergeJobForensic(Job):
                 )
                 """
 
-                print(f"DEBUG: Executing PostgreSQL 16 compatible forensic merge for dataset {datasetToMergeName}")
-                print("DEBUG: Step 1 - Closing changed records")
+                logger.debug("Executing PostgreSQL 16 compatible forensic merge for dataset", dataset_name=datasetToMergeName)
+                logger.debug("Step 1 - Closing changed records")
                 result1 = connection.execute(text(close_changed_sql))
                 changed_records = result1.rowcount
                 total_updated += changed_records
-                print(f"DEBUG: Step 1 - Closed {changed_records} changed records")
+                logger.debug("Step 1 - Closed changed records", changed_records=changed_records)
 
-                print("DEBUG: Step 2 - Closing deleted records")
+                logger.debug("Step 2 - Closing deleted records")
                 result2 = connection.execute(text(close_deleted_sql))
                 deleted_records = result2.rowcount
                 total_deleted += deleted_records
-                print(f"DEBUG: Step 2 - Closed {deleted_records} deleted records")
+                logger.debug("Step 2 - Closed deleted records", deleted_records=deleted_records)
 
-                print("DEBUG: Step 3 - Inserting new records")
+                logger.debug("Step 3 - Inserting new records")
                 result3 = connection.execute(text(insert_new_sql))
                 new_records = result3.rowcount
                 total_inserted += new_records
-                print(f"DEBUG: Step 3 - Inserted {new_records} new records")
+                logger.debug("Step 3 - Inserted new records", new_records=new_records)
 
                 # Insert new versions for changed records (where the old record was just closed)
                 insert_changed_sql = f"""
@@ -732,11 +732,11 @@ class SnapshotMergeJobForensic(Job):
                     AND m2.{sp.BATCH_IN_COLUMN_NAME} = {batchId}
                 )
                 """
-                print("DEBUG: Step 4 - Inserting new versions for changed records")
+                logger.debug("Step 4 - Inserting new versions for changed records")
                 result4 = connection.execute(text(insert_changed_sql))
                 changed_new_records = result4.rowcount
                 total_inserted += changed_new_records
-                print(f"DEBUG: Step 4 - Inserted {changed_new_records} new versions for changed records")
+                logger.debug("Step 4 - Inserted new versions for changed records", changed_new_records=changed_new_records)
 
                 # Count total records processed from staging for this dataset
                 count_result = connection.execute(
@@ -744,15 +744,22 @@ class SnapshotMergeJobForensic(Job):
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
-                print(f"DEBUG: Dataset {datasetToMergeName} - New: {new_records}, Changed: {changed_records}, "
-                      f"Deleted: {deleted_records}, Changed New Versions: {changed_new_records}")
+                logger.debug("Dataset merge results",
+                             dataset_name=datasetToMergeName,
+                             new_records=new_records,
+                             changed_records=changed_records,
+                             deleted_records=deleted_records,
+                             changed_new_versions=changed_new_records)
 
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 
-        print(f"DEBUG: Total forensic merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
+        logger.info("Total forensic merge results",
+                    total_inserted=total_inserted,
+                    total_updated=total_updated,
+                    total_deleted=total_deleted)
         return total_inserted, total_updated, total_deleted
 
 
@@ -827,7 +834,10 @@ class SnapshotMergeJobLiveOnly(Job):
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
-                print(f"DEBUG: Processing {total_records} records for dataset {datasetToMergeName} in batches of {batch_size}")
+                logger.debug("Processing records for dataset in batches",
+                             dataset_name=datasetToMergeName,
+                             total_records=total_records,
+                             batch_size=batch_size)
 
                 # Process in batches using INSERT...ON CONFLICT for better PostgreSQL compatibility
                 for offset in range(0, total_records, batch_size):
@@ -850,7 +860,7 @@ class SnapshotMergeJobLiveOnly(Job):
                     WHERE {mergeTableName}.{self.schemaProjector.ALL_HASH_COLUMN_NAME} != EXCLUDED.{self.schemaProjector.ALL_HASH_COLUMN_NAME}
                     """
 
-                    print(f"DEBUG: Executing batch upsert for offset {offset}")
+                    logger.debug("Executing batch upsert", offset=offset)
                     connection.execute(text(batch_upsert_sql))
 
                 # Handle deletions once after all inserts/updates for this dataset
@@ -862,7 +872,7 @@ class SnapshotMergeJobLiveOnly(Job):
                     AND s.{self.schemaProjector.KEY_HASH_COLUMN_NAME} = m.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
                 )
                 """
-                print(f"DEBUG: Executing deletion query for dataset {datasetToMergeName}")
+                logger.debug("Executing deletion query for dataset", dataset_name=datasetToMergeName)
                 delete_result = connection.execute(text(delete_sql))
                 dataset_deleted = delete_result.rowcount
                 total_deleted += dataset_deleted
@@ -888,14 +898,21 @@ class SnapshotMergeJobLiveOnly(Job):
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
 
-                print(f"DEBUG: Dataset {datasetToMergeName} - Inserted: {dataset_inserted}, Updated: {dataset_updated}, Deleted: {dataset_deleted}")
+                logger.debug("Dataset live-only merge results",
+                             dataset_name=datasetToMergeName,
+                             inserted=dataset_inserted,
+                             updated=dataset_updated,
+                             deleted=dataset_deleted)
 
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 
-        print(f"DEBUG: Total merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
+        logger.info("Total live-only merge results",
+                    total_inserted=total_inserted,
+                    total_updated=total_updated,
+                    total_deleted=total_deleted)
         return total_inserted, total_updated, total_deleted
 
     def _mergeStagingToMergeWithMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
@@ -934,7 +951,9 @@ class SnapshotMergeJobLiveOnly(Job):
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
-                print(f"DEBUG: Processing {total_records} records for dataset {datasetToMergeName} using MERGE with DELETE")
+                logger.debug("Processing records for dataset using MERGE with DELETE",
+                             dataset_name=datasetToMergeName,
+                             total_records=total_records)
 
                 # Create a staging view that includes records to be deleted
                 # We need to identify records that exist in merge but not in staging (deletions)
@@ -989,7 +1008,7 @@ class SnapshotMergeJobLiveOnly(Job):
                     VALUES ({', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME}, s.{sp.KEY_HASH_COLUMN_NAME})
                 """
 
-                print(f"DEBUG: Executing MERGE with DELETE for dataset {datasetToMergeName}")
+                logger.debug("Executing MERGE with DELETE for dataset", dataset_name=datasetToMergeName)
                 connection.execute(text(merge_sql))
 
                 # Get metrics from the MERGE operation
@@ -1026,14 +1045,21 @@ class SnapshotMergeJobLiveOnly(Job):
                 total_updated += dataset_updated
                 total_deleted += dataset_deleted
 
-                print(f"DEBUG: Dataset {datasetToMergeName} - Inserted: {dataset_inserted}, Updated: {dataset_updated}, Deleted: {dataset_deleted}")
+                logger.debug("Dataset MERGE results",
+                             dataset_name=datasetToMergeName,
+                             inserted=dataset_inserted,
+                             updated=dataset_updated,
+                             deleted=dataset_deleted)
 
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 
-        print(f"DEBUG: Total merge results - Inserted: {total_inserted}, Updated: {total_updated}, Deleted: {total_deleted}")
+        logger.info("Total MERGE operation results",
+                    total_inserted=total_inserted,
+                    total_updated=total_updated,
+                    total_deleted=total_deleted)
         return total_inserted, total_updated, total_deleted
 
 
@@ -1175,11 +1201,13 @@ def main():
 if __name__ == "__main__":
     try:
         exit_code = main()
+        # This specific print must remain - Airflow parses this from logs
         print(f"DATASURFACE_RESULT_CODE={exit_code}")
     except Exception as e:
-        print(f"Unhandled exception in main: {e}")
+        logger.error("Unhandled exception in main", exception=str(e))
         import traceback
         traceback.print_exc()
+        # This specific print must remain - Airflow parses this from logs
         print("DATASURFACE_RESULT_CODE=-1")
         exit_code = -1
     # Always exit with 0 (success) - Airflow will parse the result code from logs

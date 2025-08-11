@@ -35,6 +35,10 @@ from datasurface.md.keys import InvalidLocationStringProblem
 import re
 import json
 from datasurface.md.documentation import PlainTextDocumentation
+import logging
+
+# Standard Python logger - works everywhere
+logger = logging.getLogger(__name__)
 
 
 class ProductionStatus(Enum):
@@ -2150,6 +2154,8 @@ class Ecosystem(GitControlledObject, JSONable):
             self.createGraph()
             for psp in self.platformServicesProviders:
                 psp.lint(self, ecoTree.addSubTree(psp))
+        else:
+            logger.error("Ecosystem model has errors, didnt generate graph: %s", json.dumps(ecoTree.getErrorsAsStructuredData(), indent=2))
 
         # If there are no errors at this point then
         # Generate pipeline graphs and lint them.

@@ -237,7 +237,6 @@ def get_logging_config_from_environment() -> Dict[str, Any]:
 def setup_logging_for_environment() -> logging.Logger:
     """Setup logging based on environment configuration"""
     config = get_logging_config_from_environment()
-
     return setup_kubernetes_logging(
         level=config['level'],
         enable_json=config['enable_json']

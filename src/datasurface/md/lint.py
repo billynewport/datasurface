@@ -12,6 +12,10 @@ from datasurface.md.utils import is_valid_sql_identifier
 from datasurface.md.exceptions import NameMustBeANSISQLIdentifierException
 import os
 from datasurface.md.json import JSONable
+import logging
+
+# Standard Python logger - works everywhere
+logger = logging.getLogger(__name__)
 
 # Global performance controls
 _enable_source_tracking = os.environ.get('DATASURFACE_DEBUG', 'false').lower() == 'true'
@@ -440,19 +444,22 @@ class ValidationTree:
         self.numErrors = 0
         self.numWarnings = 0
         if (self.hasErrors() or self.hasWarnings()):  # If something to see here or in the children then
-            print(" " * indent, self.object.getSourceReferenceString())
+            logger.info("%s%s", " " * indent, self.object.getSourceReferenceString())
             for problem in self.problems:
-                print(" " * (indent + 2), str(problem))
-                if (problem.sev == ProblemSeverity.ERROR):
+                if problem.sev == ProblemSeverity.ERROR:
+                    logger.error("%s%s", " " * (indent + 2), str(problem))
                     self.numErrors += 1
-                if (problem.sev == ProblemSeverity.WARNING):
+                elif problem.sev == ProblemSeverity.WARNING:
+                    logger.warning("%s%s", " " * (indent + 2), str(problem))
                     self.numWarnings += 1
+                else:
+                    logger.info("%s%s", " " * (indent + 2), str(problem))
             for child in self.children:
                 child.printTree(indent + 2)
                 self.numErrors += child.numErrors
                 self.numWarnings += child.numWarnings
             if (indent == 0):
-                print(f"Total errors: {self.numErrors}, warnings: {self.numWarnings}")
+                logger.info("Total errors: %d, warnings: %d", self.numErrors, self.numWarnings)
 
     def containsProblemType(self, type: Any) -> bool:
         """This returns true if this object or any of its children have a problem of the given type"""
