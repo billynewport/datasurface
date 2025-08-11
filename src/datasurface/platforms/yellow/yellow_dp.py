@@ -791,7 +791,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 return ""
 
         # Lint Workspace data transformers, only PythonRepoCodeArtifacts are supported
-        for workspace in self.graph.workspaces.values():
+        for dsgRoot in self.graph.roots:
+            workspace: Workspace = dsgRoot.workspace
             if workspace.dataTransformer is not None:
                 if not isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact):
                     tree.addRaw(ObjectWrongType(workspace.dataTransformer.code, PythonRepoCodeArtifact, ProblemSeverity.ERROR))
@@ -918,9 +919,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             else:
                 storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
 
-        # Check all Workspace requirements are supported by the platform
-        for workspace in self.graph.workspaces.values():
+        # For the DSGs assigned to the platform, check all Workspace requirements are supported by the platform
+        for dsgRoot in self.graph.roots:
+            workspace: Workspace = dsgRoot.workspace
             wsTree: ValidationTree = tree.addSubTree(workspace)
+            pc: Optional[DataPlatformChooser] = dsgRoot.dsg.platformMD
+            dsgTree: ValidationTree = wsTree.addSubTree(dsgRoot.dsg)
             if workspace.dataTransformer:
                 dtTree: ValidationTree = wsTree.addSubTree(workspace.dataTransformer)
                 dt: DataTransformer = workspace.dataTransformer
@@ -933,19 +937,19 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 if dt.trigger is not None:
                     if not isinstance(dt.trigger, CronTrigger):
                         dtTree.addRaw(ObjectNotSupportedByDataPlatform(dt.trigger, [CronTrigger], ProblemSeverity.ERROR))
+            else:
+                if pc is None:
+                    dsgTree.addRaw(AttributeNotSet("platformMD"))
 
-            for dsg in workspace.dsgs.values():
-                dsgTree: ValidationTree = wsTree.addSubTree(dsg)
-                pc: Optional[DataPlatformChooser] = dsg.platformMD
-                if pc is not None:
-                    if isinstance(pc, WorkspacePlatformConfig):
-                        pcTree: ValidationTree = dsgTree.addSubTree(pc)
+            if pc is not None:
+                if isinstance(pc, WorkspacePlatformConfig):
+                    pcTree: ValidationTree = dsgTree.addSubTree(pc)
+                    if self.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
                         if pc.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
                             pcTree.addRaw(AttributeValueNotSupported(pc, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
-                    else:
-                        dsgTree.addRaw(ObjectWrongType(pc, WorkspacePlatformConfig, ProblemSeverity.ERROR))
+                    # batch_milestoned supports LIVE_WITH_FORENSIC_HISTORY and FORENSIC
                 else:
-                    dsgTree.addRaw(AttributeNotSet("platformMD"))
+                    dsgTree.addRaw(ObjectWrongType(pc, WorkspacePlatformConfig, ProblemSeverity.ERROR))
 
         # Check CodeArtifacts on DataTransformer nodes are compatible with the PSP on the Ecosystem
         # TODO This is wrong
@@ -1173,7 +1177,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 continue
 
             workspaceName = node.workspace.name
-            workspace = self.graph.workspaces[workspaceName]
+            workspace = self.graph.eco.cache_getWorkspaceOrThrow(workspaceName).workspace
 
             # Only process workspaces that have a DataTransformer
             if workspace.dataTransformer is not None:
@@ -1422,7 +1426,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 continue
 
         # DataTransformer repository credentials
-        for workspaceName, workspace in self.graph.workspaces.items():
+        for dsgRoot in self.graph.roots:
+            workspace: Workspace = dsgRoot.workspace
+            workspaceName = workspace.name
             if workspace.dataTransformer is not None:
                 assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
                 if workspace.dataTransformer.code.repo.credential is not None:
