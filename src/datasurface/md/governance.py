@@ -3218,6 +3218,7 @@ class WorkspacePlatformConfig(DataPlatformChooser):
     """This allows a Workspace to specify per pipeline hints for behavior, i.e.
     allowed latency and so on"""
     def __init__(self, hist: ConsumerRetentionRequirements) -> None:
+        DataPlatformChooser.__init__(self)
         self.retention: ConsumerRetentionRequirements = hist
 
     def __eq__(self, other: object) -> bool:
@@ -3245,6 +3246,7 @@ class WorkspacePlatformConfig(DataPlatformChooser):
 class WorkspaceFixedDataPlatform(DataPlatformChooser):
     """This specifies a fixed DataPlatform for a Workspace"""
     def __init__(self, dp: DataPlatformKey):
+        DataPlatformChooser.__init__(self)
         self.dataPlatform: DataPlatformKey = dp
 
     def __eq__(self, o: object) -> bool:
