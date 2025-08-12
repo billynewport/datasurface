@@ -2723,8 +2723,6 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             storeName: Name of the datastore to reset
             datasetName: Optional dataset name for single-dataset reset. If None, resets entire store.
         """
-        from sqlalchemy import text
-        from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get credentials and create database connection
         user, password = self.psp.credStore.getAsUserPassword(self.psp.postgresCredential)
