@@ -17,6 +17,9 @@ import logging
 from enum import Enum
 from datasurface.md import Ecosystem, JSONable
 
+# Standard Python logger - works everywhere
+logger = logging.getLogger(__name__)
+
 
 # Pydantic models for API documentation
 class QueryRequestModel(BaseModel):
@@ -122,8 +125,8 @@ class ModelServer:
             if self.model_path not in sys.path:
                 sys.path.insert(0, self.model_path)
 
-            print(f"Python path: {sys.path}")  # Debug print
-            print(f"Looking for eco.py in: {self.model_path}")
+            logger.info(f"Python path: {sys.path}")  # Debug print
+            logger.info(f"Looking for eco.py in: {self.model_path}")
 
             # Remove the module to force reload
             if 'eco' in sys.modules:
@@ -135,16 +138,15 @@ class ModelServer:
                 # First try importing as a package
                 try:
                     module: ModuleType = importlib.import_module("tests.actionHandlerResources.step4.eco")
-                    print("Loaded eco.py as package")
+                    logger.info("Loaded eco.py as package")
                     return module
                 except ModuleNotFoundError:
                     # Fall back to direct import
                     module: ModuleType = importlib.import_module("eco")
-                    print("Loaded eco.py directly")
+                    logger.info("Loaded eco.py directly")
                     return module
             except ModuleNotFoundError as e:
-                logging.error(f"Failed to load eco module: {e}")
-                print(f"Failed to load eco module: {e}")  # Debug print
+                logger.error(f"Failed to load eco module: {e}")  # Debug print
                 raise RuntimeError(f"Failed to find eco.py in model path: {self.model_path}")
         finally:
             sys.path = orig_system_path
@@ -221,7 +223,7 @@ class ModelServer:
                     raise ValueError(f"Unknown command: {command}")
 
         except Exception as e:
-            logging.error(f"Query execution failed: {e}")
+            logger.error(f"Query execution failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -231,7 +233,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global model_server
     model_path: str = os.environ.get("MODEL_PATH", "/app/model")
     model_server = ModelServer(model_path)
-    logging.info(f"Started language server with model version: {model_server.version}")
+    logger.info(f"Started language server with model version: {model_server.version}")
     yield
     # Shutdown
     model_server = None
