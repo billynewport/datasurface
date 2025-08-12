@@ -10,6 +10,7 @@ from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 from datasurface.md.governance import WorkspacePlatformConfig, DataMilestoningStrategy
 from src.tests.test_SnapshotMergeJobLiveOnly import BaseSnapshotMergeJobTest
 from typing import cast
+from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 
 
 class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
@@ -24,7 +25,6 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
         req.retention.milestoningStrategy = DataMilestoningStrategy.FORENSIC
 
     def setUp(self) -> None:
-        from datasurface.platforms.yellow.jobs import SnapshotMergeJobForensic
         self.common_setup_job(SnapshotMergeJobForensic, self)
 
     def common_verify_forensic_history(self, expected_total: int, expected_historical: int, tc: unittest.TestCase) -> None:

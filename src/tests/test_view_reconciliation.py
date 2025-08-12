@@ -1,5 +1,5 @@
-# type: ignore[attr-defined, unknown-member, unknown-argument, unknown-variable, unknown-parameter]
 """
+type: ignore[attr-defined, unknown-member, unknown-argument, unknown-variable, unknown-parameter]
 Test module for the view reconciliation functions.
 Tests view creation, updating, and change detection.
 """
@@ -12,6 +12,8 @@ from datasurface.md.sqlalchemyutils import createOrUpdateView, reconcileViewSche
 from datasurface.md import Dataset, DDLTable, DDLColumn
 from datasurface.md.schema import NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import Integer as DSInteger, VarChar
+from typing import cast
+from datasurface.md import Datastore
 
 
 class TestDatasetToSQLAlchemyView:
@@ -66,13 +68,12 @@ class TestCreateOrUpdateView:
             Column('description', String(100))
         )
 
-        # Clean up if exists
+        # Clean up if exists: drop view first, then table
         inspector = inspect(test_db)  # type: ignore[attr-defined]
+        with test_db.begin() as conn:
+            conn.execute(text("DROP VIEW IF EXISTS test_new_view"))
         if inspector.has_table('test_underlying_table'):  # type: ignore[attr-defined]
             underlying_table.drop(test_db)
-        if inspector.has_table('test_new_view'):  # type: ignore[attr-defined]
-            with test_db.begin() as conn:
-                conn.execute(text("DROP VIEW test_new_view"))
 
         # Create the underlying table
         underlying_table.create(test_db)
@@ -92,7 +93,7 @@ class TestCreateOrUpdateView:
         dataset = Dataset("test_dataset", table)
 
         # Create the view
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateView(test_db, dataset, "test_new_view", "test_underlying_table")
 
         # Verify view was created
@@ -109,8 +110,8 @@ class TestCreateOrUpdateView:
             assert rows[0][1] == 'Test1'  # name
             assert rows[0][2] == 'Desc1'  # description
 
-        # Verify print message
-        mock_print.assert_called_with("Created view test_new_view with current schema")
+        # Verify log message
+        mock_info.assert_any_call("Created view %s with current schema", "test_new_view")
 
         # Clean up
         with test_db.begin() as conn:
@@ -130,13 +131,12 @@ class TestCreateOrUpdateView:
             Column('new_column', String(50))  # Extra column in underlying table
         )
 
-        # Clean up if exists
+        # Clean up if exists: drop view first, then table
         inspector = inspect(test_db)  # type: ignore[attr-defined]
+        with test_db.begin() as conn:
+            conn.execute(text("DROP VIEW IF EXISTS test_update_view"))
         if inspector.has_table('test_update_table'):  # type: ignore[attr-defined]
             underlying_table.drop(test_db)
-        if inspector.has_table('test_update_view'):  # type: ignore[attr-defined]
-            with test_db.begin() as conn:
-                conn.execute(text("DROP VIEW test_update_view"))
 
         # Create the underlying table
         underlying_table.create(test_db)
@@ -169,7 +169,7 @@ class TestCreateOrUpdateView:
         updated_dataset = Dataset("updated_dataset", updated_table)
 
         # Update the view
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateView(test_db, updated_dataset, "test_update_view", "test_update_table")
 
         # Verify view was updated
@@ -181,8 +181,8 @@ class TestCreateOrUpdateView:
             columns = [row[0] for row in result.fetchall()]
             assert columns == ['id', 'name', 'description']
 
-        # Verify print message
-        mock_print.assert_called_with("Updated view test_update_view to match current schema")
+        # Verify log message
+        mock_info.assert_any_call("Updated view %s to match current schema", "test_update_view")
 
         # Clean up
         with test_db.begin() as conn:
@@ -224,12 +224,12 @@ class TestCreateOrUpdateView:
         assert wasChanged1 is True
 
         # Try to create/update the view again with same schema
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged2 = createOrUpdateView(test_db, dataset, "test_no_change_view", "test_no_change_table")
 
-        # Verify no changes were needed
+        # Verify no changes were needed and appropriate log was emitted
         assert wasChanged2 is False
-        mock_print.assert_called_with("View test_no_change_view already matches current schema")
+        mock_info.assert_any_call("View %s already matches current schema", "test_no_change_view")
 
         # Clean up (drop view first, then table)
         with test_db.begin() as conn:
@@ -304,7 +304,7 @@ class TestReconcileViewSchemas:
             return f"test_table{dataset.name[-1]}"  # test_table1, test_table2
 
         # Reconcile views
-        changedViews = reconcileViewSchemas(test_db, store, view_name_mapper, underlying_table_mapper)
+        changedViews = reconcileViewSchemas(test_db, cast(Datastore, store), view_name_mapper, underlying_table_mapper)
 
         # Verify results
         assert len(changedViews) == 2
@@ -334,11 +334,10 @@ class TestReconcileViewSchemas:
             Column('name', String(50))
         )
 
-        # Clean up if exists (drop view first, then table)
+        # Clean up if exists: drop view first, then table
         inspector = inspect(test_db)  # type: ignore[attr-defined]
-        if inspector.has_table('test_reconcile_view'):  # type: ignore[attr-defined]
-            with test_db.begin() as conn:
-                conn.execute(text("DROP VIEW test_reconcile_view"))
+        with test_db.begin() as conn:
+            conn.execute(text("DROP VIEW IF EXISTS test_reconcile_view"))
         if inspector.has_table('test_reconcile_table'):  # type: ignore[attr-defined]
             underlying_table.drop(test_db)
 
@@ -368,11 +367,11 @@ class TestReconcileViewSchemas:
             return "test_reconcile_table"
 
         # Create view first time
-        changedViews1 = reconcileViewSchemas(test_db, store, view_name_mapper, underlying_table_mapper)
+        changedViews1 = reconcileViewSchemas(test_db, cast(Datastore, store), view_name_mapper, underlying_table_mapper)
         assert changedViews1["test_reconcile_view"] is True
 
         # Reconcile again - should not change
-        changedViews2 = reconcileViewSchemas(test_db, store, view_name_mapper, underlying_table_mapper)
+        changedViews2 = reconcileViewSchemas(test_db, cast(Datastore, store), view_name_mapper, underlying_table_mapper)
         assert changedViews2["test_reconcile_view"] is False
 
         # Clean up (drop view first, then table)

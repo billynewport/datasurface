@@ -132,6 +132,14 @@ When the job runs, it will check if the schemas have changed since the last run.
 
 So, the scheduled job in Airflow will run independently of the kafka connector. The kafka connector is responsible for copying events from kafka to postgres staging tables. The airflow job runs code to check schema changes and then to execute the MERGE from unprocessed staging records to the MERGE tables.
 
+### Hash columns
+
+During this ingestion process, additional columns are added to its schema including hash's for all key columns and a hash for every column. These hashes serve to make later operations more efficient. Rather than testing every column in a key, we just compare the hashes from the 2 records. Similarly, when compared if a record has been updated, we just compare the all column hash for both records rather than every column. These hash columns are calculated using MD5 when the staging data is copied in to the staging table. 
+
+### Snapshot merge
+
+This merge type reads every record from a source table and makes a merge table equal to it, i.e. the merge table is a snapshot of the source table at the last ingestion time. When data is ingested, it is typically copied in to the staging table or staged. The merge table is what consumers query data from through one or more views. There is always a live view. This is just live records. This can point directly at the merge table for LIVE merges. It is a view filtering on batch_out = maxint on forensic merge tables.
+
 ## Consumer Workspace views
 
 Each consumer Workspace gets it's own specifically named views for the dataset of interest. Each dataset in the Workspace has a workspace named view similar to "{workspace}_{store_name}_{dataset_name}_live". Consumers are not allowed to read the tables directly or other consumers views unless specifically entitled to do so. This allows Yellow to move consumers from one database to another without breaking them for scaling reasons.

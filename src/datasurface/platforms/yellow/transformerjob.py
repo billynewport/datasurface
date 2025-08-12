@@ -12,7 +12,7 @@ from datasurface.md import (
 from datasurface.md.credential import CredentialType
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, KubernetesEnvVarsCredentialStore
 from sqlalchemy import Engine, text
-from datasurface.platforms.yellow.jobs import createEngine
+from datasurface.platforms.yellow.merge import createEngine
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
 from typing import cast, Dict, Any, Optional, Callable
 from datasurface.cmd.platform import cloneGitRepository, getLatestModelAtTimestampedFolder

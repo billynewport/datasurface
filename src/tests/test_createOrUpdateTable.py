@@ -1,15 +1,14 @@
-# type: ignore[attr-defined, unknown-member, unknown-argument, unknown-variable, unknown-parameter]
 """
+ type: ignore[attr-defined, unknown-member, unknown-argument, unknown-variable, unknown-parameter]
 Test module for the createOrUpdateTable function.
 Tests table creation, column addition, and column type changes.
 """
-
 import pytest
 from unittest.mock import patch
 from sqlalchemy import Table, MetaData, Column, Integer, String, Boolean, inspect
 from sqlalchemy.engine import Engine
 
-from datasurface.platforms.yellow.jobs import createOrUpdateTable
+from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.md.sqlalchemyutils import _types_are_compatible, _extract_length_from_type, _extract_decimal_params
 
 
@@ -178,7 +177,7 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify new columns were added
@@ -188,12 +187,12 @@ class TestCreateOrUpdateTable:
         assert 'created_at' in column_names
         assert wasChanged is True
 
-        # Verify print was called with correct message
-        mock_print.assert_called()
-        print_args = str(mock_print.call_args)
-        assert 'Added columns' in print_args
-        assert 'email' in print_args
-        assert 'created_at' in print_args
+        # Verify logger.info was called with correct message
+        assert mock_info.called
+        all_log_args = ' '.join([str(call) for call in mock_info.call_args_list])
+        assert 'Added columns' in all_log_args
+        assert 'email' in all_log_args
+        assert 'created_at' in all_log_args
 
         # Clean up
         initial_table.drop(test_db)
@@ -226,7 +225,7 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify column type was altered
@@ -236,11 +235,11 @@ class TestCreateOrUpdateTable:
         assert 'description' in [col.name for col in current_table.columns]  # type: ignore[attr-defined]
         assert wasChanged is True
 
-        # Verify print was called with correct message
-        mock_print.assert_called()
-        print_args = str(mock_print.call_args)
-        assert 'Altered columns' in print_args
-        assert 'description' in print_args
+        # Verify logger.info was called with correct message
+        assert mock_info.called
+        all_log_args = ' '.join([str(call) for call in mock_info.call_args_list])
+        assert 'Altered columns' in all_log_args
+        assert 'description' in all_log_args
 
         # Clean up
         initial_table.drop(test_db)
@@ -275,7 +274,7 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify changes were made
@@ -287,14 +286,14 @@ class TestCreateOrUpdateTable:
         assert 'status' in column_names
         assert wasChanged is True
 
-        # Verify both print statements were called
-        assert mock_print.call_count == 2
-        all_print_args = ' '.join([str(call) for call in mock_print.call_args_list])
-        assert 'Added columns' in all_print_args
-        assert 'Altered columns' in all_print_args
-        assert 'email' in all_print_args
-        assert 'status' in all_print_args
-        assert 'name' in all_print_args
+        # Verify both logger.info statements were called
+        assert mock_info.call_count >= 2
+        all_log_args = ' '.join([str(call) for call in mock_info.call_args_list])
+        assert 'Added columns' in all_log_args
+        assert 'Altered columns' in all_log_args
+        assert 'email' in all_log_args
+        assert 'status' in all_log_args
+        assert 'name' in all_log_args
 
         # Clean up
         initial_table.drop(test_db)
@@ -329,11 +328,11 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateTable(test_db, identical_table)
 
-        # Verify no print statements were called (no changes made)
-        mock_print.assert_not_called()
+        # Verify no info logs were emitted (no changes made)
+        mock_info.assert_not_called()
         assert wasChanged is False
 
         # Clean up
@@ -367,8 +366,7 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        with patch('builtins.print'):
-            wasChanged = createOrUpdateTable(test_db, updated_table)
+        wasChanged = createOrUpdateTable(test_db, updated_table)
 
         # Verify columns were added
         current_table = Table('test_nullable', MetaData(), autoload_with=test_db)
@@ -428,16 +426,16 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        with patch('builtins.print') as mock_print:
+        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
             wasChanged = createOrUpdateTable(test_db, updated_table)
 
-        # Verify print was called with correct message indicating all columns were altered
-        mock_print.assert_called()
-        print_args = str(mock_print.call_args)
-        assert 'Altered columns' in print_args
-        assert 'name' in print_args
-        assert 'description' in print_args
-        assert 'email' in print_args
+        # Verify logger.info was called with message indicating all columns were altered
+        assert mock_info.called
+        all_log_args = ' '.join([str(call) for call in mock_info.call_args_list])
+        assert 'Altered columns' in all_log_args
+        assert 'name' in all_log_args
+        assert 'description' in all_log_args
+        assert 'email' in all_log_args
         assert wasChanged is True
 
         # Verify the table was actually altered by checking the current schema

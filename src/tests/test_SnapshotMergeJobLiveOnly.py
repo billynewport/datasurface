@@ -21,6 +21,7 @@ from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.credential import CredentialStore, Credential
 from typing import cast
 from abc import ABC, abstractmethod
+from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 
 
 class BaseSnapshotMergeJobTest(ABC):
@@ -95,7 +96,7 @@ class BaseSnapshotMergeJobTest(ABC):
                 return create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
             else:
                 return create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
-        patcher = patch('datasurface.platforms.yellow.jobs.createEngine', new=local_create_engine)
+        patcher = patch('datasurface.platforms.yellow.db_utils.createEngine', new=local_create_engine)
         self._engine_patcher = patcher
         patcher.start()
 
@@ -435,7 +436,6 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         req.retention.milestoningStrategy = DataMilestoningStrategy.LIVE_ONLY
 
     def setUp(self) -> None:
-        from datasurface.platforms.yellow.jobs import SnapshotMergeJobLiveOnly
         self.common_setup_job(SnapshotMergeJobLiveOnly, self)
 
     def getMergeTableData(self) -> list:
