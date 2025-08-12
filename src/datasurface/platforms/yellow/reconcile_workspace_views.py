@@ -582,7 +582,7 @@ Examples:
                 namespace="default"  # Will be overridden by the platform
             )
         else:
-            print(f"Error: Unsupported credential store type: {args.credential_store}")
+            logger.error(f"Error: Unsupported credential store type: {args.credential_store}")
             return 1
 
         # Load the ecosystem model from git repository
@@ -591,7 +591,7 @@ Examples:
         from datasurface.md.credential import Credential, CredentialType
         import os
 
-        print(f"Loading ecosystem model from git repository: {args.git_repo_owner}/{args.git_repo_name}")
+        logger.info(f"Loading ecosystem model from git repository: {args.git_repo_owner}/{args.git_repo_name}")
 
         # Ensure the directory exists
         os.makedirs(args.git_repo_path, exist_ok=True)
@@ -610,22 +610,21 @@ Examples:
         )
 
         if validation_tree and validation_tree.hasErrors():
-            print("Ecosystem model has errors")
-            validation_tree.printTree()
+            logger.error("Ecosystem model has errors", validation_errors=validation_tree.getErrorsAsStructuredData())
             return 1
 
         if eco is None:
-            print("Failed to load ecosystem")
+            logger.error("Failed to load ecosystem")
             return 1
 
         # Reconcile workspace view schemas
-        print(f"Reconciling workspace view schemas for platform: {args.psp}")
+        logger.info(f"Reconciling workspace view schemas for platform: {args.psp}")
         return reconcile_workspace_view_schemas(eco, args.psp, cred_store)
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return 1
 
 

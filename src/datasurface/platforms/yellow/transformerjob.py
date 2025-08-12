@@ -267,8 +267,7 @@ def main():
         useCache=args.use_git_cache,     # Use cache by default
         maxCacheAgeMinutes=args.max_cache_age_minutes)
     if tree is not None and tree.hasErrors():
-        logger.error("Ecosystem model has errors")
-        tree.printTree()
+        logger.error("Ecosystem model has errors", validation_errors=tree.getErrorsAsStructuredData())
         return -1  # ERROR
     if eco is None or tree is None:
         logger.error("Failed to load ecosystem")
@@ -314,12 +313,12 @@ def main():
 if __name__ == "__main__":
     try:
         exit_code = main()
-        print(f"DATASURFACE_RESULT_CODE={exit_code}")
+        logger.info(f"DATASURFACE_RESULT_CODE={exit_code}")
     except Exception as e:
-        print(f"Unhandled exception in main: {e}")
+        logger.error(f"Unhandled exception in main: {e}")
         import traceback
-        traceback.print_exc()
-        print("DATASURFACE_RESULT_CODE=-1")
+        logger.error(traceback.format_exc())
+        logger.error("DATASURFACE_RESULT_CODE=-1")
         exit_code = -1
     # Always exit with 0 (success) - Airflow will parse the result code from logs
     sys.exit(0)
