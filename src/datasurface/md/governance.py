@@ -1853,6 +1853,7 @@ class Ecosystem(GitControlledObject, JSONable):
                         assignments=dsg_assignments
                     )
             # Now lint the dsg platform mappings
+            logger.info("DSG Platform Mappings %s", json.dumps({k: v.to_json() for k, v in self.dsgPlatformMappings.items()}, indent=2))
             if self.dsgPlatformMappings:
                 for dsg_mapping in self.dsgPlatformMappings.values():
                     dsg_mapping.lint(self, tree.addSubTree(dsg_mapping))
@@ -2155,7 +2156,7 @@ class Ecosystem(GitControlledObject, JSONable):
             for psp in self.platformServicesProviders:
                 psp.lint(self, ecoTree.addSubTree(psp))
         else:
-            logger.error("Ecosystem model has errors, didnt generate graph: %s", json.dumps(ecoTree.getErrorsAsStructuredData(), indent=2))
+            logger.error("Ecosystem model has errors, didnt generate graph: %s", ecoTree.getErrorsAsStructuredData())
 
         # If there are no errors at this point then
         # Generate pipeline graphs and lint them.

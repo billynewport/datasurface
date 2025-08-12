@@ -38,6 +38,7 @@ def loadEcosystemFromEcoModule(path: str) -> tuple[Optional[Ecosystem], Optional
         # Now hydrate the dsg platform mappings
         eco.hydrateDSGDataPlatformMappings(os.path.join(path, "dsg_platform_mapping.json"), tree)
         eco.hydratePrimaryIngestionPlatforms(os.path.join(path, "primary_ingestion_platforms.json"), tree)
+        eco.createGraph()
 
         return eco, tree
     finally:
