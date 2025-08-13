@@ -2676,7 +2676,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
         t: Table = Table(self.getPhysDAGTableName(), MetaData(),
-                         Column("stream_key", sqlalchemy.String(length=255), primary_key=True),
+                         Column("stream_key", sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("config_json", sqlalchemy.String(length=2048)),
                          Column("status", sqlalchemy.String(length=50)),
                          Column("created_at", TIMESTAMP()),

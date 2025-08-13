@@ -20,7 +20,7 @@ from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, BatchStatus, BatchState
 )
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
-from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, JobStatus
+from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, JobStatus, STREAM_KEY_MAX_LENGTH
 from abc import abstractmethod
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger,
@@ -70,7 +70,7 @@ class Job(YellowDatasetUtilities):
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
         t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
-                         Column("key", String(length=255), primary_key=True),
+                         Column("key", String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("currentBatch", Integer()))
         return t
 
@@ -78,7 +78,7 @@ class Job(YellowDatasetUtilities):
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
         t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
-                         Column("key", String(length=255), primary_key=True),
+                         Column("key", String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("batch_id", Integer(), primary_key=True),
                          Column("batch_start_time", TIMESTAMP()),
                          Column("batch_end_time", TIMESTAMP(), nullable=True),
