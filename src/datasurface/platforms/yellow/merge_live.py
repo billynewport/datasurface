@@ -45,7 +45,7 @@ class SnapshotMergeJobLiveOnly(Job):
             batchId: int) -> tuple[int, int, int]:
         return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
 
-    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
 
         Args:

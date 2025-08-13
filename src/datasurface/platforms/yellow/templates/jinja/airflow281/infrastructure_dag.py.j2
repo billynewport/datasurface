@@ -850,20 +850,68 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         weight_rule='absolute'
     )
 
-    # Trigger the output ingestion DAG
-    trigger_output_ingestion = TriggerDagRunOperator(
-        task_id='trigger_output_ingestion',
-        trigger_dag_id=f'{platform_name}__{output_datastore_name}_dt_ingestion',
-        conf={'triggered_by': 'datatransformer', 'workspace_name': workspace_name},
-        dag=dag
+    # Output ingestion job as a task within the transformer DAG - only runs if datatransformer succeeds
+    output_ingestion_job = KubernetesPodOperator(
+        task_id='output_ingestion_job',
+        name=f"{platform_name}-{output_datastore_name.replace('_', '-')}-output-job",
+        namespace=platform_config['namespace_name'],
+        image=platform_config['datasurface_docker_image'],
+        cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+        arguments=[
+            '--platform-name', platform_config['original_platform_name'],
+            '--operation', 'snapshot-merge',
+            '--store-name', output_datastore_name,
+            '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
+            '--git-repo-owner', platform_config['git_repo_owner'],
+            '--git-repo-name', platform_config['git_repo_repo_name'],
+            '--git-repo-branch', platform_config['git_repo_branch'],
+            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+            '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
+        ] + (['--use-git-cache'] if platform_config.get('git_cache_enabled') else []),
+        env_vars=env_vars,  # type: ignore (reuse same env_vars from datatransformer_job)
+        image_pull_policy='{{ image_pull_policy }}',
+        volumes=[
+            k8s.V1Volume(
+                name='git-model-cache',
+                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                    claim_name='{{ git_clone_cache_pvc }}'
+                )
+            )
+        ] if platform_config.get('git_cache_enabled') else [],
+        volume_mounts=[
+            k8s.V1VolumeMount(
+                name='git-model-cache',
+                mount_path='{{ git_cache_local_path }}',
+                read_only=False
+            )
+        ] if platform_config.get('git_cache_enabled') else [],
+        is_delete_operator_pod=True,
+        get_logs=True,
+        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
+        trigger_rule='all_success',  # Only run if datatransformer_job succeeds
+        container_resources=k8s.V1ResourceRequirements(
+            requests={
+                'memory': dt_config.get('output_job_limits', {}).get('requested_memory', '256Mi'),
+                'cpu': dt_config.get('output_job_limits', {}).get('requested_cpu', '100m')
+            },
+            limits={
+                'memory': dt_config.get('output_job_limits', {}).get('limits_memory', '1Gi'),
+                'cpu': dt_config.get('output_job_limits', {}).get('limits_cpu', '500m')
+            }
+        ),
+        on_finish_action="delete_pod",
+        dag=dag,
+        priority_weight=dt_config.get('priority', 0),
+        weight_rule='absolute'
     )
 
-    # Branch operator to determine next action
+    # Branch operator to determine next action (after output ingestion completes)
     branch = BranchPythonOperator(
         task_id='check_result',
         python_callable=determine_next_action,
         op_kwargs={'task_id_suffix': 'job'},
-        dag=dag
+        dag=dag,
+        trigger_rule='none_failed_min_one_success'  # Run if either datatransformer succeeded or output_ingestion completed
     )
 
     # Reschedule immediately for continuous processing
@@ -887,177 +935,11 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
     else:
         start_task >> datatransformer_job
     
-    datatransformer_job >> [trigger_output_ingestion, branch]
-    branch >> [reschedule, wait]
-    
-    return dag
-
-def create_datatransformer_output_ingestion_dag(platform_config: dict, dt_config: dict) -> DAG:
-    """Create a DataTransformer output ingestion DAG from configuration - identical to original template"""
-    platform_name = platform_config['platform_name']
-    workspace_name = dt_config['workspace_name']
-    output_datastore_name = dt_config['output_datastore_name']
-    
-    # Default arguments for the DAG
-    default_args = {
-        'owner': 'datasurface',
-        'depends_on_past': False,
-        'start_date': datetime(2025, 1, 1),
-        'email_on_failure': True,
-        'email_on_retry': False,
-        'retries': 0,  # No retries - the job handles its own retry logic
-        'retry_delay': timedelta(minutes=5),
-    }
-
-    # Create the DAG
-    dag = DAG(
-        f'{platform_name}__{output_datastore_name}_dt_ingestion',
-        default_args=default_args,
-        description=f'DataTransformer Output Ingestion DAG for {platform_name}__{output_datastore_name}',
-        schedule=None,  # External trigger only
-        max_active_runs=1,
-        catchup=False,
-        is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
-        tags=['datasurface', 'datatransformer-output', 'ingestion', platform_name, output_datastore_name]
-    )
-
-    # Environment variables for the ingestion job
-    env_vars = [
-        # Platform configuration (literal values)
-        k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
-        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
-        
-        # Postgres credentials (for merge store)
-        k8s.V1EnvVar(
-            name=f"{platform_config['postgres_credential_secret_name']}_USER",
-            value_from=k8s.V1EnvVarSource(
-                secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['postgres_credential_secret_name'],
-                                            key='{{ postgres_credential_secret_name }}_USER'
-                )
-            )
-        ),
-        k8s.V1EnvVar(
-            name=f"{platform_config['postgres_credential_secret_name']}_PASSWORD",
-            value_from=k8s.V1EnvVarSource(
-                secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['postgres_credential_secret_name'],
-                                            key='{{ postgres_credential_secret_name }}_PASSWORD'
-                )
-            )
-        ),
-        # Git credentials
-        k8s.V1EnvVar(
-            name=f"{platform_config['git_credential_secret_name']}_TOKEN",
-            value_from=k8s.V1EnvVarSource(
-                secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['git_credential_secret_name'],
-                    key='token'
-                )
-            )
-        )
-    ]
-
-    # DataTransformer-specific repository credential (if different from platform git credential)
-    if (dt_config.get('git_credential_secret_name') and 
-        dt_config['git_credential_secret_name'] != platform_config['git_credential_secret_name']):
-        env_vars.append(
-            k8s.V1EnvVar(
-                name=f"{dt_config['git_credential_secret_name']}_TOKEN",
-                value_from=k8s.V1EnvVarSource(
-                    secret_key_ref=k8s.V1SecretKeySelector(
-                        name=dt_config['git_credential_secret_name'],
-                        key='token'
-                    )
-                )
-            )
-        )
-
-    # Start task
-    start_task = EmptyOperator(
-        task_id='start_output_ingestion',
-        dag=dag
-    )
-
-    # DataTransformer output ingestion job
-    output_ingestion_job = KubernetesPodOperator(
-        task_id='output_ingestion_job',
-        name=f"{platform_name}-{output_datastore_name.replace('_', '-')}-output-job",
-        namespace=platform_config['namespace_name'],
-        image=platform_config['datasurface_docker_image'],
-        cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
-        arguments=[
-            '--platform-name', platform_config['original_platform_name'],
-            '--operation', 'snapshot-merge',
-            '--store-name', output_datastore_name,
-            '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
-            '--git-repo-owner', platform_config['git_repo_owner'],
-            '--git-repo-name', platform_config['git_repo_repo_name'],
-            '--git-repo-branch', platform_config['git_repo_branch'],
-            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
-            '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
-        ] + (['--use-git-cache'] if platform_config.get('git_cache_enabled') else []),
-        env_vars=env_vars,  # type: ignore
-        image_pull_policy='{{ image_pull_policy }}',
-        volumes=[
-            k8s.V1Volume(
-                name='git-model-cache',
-                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
-                    claim_name='{{ git_clone_cache_pvc }}'
-                )
-            )
-        ] if platform_config.get('git_cache_enabled') else [],
-        volume_mounts=[
-            k8s.V1VolumeMount(
-                name='git-model-cache',
-                mount_path='{{ git_cache_local_path }}',
-                read_only=False
-            )
-        ] if platform_config.get('git_cache_enabled') else [],
-        is_delete_operator_pod=True,
-        get_logs=True,
-        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
-        container_resources=k8s.V1ResourceRequirements(
-            requests={
-                'memory': dt_config.get('job_limits', {}).get('requested_memory', '256Mi'),
-                'cpu': dt_config.get('job_limits', {}).get('requested_cpu', '100m')
-            },
-            limits={
-                'memory': dt_config.get('job_limits', {}).get('limits_memory', '1Gi'),
-                'cpu': dt_config.get('job_limits', {}).get('limits_cpu', '500m')
-            }
-        ),
-        on_finish_action="delete_pod",
-        dag=dag,
-        priority_weight=dt_config.get('priority', 0),
-        weight_rule='absolute'
-    )
-
-    # Branch operator to determine next action
-    branch = BranchPythonOperator(
-        task_id='check_result',
-        python_callable=determine_next_action,
-        op_kwargs={'task_id_suffix': 'job'},
-        dag=dag
-    )
-
-    # Reschedule immediately for continuous processing
-    reschedule = TriggerDagRunOperator(
-        task_id='reschedule_immediately',
-        trigger_dag_id=f'{platform_name}__{output_datastore_name}_dt_ingestion',
-        conf={'triggered_by': 'reschedule'},
-        dag=dag
-    )
-
-    # Wait for next external trigger
-    wait = EmptyOperator(
-        task_id='wait_for_trigger',
-        dag=dag
-    )
-
-    # Define task dependencies
-    start_task >> output_ingestion_job
-    output_ingestion_job >> branch
+    # Sequential execution with proper failure handling:
+    # - output_ingestion_job only runs if datatransformer_job succeeds (trigger_rule='all_success')
+    # - branch runs after both complete (either success path or failure path)
+    datatransformer_job >> output_ingestion_job
+    [datatransformer_job, output_ingestion_job] >> branch
     branch >> [reschedule, wait]
     
     return dag
@@ -1106,12 +988,11 @@ def load_datatransformer_configurations(config: dict):
             else:
                 print(f"Creating sensor-based DataTransformer DAG for {workspace_name}")
             
-            # Create both execution and output ingestion DAGs
+            # Create only the execution DAG (output ingestion is now a task within it)
             execution_dag_id = f"{config['platform_name']}__{workspace_name}_datatransformer"
-            output_dag_id = f"{config['platform_name']}__{config_json['output_datastore_name']}_dt_ingestion"
             
             generated_dags[execution_dag_id] = create_datatransformer_execution_dag(config, config_json)
-            generated_dags[output_dag_id] = create_datatransformer_output_ingestion_dag(config, config_json)
+            # Note: output ingestion DAG no longer needed - integrated as task within execution DAG
         
         return generated_dags
         
@@ -1141,8 +1022,9 @@ def sync_datatransformer_dags(config: dict, **context):
         
         # Step 2: Compare with existing DAGs in globals
         # Get existing DataTransformer-related DAGs using naming convention
+        # Note: _dt_ingestion DAGs are now integrated as tasks, so only check _datatransformer DAGs
         existing_dt_dags = {k: v for k, v in globals().items() 
-                           if k.endswith('_datatransformer') or k.endswith('_dt_ingestion')}
+                           if k.endswith('_datatransformer')}
         
         current_dag_ids = set(current_dags.keys())
         existing_dag_ids = set(existing_dt_dags.keys())

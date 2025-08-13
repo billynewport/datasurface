@@ -292,8 +292,6 @@ Open http://localhost:8080 and login with:
 - `yellowforensic_datatransformer_factory` - YellowForensic datatransformer factory (created dynamically, paused)
 - `yellowlive__Store1_ingestion` - YellowLive Store1 ingestion stream DAG (created dynamically)
 - `yellowforensic__Store1_ingestion` - YellowForensic Store1 ingestion stream DAG (created dynamically)
-- `yellowlive__MaskedCustomers_dt_ingestion` - YellowLive DataTransformer output ingestion (created dynamically)
-- `yellowforensic__MaskedCustomers_dt_ingestion` - YellowForensic DataTransformer output ingestion (created dynamically)
 - `yellowlive__MaskedStoreGenerator_datatransformer` - YellowLive DataTransformer execution DAG (created dynamically)
 - `yellowforensic__MaskedStoreGenerator_datatransformer` - YellowForensic DataTransformer execution DAG (created dynamically)
 
@@ -756,7 +754,10 @@ For Kubernetes environments using containerd (K3s, most modern clusters):
 ```bash
 # On remote machine - use crictl for containerd (Kubernetes)
 sudo crictl pull datasurface/datasurface:latest
+docker pull datasurface/datasurface:latest
 ```
+
+We use kubernetes AND docker on the remote machine. Kubernetes containers and docker use different caches. We need to pull the image on BOTH
 
 For Docker-based environments:
 ```bash

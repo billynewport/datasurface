@@ -969,11 +969,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         else:
             raise ValueError(f"Unsupported trigger type: {type(trigger)}")
 
-    def populateDAGConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
-        """Populate the database with ingestion stream configurations for dynamic DAG factory"""
-        from sqlalchemy import text
-        from datasurface.platforms.yellow.db_utils import createEngine
-
+    def getIngestionJobLimits(self, storeName: str, datasetName: Optional[str] = None) -> K8sIngestionHint:
         # Default job resource limits
         default_ingestion_hint: K8sIngestionHint = K8sIngestionHint(
             storeName=self.dp.name,
@@ -984,6 +980,17 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 limits_cpu=0.5
             )
         )
+        rc: K8sIngestionHint = default_ingestion_hint
+        assert self.dp.psp is not None
+        user_ingestion_hint: Optional[PlatformIngestionHint] = self.dp.psp.getIngestionJobHint(storeName, datasetName)
+        if user_ingestion_hint is not None:
+            rc = cast(K8sIngestionHint, user_ingestion_hint)
+        return rc
+
+    def populateDAGConfigurations(self, eco: Ecosystem, issueTree: ValidationTree) -> None:
+        """Populate the database with ingestion stream configurations for dynamic DAG factory"""
+        from sqlalchemy import text
+        from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get database connection
         user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
@@ -1012,13 +1019,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     if is_single_dataset:
                         # For single dataset, create a separate entry for each dataset
                         for dataset in store.datasets.values():
-                            job_hint: K8sIngestionHint = default_ingestion_hint
-                            assert self.dp.psp is not None
-                            user_hint: Optional[PlatformIngestionHint] = self.dp.psp.getIngestionJobHint(storeName, dataset.name)
-                            if user_hint is not None:
-                                job_hint = cast(K8sIngestionHint, user_hint)
-                            else:
-                                job_hint = default_ingestion_hint
+                            job_hint: K8sIngestionHint = self.getIngestionJobLimits(storeName, dataset.name)
 
                             stream_key = f"{storeName}_{dataset.name}"
                             stream_config = {
@@ -1045,6 +1046,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             ingestion_streams.append(stream_config)
                     else:
                         # For multi dataset, create one entry for the entire store
+                        job_hint: K8sIngestionHint = self.getIngestionJobLimits(storeName)
                         stream_config = {
                             "stream_key": storeName,
                             "priority": node.priority.priority.value,
@@ -1053,7 +1055,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             "store_name": storeName,
                             "ingestion_type": IngestionType.KAFKA.value if isinstance(store.cmd, KafkaIngestion) else IngestionType.SQL_SOURCE.value,
                             "schedule_string": self.getScheduleStringForTrigger(store.cmd.stepTrigger),
-                            "job_limits": default_ingestion_hint.to_k8s_json()
+                            "job_limits": job_hint.to_k8s_json()
                         }
 
                         # Add credential information for this stream
@@ -1234,6 +1236,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     else:
                         job_hint = default_transformer_hint
 
+                    output_job_hint: K8sIngestionHint = self.getIngestionJobLimits(outputDatastore.name)
+
                     # Create the configuration
                     dt_config = {
                         "workspace_name": workspaceName,
@@ -1242,7 +1246,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "priority": node.priority.priority.value,
                         "input_dataset_list": input_dataset_list,
                         "output_dataset_list": output_dataset_list,
-                        "job_limits": job_hint.to_k8s_json()
+                        "job_limits": job_hint.to_k8s_json(),
+                        "output_job_limits": output_job_hint.to_k8s_json()
                     }
 
                     assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
@@ -2714,7 +2719,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                 else:
                     tree.addRaw(ObjectWrongType(chooser, WorkspacePlatformConfig, ProblemSeverity.ERROR))
 
-    def resetBatchState(self, eco: Ecosystem, storeName: str, datasetName: Optional[str] = None) -> str:
+    def resetBatchState(self, eco: Ecosystem, storeName: str, datasetName: Optional[str] = None, committedOk: bool = False) -> str:
         """Reset batch state for a given store and optionally a specific dataset.
         This clears batch counters and metrics, forcing a fresh start for ingestion.
 
@@ -2790,12 +2795,16 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                     if status_row is not None:
                         batch_status = status_row[0]
                         if batch_status == BatchStatus.COMMITTED.value:
-                            logger.warning("Batch reset skipped - batch is committed",
-                                           key=key,
-                                           batch_id=current_batch_id,
-                                           platform_name=self.name,
-                                           reason="committed_batches_immutable")
-                            return "ERROR: Batch is COMMITTED and cannot be reset"
+                            if committedOk:
+                                return "SUCCESS"
+                            else:
+                                logger.warning(
+                                                "Batch reset skipped - batch is committed and committedOk is False",
+                                                key=key,
+                                                batch_id=current_batch_id,
+                                                platform_name=self.name,
+                                                reason="committed_batches_immutable")
+                                return "ERROR: Batch is COMMITTED and cannot be reset"
                         else:
                             logger.info("Batch is safe to reset",
                                         key=key,

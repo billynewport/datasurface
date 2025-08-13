@@ -296,51 +296,47 @@ class Job(YellowDatasetUtilities):
         pass
 
     @abstractmethod
-    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """This will merge the staging table to the merge table"""
         pass
 
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        """This executes an ingestion/merge batch. The logic is as follows:
+        If there is no current batch, i.e. initial batch or the last batch is committed then
+            start one and keep going.
+        If there is an open batch then
+            reset the batch.
+        Now, we have an open batch ready to be ingested.
+        TX: Ingest the batch to staging tables.
+        TX: Merge the staging in to the merge tables.
+        TX: Commit the batch."""
         with mergeEngine.begin() as connection:
             batchId: int = self.getCurrentBatchId(connection, key)
             currentStatus = self.checkBatchStatus(connection, key, batchId)
 
-        if currentStatus is None:
+        if currentStatus is None or currentStatus == BatchStatus.COMMITTED.value:
             # No batch exists, start a new one
             batchId = self.startBatch(mergeEngine)
             logger.info("Started new batch", batch_id=batchId, key=key)
             # Batch is started, continue with ingestion
             with mergeEngine.begin() as connection:
                 batchId = self.getCurrentBatchId(connection, key)
+                currentStatus = self.checkBatchStatus(connection, key, batchId)
+            logger.info("Continuing batch ingestion", batch_id=batchId, key=key, status=currentStatus)
+
+        if currentStatus == BatchStatus.STARTED.value:
+            # Ingest the batch to staging tables if new batch.
             logger.info("Continuing batch ingestion", batch_id=batchId, key=key, status=currentStatus)
             self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
-            return JobStatus.KEEP_WORKING
 
-        elif currentStatus == BatchStatus.STARTED.value:
-            # Batch is started, continue with ingestion
-            logger.info("Continuing batch ingestion", batch_id=batchId, key=key, status=currentStatus)
-            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
-            return JobStatus.KEEP_WORKING
+        with mergeEngine.begin() as connection:
+            currentStatus = self.checkBatchStatus(connection, key, batchId)
 
-        elif currentStatus == BatchStatus.INGESTED.value:
-            # Batch is ingested, continue with merge
+        if currentStatus == BatchStatus.INGESTED.value:
+            # Merge the staging in to the merge tables.
             logger.info("Continuing batch merge", batch_id=batchId, key=key, status=currentStatus)
-            self.mergeStagingToMerge(mergeEngine, batchId, key)
-            # Batch is committed, job is done for this run
-            return JobStatus.DONE
-
-        elif currentStatus == BatchStatus.COMMITTED.value:
-            # Batch is already committed, job is done for this run
-            logger.info("Batch already committed, starting new batch", key=key, batch_id=batchId)
-            self.startBatch(mergeEngine)
-            logger.info("Started new batch after committed batch", key=key, batch_id=batchId)
-            return JobStatus.KEEP_WORKING
-
-        elif currentStatus == BatchStatus.FAILED.value:
-            # Batch failed, we're done
-            logger.error("Batch failed", key=key, batch_id=batchId)
-            return JobStatus.DONE
-        return JobStatus.ERROR
+            self.mergeStagingToMergeAndCommit(mergeEngine, batchId, key)
+        return JobStatus.DONE
 
     def run(self) -> JobStatus:
         # Check if this is a DataTransformer output store

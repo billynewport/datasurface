@@ -44,7 +44,7 @@ class SnapshotMergeJobForensic(Job):
         """This is the same copy a snapshot from the source table to the staging table as the live only job."""
         return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
 
-    def mergeStagingToMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """
         Perform a forensic merge using a single MERGE statement. All operations (insert, update, delete) are handled in one statement.
         Here is an example showing the correct behavior ingesting some batches of records.

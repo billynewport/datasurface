@@ -203,6 +203,13 @@ class DataTransformerJob(JobUtilities):
                     dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData(), systemMergeEngine)
                 createOrUpdateTable(systemMergeEngine, t)
 
+            # Reset an open batch if one exists.
+            with log_operation_timing(logger, "batch_creation_or_reset"):
+                reset_rc: str = self.dp.resetBatchState(self.eco, outputDatastore.name, committedOk=True)
+                if reset_rc != "SUCCESS":
+                    logger.error("Failed to reset batch state", reason=reset_rc)
+                    return JobStatus.ERROR
+
             # Execute the transformer in a transaction
             with log_operation_timing(logger, "transformer_execution"):
                 logger.info("Starting Transaction for job")
