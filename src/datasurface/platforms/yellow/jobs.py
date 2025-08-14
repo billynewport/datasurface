@@ -25,7 +25,7 @@ import os
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 from datasurface.platforms.yellow.merge_remote_forensic import SnapshotMergeJobRemoteForensic
-from datasurface.platforms.yellow.merge_remote_live import SnapshotMergeJobRemoteLiveOnly
+from datasurface.platforms.yellow.merge_remote_live import SnapshotMergeJobRemoteLive
 from datasurface.platforms.yellow.merge import Job
 
 # Setup logging for Kubernetes environment
@@ -169,7 +169,7 @@ def main():
         # Check if this is a remote merge ingestion (from another platform's merge table)
         if dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
             if isinstance(store.cmd, SQLMergeIngestion):
-                job = SnapshotMergeJobRemoteLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+                job = SnapshotMergeJobRemoteLive(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
             elif isinstance(store.cmd, SQLSnapshotIngestion):
                 job = SnapshotMergeJobLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
             else:

@@ -22,6 +22,7 @@ from datasurface.platforms.yellow.merge import Job, JobStatus
 from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md import SQLMergeIngestion
+from datasurface.platforms.yellow.merge import NoopJobException
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -53,7 +54,7 @@ class MergeRemoteJob(Job):
         return maxBatchId if maxBatchId is not None else 0
 
 
-class SnapshotMergeJobRemoteLiveOnly(MergeRemoteJob):
+class SnapshotMergeJobRemoteLive(MergeRemoteJob):
     """This job will ingest data from a remote forensic merge table. It maintains efficient incremental
     synchronization by:
 
@@ -69,8 +70,6 @@ class SnapshotMergeJobRemoteLiveOnly(MergeRemoteJob):
             self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
             store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
-        self.remoteBatchIdKey = "remote_batch_id"
-        self.isSeedBatchKey = "is_seed_batch"
 
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
@@ -131,7 +130,7 @@ class SnapshotMergeJobRemoteLiveOnly(MergeRemoteJob):
 
         # Fail fast if there is no committed remote batch to pull
         if currentRemoteBatchId == 0:
-            raise Exception("No committed remote batches found on remote source; cannot run remote live sync")
+            raise NoopJobException("No committed remote batches found on remote source; cannot run remote live sync")
 
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():
@@ -323,7 +322,7 @@ class SnapshotMergeJobRemoteLiveOnly(MergeRemoteJob):
             return 0
 
         # Create column name mapping for robust data extraction
-        column_map = {name: idx for idx, name in enumerate(column_names)}
+        column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
 
         # Build insert statement
         quoted_columns = [f'"{col}"' for col in allColumns] + [
@@ -345,8 +344,20 @@ class SnapshotMergeJobRemoteLiveOnly(MergeRemoteJob):
 
                 for row in batch_rows:
                     # Extract data columns using column mapping
-                    dataValues = [row[column_map[col]] for col in allColumns]
+                    dataValues = []
+                    for col in allColumns:
+                        if col not in column_map:
+                            raise ValueError(f"Expected column '{col}' not found in query result")
+                        dataValues.append(row[column_map[col]])
+
                     # Extract calculated values using column names
+                    if sp.ALL_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected hash column '{sp.ALL_HASH_COLUMN_NAME}' not found in query result")
+                    if sp.KEY_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected key hash column '{sp.KEY_HASH_COLUMN_NAME}' not found in query result")
+                    if sp.IUD_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected IUD column '{sp.IUD_COLUMN_NAME}' not found in query result")
+
                     allHash = row[column_map[sp.ALL_HASH_COLUMN_NAME]]
                     keyHash = row[column_map[sp.KEY_HASH_COLUMN_NAME]]
                     iudValue = row[column_map[sp.IUD_COLUMN_NAME]]

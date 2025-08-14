@@ -21,6 +21,7 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
 from datasurface.platforms.yellow.merge_remote_live import MergeRemoteJob
+from datasurface.platforms.yellow.merge import NoopJobException
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -45,8 +46,6 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
             store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
-        self.remoteBatchIdKey = "remote_batch_id"
-        self.isSeedBatchKey = "is_seed_batch"
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None):
         """Override to add remote batch columns for forensic mirror staging tables."""
@@ -79,7 +78,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Fail fast if there is no committed remote batch to pull
         if remoteBatchId == 0:
-            raise Exception("No committed remote batches found on remote source; cannot run remote forensic sync")
+            raise NoopJobException("No committed remote batches found on remote source; cannot run remote forensic sync")
 
         # Ingest to staging for this remote batch id (method handles early exit if already committed)
         recordsInserted, _, _ = self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, remoteBatchId)
@@ -125,8 +124,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                 result = connection.execute(text(f"""
                     SELECT MAX("currentBatch")
                     FROM {self.getPhysBatchMetricsTableName()}
-                    WHERE key = '{key}' AND batch_status = '{BatchStatus.COMMITTED.value}'
-                """))
+                    WHERE key = :key AND batch_status = :batch_status
+                """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
                 lastCompletedBatch = result.fetchone()
                 lastCompletedBatch = lastCompletedBatch[0] if lastCompletedBatch and lastCompletedBatch[0] else None
             except Exception:
@@ -221,8 +220,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Check if this batch already exists
         result = connection.execute(text(f"""
             SELECT "batch_status" FROM {self.getPhysBatchMetricsTableName()}
-            WHERE "key" = '{key}' AND "batch_id" = {remoteBatchId}
-        """))
+            WHERE "key" = :key AND "batch_id" = :batch_id
+        """), {"key": key, "batch_id": remoteBatchId})
         existing_batch = result.fetchone()
 
         if existing_batch is not None:
@@ -237,14 +236,21 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                 return True  # Continue processing
         else:
             # Create initial batch state for remote processing
+            if not hasattr(self.store, 'datasets') or not self.store.datasets:
+                raise ValueError("Store must have datasets configured for remote merge processing")
             state = BatchState(all_datasets=list(self.store.datasets.keys()))
 
             # Insert a new batch record with the remote batch ID
             connection.execute(text(f"""
                 INSERT INTO {self.getPhysBatchMetricsTableName()}
                 ("key", "batch_id", "batch_start_time", "batch_status", "state")
-                VALUES ('{key}', {remoteBatchId}, NOW(), '{BatchStatus.STARTED.value}', :state)
-            """), {"state": state.model_dump_json()})
+                VALUES (:key, :batch_id, NOW(), :batch_status, :state)
+            """), {
+                "key": key,
+                "batch_id": remoteBatchId,
+                "batch_status": BatchStatus.STARTED.value,
+                "state": state.model_dump_json()
+            })
 
             # Update the batch counter to reflect the remote batch ID when creating the batch
             self._updateBatchCounter(connection, key, remoteBatchId)
@@ -350,7 +356,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             return 0
 
         # Create column name mapping for robust data extraction
-        column_map = {name: idx for idx, name in enumerate(column_names)}
+        column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
 
         # Build insert statement - includes remote batch_in/batch_out columns
         quoted_columns = [f'"{col}"' for col in allColumns] + [
@@ -373,8 +379,22 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
                 for row in batch_rows:
                     # Extract data columns using column mapping
-                    dataValues = [row[column_map[col]] for col in allColumns]
+                    dataValues = []
+                    for col in allColumns:
+                        if col not in column_map:
+                            raise ValueError(f"Expected column '{col}' not found in query result")
+                        dataValues.append(row[column_map[col]])
+
                     # Extract calculated values using column names
+                    if sp.ALL_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected hash column '{sp.ALL_HASH_COLUMN_NAME}' not found in query result")
+                    if sp.KEY_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected key hash column '{sp.KEY_HASH_COLUMN_NAME}' not found in query result")
+                    if 'remote_batch_in' not in column_map:
+                        raise ValueError("Expected 'remote_batch_in' column not found in query result")
+                    if 'remote_batch_out' not in column_map:
+                        raise ValueError("Expected 'remote_batch_out' column not found in query result")
+
                     allHash = row[column_map[sp.ALL_HASH_COLUMN_NAME]]
                     keyHash = row[column_map[sp.KEY_HASH_COLUMN_NAME]]
                     remoteBatchIn = row[column_map['remote_batch_in']]
@@ -610,26 +630,28 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         This ensures the counter table stays in sync with the metrics table
         when using remote batch IDs instead of sequential local batch IDs.
+
+        Note: This method assumes it's called within an existing transaction context.
         """
         # First check if a counter record exists
         result = connection.execute(text(f"""
             SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()}
-            WHERE key = '{key}'
-        """))
+            WHERE key = :key
+        """), {"key": key})
         existing_row = result.fetchone()
 
         if existing_row is not None:
             # Update existing counter to the remote batch ID
             connection.execute(text(f"""
                 UPDATE {self.getPhysBatchCounterTableName()}
-                SET "currentBatch" = {batchId}
-                WHERE key = '{key}'
-            """))
+                SET "currentBatch" = :batch_id
+                WHERE key = :key
+            """), {"key": key, "batch_id": batchId})
             logger.debug("Updated batch counter", key=key, batch_id=batchId)
         else:
             # Insert new counter record with remote batch ID
             connection.execute(text(f"""
                 INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch")
-                VALUES ('{key}', {batchId})
-            """))
+                VALUES (:key, :batch_id)
+            """), {"key": key, "batch_id": batchId})
             logger.debug("Inserted new batch counter", key=key, batch_id=batchId)

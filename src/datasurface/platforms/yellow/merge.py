@@ -61,6 +61,11 @@ This job is designed to be run by Airflow as a KubernetesPodOperator. It returns
 """
 
 
+class NoopJobException(Exception):
+    """This is a special exception that is used to indicate that the job is a noop and should not be run."""
+    pass
+
+
 class Job(YellowDatasetUtilities):
     """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
     step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
@@ -302,7 +307,7 @@ class Job(YellowDatasetUtilities):
 
     @abstractmethod
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
-        raise NotImplementedError("This method must be implemented by the subclass")
+        raise NoopJobException("This method must be implemented by the subclass")
 
     def executeNormalRollingBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         """This executes an ingestion/merge batch. The logic is as follows:
@@ -314,6 +319,7 @@ class Job(YellowDatasetUtilities):
         TX: Ingest the batch to staging tables.
         TX: Merge the staging in to the merge tables.
         TX: Commit the batch."""
+        """This is used by all ingestion types except remote forensic for now."""
         with mergeEngine.begin() as connection:
             batchId: int = self.getCurrentBatchId(connection, key)
             currentStatus = self.checkBatchStatus(connection, key, batchId)
