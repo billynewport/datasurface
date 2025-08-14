@@ -502,6 +502,7 @@ class Job(YellowDatasetUtilities):
                                  offset=offset)
                     result = sourceConn.execute(text(selectSql))
                     rows = result.fetchall()
+                    column_names = result.keys()
                     logger.debug("Retrieved rows from source table",
                                  dataset_name=datasetToIngestName,
                                  row_count=len(rows),
@@ -518,14 +519,16 @@ class Job(YellowDatasetUtilities):
                     # ingested it. This lets us delete the ingested records when resetting the batch and filter for
                     # the records in a batch when merging them in to the merge table.
                     with mergeEngine.begin() as mergeConn:
+                        # Create column name mapping for robust data extraction
+                        column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
                         # Prepare batch data - now includes pre-calculated hashes
                         batchValues: List[List[Any]] = []
                         for row in rows:
-                            # Extract data columns (excluding the hash columns we added)
-                            dataValues = list(row)[:len(allColumns)]
-                            # Extract hash values (last two columns from our SELECT)
-                            allHash = row[-2]  # ds_surf_all_hash
-                            keyHash = row[-1]  # ds_surf_key_hash
+                            # Extract data columns using column mapping
+                            dataValues = [row[column_map[col]] for col in allColumns]
+                            # Extract hash values using column names
+                            allHash = row[column_map[self.schemaProjector.ALL_HASH_COLUMN_NAME]]
+                            keyHash = row[column_map[self.schemaProjector.KEY_HASH_COLUMN_NAME]]
                             # Add batch metadata
                             insertValues = dataValues + [batchId, allHash, keyHash]
                             batchValues.append(insertValues)
