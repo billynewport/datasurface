@@ -15,7 +15,7 @@ from datasurface.md import Ecosystem
 from datasurface.md import Datastore, DataContainer, Dataset
 from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, WorkspacePlatformConfig
 from datasurface.md import DataPlatform
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowDatasetUtilities
 from datasurface.md.lint import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.credential import CredentialStore, Credential
@@ -34,6 +34,10 @@ class BaseSnapshotMergeJobTest(ABC):
     job: Optional[Job]
     source_engine: Optional[Engine]
     merge_engine: Optional[Engine]
+    ydu: YellowDatasetUtilities
+
+    def __init__(self, dpName: str) -> None:
+        self.dpName = dpName
 
     @abstractmethod
     def preprocessEcosystemModel(self) -> None:
@@ -54,7 +58,7 @@ class BaseSnapshotMergeJobTest(ABC):
         if self.tree.hasErrors():
             self.tree.printTree()
             raise Exception("Ecosystem validation failed")
-        dp: Optional[DataPlatform] = self.eco.getDataPlatform("Test_DP")
+        dp: Optional[DataPlatform] = self.eco.getDataPlatform(self.dpName)
         if dp is None:
             raise Exception("Platform not found")
         self.dp = cast(YellowDataPlatform, dp)
@@ -69,6 +73,7 @@ class BaseSnapshotMergeJobTest(ABC):
 
         self.overrideJobConnections()
         self.overrideCredentialStore()
+        self.ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.dp.psp.credStore, self.dp, self.store)
         self.setupDatabases()
 
     def tearDown(self) -> None:
@@ -82,10 +87,10 @@ class BaseSnapshotMergeJobTest(ABC):
             self.source_engine.dispose()
         if hasattr(self, 'merge_engine') and self.merge_engine is not None:
             with self.merge_engine.begin() as conn:
-                conn.execute(text('DROP TABLE IF EXISTS "test_dp_store1_people_merge" CASCADE'))
-                conn.execute(text('DROP TABLE IF EXISTS "Test_DP_Store1_people_merge" CASCADE'))
-                conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
-                conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
+                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}" CASCADE'))
+                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}" CASCADE'))
+                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchCounterTableName()}" CASCADE'))
+                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchMetricsTableName()}" CASCADE'))
                 conn.commit()
             self.merge_engine.dispose()
 
@@ -146,7 +151,7 @@ class BaseSnapshotMergeJobTest(ABC):
     def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
         """Check the batch status for a given key"""
         with self.merge_engine.begin() as conn:
-            result = conn.execute(text('SELECT "currentBatch" FROM "test_dp_batch_counter" WHERE "key" = \'' + key + '\''))
+            result = conn.execute(text(f'SELECT "currentBatch" FROM "{self.ydu.getPhysBatchCounterTableName()}" WHERE "key" = \'' + key + '\''))
             row = result.fetchone()
             current_batch = row[0] if row else 0
             tc.assertEqual(current_batch, expected_batch)
@@ -155,7 +160,8 @@ class BaseSnapshotMergeJobTest(ABC):
         """Check the batch status for a given batch id"""
         with self.merge_engine.begin() as conn:
             # Get batch status
-            result = conn.execute(text('SELECT "batch_status" FROM "test_dp_batch_metrics" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
+            result = conn.execute(
+                text(f'SELECT "batch_status" FROM "{self.ydu.getPhysBatchMetricsTableName()}" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
             row = result.fetchone()
             batch_status = row[0] if row else "None"
             tc.assertEqual(batch_status, expected_status.value)
@@ -164,6 +170,11 @@ class BaseSnapshotMergeJobTest(ABC):
         """Test that the first batch is started"""
         assert self.job is not None
         assert self.merge_engine is not None
+
+        # Ensure staging table exists before calling startBatch
+        assert self.store is not None
+        self.ydu.reconcileStagingTableSchemas(self.merge_engine, self.store)
+
         self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
         self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED, tc)
 
@@ -223,18 +234,18 @@ class BaseSnapshotMergeJobTest(ABC):
         with self.merge_engine.begin() as conn:
             # Try both possible table names
             try:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
                            ds_surf_batch_in, ds_surf_batch_out
-                    FROM test_dp_store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id", ds_surf_batch_in
                 """))
             except Exception:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM Test_DP_Store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -242,19 +253,19 @@ class BaseSnapshotMergeJobTest(ABC):
     def getLiveRecords(self) -> list:
         with self.merge_engine.begin() as conn:
             try:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
                            ds_surf_batch_in, ds_surf_batch_out
-                    FROM test_dp_store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     WHERE ds_surf_batch_out = 2147483647
                     ORDER BY "id"
                 """))
             except Exception:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM Test_DP_Store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -282,8 +293,8 @@ class BaseSnapshotMergeJobTest(ABC):
         if not hasattr(self, 'merge_engine'):
             self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
         with self.merge_engine.begin() as conn:
-            conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_counter" CASCADE'))
-            conn.execute(text('DROP TABLE IF EXISTS "test_dp_batch_metrics" CASCADE'))
+            conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchCounterTableName()}" CASCADE'))
+            conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchMetricsTableName()}" CASCADE'))
 
     def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
         """Common job setup pattern"""
@@ -427,6 +438,10 @@ class BaseSnapshotMergeJobTest(ABC):
 class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
     """Test the SnapshotMergeJob with a simple ecosystem (live-only)"""
 
+    def __init__(self, methodName: str = "runTest") -> None:
+        BaseSnapshotMergeJobTest.__init__(self, "Test_DP")
+        unittest.TestCase.__init__(self, methodName)
+
     def preprocessEcosystemModel(self) -> None:
         # Set the dataplatform to live-only mode
         self.dp.milestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
@@ -443,17 +458,17 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         with self.merge_engine.begin() as conn:
             # Try both possible table names
             try:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM test_dp_store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
                 result = conn.execute(text("""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM Test_DP_Store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -462,17 +477,17 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         """Override to only select live-only columns (no batch_in/batch_out)"""
         with self.merge_engine.begin() as conn:
             try:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM test_dp_store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM Test_DP_Store1_people_merge
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -491,17 +506,17 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         """Get all data from the staging table"""
         with self.merge_engine.begin() as conn:
             try:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM test_dp_store1_people_staging
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
-                result = conn.execute(text("""
+                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM Test_DP_Store1_people_staging
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]

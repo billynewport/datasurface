@@ -8,13 +8,17 @@ from datasurface.platforms.yellow.jobs import JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchStatus
 from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 from datasurface.md.governance import WorkspacePlatformConfig, DataMilestoningStrategy
-from src.tests.test_SnapshotMergeJobLiveOnly import BaseSnapshotMergeJobTest
+from tests.test_MergeSnapshotLiveOnly import BaseSnapshotMergeJobTest
 from typing import cast
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 
 
 class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
     """Test the SnapshotMergeJobForensic with forensic merge scenario"""
+
+    def __init__(self, methodName: str = "runTest") -> None:
+        BaseSnapshotMergeJobTest.__init__(self, "Test_DP")
+        unittest.TestCase.__init__(self, methodName)
 
     def preprocessEcosystemModel(self) -> None:
         # Set the dataplatform to forensic mode

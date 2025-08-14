@@ -7,7 +7,7 @@ from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType
 )
 from typing import cast, Optional
-from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
+from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion, SQLMergeIngestion, SQLSnapshotIngestion
 from datasurface.md.lint import ValidationTree
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.platforms.yellow.yellow_dp import (
@@ -24,6 +24,8 @@ from datasurface.platforms.yellow.logging_utils import (
 import os
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
+from datasurface.platforms.yellow.merge_remote_live import SnapshotMergeJobRemote
+from datasurface.platforms.yellow.merge_remote_forensic import SnapshotMergeJobRemoteForensic
 from datasurface.platforms.yellow.merge import Job
 
 # Setup logging for Kubernetes environment
@@ -164,10 +166,24 @@ def main():
                 return -1  # ERROR
 
         job: Job
+        # Check if this is a remote merge ingestion (from another platform's merge table)
         if dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
-            job = SnapshotMergeJobLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+            if isinstance(store.cmd, SQLMergeIngestion):
+                job = SnapshotMergeJobRemote(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+            elif isinstance(store.cmd, SQLSnapshotIngestion):
+                job = SnapshotMergeJobLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+            else:
+                logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
+                return -1  # ERROR
         elif dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
-            job = SnapshotMergeJobForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+            if isinstance(store.cmd, SQLMergeIngestion):
+                # Forensic-to-forensic ingestion: remote merge from another forensic platform
+                job = SnapshotMergeJobRemoteForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+            elif isinstance(store.cmd, SQLSnapshotIngestion):
+                job = SnapshotMergeJobForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
+            else:
+                logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
+                return -1  # ERROR
         else:
             logger.error("Unknown milestone strategy", milestone_strategy=dp.milestoneStrategy)
             return -1  # ERROR

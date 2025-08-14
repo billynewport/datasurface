@@ -589,6 +589,10 @@ class BatchState(BaseModel):
     current_dataset_index: int = 0
     current_offset: int = 0
     schema_versions: dict[str, str] = Field(default_factory=dict)
+    # This is used to store state for the next batch to use during ingestion/merge. It can also be used to hold state for the current batch
+    # when the curent batch is too large to do in a single job. It's the restart point for both the current batch and the next batch when
+    # the batch is closed.
+    job_state: dict[str, Any] = Field(default_factory=dict)
 
     def reset(self) -> None:
         """This resets the state to the start of the batch"""

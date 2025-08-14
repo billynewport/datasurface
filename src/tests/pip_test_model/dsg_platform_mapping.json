@@ -1,0 +1,28 @@
+[
+    {
+      "dsgName": "DSGLive",
+      "workspace": "ConsumerLive",
+      "assignments": [
+        {
+          "dataPlatform": "YellowLive",
+          "documentation": "Test DataPlatform",
+          "productionStatus": "PRODUCTION",
+          "deprecationsAllowed": "NEVER",
+          "status": "PROVISIONED"
+        }
+      ]
+    },
+    {
+        "dsgName": "DSGForensic",
+        "workspace": "ConsumerForensic",
+        "assignments": [
+          {
+            "dataPlatform": "YellowForensic",
+            "documentation": "Test DataPlatform",
+            "productionStatus": "PRODUCTION",
+            "deprecationsAllowed": "NEVER",
+            "status": "PROVISIONED"
+          }
+        ]
+      }
+    ]
