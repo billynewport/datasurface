@@ -127,15 +127,17 @@ class Job(YellowDatasetUtilities):
 
         # Check if the current batch is committed
         result = connection.execute(text(
-            f'SELECT "batch_status" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {currentBatchId}'
-        ))
+            f'SELECT "batch_status" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = :key AND "batch_id" = :batch_id'
+        ), {"key": key, "batch_id": currentBatchId})
         batchStatusRow: Optional[Row[Any]] = result.fetchone()
         if batchStatusRow is not None:
             batchStatus: str = batchStatusRow[0]
             if batchStatus != BatchStatus.COMMITTED.value:
                 raise Exception(f"Batch {currentBatchId} is not committed")
             newBatch = currentBatchId + 1
-            connection.execute(text(f'UPDATE {self.getPhysBatchCounterTableName()} SET "currentBatch" = {newBatch} WHERE key = \'{key}\''))
+            connection.execute(text(
+                f'UPDATE {self.getPhysBatchCounterTableName()} SET "currentBatch" = :new_batch WHERE key = :key'
+            ), {"new_batch": newBatch, "key": key})
         else:
             newBatch = 1
 
@@ -204,7 +206,9 @@ class Job(YellowDatasetUtilities):
 
     def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
         """Get the batch status for a given key and batch id"""
-        result = connection.execute(text(f'SELECT "state" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'))
+        result = connection.execute(text(
+            f'SELECT "state" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = :key AND "batch_id" = :batch_id'
+        ), {"key": key, "batch_id": batchId})
         row = result.fetchone()
 
         return BatchState.model_validate_json(row[0]) if row else BatchState(all_datasets=[])
@@ -214,8 +218,8 @@ class Job(YellowDatasetUtilities):
         result = connection.execute(text(f"""
             SELECT bm."batch_status"
             FROM {self.getPhysBatchMetricsTableName()} bm
-            WHERE bm."key" = '{key}' AND bm."batch_id" = {batchId}
-        """))
+            WHERE bm."key" = :key AND bm."batch_id" = :batch_id
+        """), {"key": key, "batch_id": batchId})
         row = result.fetchone()
         return row[0] if row else None
 
@@ -236,11 +240,15 @@ class Job(YellowDatasetUtilities):
             logger.debug("Batch counter table already exists", table_name=table_name)
 
         # Now query the table
-        result = connection.execute(text(f'SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()} WHERE key = \'{key}\''))
+        result = connection.execute(text(
+            f'SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()} WHERE key = :key'
+        ), {"key": key})
         row = result.fetchone()
         if row is None:
             # Insert a new batch counter
-            connection.execute(text(f'INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch") VALUES (\'{key}\', 1)'))
+            connection.execute(text(
+                f'INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch") VALUES (:key, :current_batch)'
+            ), {"key": key, "current_batch": 1})
             return 1
         else:
             return row[0]
