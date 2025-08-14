@@ -17,7 +17,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.merge import Job, JobStatus
 
 
 # Setup logging for Kubernetes environment
@@ -43,6 +43,9 @@ class SnapshotMergeJobForensic(Job):
             batchId: int) -> tuple[int, int, int]:
         """This is the same copy a snapshot from the source table to the staging table as the live only job."""
         return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+
+    def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
     def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
         """

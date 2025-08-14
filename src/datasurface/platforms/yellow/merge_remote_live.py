@@ -18,7 +18,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.merge import Job, JobStatus
 from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md import SQLMergeIngestion
@@ -71,6 +71,9 @@ class SnapshotMergeJobRemote(MergeRemoteJob):
         super().__init__(eco, credStore, dp, store, datasetName)
         self.remoteBatchIdKey = "remote_batch_id"
         self.isSeedBatchKey = "is_seed_batch"
+
+    def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None):
         """Override to add IUD column for remote merge ingestion staging tables."""
@@ -125,6 +128,10 @@ class SnapshotMergeJobRemote(MergeRemoteJob):
             assert self.schemaProjector is not None
             currentRemoteBatchId = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
             logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
+
+        # Fail fast if there is no committed remote batch to pull
+        if currentRemoteBatchId == 0:
+            raise Exception("No committed remote batches found on remote source; cannot run remote live sync")
 
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():

@@ -15,7 +15,7 @@ from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, YellowSchemaProjector,
-    BatchStatus, BatchState
+    BatchStatus, BatchState, JobStatus
 )
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
@@ -67,6 +67,31 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
         return t
 
+    def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        """Execute one remote-forensic batch aligned to the latest committed remote batch ID.
+
+        This method uses the remote batch ID as the local batch ID end-to-end. If the latest
+        remote batch is already committed locally, it exits early.
+        """
+        assert self.schemaProjector is not None
+        # Determine the remote batch to process
+        remoteBatchId: int = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
+
+        # Fail fast if there is no committed remote batch to pull
+        if remoteBatchId == 0:
+            raise Exception("No committed remote batches found on remote source; cannot run remote forensic sync")
+
+        # Ingest to staging for this remote batch id (method handles early exit if already committed)
+        recordsInserted, _, _ = self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, remoteBatchId)
+
+        # If there was nothing to ingest (already up-to-date), we're done
+        if recordsInserted == 0:
+            return JobStatus.DONE
+
+        # Proceed to merge the staging data into the forensic merge table
+        self.mergeStagingToMergeAndCommit(mergeEngine, remoteBatchId, key)
+        return JobStatus.DONE
+
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
             batchId: int) -> tuple[int, int, int]:
@@ -74,14 +99,56 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         First batch is a seed batch that pulls all live records.
         Subsequent batches use milestoning to get only changed records since last remote batch.
+        Note: The local batchId will be updated to match the currentRemoteBatchId being processed.
         """
+        # Get current remote batch ID first to determine what we're processing
+        assert self.schemaProjector is not None
+        currentRemoteBatchId = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
+        logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
+
+        # Use the remote batch ID as our local batch ID for this run
+        localBatchId = currentRemoteBatchId
+
         state: Optional[BatchState] = None
-        # Fetch restart state from batch metrics table
+        # Get job state from the last completed batch (not the current one we're about to process)
         with mergeEngine.begin() as connection:
-            state = self.getBatchState(mergeEngine, connection, key, batchId)
-            if state is None:
-                # Initial batch state.
+            # Create/ensure batch record exists for the remote batch ID
+            should_continue = self._createBatchForRemoteId(connection, key, localBatchId)
+            if not should_continue:
+                # Remote batch already committed, we're up to date
+                logger.info("Job already up to date with remote batch, exiting",
+                            remote_batch_id=localBatchId, key=key)
+                return 0, 0, 0  # No records processed since already up to date
+            # Look for the last completed batch to get job state
+            # Query batch metrics table for the highest completed batch
+            try:
+                result = connection.execute(text(f"""
+                    SELECT MAX("currentBatch")
+                    FROM {self.getPhysBatchMetricsTableName()}
+                    WHERE key = '{key}' AND batch_status = '{BatchStatus.COMMITTED.value}'
+                """))
+                lastCompletedBatch = result.fetchone()
+                lastCompletedBatch = lastCompletedBatch[0] if lastCompletedBatch and lastCompletedBatch[0] else None
+            except Exception:
+                # Table might not exist yet
+                lastCompletedBatch = None
+
+            if lastCompletedBatch is not None:
+                # Get job state from last completed batch
+                lastState = self.getBatchState(mergeEngine, connection, key, lastCompletedBatch)
+                if lastState is not None:
+                    state = BatchState(all_datasets=list(self.store.datasets.keys()))
+                    state.job_state = lastState.job_state.copy()
+                    logger.info("Retrieved job state from last completed batch",
+                                last_batch_id=lastCompletedBatch,
+                                last_remote_batch_id=state.job_state.get(self.remoteBatchIdKey))
+                else:
+                    state = BatchState(all_datasets=list(self.store.datasets.keys()))
+                    logger.info("No job state found in last completed batch, starting fresh")
+            else:
+                # Truly initial batch state
                 state = BatchState(all_datasets=list(self.store.datasets.keys()))
+                logger.info("No previous batches found, starting initial batch")
 
         # Check for schema changes before ingestion
         self.checkForSchemaChanges(state)
@@ -91,20 +158,14 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         lastRemoteBatchId: Optional[int] = state.job_state.get(self.remoteBatchIdKey, None)
 
         logger.info("Starting remote forensic merge ingestion",
-                    batch_id=batchId,
+                    local_batch_id=localBatchId,
+                    remote_batch_id=currentRemoteBatchId,
                     is_seed_batch=isSeedBatch,
                     last_remote_batch_id=lastRemoteBatchId,
                     datasets_count=len(state.all_datasets))
 
         recordsInserted = 0
         totalRecords = 0
-        currentRemoteBatchId: Optional[int] = None
-
-        # Get current remote batch ID if not already determined
-        if currentRemoteBatchId is None:
-            assert self.schemaProjector is not None
-            currentRemoteBatchId = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
-            logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
 
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():
@@ -122,19 +183,18 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     pkColumns = [col.name for col in schema.columns.values()]
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
-                assert self.schemaProjector is not None
                 sp: YellowSchemaProjector = self.schemaProjector
 
                 if isSeedBatch:
                     # Seed batch: Get all live records as of current remote batch
                     recordsInserted += self._ingestSeedBatch(
                         sourceConn, mergeEngine, sourceTableName, stagingTableName,
-                        allColumns, pkColumns, batchId, sp, currentRemoteBatchId)
+                        allColumns, pkColumns, localBatchId, sp, currentRemoteBatchId)
                 else:
                     # Incremental batch: Get changes since last remote batch
                     recordsInserted += self._ingestIncrementalBatch(
                         sourceConn, mergeEngine, sourceTableName, stagingTableName,
-                        allColumns, pkColumns, batchId, sp, lastRemoteBatchId, currentRemoteBatchId)
+                        allColumns, pkColumns, localBatchId, sp, lastRemoteBatchId, currentRemoteBatchId)
 
                 # Move to next dataset
                 state.moveToNextDataset()
@@ -145,9 +205,53 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     # Update final state before marking as ingested
                     state.job_state[self.remoteBatchIdKey] = currentRemoteBatchId
                     state.job_state[self.isSeedBatchKey] = False  # Next batch will be incremental
-                    self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
+                    self.updateBatchStatusInTx(mergeEngine, key, localBatchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords
+
+    def _createBatchForRemoteId(self, connection, key: str, remoteBatchId: int) -> bool:
+        """Create a batch record using the remote batch ID instead of incrementing local counter.
+
+        This bypasses the normal createBatchCommon logic which increments the local counter.
+        Instead, we directly create a batch with the remote batch ID.
+
+        Returns:
+            bool: True if processing should continue, False if already up to date
+        """
+        # Check if this batch already exists
+        result = connection.execute(text(f"""
+            SELECT "batch_status" FROM {self.getPhysBatchMetricsTableName()}
+            WHERE "key" = '{key}' AND "batch_id" = {remoteBatchId}
+        """))
+        existing_batch = result.fetchone()
+
+        if existing_batch is not None:
+            batch_status = existing_batch[0]
+            if batch_status == BatchStatus.COMMITTED.value:
+                logger.info("Remote batch already committed, job is up to date",
+                            remote_batch_id=remoteBatchId, key=key)
+                return False  # Stop processing, already up to date
+            else:
+                logger.info("Remote batch exists but not committed, will reprocess",
+                            remote_batch_id=remoteBatchId, key=key, status=batch_status)
+                return True  # Continue processing
+        else:
+            # Create initial batch state for remote processing
+            state = BatchState(all_datasets=list(self.store.datasets.keys()))
+
+            # Insert a new batch record with the remote batch ID
+            connection.execute(text(f"""
+                INSERT INTO {self.getPhysBatchMetricsTableName()}
+                ("key", "batch_id", "batch_start_time", "batch_status", "state")
+                VALUES ('{key}', {remoteBatchId}, NOW(), '{BatchStatus.STARTED.value}', :state)
+            """), {"state": state.model_dump_json()})
+
+            # Update the batch counter to reflect the remote batch ID when creating the batch
+            self._updateBatchCounter(connection, key, remoteBatchId)
+
+            logger.info("Created new batch record for remote batch",
+                        remote_batch_id=remoteBatchId, key=key)
+            return True  # Continue processing
 
     def _ingestSeedBatch(
             self, sourceConn, mergeEngine: Engine, sourceTableName: str, stagingTableName: str,
@@ -292,6 +396,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         This handles both seed batches (full sync) and incremental batches (delta changes) for forensic tables:
         - Seed batches: Close all existing records and insert new versions from staging
         - Incremental batches: Process specific IUD operations with proper milestoning
+
+        Note: batchId should be the remote batch ID that was processed.
         """
         total_inserted: int = 0
         total_updated: int = 0
@@ -300,8 +406,11 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
 
+        # The batchId passed in should already be the remote batch ID
+        localBatchId = batchId
+
         with mergeEngine.begin() as connection:
-            state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
+            state: BatchState = self.getBatchState(mergeEngine, connection, key, localBatchId)
             self.checkForSchemaChanges(state)
 
             # Determine if this is a seed batch or incremental batch
@@ -318,28 +427,30 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
                 # Get total count for processing
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {localBatchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
                 if isSeedBatch:
                     logger.debug("Processing forensic seed batch for dataset",
                                  dataset_name=datasetToMergeName,
+                                 local_batch_id=localBatchId,
                                  total_records=total_records)
 
                     # Seed batch: Close all existing records and insert new ones
                     dataset_inserted, dataset_updated, dataset_deleted = self._processForensicSeedBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-                        batchId, sp, batch_size)
+                        localBatchId, sp, batch_size)
                 else:
                     logger.debug("Processing forensic incremental batch for dataset",
                                  dataset_name=datasetToMergeName,
+                                 local_batch_id=localBatchId,
                                  total_records=total_records)
 
                     # Incremental batch: Process specific IUD operations with forensic logic
                     dataset_inserted, dataset_updated, dataset_deleted = self._processForensicIncrementalBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-                        batchId, sp, batch_size)
+                        localBatchId, sp, batch_size)
 
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
@@ -347,16 +458,23 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
                 logger.debug("Dataset forensic remote merge results",
                              dataset_name=datasetToMergeName,
+                             local_batch_id=localBatchId,
                              inserted=dataset_inserted,
                              updated=dataset_updated,
                              deleted=dataset_deleted)
 
             # Update the batch status to merged within the existing transaction
+            # Use the remote batch ID as the local batch ID in metrics
             self.markBatchMerged(
-                connection, key, batchId, BatchStatus.COMMITTED,
+                connection, key, localBatchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 
+            # Update the batch counter to reflect the current remote batch ID
+            # This keeps the counter table in sync with the metrics table
+            self._updateBatchCounter(connection, key, localBatchId)
+
         logger.info("Total forensic remote merge results",
+                    local_batch_id=localBatchId,
                     total_inserted=total_inserted,
                     total_updated=total_updated,
                     total_deleted=total_deleted)
@@ -486,3 +604,32 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # No deletions in mirror mode - we preserve all history and only update closure dates
         return total_inserted, total_updated, 0
+
+    def _updateBatchCounter(self, connection, key: str, batchId: int) -> None:
+        """Update the batch counter to reflect the current remote batch ID.
+
+        This ensures the counter table stays in sync with the metrics table
+        when using remote batch IDs instead of sequential local batch IDs.
+        """
+        # First check if a counter record exists
+        result = connection.execute(text(f"""
+            SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()}
+            WHERE key = '{key}'
+        """))
+        existing_row = result.fetchone()
+
+        if existing_row is not None:
+            # Update existing counter to the remote batch ID
+            connection.execute(text(f"""
+                UPDATE {self.getPhysBatchCounterTableName()}
+                SET "currentBatch" = {batchId}
+                WHERE key = '{key}'
+            """))
+            logger.debug("Updated batch counter", key=key, batch_id=batchId)
+        else:
+            # Insert new counter record with remote batch ID
+            connection.execute(text(f"""
+                INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch")
+                VALUES ('{key}', {batchId})
+            """))
+            logger.debug("Inserted new batch counter", key=key, batch_id=batchId)

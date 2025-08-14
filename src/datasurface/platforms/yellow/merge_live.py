@@ -17,7 +17,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.merge import Job, JobStatus
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -39,6 +39,9 @@ class SnapshotMergeJobLiveOnly(Job):
             self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
             store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
+
+    def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,

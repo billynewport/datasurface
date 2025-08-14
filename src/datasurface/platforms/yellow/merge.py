@@ -300,7 +300,11 @@ class Job(YellowDatasetUtilities):
         """This will merge the staging table to the merge table"""
         pass
 
+    @abstractmethod
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
+        raise NotImplementedError("This method must be implemented by the subclass")
+
+    def executeNormalRollingBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         """This executes an ingestion/merge batch. The logic is as follows:
         If there is no current batch, i.e. initial batch or the last batch is committed then
             start one and keep going.
