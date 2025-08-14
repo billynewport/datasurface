@@ -53,7 +53,7 @@ class MergeRemoteJob(Job):
         return maxBatchId if maxBatchId is not None else 0
 
 
-class SnapshotMergeJobRemote(MergeRemoteJob):
+class SnapshotMergeJobRemoteLiveOnly(MergeRemoteJob):
     """This job will ingest data from a remote forensic merge table. It maintains efficient incremental
     synchronization by:
 
