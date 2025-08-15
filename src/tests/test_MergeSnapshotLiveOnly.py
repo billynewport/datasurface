@@ -20,13 +20,12 @@ from datasurface.md.lint import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.md.credential import CredentialStore, Credential
 from typing import cast
-from abc import ABC, abstractmethod
+from abc import ABC
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 
 
 class BaseSnapshotMergeJobTest(ABC):
     """Base class for SnapshotMergeJob tests (live-only and forensic)"""
-    eco: Optional[Ecosystem]
     tree: Optional[ValidationTree]
     dp: Optional[YellowDataPlatform]
     store_entry: Optional[DatastoreCacheEntry]
@@ -36,28 +35,9 @@ class BaseSnapshotMergeJobTest(ABC):
     merge_engine: Optional[Engine]
     ydu: YellowDatasetUtilities
 
-    def __init__(self, dpName: str) -> None:
-        self.dpName = dpName
-
-    @abstractmethod
-    def preprocessEcosystemModel(self) -> None:
-        pass
-
-    def setUp(self) -> None:
-        self.eco = None
-        self.tree = None
-        self.dp = None
-        self.store_entry = None
-        self.store = None
-        self.job = None
-        self.source_engine = None
-        self.merge_engine = None
-        self.eco, self.tree = loadEcosystemFromEcoModule("src/tests/yellow_dp_tests")
-        if self.eco is None or self.tree is None:
-            raise Exception("Failed to load ecosystem")
-        if self.tree.hasErrors():
-            self.tree.printTree()
-            raise Exception("Ecosystem validation failed")
+    def __init__(self, eco: Ecosystem, dpName: str) -> None:
+        self.eco: Ecosystem = eco
+        self.dpName: str = dpName
         dp: Optional[DataPlatform] = self.eco.getDataPlatform(self.dpName)
         if dp is None:
             raise Exception("Platform not found")
@@ -68,15 +48,32 @@ class BaseSnapshotMergeJobTest(ABC):
         self.store_entry = store_entry
         self.store = self.store_entry.datastore
 
-        # Allow subclasses to postprocess the ecosystem model
-        self.preprocessEcosystemModel()
+    @staticmethod
+    def loadEcosystem(path: str) -> Optional[Ecosystem]:
+        eco: Optional[Ecosystem] = None
+        tree: Optional[ValidationTree] = None
+        eco, tree = loadEcosystemFromEcoModule(path)
+        if eco is None or tree is None:
+            raise Exception("Failed to load ecosystem")
+        if tree.hasErrors():
+            tree.printTree()
+            raise Exception("Ecosystem validation failed")
+        return eco
+
+    def baseSetUp(self) -> None:
+        self.tree = None
+        self.job = None
+        self.source_engine = None
+        self.merge_engine = None
 
         self.overrideJobConnections()
         self.overrideCredentialStore()
+        assert self.dp is not None
+        assert self.store is not None
         self.ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.dp.psp.credStore, self.dp, self.store)
         self.setupDatabases()
 
-    def tearDown(self) -> None:
+    def baseTearDown(self) -> None:
         if hasattr(self, '_engine_patcher'):
             self._engine_patcher.stop()
         self.cleanupBatchTables()
@@ -299,7 +296,7 @@ class BaseSnapshotMergeJobTest(ABC):
     def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
         """Common job setup pattern"""
         # Call the base class setUp to initialize eco, dp, store, etc.
-        BaseSnapshotMergeJobTest.setUp(self)
+        self.baseSetUp()
         assert self.eco is not None
         assert self.dp is not None
         assert self.store is not None
@@ -310,7 +307,6 @@ class BaseSnapshotMergeJobTest(ABC):
             self.store
         )
         self.overrideCredentialStore()
-        self.setupDatabases()
 
     def common_verify_batch_completion(self, batch_id: int, tc: unittest.TestCase) -> None:
         """Common pattern to verify a batch completed successfully"""
@@ -439,19 +435,22 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
     """Test the SnapshotMergeJob with a simple ecosystem (live-only)"""
 
     def __init__(self, methodName: str = "runTest") -> None:
-        BaseSnapshotMergeJobTest.__init__(self, "Test_DP")
-        unittest.TestCase.__init__(self, methodName)
-
-    def preprocessEcosystemModel(self) -> None:
-        # Set the dataplatform to live-only mode
-        self.dp.milestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
+        eco: Optional[Ecosystem] = BaseSnapshotMergeJobTest.loadEcosystem("src/tests/yellow_dp_tests")
+        assert eco is not None
+        dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("Test_DP"))
+        dp.milestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
 
         # Set the consumer to live-only mode
-        req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, self.eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
+        req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
         req.retention.milestoningStrategy = DataMilestoningStrategy.LIVE_ONLY
+        BaseSnapshotMergeJobTest.__init__(self, eco, "Test_DP")
+        unittest.TestCase.__init__(self, methodName)
 
     def setUp(self) -> None:
         self.common_setup_job(SnapshotMergeJobLiveOnly, self)
+
+    def tearDown(self) -> None:
+        self.baseTearDown()
 
     def getMergeTableData(self) -> list:
         """Override to only select live-only columns (no batch_in/batch_out)"""

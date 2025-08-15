@@ -5,30 +5,37 @@
 
 import unittest
 from datasurface.platforms.yellow.jobs import JobStatus
-from datasurface.platforms.yellow.yellow_dp import BatchStatus
+from datasurface.platforms.yellow.yellow_dp import BatchStatus, YellowDataPlatform
 from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 from datasurface.md.governance import WorkspacePlatformConfig, DataMilestoningStrategy
 from tests.test_MergeSnapshotLiveOnly import BaseSnapshotMergeJobTest
 from typing import cast
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
+from datasurface.md import Ecosystem
+from typing import Optional
 
 
 class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
     """Test the SnapshotMergeJobForensic with forensic merge scenario"""
 
     def __init__(self, methodName: str = "runTest") -> None:
-        BaseSnapshotMergeJobTest.__init__(self, "Test_DP")
-        unittest.TestCase.__init__(self, methodName)
-
-    def preprocessEcosystemModel(self) -> None:
-        # Set the dataplatform to forensic mode
-        self.dp.milestoneStrategy = YellowMilestoneStrategy.BATCH_MILESTONED
+        eco: Optional[Ecosystem] = BaseSnapshotMergeJobTest.loadEcosystem("src/tests/yellow_dp_tests")
+        dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("Test_DP"))
+        dp.milestoneStrategy = YellowMilestoneStrategy.BATCH_MILESTONED
 
         # Set the consumer to forensic mode
-        req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, self.eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
+        req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
         req.retention.milestoningStrategy = DataMilestoningStrategy.FORENSIC
 
+        assert eco is not None
+        BaseSnapshotMergeJobTest.__init__(self, eco, "Test_DP")
+        unittest.TestCase.__init__(self, methodName)
+
+    def baseTearDown(self) -> None:
+        return super().baseTearDown()
+
     def setUp(self) -> None:
+        self.baseSetUp()
         self.common_setup_job(SnapshotMergeJobForensic, self)
 
     def common_verify_forensic_history(self, expected_total: int, expected_historical: int, tc: unittest.TestCase) -> None:
@@ -38,6 +45,9 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
 
         historical_records = [r for r in all_records if r['ds_surf_batch_out'] != 2147483647]
         tc.assertEqual(len(historical_records), expected_historical)
+
+    def tearDown(self) -> None:
+        self.baseTearDown()
 
     def test_BatchState(self) -> None:
         self.common_test_BatchState(self)
