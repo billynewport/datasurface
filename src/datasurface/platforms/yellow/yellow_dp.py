@@ -2595,17 +2595,15 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             assert store.cmd is not None
             return store.cmd
         else:
-            primDP: Optional[YellowDataPlatform] = None
-            dpKey: DataPlatformKey
-            for dpKey in pip.dataPlatforms:
-                dp: DataPlatform = eco.getDataPlatformOrThrow(dpKey.name)
-                if isinstance(dp, YellowDataPlatform):
-                    primDP = dp
-                    break
-            if primDP is None:
-                raise Exception(f"No compatible primary ingestion platform found for datastore {store.name}")
+            primDP: Optional[YellowDataPlatform] = self.getCompatiblePIPToUseForDatastore(eco, store.name)
+            # If this platform is itself the primary ingestion platform for the datastore,
+            # then the effective CMD should remain unchanged (read from the original source).
+            if primDP is self:
+                assert store.cmd is not None
+                return store.cmd
             assert store.cmd is not None
             assert store.cmd.singleOrMultiDatasetIngestion is not None
+            assert primDP is not None
             cmd: SQLIngestion = SQLMergeIngestion(
                 primDP.psp.mergeStore,  # The merge tables are in the primary platform's merge store
                 primDP,

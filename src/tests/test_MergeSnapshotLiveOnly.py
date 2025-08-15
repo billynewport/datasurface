@@ -62,7 +62,6 @@ class BaseSnapshotMergeJobTest(ABC):
 
     def baseSetUp(self) -> None:
         self.tree = None
-        self.job = None
         self.source_engine = None
         self.merge_engine = None
 
@@ -296,7 +295,6 @@ class BaseSnapshotMergeJobTest(ABC):
     def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
         """Common job setup pattern"""
         # Call the base class setUp to initialize eco, dp, store, etc.
-        self.baseSetUp()
         assert self.eco is not None
         assert self.dp is not None
         assert self.store is not None
@@ -306,6 +304,7 @@ class BaseSnapshotMergeJobTest(ABC):
             self.dp,
             self.store
         )
+        self.baseSetUp()
         self.overrideCredentialStore()
 
     def common_verify_batch_completion(self, batch_id: int, tc: unittest.TestCase) -> None:
@@ -443,7 +442,7 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         # Set the consumer to live-only mode
         req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
         req.retention.milestoningStrategy = DataMilestoningStrategy.LIVE_ONLY
-        BaseSnapshotMergeJobTest.__init__(self, eco, "Test_DP")
+        BaseSnapshotMergeJobTest.__init__(self, eco, dp.name)
         unittest.TestCase.__init__(self, methodName)
 
     def setUp(self) -> None:

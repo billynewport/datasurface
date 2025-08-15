@@ -4,6 +4,7 @@
 """
 
 import unittest
+from datasurface.md.governance import CaptureMetaData
 from datasurface.platforms.yellow.jobs import JobStatus
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 from datasurface.platforms.yellow.yellow_dp import BatchStatus
@@ -45,11 +46,19 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         live_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoLive, "YellowLive")
         assert live_utils.store is not None
+        old_live_cmd: Optional[CaptureMetaData] = live_utils.store.cmd
+        # Live is the remote ingestion platform so the cmd should have changed to SQLMergeIngestion
         live_utils.store.cmd = live_dp.getEffectiveCMDForDatastore(ecoLive, live_utils.store)
+        assert live_utils.store.cmd != old_live_cmd
         live_utils.common_setup_job(SnapshotMergeJobRemoteLive, self)
+
         merge_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoForensic, "YellowForensic")
         assert merge_utils.store is not None
+        # Forensic is the primary ingestion platform so the cmd should not have changed, we still ingest from the source database/table
+        old_merge_cmd: Optional[CaptureMetaData] = merge_utils.store.cmd
         merge_utils.store.cmd = merge_dp.getEffectiveCMDForDatastore(ecoForensic, merge_utils.store)
+        assert merge_utils.store.cmd == old_merge_cmd
+
         merge_utils.common_setup_job(SnapshotMergeJobForensic, self)
         merge_utils.common_clear_and_insert_data([], self)
 

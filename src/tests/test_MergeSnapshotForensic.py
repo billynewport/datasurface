@@ -28,14 +28,13 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
         req.retention.milestoningStrategy = DataMilestoningStrategy.FORENSIC
 
         assert eco is not None
-        BaseSnapshotMergeJobTest.__init__(self, eco, "Test_DP")
+        BaseSnapshotMergeJobTest.__init__(self, eco, dp.name)
         unittest.TestCase.__init__(self, methodName)
 
     def baseTearDown(self) -> None:
         return super().baseTearDown()
 
     def setUp(self) -> None:
-        self.baseSetUp()
         self.common_setup_job(SnapshotMergeJobForensic, self)
 
     def common_verify_forensic_history(self, expected_total: int, expected_historical: int, tc: unittest.TestCase) -> None:
@@ -51,6 +50,9 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
 
     def test_BatchState(self) -> None:
         self.common_test_BatchState(self)
+
+    def test_first_batch_started(self) -> None:
+        self.common_test_first_batch_started(self)
 
     def test_forensic_merge_scenario(self) -> None:
         """Test the forensic merge scenario as described in the example"""
