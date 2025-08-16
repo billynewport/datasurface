@@ -223,7 +223,8 @@ class Test_YellowDataPlatform(unittest.TestCase):
         print(f"\n=== Secrets Documentation Test Output Directory: {temp_dir} ===")
 
         try:
-            with patch('datasurface.platforms.yellow.db_utils.createEngine', new=mock_create_engine):
+            # Patch the symbol used by yellow_dp after import to ensure all DB connections hit test_merge_db
+            with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
                 # First run ring 0 and ring 1 bootstrap to create necessary database tables
                 print("=== Running Ring 0 Bootstrap ===")
                 generatePlatformBootstrap(0, "src/tests/yellow_dp_tests/mvp_model", temp_dir, "Test_DP")
