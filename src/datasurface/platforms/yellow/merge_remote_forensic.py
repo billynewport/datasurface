@@ -105,13 +105,10 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         Subsequent batches use milestoning to get only changed records since last remote batch.
         Note: The local batchId will be updated to match the currentRemoteBatchId being processed.
         """
-        # Get current remote batch ID first to determine what we're processing
-        assert self.schemaProjector is not None
-        currentRemoteBatchId = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
-        logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
-
-        # Use the remote batch ID as our local batch ID for this run
-        localBatchId = currentRemoteBatchId
+        # Use the provided batchId (remote batch id determined by caller) consistently for this run
+        # Avoid re-reading remote batch metrics here to prevent divergence if a new remote batch commits mid-run
+        currentRemoteBatchId = batchId
+        localBatchId = batchId
 
         state: Optional[BatchState] = None
         # Get job state from the last completed batch (not the current one we're about to process)
@@ -188,6 +185,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     pkColumns = [col.name for col in schema.columns.values()]
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
+                assert self.schemaProjector is not None
                 sp: YellowSchemaProjector = self.schemaProjector
 
                 if isSeedBatch:

@@ -58,7 +58,7 @@ class MergeRemoteJob(Job):
             result = sourceConn.execute(text(f"""
                 SELECT MAX(batch_id)
                 FROM {remoteMetricsTableName}
-                WHERE key = :key AND batch_status = 'committed'
+                WHERE key = :key AND batch_status = '{BatchStatus.COMMITTED.value}'
             """), {"key": key})
 
             row = result.fetchone()
