@@ -237,49 +237,67 @@ class TestMergeRemoteLive(unittest.TestCase):
         test_utils.baseTearDown()
         pip_utils.baseTearDown()
 
-    # Seed at batch 3, then ingest batch 4 and 5 as one batch.
-    def test_5_batches_remote_live_b3_then_two(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
-
-        merge_utils.common_clear_and_insert_data([], self)
+    def generic_test_5_batches_remote_live_b3_then_two(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest) -> None:
+        pip_utils.common_clear_and_insert_data([], self)
 
         # First, lets do a 5 batch ingestion/test on YellowForensic.
         batch_test_data: list[list[dict[str, Any]]] = self.getBatchTestData()
         batch_id: int = 1
-        # This is seed the live table with batches 1-3, then do 4 and then 5
+        # This is seed the table with batches 1-3, then do 4 and then 5
         for batch_data in batch_test_data:
             print(f"Inserting batch {batch_id} data: {batch_data}")
-            merge_utils.common_clear_and_insert_data(batch_data, self)
+            pip_utils.common_clear_and_insert_data(batch_data, self)
 
-            self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
-            merge_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            merge_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
+            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
             # print merge table data for debugging
             if batch_id == 3 or batch_id == 5:
-                merge_table_data: list[Any] = merge_utils.getMergeTableData()
+                merge_table_data: list[Any] = pip_utils.getMergeTableData()
                 print(f"Merge table data for batch {batch_id}: {merge_table_data}")
-                # Try to ingest from the merge batch idx to the live platform.
-                self.assertEqual(live_utils.runJob(), JobStatus.DONE)
-                live_batch_id: int = 1 if batch_id == 3 else 2  # Live batch is 1 or 2 behind merge batch
-                live_utils.checkSpecificBatchStatus("Store1", live_batch_id, BatchStatus.COMMITTED, self)
-                live_records: list[Any] = live_utils.getLiveRecords()
-                msg = (
-                    f"Live records count mismatch. Expected {len(batch_data)} but got "
-                    f"{len(live_records)} for batch {live_batch_id}"
-                )
-                self.assertEqual(len(live_records), len(batch_data), msg)
-                self.checkTestRecordsMatchExpected(batch_data, live_records)
+                # Try to ingest from the merge batch idx to the remote platform.
+                self.assertEqual(test_utils.runJob(), JobStatus.DONE)
+                # For remote live merge, determine the correct local batch ID
+                if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                    # Remote live merge creates its own local batch sequence starting from 1
+                    # The local batch ID corresponds to the number of remote merge jobs run
+                    local_batch_id: int = 1 if batch_id == 3 else 2
+                    test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+                    live_records: list[Any] = test_utils.getLiveRecords()
+                    msg = (
+                        f"Live records count mismatch. Expected {len(batch_data)} but got "
+                        f"{len(live_records)} for batch {local_batch_id}"
+                    )
+                    self.assertEqual(len(live_records), len(batch_data), msg)
+                    self.checkTestRecordsMatchExpected(batch_data, live_records)
+                else:
+                    # For remote forensic merge, the batch ID is the same as the primary batch ID (remote batch ID)
+                    local_batch_id: int = batch_id  # Remote forensic uses primary batch ID as local batch ID
+                    test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+                    self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
             batch_id += 1
+
+    # Seed at batch 3, then ingest batch 4 and 5 as one batch.
+    def test_5_batches_remote_live_b3_then_two(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+
+        self.generic_test_5_batches_remote_live_b3_then_two(live_utils, merge_utils)
 
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
         remote_merge_utils.baseTearDown()
 
-    # Seed at batch 5
-    def test_5_batches_remote_live_b5(self) -> None:
+    def test_5_batches_remote_forensic_b3_then_two(self) -> None:
         live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
 
-        merge_utils.common_clear_and_insert_data([], self)
+        self.generic_test_5_batches_remote_live_b3_then_two(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    def generic_test_5_batches_remote_live_b5(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest) -> None:
+        pip_utils.common_clear_and_insert_data([], self)
 
         # First, lets do a 5 batch ingestion/test on YellowForensic.
         batch_test_data: list[list[dict[str, Any]]] = self.getBatchTestData()
@@ -287,29 +305,54 @@ class TestMergeRemoteLive(unittest.TestCase):
         # This is seed the live table with batches 1-3, then do 4 and then 5
         for batch_data in batch_test_data:
             print(f"Inserting batch {batch_id} data: {batch_data}")
-            merge_utils.common_clear_and_insert_data(batch_data, self)
+            pip_utils.common_clear_and_insert_data(batch_data, self)
 
-            self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
-            merge_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            merge_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
+            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
             # print merge table data for debugging
             batch_id += 1
 
         batch_id = 5
         batch_data = batch_test_data[batch_id - 1]
-        merge_table_data: list[Any] = merge_utils.getMergeTableData()
+        merge_table_data: list[Any] = pip_utils.getMergeTableData()
         print(f"Merge table data for batch {batch_id}: {merge_table_data}")
-        # Try to ingest from the merge batch idx to the live platform.
-        self.assertEqual(live_utils.runJob(), JobStatus.DONE)
-        live_batch_id: int = 1
-        live_utils.checkSpecificBatchStatus("Store1", live_batch_id, BatchStatus.COMMITTED, self)
-        live_records: list[Any] = live_utils.getLiveRecords()
-        msg = (
-            f"Live records count mismatch. Expected {len(batch_data)} but got "
-            f"{len(live_records)} for batch {live_batch_id}"
-        )
-        self.assertEqual(len(live_records), len(batch_data), msg)
-        self.checkTestRecordsMatchExpected(batch_data, live_records)
+        # Try to ingest from the merge batch idx to the remote platform.
+        self.assertEqual(test_utils.runJob(), JobStatus.DONE)
+
+        # Handle different comparison logic for live vs forensic
+        if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+            # Remote live merge creates its own local batch sequence starting from 1
+            local_batch_id: int = 1
+            test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+            live_records: list[Any] = test_utils.getLiveRecords()
+            msg = (
+                f"Live records count mismatch. Expected {len(batch_data)} but got "
+                f"{len(live_records)} for batch {local_batch_id}"
+            )
+            self.assertEqual(len(live_records), len(batch_data), msg)
+            self.checkTestRecordsMatchExpected(batch_data, live_records)
+        else:
+            # Remote forensic merge uses primary batch ID as local batch ID
+            local_batch_id: int = batch_id
+            test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+            self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
+
+    # Seed at batch 5
+    def test_5_batches_remote_live_b5(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+
+        self.generic_test_5_batches_remote_live_b5(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    def test_5_batches_remote_forensic_b5(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+
+        self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
+
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
         remote_merge_utils.baseTearDown()
