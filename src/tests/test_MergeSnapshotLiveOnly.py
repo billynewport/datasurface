@@ -141,6 +141,14 @@ class BaseSnapshotMergeJobTest(ABC):
         self.createSourceTable()
         self.createMergeDatabase()
         if self.job is not None:
+            # Drop the meta tables so we can start fresh
+            with self.merge_engine.begin() as conn:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchCounterTableName()}" CASCADE'))
+                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchMetricsTableName()}" CASCADE'))
+                # Drop all staging and merge tables for all datasets in self.store
+                for dataset in self.store.datasets.values():
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysMergeTableNameForDataset(dataset)}" CASCADE'))
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysStagingTableNameForDataset(dataset)}" CASCADE'))
             self.job.createBatchCounterTable(self.merge_engine)  # type: ignore[attr-defined]
             self.job.createBatchMetricsTable(self.merge_engine)  # type: ignore[attr-defined]
 
@@ -247,8 +255,19 @@ class BaseSnapshotMergeJobTest(ABC):
             return [row._asdict() for row in result.fetchall()]
 
     def getLiveRecords(self) -> list:
+        from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
+
         with self.merge_engine.begin() as conn:
-            try:
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                # Live-only schema: no batch_in/batch_out columns
+                result = conn.execute(text(f"""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    ORDER BY "id"
+                """))
+            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                # Forensic schema: has batch_in/batch_out columns, filter for live records
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
@@ -257,33 +276,18 @@ class BaseSnapshotMergeJobTest(ABC):
                     WHERE ds_surf_batch_out = 2147483647
                     ORDER BY "id"
                 """))
-            except Exception:
-                result = conn.execute(text(f"""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
+            else:
+                raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")
+
             return [row._asdict() for row in result.fetchall()]
 
     def runJob(self) -> JobStatus:
-        max_iterations = 10
-        iteration = 0
-        while iteration < max_iterations:
-            if self.job is None:
-                raise Exception("Job not set")
-            status = self.job.run()  # type: ignore[attr-defined]
-            print(f"Job iteration {iteration + 1} returned status: {status}")
-            if status == JobStatus.DONE:
-                return status
-            elif status == JobStatus.ERROR:
-                raise Exception("Job failed with ERROR status")
-            elif status == JobStatus.KEEP_WORKING:
-                iteration += 1
-                continue
-            else:
-                raise Exception(f"Unknown job status: {status}")
-        raise Exception(f"Job did not complete after {max_iterations} iterations")
+        if self.job is None:
+            raise Exception("Job not set")
+        status = self.job.run()  # type: ignore[attr-defined]
+        if status != JobStatus.DONE:
+            raise Exception("Job failed with ERROR status")
+        return status
 
     def cleanupBatchTables(self) -> None:
         if not hasattr(self, 'merge_engine'):
@@ -464,25 +468,6 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
                 """))
             except Exception:
                 result = conn.execute(text("""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
-            return [row._asdict() for row in result.fetchall()]
-
-    def getLiveRecords(self) -> list:
-        """Override to only select live-only columns (no batch_in/batch_out)"""
-        with self.merge_engine.begin() as conn:
-            try:
-                result = conn.execute(text(f"""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
-            except Exception:
-                result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}

@@ -211,7 +211,7 @@ class Job(YellowDatasetUtilities):
         ), {"key": key, "batch_id": batchId})
         row = result.fetchone()
 
-        return BatchState.model_validate_json(row[0]) if row else BatchState(all_datasets=[])
+        return BatchState.model_validate_json(row[0]) if row else BatchState(all_datasets=list(self.store.datasets.keys()))
 
     def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""

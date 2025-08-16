@@ -46,12 +46,21 @@ class MergeRemoteJob(Job):
 
     def _getCurrentRemoteBatchId(self, sourceEngine: Engine, sp: YellowSchemaProjector) -> int:
         """Fetch the highest closed batch id from the remote batch metrics table"""
+        key: str = self.remoteYDU.getIngestionStreamKey()
+        remoteCounterTableName: str = self.remoteYDU.getPhysBatchCounterTableName()
         with sourceEngine.connect() as sourceConn:
-            result = sourceConn.execute(
-                text(f"SELECT MAX({sp.BATCH_ID_COLUMN_NAME}) FROM {self.remoteYDU.getPhysBatchMetricsTableName()} "
-                     f"WHERE batch_status = '{BatchStatus.COMMITTED.value}'"))
-            maxBatchId = result.fetchone()[0]
-        return maxBatchId if maxBatchId is not None else 0
+            result = sourceConn.execute(text(
+                f'SELECT "currentBatch" FROM {remoteCounterTableName} WHERE key = :key'
+            ), {"key": key})
+            row = result.fetchone()
+            if row is None:
+                # Insert a new batch counter
+                sourceConn.execute(text(
+                    f'INSERT INTO {remoteCounterTableName} (key, "currentBatch") VALUES (:key, :current_batch)'
+                ), {"key": key, "current_batch": 1})
+                return 1
+            else:
+                return row[0]
 
 
 class SnapshotMergeJobRemoteLive(MergeRemoteJob):
@@ -99,22 +108,26 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         """
         state: Optional[BatchState] = None
         # Fetch restart state from batch metrics table
+        SeedBatch: bool
         with mergeEngine.begin() as connection:
             state = self.getBatchState(mergeEngine, connection, key, batchId-1)  # Get state from previous batch
             if state is None:
                 # Initial batch state.
                 state = BatchState(all_datasets=list(self.store.datasets.keys()))
+                SeedBatch = True
+            else:
+                # EVery other batch is a delta batch
+                SeedBatch = False
 
         # Check for schema changes before ingestion
         self.checkForSchemaChanges(state)
 
-        # Determine if this is a seed batch or incremental
-        isSeedBatch: bool = state.job_state.get(self.isSeedBatchKey, True)
+        # Determine if the previous batch was a seed batch or incremental
         lastRemoteBatchId: Optional[int] = state.job_state.get(self.remoteBatchIdKey, None)
 
         logger.info("Starting remote merge ingestion",
                     batch_id=batchId,
-                    is_seed_batch=isSeedBatch,
+                    is_seed_batch=SeedBatch,
                     last_remote_batch_id=lastRemoteBatchId,
                     datasets_count=len(state.all_datasets))
 
@@ -132,6 +145,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         if currentRemoteBatchId == 0:
             raise NoopJobException("No committed remote batches found on remote source; cannot run remote live sync")
 
+        # Fetch all datasets for the batch
+        state.reset()
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():
                 datasetToIngestName: str = state.getCurrentDataset()
@@ -151,7 +166,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                 assert self.schemaProjector is not None
                 sp: YellowSchemaProjector = self.schemaProjector
 
-                if isSeedBatch:
+                if SeedBatch:
                     # Seed batch: Get all live records as of current remote batch
                     recordsInserted += self._ingestSeedBatch(
                         sourceConn, mergeEngine, sourceTableName, stagingTableName,
@@ -170,7 +185,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     logger.debug("All datasets ingested, setting status to INGESTED")
                     # Update final state before marking as ingested
                     state.job_state[self.remoteBatchIdKey] = currentRemoteBatchId
-                    state.job_state[self.isSeedBatchKey] = False  # Next batch will be incremental
+                    state.job_state[self.isSeedBatchKey] = SeedBatch  # Whether batch is delta or seed
                     self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords
@@ -246,8 +261,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             FROM {sourceTableName}
             WHERE ({sp.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
                    AND {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
-               OR ({sp.BATCH_OUT_COLUMN_NAME} > {lastRemoteBatchId}
-                   AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
+               OR ({sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
+                   AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId - 1})
         ),
         current_state AS (
             -- Get the current state of changed keys as of currentRemoteBatchId
