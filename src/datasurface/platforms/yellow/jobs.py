@@ -7,7 +7,8 @@ from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType
 )
 from typing import cast, Optional
-from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion, SQLMergeIngestion, SQLSnapshotIngestion
+from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion, \
+    SQLMergeIngestion, SQLSnapshotIngestion, DataTransformerOutput
 from datasurface.md.lint import ValidationTree
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.platforms.yellow.yellow_dp import (
@@ -170,7 +171,7 @@ def main():
         if dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
             if isinstance(store.cmd, SQLMergeIngestion):
                 job = SnapshotMergeJobRemoteLive(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
-            elif isinstance(store.cmd, SQLSnapshotIngestion):
+            elif isinstance(store.cmd, SQLSnapshotIngestion) or isinstance(store.cmd, DataTransformerOutput):
                 job = SnapshotMergeJobLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
             else:
                 logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
@@ -179,7 +180,7 @@ def main():
             if isinstance(store.cmd, SQLMergeIngestion):
                 # Forensic-to-forensic ingestion: remote merge from another forensic platform
                 job = SnapshotMergeJobRemoteForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
-            elif isinstance(store.cmd, SQLSnapshotIngestion):
+            elif isinstance(store.cmd, SQLSnapshotIngestion) or isinstance(store.cmd, DataTransformerOutput):
                 job = SnapshotMergeJobForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
             else:
                 logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
@@ -224,5 +225,12 @@ if __name__ == "__main__":
         # This specific print must remain - Airflow parses this from logs
         print("DATASURFACE_RESULT_CODE=-1")
         exit_code = -1
-    # Always exit with 0 (success) - Airflow will parse the result code from logs
-    sys.exit(0)
+
+    # Exit with actual result code so Airflow shows correct task status
+    # -1 = ERROR (red), 0 = DONE (green), 1 = KEEP_WORKING (yellow/retry)
+    if exit_code == -1:
+        sys.exit(1)  # Airflow will show as failed (red)
+    elif exit_code == 1:
+        sys.exit(0)  # KEEP_WORKING - Airflow will retry (should show as running/yellow)
+    else:  # exit_code == 0
+        sys.exit(0)  # DONE - Airflow will show as success (green)
