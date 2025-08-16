@@ -237,7 +237,7 @@ class BaseSnapshotMergeJobTest(ABC):
     def getMergeTableData(self) -> list:
         with self.merge_engine.begin() as conn:
             # Check if this is a forensic platform (has batch milestoning)
-            if hasattr(self.dp, 'milestoneStrategy') and self.dp.milestoneStrategy.name == 'BATCH_MILESTONED':
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic table - no ds_surf_batch_id column
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
@@ -246,7 +246,7 @@ class BaseSnapshotMergeJobTest(ABC):
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id", ds_surf_batch_in
                 """))
-            else:
+            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only table - has ds_surf_batch_id column
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
@@ -254,13 +254,15 @@ class BaseSnapshotMergeJobTest(ABC):
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
+            else:
+                raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")
             return [row._asdict() for row in result.fetchall()]
 
     def getLiveRecords(self) -> list:
         from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 
         with self.merge_engine.begin() as conn:
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only schema: no batch_in/batch_out columns
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
@@ -268,7 +270,7 @@ class BaseSnapshotMergeJobTest(ABC):
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
-            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic schema: has batch_in/batch_out columns, filter for live records
                 # Note: ds_surf_batch_id is not included in forensic tables
                 result = conn.execute(text(f"""
@@ -444,7 +446,7 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         eco: Optional[Ecosystem] = BaseSnapshotMergeJobTest.loadEcosystem("src/tests/yellow_dp_tests")
         assert eco is not None
         dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("Test_DP"))
-        dp.milestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY
+        dp.milestoneStrategy = YellowMilestoneStrategy.SCD1
 
         # Set the consumer to live-only mode
         req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)

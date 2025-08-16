@@ -3166,13 +3166,43 @@ class DataLatency(Enum):
 
 
 class DataMilestoningStrategy(Enum):
-    """Client indicates whether the data is live or forensic"""
-    LIVE_ONLY = 0
-    """Only the latest version of each record should be retained"""
-    FORENSIC = 1
-    """All versions of every record in every table used to produce the datasets should be retained and present in the consumer data tables"""
-    LIVE_WITH_FORENSIC_HISTORY = 2
-    """All versions of each record should be retained BUT only latest records are needed in the consumer data tables"""
+    """Specifies the Slowly Changing Dimension (SCD) semantics for consumer-visible data.
+
+    - SCD1 (LIVE_ONLY): Overwrite/no history. The consumer table reflects the current state only. For strict SCD1,
+      deletes must be reconciled (either via snapshots with anti-join deletes or CDC tombstones). If delete
+      reconciliation is disabled, this mode is effectively upsert-only (not strict SCD1).
+
+    - SCD2 (FORENSIC): Row versioning with effective intervals. All versions are retained. Exactly one live row per
+      key exists at any time. Changes close the previous live row and insert
+      a new live row.
+
+    - SCD3 (LIVE_WITH_FORENSIC_HISTORY): Maintain full SCD2 history in forensic tables, while consumer-facing tables
+      expose only the current/live record (similar to SCD1 view). Useful when lineage/audit requires history but
+      most consumers only need current state.
+    """
+    LIVE_ONLY = 0  # SCD1
+    """Only the latest version of each record should be retained (SCD1).
+
+    Notes:
+    - Strict SCD1 implies deletions are applied so that the target matches the source's current state.
+    - If the upstream feed lacks delete events and you do not reconcile deletes via snapshots, this behaves as
+      upsert-only (insert/update only). Be explicit about that contract in ingestion settings.
+    """
+    FORENSIC = 1  # SCD2
+    """Full history with versioned rows (SCD2).
+
+    Semantics:
+    - Prior live rows are closed when a change occurs or a key disappears.
+    - New versions are inserted.
+    - There must be at most one live row per key at any time.
+    """
+    LIVE_WITH_FORENSIC_HISTORY = 2  # SCD3
+    """Keep full SCD2 history while exposing a current-state view to consumers (SCD3).
+
+    Guidance:
+    - Use when compliance/audit requires full history, but most consumers need only current values.
+    - Typically implemented as SCD2 merge into a forensic table plus a live-only projection/view for consumers.
+    """
 
 
 # This needs to be keyed and rolled up to manage definitions centrally, there should

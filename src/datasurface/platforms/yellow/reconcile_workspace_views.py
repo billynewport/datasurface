@@ -112,7 +112,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
     # Create schema projector to access constants and determine platform behavior
     schema_projector = YellowSchemaProjector(eco, yellow_dp)
-    is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED
+    is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.SCD2
 
     logger.info("Platform configuration determined",
                 platform_type="Forensic (BATCH_MILESTONED)" if is_forensic_platform else "Live-only (LIVE_ONLY)")

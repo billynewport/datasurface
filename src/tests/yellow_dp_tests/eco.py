@@ -41,7 +41,7 @@ def createEcosystem() -> Ecosystem:
             YellowDataPlatform(
                 name="Test_DP",
                 doc=PlainTextDocumentation("Test"),
-                milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY)
+                milestoneStrategy=YellowMilestoneStrategy.SCD1)
             ]
         )
     ecosys: Ecosystem = Ecosystem(

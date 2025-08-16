@@ -113,7 +113,7 @@ class TestMergeRemoteLive(unittest.TestCase):
 
     def compare_forensic_merge_tables(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest,
                                       batch_id: int, batch_data: list[dict[str, Any]]) -> None:
-        if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+        if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
             # Remote forensic merge: compare remote merge table with primary merge table
             remote_merge_data: list[Any] = test_utils.getMergeTableData()
             primary_merge_data: list[Any] = pip_utils.getMergeTableData()
@@ -124,7 +124,7 @@ class TestMergeRemoteLive(unittest.TestCase):
             self.assertEqual(len(remote_merge_data), len(primary_merge_data), msg)
             # For forensic merge, compare remote table against primary table, not input data
             self.checkForensicTablesMatch(primary_merge_data, remote_merge_data, batch_id)
-        elif test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+        elif test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
             # Regular forensic merge: compare live records against input data
             live_records: list[Any] = test_utils.getLiveRecords()
             msg = (
@@ -223,7 +223,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                 # Try to ingest from the merge batch idx to the live platform.
                 self.assertEqual(test_utils.runJob(), JobStatus.DONE)
                 # For remote live merge, determine the correct local batch ID
-                if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                     # Remote live merge creates its own local batch sequence starting from 1
                     # The first time it runs (at batch 3), it creates local batch 1
                     local_batch_id: int = 1 if batch_id == 3 else (batch_id - 2)  # Adjust for starting at batch 3
@@ -258,7 +258,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                 # Try to ingest from the merge batch idx to the remote platform.
                 self.assertEqual(test_utils.runJob(), JobStatus.DONE)
                 # For remote live merge, determine the correct local batch ID
-                if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                     # Remote live merge creates its own local batch sequence starting from 1
                     # The local batch ID corresponds to the number of remote merge jobs run
                     local_batch_id: int = 1 if batch_id == 3 else 2
@@ -321,7 +321,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         self.assertEqual(test_utils.runJob(), JobStatus.DONE)
 
         # Handle different comparison logic for live vs forensic
-        if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+        if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
             # Remote live merge creates its own local batch sequence starting from 1
             local_batch_id: int = 1
             test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)

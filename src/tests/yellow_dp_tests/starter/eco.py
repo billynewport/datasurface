@@ -76,12 +76,12 @@ def createPSP() -> YellowPlatformServiceProvider:
             YellowDataPlatform(
                 name="YellowLive",
                 doc=PlainTextDocumentation("Live Yellow DataPlatform"),
-                milestoneStrategy=YellowMilestoneStrategy.LIVE_ONLY
+                milestoneStrategy=YellowMilestoneStrategy.SCD1
                 ),
             YellowDataPlatform(
                 "YellowForensic",
                 doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
-                milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
+                milestoneStrategy=YellowMilestoneStrategy.SCD2
                 )
         ]
     )

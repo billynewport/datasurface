@@ -167,7 +167,7 @@ def main():
 
         job: Job
         # Check if this is a remote merge ingestion (from another platform's merge table)
-        if dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+        if dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
             if isinstance(store.cmd, SQLMergeIngestion):
                 job = SnapshotMergeJobRemoteLive(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
             elif isinstance(store.cmd, SQLSnapshotIngestion):
@@ -175,7 +175,7 @@ def main():
             else:
                 logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
                 return -1  # ERROR
-        elif dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+        elif dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
             if isinstance(store.cmd, SQLMergeIngestion):
                 # Forensic-to-forensic ingestion: remote merge from another forensic platform
                 job = SnapshotMergeJobRemoteForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)

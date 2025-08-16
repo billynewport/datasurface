@@ -21,7 +21,7 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         eco: Optional[Ecosystem] = BaseSnapshotMergeJobTest.loadEcosystem("src/tests/yellow_dp_tests")
         dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("Test_DP"))
-        dp.milestoneStrategy = YellowMilestoneStrategy.BATCH_MILESTONED
+        dp.milestoneStrategy = YellowMilestoneStrategy.SCD2
 
         # Set the consumer to forensic mode
         req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)

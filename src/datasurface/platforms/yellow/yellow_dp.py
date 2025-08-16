@@ -383,7 +383,7 @@ class YellowDatasetUtilities(JobUtilities):
         ]
 
         # Add forensic-specific indexes for batch milestoned tables
-        if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+        if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
             batchOutIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_out")
             liveRecordsIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_live_records")
             batchInIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_in")
@@ -526,7 +526,7 @@ class YellowDatasetUtilities(JobUtilities):
             mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName, mergeEngine)
 
             # For forensic mode, we need to handle primary key changes
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 self.createOrUpdateForensicTable(mergeEngine, mergeTable, tableName)
             else:
                 createOrUpdateTable(mergeEngine, mergeTable)
@@ -948,7 +948,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             if pc is not None:
                 if isinstance(pc, WorkspacePlatformConfig):
                     pcTree: ValidationTree = dsgTree.addSubTree(pc)
-                    if self.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                    if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                         if pc.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
                             pcTree.addRaw(AttributeValueNotSupported(pc, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
                     # batch_milestoned supports LIVE_WITH_FORENSIC_HISTORY and FORENSIC
@@ -1709,8 +1709,18 @@ class KafkaConnectCluster(DataContainer):
 
 
 class YellowMilestoneStrategy(Enum):
-    LIVE_ONLY = "live_only"
-    BATCH_MILESTONED = "batch_milestoned"
+    SCD1 = "live_only"
+    """Only the latest version of each record should be retained (SCD1).
+
+    Notes:
+    - Strict SCD1 implies deletions are applied so that the target matches the source's current state.
+    - If the upstream feed lacks delete events and you do not reconcile deletes via snapshots, this behaves as
+      upsert-only (insert/update only). Be explicit about that contract in ingestion settings.
+    """
+    SCD2 = "batch_milestoned"
+    """Full history with versioned rows (SCD2). Again, the ability to capture DELETEs is key for full fidelity.
+    Versioning is done using batch ids and a live sentinel batch.
+    """
 
 
 class YellowGenericDataPlatform(DataPlatform['YellowPlatformServiceProvider']):
@@ -2575,7 +2585,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             self,
             name: str,
             doc: Documentation,
-            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.LIVE_ONLY):
+            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.SCD1):
         super().__init__(name, doc, YellowPlatformExecutor())
         self.milestoneStrategy: YellowMilestoneStrategy = milestoneStrategy
 
@@ -2710,11 +2720,11 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             chooser: Optional[DataPlatformChooser] = dsg.platformMD
             if chooser is not None:
                 if isinstance(chooser, WorkspacePlatformConfig):
-                    if self.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                    if self.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                         if chooser.retention.milestoningStrategy != DataMilestoningStrategy.FORENSIC:
                             tree.addRaw(AttributeValueNotSupported(
                                 chooser.retention.milestoningStrategy, [DataMilestoningStrategy.FORENSIC.name], ProblemSeverity.ERROR))
-                    elif self.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                    elif self.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                         if chooser.retention.milestoningStrategy != DataMilestoningStrategy.LIVE_ONLY:
                             tree.addRaw(AttributeValueNotSupported(
                                 chooser.retention.milestoningStrategy, [DataMilestoningStrategy.LIVE_ONLY.name], ProblemSeverity.ERROR))
@@ -2938,11 +2948,11 @@ class YellowSchemaProjector(SchemaProjector):
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
             # Only add ds_surf_batch_id for live-only mode, not for forensic mode
-            if self.dp.milestoneStrategy != YellowMilestoneStrategy.BATCH_MILESTONED:
+            if self.dp.milestoneStrategy != YellowMilestoneStrategy.SCD2:
                 ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
             ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 ddlSchema.add(DDLColumn(name=self.BATCH_IN_COLUMN_NAME, data_type=Integer()))
                 ddlSchema.add(DDLColumn(name=self.BATCH_OUT_COLUMN_NAME, data_type=Integer()))
                 # For forensic mode, modify the primary key to include batch_in
