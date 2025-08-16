@@ -38,6 +38,35 @@ class TestMergeRemoteLive(unittest.TestCase):
                 else:
                     self.assertEqual(record[key], value, f"Record {record} does not match test data {test_record}")
 
+    def checkForensicTablesMatch(self, primary_data: list[Any], remote_data: list[Any], batch_id: int) -> None:
+        """Check that the remote forensic table exactly matches the primary forensic table.
+        
+        This performs a detailed record-by-record comparison to ensure the remote table
+        is an exact mirror of the primary table, including all forensic metadata.
+        """
+        # Sort both datasets by a consistent key for comparison
+        # Use a composite key: (id, ds_surf_batch_in) to handle multiple versions of the same record
+        def sort_key(record: Any) -> tuple[str, int]:
+            return (record["id"], record["ds_surf_batch_in"])
+        
+        primary_sorted = sorted(primary_data, key=sort_key)
+        remote_sorted = sorted(remote_data, key=sort_key)
+        
+        # Compare record by record
+        for i, (primary_record, remote_record) in enumerate(zip(primary_sorted, remote_sorted)):
+            # Compare all fields including forensic metadata
+            for key in primary_record.keys():
+                primary_value = primary_record[key]
+                remote_value = remote_record[key]
+                
+                self.assertEqual(
+                    remote_value, 
+                    primary_value,
+                    f"Batch {batch_id}, Record {i}: Field '{key}' mismatch. "
+                    f"Primary: {primary_value}, Remote: {remote_value}. "
+                    f"Primary record: {primary_record}, Remote record: {remote_record}"
+                )
+
     def setup_stream_test(self, platformName: str, job_class: Type[Job]) -> BaseSnapshotMergeJobTest:
         eco: Optional[Ecosystem]
         tree: Optional[ValidationTree]
@@ -116,7 +145,8 @@ class TestMergeRemoteLive(unittest.TestCase):
                     f"{len(remote_merge_data)} for batch {batch_id}"
                 )
                 self.assertEqual(len(remote_merge_data), len(primary_merge_data), msg)
-                # TODO: Add detailed record comparison if needed
+                # For forensic merge, compare remote table against primary table, not input data
+                self.checkForensicTablesMatch(primary_merge_data, remote_merge_data, batch_id)
             elif test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
                 # Regular forensic merge: compare live records against input data
                 live_records: list[Any] = test_utils.getLiveRecords()

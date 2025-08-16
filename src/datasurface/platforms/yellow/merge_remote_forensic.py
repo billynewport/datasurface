@@ -8,7 +8,7 @@ from datasurface.md import (
 )
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from datasurface.md.schema import DDLTable, DDLColumn
+from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer
 from typing import cast, List, Optional, Any
 from sqlalchemy import Table, MetaData
@@ -62,6 +62,13 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
         ddlSchema.add(DDLColumn(name=f"remote_{sp.BATCH_IN_COLUMN_NAME}", data_type=Integer()))
         ddlSchema.add(DDLColumn(name=f"remote_{sp.BATCH_OUT_COLUMN_NAME}", data_type=Integer()))
+
+        # For forensic staging tables, modify the primary key to include remote_batch_in
+        # This allows multiple versions of the same record to exist in staging
+        if ddlSchema.primaryKeyColumns:
+            # Create new primary key with original columns plus remote_batch_in
+            new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [f"remote_{sp.BATCH_IN_COLUMN_NAME}"]
+            ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
 
         t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
         return t
@@ -334,7 +341,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         FROM {sourceTableName}
         WHERE ({sp.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
                AND {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
-           OR ({sp.BATCH_OUT_COLUMN_NAME} > {lastRemoteBatchId}
+           OR ({sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
                AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
         """
 
