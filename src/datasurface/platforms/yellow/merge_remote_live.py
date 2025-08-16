@@ -44,21 +44,27 @@ class MergeRemoteJob(Job):
         else:
             self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store)
 
-    def _getCurrentRemoteBatchId(self, sourceEngine: Engine, sp: YellowSchemaProjector) -> int:
-        """Fetch the highest closed batch id from the remote batch metrics table"""
+    def _getHighCommittedRemoteBatchId(self, sourceEngine: Engine, sp: YellowSchemaProjector) -> int:
+        """Fetch the highest committed batch ID from the remote batch metrics table.
+
+        This ensures we only pull committed batches to maintain data consistency.
+        Both live and forensic modes should use this approach.
+        """
         key: str = self.remoteYDU.getIngestionStreamKey()
-        remoteCounterTableName: str = self.remoteYDU.getPhysBatchCounterTableName()
+        remoteMetricsTableName: str = self.remoteYDU.getPhysBatchMetricsTableName()
+
         with sourceEngine.connect() as sourceConn:
-            result = sourceConn.execute(text(
-                f'SELECT "currentBatch" FROM {remoteCounterTableName} WHERE key = :key'
-            ), {"key": key})
+            # Get the highest committed batch ID
+            result = sourceConn.execute(text(f"""
+                SELECT MAX(batch_id)
+                FROM {remoteMetricsTableName}
+                WHERE key = :key AND batch_status = 'committed'
+            """), {"key": key})
+
             row = result.fetchone()
-            if row is None:
-                # Insert a new batch counter
-                sourceConn.execute(text(
-                    f'INSERT INTO {remoteCounterTableName} (key, "currentBatch") VALUES (:key, :current_batch)'
-                ), {"key": key, "current_batch": 1})
-                return 1
+            if row is None or row[0] is None:
+                # No committed batches found
+                return 0
             else:
                 return row[0]
 
@@ -138,7 +144,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Get current remote batch ID if not already determined
         if currentRemoteBatchId is None:
             assert self.schemaProjector is not None
-            currentRemoteBatchId = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
+            currentRemoteBatchId = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
             logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
 
         # Fail fast if there is no committed remote batch to pull

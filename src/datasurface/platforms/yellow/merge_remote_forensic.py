@@ -81,7 +81,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         """
         assert self.schemaProjector is not None
         # Determine the remote batch to process
-        remoteBatchId: int = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
+        remoteBatchId: int = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
 
         # Fail fast if there is no committed remote batch to pull
         if remoteBatchId == 0:
@@ -107,7 +107,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         """
         # Get current remote batch ID first to determine what we're processing
         assert self.schemaProjector is not None
-        currentRemoteBatchId = self._getCurrentRemoteBatchId(sourceEngine, self.schemaProjector)
+        currentRemoteBatchId = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
         logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
 
         # Use the remote batch ID as our local batch ID for this run
