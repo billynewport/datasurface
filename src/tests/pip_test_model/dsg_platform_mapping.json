@@ -24,5 +24,18 @@
             "status": "PROVISIONED"
           }
         ]
+      },
+      {
+        "dsgName": "DSGForensic",
+        "workspace": "ConsumerRemoteForensic",
+        "assignments": [
+          {
+            "dataPlatform": "YellowRemoteForensic",
+            "documentation": "Test DataPlatform",
+            "productionStatus": "PRODUCTION",
+            "deprecationsAllowed": "NEVER",
+            "status": "PROVISIONED"
+          }
+        ]
       }
     ]

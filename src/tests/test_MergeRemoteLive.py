@@ -4,8 +4,8 @@
 """
 
 import unittest
-from datasurface.md.governance import CaptureMetaData
 from datasurface.platforms.yellow.jobs import JobStatus
+from datasurface.platforms.yellow.merge_remote_forensic import SnapshotMergeJobRemoteForensic
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 from datasurface.platforms.yellow.yellow_dp import BatchStatus
 from tests.test_MergeSnapshotLiveOnly import BaseSnapshotMergeJobTest
@@ -15,8 +15,9 @@ from datasurface.md import Ecosystem
 from datasurface.md import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
-from typing import Any, Optional
+from typing import Any, Optional, Type
 from datetime import datetime
+from datasurface.platforms.yellow.jobs import Job
 
 
 class TestMergeRemoteLive(unittest.TestCase):
@@ -37,52 +38,26 @@ class TestMergeRemoteLive(unittest.TestCase):
                 else:
                     self.assertEqual(record[key], value, f"Record {record} does not match test data {test_record}")
 
-    def setup_live_and_merge_batch_runs(self) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
-        ecoLive: Optional[Ecosystem]
-        treeLive: Optional[ValidationTree]
-        ecoLive, treeLive = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoLive is not None
-        assert treeLive is not None
-        assert not treeLive.hasErrors()
+    def setup_stream_test(self, platformName: str, job_class: Type[Job]) -> BaseSnapshotMergeJobTest:
+        eco: Optional[Ecosystem]
+        tree: Optional[ValidationTree]
+        eco, tree = loadEcosystemFromEcoModule("src/tests/pip_test_model")
+        assert eco is not None
+        assert tree is not None
+        assert not tree.hasErrors()
+        dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow(platformName))
+        assert dp is not None
+        utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(eco, platformName)
+        assert utils.store is not None
+        utils.store.cmd = dp.getEffectiveCMDForDatastore(eco, utils.store)
+        utils.common_setup_job(job_class, self)
+        return utils
 
-        ecoForensic: Optional[Ecosystem]
-        treeForensic: Optional[ValidationTree]
-        ecoForensic, treeForensic = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoForensic is not None
-        assert treeForensic is not None
-        assert not treeForensic.hasErrors()
-
-        # One Ecosystem with 2 dataplatforms defined. One Datastore called Store1. YellowForensic is the PIP for Store1. Primary
-        # ingestion is a forensic ingestion on YellowForensic.
-        # YellowLive uses Store1 but must ingest it from the primary ingestion platform which is YellowForensic. Thus, YellowLive
-        # must pull records/changes from the merge table for the datasets of Store1 in YellowForensic.\
-
-        live_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoLive.getDataPlatformOrThrow("YellowLive"))
-        merge_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoForensic.getDataPlatformOrThrow("YellowForensic"))
-        self.assertIsNotNone(live_dp)
-        self.assertIsNotNone(merge_dp)
-
-        # Prep the live platform utils. We will use this to ingest data from the forensic platform to test the remote live ingestion.
-        live_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoLive, "YellowLive")
-        assert live_utils.store is not None
-        old_live_cmd: Optional[CaptureMetaData] = live_utils.store.cmd
-        # Live is the remote ingestion platform so the cmd should have changed to SQLMergeIngestion pointing at the primary ingestion database/tables
-        live_utils.store.cmd = live_dp.getEffectiveCMDForDatastore(ecoLive, live_utils.store)
-        assert live_utils.store.cmd != old_live_cmd
-        live_utils.common_setup_job(SnapshotMergeJobRemoteLive, self)
-
-        # Prep the forensic platform utils. We will use this to ingest data from the source table to the forensic platform. The live platform will then ingest
-        # the data from this platform rather than the source database/table.
-        merge_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoForensic, "YellowForensic")
-        assert merge_utils.store is not None
-
-        # Forensic is the primary ingestion platform so the cmd should not have changed, we still ingest from the source database/table
-        old_merge_cmd: Optional[CaptureMetaData] = merge_utils.store.cmd
-        merge_utils.store.cmd = merge_dp.getEffectiveCMDForDatastore(ecoForensic, merge_utils.store)
-        assert merge_utils.store.cmd == old_merge_cmd
-
-        merge_utils.common_setup_job(SnapshotMergeJobForensic, self)
-        return live_utils, merge_utils
+    def setup_live_and_merge_batch_runs(self) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", SnapshotMergeJobRemoteForensic)
+        return live_utils, merge_utils, remote_merge_utils
 
     def getBatchTestData(self) -> list[list[dict[str, Any]]]:
         batch_test_data: list[list[dict[str, Any]]] = [
@@ -107,10 +82,9 @@ class TestMergeRemoteLive(unittest.TestCase):
         ]
         return batch_test_data
 
-    def test_5_batches_remote_live_one_by_one(self) -> None:
-        live_utils, merge_utils = self.setup_live_and_merge_batch_runs()
-
-        merge_utils.common_clear_and_insert_data([], self)
+    # This ingests a primary stream using pip_utils and then ingests batches from there to the test_utils.
+    def generic_test_5_batches_one_by_one(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest) -> None:
+        pip_utils.common_clear_and_insert_data([], self)
 
         # First, lets do a 5 batch ingestion/test on YellowForensic.
         batch_test_data: list[list[dict[str, Any]]] = self.getBatchTestData()
@@ -118,18 +92,18 @@ class TestMergeRemoteLive(unittest.TestCase):
         batch_id: int = 1
         for batch_data in batch_test_data:
             print(f"Inserting batch {batch_id} data: {batch_data}")
-            merge_utils.common_clear_and_insert_data(batch_data, self)
+            pip_utils.common_clear_and_insert_data(batch_data, self)
 
-            self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
-            merge_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            merge_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
+            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
             # print merge table data for debugging
-            merge_table_data: list[Any] = merge_utils.getMergeTableData()
+            merge_table_data: list[Any] = pip_utils.getMergeTableData()
             print(f"Merge table data for batch {batch_id}: {merge_table_data}")
             # Try to ingest from the merge batch idx to the live platform.
-            self.assertEqual(live_utils.runJob(), JobStatus.DONE)
-            live_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            live_records: list[Any] = live_utils.getLiveRecords()
+            self.assertEqual(test_utils.runJob(), JobStatus.DONE)
+            test_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
+            live_records: list[Any] = test_utils.getLiveRecords()
             msg = (
                 f"Live records count mismatch. Expected {len(batch_data)} but got "
                 f"{len(live_records)} for batch {batch_id}"
@@ -138,11 +112,27 @@ class TestMergeRemoteLive(unittest.TestCase):
             self.checkTestRecordsMatchExpected(batch_data, live_records)
             batch_id += 1
 
+        test_utils.baseTearDown()
+        pip_utils.baseTearDown()
+
+    def test_5_batches_remote_forensic_one_by_one(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
+
+    def test_5_batches_remote_live_one_by_one(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
+
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
 
+    # Seed at batch 3, then incrementally ingest the rest.
     def test_5_batches_remote_live_b3_then_one_by_one(self) -> None:
-        live_utils, merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
         merge_utils.common_clear_and_insert_data([], self)
 
         # First, lets do a 5 batch ingestion/test on YellowForensic.
@@ -176,9 +166,11 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
 
+    # Seed at batch 3, then ingest batch 4 and 5 as one batch.
     def test_5_batches_remote_live_b3_then_two(self) -> None:
-        live_utils, merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
 
         merge_utils.common_clear_and_insert_data([], self)
 
@@ -212,9 +204,11 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
 
+    # Seed at batch 5
     def test_5_batches_remote_live_b5(self) -> None:
-        live_utils, merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
 
         merge_utils.common_clear_and_insert_data([], self)
 
@@ -249,35 +243,10 @@ class TestMergeRemoteLive(unittest.TestCase):
         self.checkTestRecordsMatchExpected(batch_data, live_records)
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
 
     def test_noop_incremental_batch(self) -> None:
-        ecoLive: Optional[Ecosystem]
-        treeLive: Optional[ValidationTree]
-        ecoLive, treeLive = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoLive is not None
-        assert treeLive is not None
-        assert not treeLive.hasErrors()
-
-        ecoForensic: Optional[Ecosystem]
-        treeForensic: Optional[ValidationTree]
-        ecoForensic, treeForensic = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoForensic is not None
-        assert treeForensic is not None
-        assert not treeForensic.hasErrors()
-
-        live_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoLive.getDataPlatformOrThrow("YellowLive"))
-        merge_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoForensic.getDataPlatformOrThrow("YellowForensic"))
-
-        live_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoLive, "YellowLive")
-        merge_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoForensic, "YellowForensic")
-        assert live_utils.store is not None
-        assert merge_utils.store is not None
-
-        live_utils.store.cmd = live_dp.getEffectiveCMDForDatastore(ecoLive, live_utils.store)
-        merge_utils.store.cmd = merge_dp.getEffectiveCMDForDatastore(ecoForensic, merge_utils.store)
-
-        live_utils.common_setup_job(SnapshotMergeJobRemoteLive, self)
-        merge_utils.common_setup_job(SnapshotMergeJobForensic, self)
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
 
         # Batch 1: seed a single record
         seed_data: list[dict[str, Any]] = [
@@ -295,35 +264,10 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
 
     def test_reinsert_after_delete(self) -> None:
-        ecoLive: Optional[Ecosystem]
-        treeLive: Optional[ValidationTree]
-        ecoLive, treeLive = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoLive is not None
-        assert treeLive is not None
-        assert not treeLive.hasErrors()
-
-        ecoForensic: Optional[Ecosystem]
-        treeForensic: Optional[ValidationTree]
-        ecoForensic, treeForensic = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoForensic is not None
-        assert treeForensic is not None
-        assert not treeForensic.hasErrors()
-
-        live_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoLive.getDataPlatformOrThrow("YellowLive"))
-        merge_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoForensic.getDataPlatformOrThrow("YellowForensic"))
-
-        live_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoLive, "YellowLive")
-        merge_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoForensic, "YellowForensic")
-        assert live_utils.store is not None
-        assert merge_utils.store is not None
-
-        live_utils.store.cmd = live_dp.getEffectiveCMDForDatastore(ecoLive, live_utils.store)
-        merge_utils.store.cmd = merge_dp.getEffectiveCMDForDatastore(ecoForensic, merge_utils.store)
-
-        live_utils.common_setup_job(SnapshotMergeJobRemoteLive, self)
-        merge_utils.common_setup_job(SnapshotMergeJobForensic, self)
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
 
         # Batch 1: insert id1
         merge_utils.common_clear_and_insert_data([
@@ -353,33 +297,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         merge_utils.baseTearDown()
 
     def test_idempotent_same_batch_rerun(self) -> None:
-        ecoLive: Optional[Ecosystem]
-        treeLive: Optional[ValidationTree]
-        ecoLive, treeLive = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoLive is not None
-        assert treeLive is not None
-        assert not treeLive.hasErrors()
-
-        ecoForensic: Optional[Ecosystem]
-        treeForensic: Optional[ValidationTree]
-        ecoForensic, treeForensic = loadEcosystemFromEcoModule("src/tests/pip_test_model")
-        assert ecoForensic is not None
-        assert treeForensic is not None
-        assert not treeForensic.hasErrors()
-
-        live_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoLive.getDataPlatformOrThrow("YellowLive"))
-        merge_dp: YellowDataPlatform = cast(YellowDataPlatform, ecoForensic.getDataPlatformOrThrow("YellowForensic"))
-
-        live_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoLive, "YellowLive")
-        merge_utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(ecoForensic, "YellowForensic")
-        assert live_utils.store is not None
-        assert merge_utils.store is not None
-
-        live_utils.store.cmd = live_dp.getEffectiveCMDForDatastore(ecoLive, live_utils.store)
-        merge_utils.store.cmd = merge_dp.getEffectiveCMDForDatastore(ecoForensic, merge_utils.store)
-
-        live_utils.common_setup_job(SnapshotMergeJobRemoteLive, self)
-        merge_utils.common_setup_job(SnapshotMergeJobForensic, self)
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
 
         # Batch 1: insert id1
         merge_utils.common_clear_and_insert_data([

@@ -82,6 +82,23 @@ def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
             )
         ),
         Workspace(
+            "ConsumerRemoteForensic",
+            DataPlatformManagedDataContainer("ConsumerLive container"),
+            DatasetGroup(
+                "DSGForensic",
+                sinks=[
+                    DatasetSink("Store1", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.FORENSIC,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
+        ),
+        Workspace(
             "ConsumerForensic",
             DataPlatformManagedDataContainer("ConsumerForensic container"),
             DatasetGroup(
@@ -129,6 +146,11 @@ def createEcosystem() -> Ecosystem:
             YellowDataPlatform(
                 "YellowForensic",
                 doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
+                ),
+            YellowDataPlatform(
+                "YellowRemoteForensic",
+                doc=PlainTextDocumentation("Forensic remote Yellow DataPlatform"),
                 milestoneStrategy=YellowMilestoneStrategy.BATCH_MILESTONED
                 )
         ]
