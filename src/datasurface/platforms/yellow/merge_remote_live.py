@@ -262,7 +262,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             WHERE ({sp.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
                    AND {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
                OR ({sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
-                   AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId - 1})
+                   AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
         ),
         current_state AS (
             -- Get the current state of changed keys as of currentRemoteBatchId
@@ -283,7 +283,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             FROM {sourceTableName} s
             WHERE s.{sp.KEY_HASH_COLUMN_NAME} IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM changed_keys)
               AND s.{sp.BATCH_IN_COLUMN_NAME} <= {lastRemoteBatchId}
-              AND s.{sp.BATCH_OUT_COLUMN_NAME} > {lastRemoteBatchId}
+              AND s.{sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
         )
         SELECT {', '.join(quoted_columns)},
             cs.{sp.ALL_HASH_COLUMN_NAME},
@@ -310,7 +310,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             FROM {sourceTableName} s
             WHERE s.{sp.KEY_HASH_COLUMN_NAME} IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM changed_keys)
               AND s.{sp.BATCH_IN_COLUMN_NAME} <= {lastRemoteBatchId}
-              AND s.{sp.BATCH_OUT_COLUMN_NAME} > {lastRemoteBatchId}
+              AND s.{sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
         ) ps
         WHERE ps.{sp.KEY_HASH_COLUMN_NAME} NOT IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM current_state)
         """
