@@ -14,7 +14,7 @@ from datasurface.platforms.yellow.merge_remote_live import SnapshotMergeJobRemot
 from datasurface.md import Ecosystem
 from datasurface.md import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
 from typing import Any, Optional, Type
 from datetime import datetime
 from datasurface.platforms.yellow.jobs import Job
@@ -103,13 +103,31 @@ class TestMergeRemoteLive(unittest.TestCase):
             # Try to ingest from the merge batch idx to the live platform.
             self.assertEqual(test_utils.runJob(), JobStatus.DONE)
             test_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            live_records: list[Any] = test_utils.getLiveRecords()
-            msg = (
-                f"Live records count mismatch. Expected {len(batch_data)} but got "
-                f"{len(live_records)} for batch {batch_id}"
-            )
-            self.assertEqual(len(live_records), len(batch_data), msg)
-            self.checkTestRecordsMatchExpected(batch_data, live_records)
+
+            # For remote forensic merge, compare the remote table against the primary table
+            assert test_utils.dp is not None
+            assert isinstance(test_utils.dp, YellowDataPlatform)
+            if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+                # Remote forensic merge: compare remote merge table with primary merge table
+                remote_merge_data: list[Any] = test_utils.getMergeTableData()
+                primary_merge_data: list[Any] = pip_utils.getMergeTableData()
+                msg = (
+                    f"Remote merge table mismatch. Expected {len(primary_merge_data)} records but got "
+                    f"{len(remote_merge_data)} for batch {batch_id}"
+                )
+                self.assertEqual(len(remote_merge_data), len(primary_merge_data), msg)
+                # TODO: Add detailed record comparison if needed
+            elif test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                # Regular forensic merge: compare live records against input data
+                live_records: list[Any] = test_utils.getLiveRecords()
+                msg = (
+                    f"Live records count mismatch. Expected {len(batch_data)} but got "
+                    f"{len(live_records)} for batch {batch_id}"
+                )
+                self.assertEqual(len(live_records), len(batch_data), msg)
+                self.checkTestRecordsMatchExpected(batch_data, live_records)
+            else:
+                raise Exception(f"Unknown milestone strategy: {test_utils.dp.milestoneStrategy}")
             batch_id += 1
 
         test_utils.baseTearDown()

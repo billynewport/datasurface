@@ -83,11 +83,9 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Ingest to staging for this remote batch id (method handles early exit if already committed)
         recordsInserted, _, _ = self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, remoteBatchId)
 
-        # If there was nothing to ingest (already up-to-date), we're done
-        if recordsInserted == 0:
-            return JobStatus.DONE
-
         # Proceed to merge the staging data into the forensic merge table
+        # Even if no records were inserted, we need to mark the batch as committed
+        # to indicate we've processed up to this remote batch ID
         self.mergeStagingToMergeAndCommit(mergeEngine, remoteBatchId, key)
         return JobStatus.DONE
 
@@ -122,13 +120,14 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             # Query batch metrics table for the highest completed batch
             try:
                 result = connection.execute(text(f"""
-                    SELECT MAX("currentBatch")
+                    SELECT MAX("batch_id")
                     FROM {self.getPhysBatchMetricsTableName()}
                     WHERE key = :key AND batch_status = :batch_status
                 """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
                 lastCompletedBatch = result.fetchone()
                 lastCompletedBatch = lastCompletedBatch[0] if lastCompletedBatch and lastCompletedBatch[0] else None
-            except Exception:
+            except Exception as e:
+                logger.error("Error getting last completed batch", error=e)
                 # Table might not exist yet
                 lastCompletedBatch = None
 
@@ -233,6 +232,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             else:
                 logger.info("Remote batch exists but not committed, will reprocess",
                             remote_batch_id=remoteBatchId, key=key, status=batch_status)
+                # Clear staging tables for reprocessing
+                self._clearStagingTables(connection)
                 return True  # Continue processing
         else:
             # Create initial batch state for remote processing
@@ -254,6 +255,9 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
             # Update the batch counter to reflect the remote batch ID when creating the batch
             self._updateBatchCounter(connection, key, remoteBatchId)
+
+            # Clear staging tables for new batch processing
+            self._clearStagingTables(connection)
 
             logger.info("Created new batch record for remote batch",
                         remote_batch_id=remoteBatchId, key=key)
@@ -655,3 +659,14 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                 VALUES (:key, :batch_id)
             """), {"key": key, "batch_id": batchId})
             logger.debug("Inserted new batch counter", key=key, batch_id=batchId)
+
+    def _clearStagingTables(self, connection) -> None:
+        """Clear all staging tables for this store to prepare for new batch processing.
+        
+        This is equivalent to the TRUNCATE TABLE operation in the normal startBatch method.
+        """
+        for datasetName in self.store.datasets.keys():
+            dataset: Dataset = self.store.datasets[datasetName]
+            stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
+            connection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
+            logger.debug("Cleared staging table for new batch", table_name=stagingTableName)
