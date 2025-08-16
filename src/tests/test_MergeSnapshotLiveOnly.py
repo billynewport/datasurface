@@ -236,16 +236,18 @@ class BaseSnapshotMergeJobTest(ABC):
 
     def getMergeTableData(self) -> list:
         with self.merge_engine.begin() as conn:
-            # Try both possible table names
-            try:
+            # Check if this is a forensic platform (has batch milestoning)
+            if hasattr(self.dp, 'milestoneStrategy') and self.dp.milestoneStrategy.name == 'BATCH_MILESTONED':
+                # Forensic table - no ds_surf_batch_id column
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
+                           ds_surf_all_hash, ds_surf_key_hash,
                            ds_surf_batch_in, ds_surf_batch_out
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id", ds_surf_batch_in
                 """))
-            except Exception:
+            else:
+                # Live-only table - has ds_surf_batch_id column
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
@@ -268,9 +270,10 @@ class BaseSnapshotMergeJobTest(ABC):
                 """))
             elif self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
                 # Forensic schema: has batch_in/batch_out columns, filter for live records
+                # Note: ds_surf_batch_id is not included in forensic tables
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash,
+                           ds_surf_all_hash, ds_surf_key_hash,
                            ds_surf_batch_in, ds_surf_batch_out
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     WHERE ds_surf_batch_out = 2147483647

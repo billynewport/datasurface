@@ -539,14 +539,12 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             batch_insert_sql = f"""
             INSERT INTO {mergeTableName} (
                 {', '.join(quoted_all_columns)},
-                {sp.BATCH_ID_COLUMN_NAME},
                 {sp.ALL_HASH_COLUMN_NAME},
                 {sp.KEY_HASH_COLUMN_NAME},
                 {sp.BATCH_IN_COLUMN_NAME},
                 {sp.BATCH_OUT_COLUMN_NAME}
             )
             SELECT {', '.join([f's."{col}"' for col in allColumns])},
-                {batchId},
                 s.{sp.ALL_HASH_COLUMN_NAME},
                 s.{sp.KEY_HASH_COLUMN_NAME},
                 s."remote_{sp.BATCH_IN_COLUMN_NAME}",
@@ -601,14 +599,12 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         insert_new_sql = f"""
         INSERT INTO {mergeTableName} (
             {', '.join(quoted_all_columns)},
-            {sp.BATCH_ID_COLUMN_NAME},
             {sp.ALL_HASH_COLUMN_NAME},
             {sp.KEY_HASH_COLUMN_NAME},
             {sp.BATCH_IN_COLUMN_NAME},
             {sp.BATCH_OUT_COLUMN_NAME}
         )
         SELECT {', '.join([f's."{col}"' for col in allColumns])},
-            {batchId},
             s.{sp.ALL_HASH_COLUMN_NAME},
             s.{sp.KEY_HASH_COLUMN_NAME},
             s."remote_{sp.BATCH_IN_COLUMN_NAME}",
@@ -669,7 +665,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     def _clearStagingTables(self, connection) -> None:
         """Clear all staging tables for this store to prepare for new batch processing.
-        
+
         This is equivalent to the TRUNCATE TABLE operation in the normal startBatch method.
         """
         for datasetName in self.store.datasets.keys():

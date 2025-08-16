@@ -2937,7 +2937,9 @@ class YellowSchemaProjector(SchemaProjector):
         if schemaType == self.SCHEMA_TYPE_MERGE:
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
-            ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
+            # Only add ds_surf_batch_id for live-only mode, not for forensic mode
+            if self.dp.milestoneStrategy != YellowMilestoneStrategy.BATCH_MILESTONED:
+                ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
             ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:

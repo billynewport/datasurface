@@ -40,7 +40,7 @@ class TestMergeRemoteLive(unittest.TestCase):
 
     def checkForensicTablesMatch(self, primary_data: list[Any], remote_data: list[Any], batch_id: int) -> None:
         """Check that the remote forensic table exactly matches the primary forensic table.
-        
+
         This performs a detailed record-by-record comparison to ensure the remote table
         is an exact mirror of the primary table, including all forensic metadata.
         """
@@ -48,19 +48,19 @@ class TestMergeRemoteLive(unittest.TestCase):
         # Use a composite key: (id, ds_surf_batch_in) to handle multiple versions of the same record
         def sort_key(record: Any) -> tuple[str, int]:
             return (record["id"], record["ds_surf_batch_in"])
-        
+
         primary_sorted = sorted(primary_data, key=sort_key)
         remote_sorted = sorted(remote_data, key=sort_key)
-        
+
         # Compare record by record
         for i, (primary_record, remote_record) in enumerate(zip(primary_sorted, remote_sorted)):
-            # Compare all fields including forensic metadata
+            # Compare all fields - ds_surf_batch_id is no longer present in forensic merge tables
             for key in primary_record.keys():
                 primary_value = primary_record[key]
                 remote_value = remote_record[key]
-                
+
                 self.assertEqual(
-                    remote_value, 
+                    remote_value,
                     primary_value,
                     f"Batch {batch_id}, Record {i}: Field '{key}' mismatch. "
                     f"Primary: {primary_value}, Remote: {remote_value}. "
@@ -111,6 +111,31 @@ class TestMergeRemoteLive(unittest.TestCase):
         ]
         return batch_test_data
 
+    def compare_forensic_merge_tables(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest,
+                                      batch_id: int, batch_data: list[dict[str, Any]]) -> None:
+        if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
+            # Remote forensic merge: compare remote merge table with primary merge table
+            remote_merge_data: list[Any] = test_utils.getMergeTableData()
+            primary_merge_data: list[Any] = pip_utils.getMergeTableData()
+            msg = (
+                f"Remote merge table mismatch. Expected {len(primary_merge_data)} records but got "
+                f"{len(remote_merge_data)} for batch {batch_id}"
+            )
+            self.assertEqual(len(remote_merge_data), len(primary_merge_data), msg)
+            # For forensic merge, compare remote table against primary table, not input data
+            self.checkForensicTablesMatch(primary_merge_data, remote_merge_data, batch_id)
+        elif test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+            # Regular forensic merge: compare live records against input data
+            live_records: list[Any] = test_utils.getLiveRecords()
+            msg = (
+                f"Live records count mismatch. Expected {len(batch_data)} but got "
+                f"{len(live_records)} for batch {batch_id}"
+            )
+            self.assertEqual(len(live_records), len(batch_data), msg)
+            self.checkTestRecordsMatchExpected(batch_data, live_records)
+        else:
+            raise Exception(f"Unknown milestone strategy: {test_utils.dp.milestoneStrategy}")
+
     # This ingests a primary stream using pip_utils and then ingests batches from there to the test_utils.
     def generic_test_5_batches_one_by_one(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest) -> None:
         pip_utils.common_clear_and_insert_data([], self)
@@ -136,28 +161,7 @@ class TestMergeRemoteLive(unittest.TestCase):
             # For remote forensic merge, compare the remote table against the primary table
             assert test_utils.dp is not None
             assert isinstance(test_utils.dp, YellowDataPlatform)
-            if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.BATCH_MILESTONED:
-                # Remote forensic merge: compare remote merge table with primary merge table
-                remote_merge_data: list[Any] = test_utils.getMergeTableData()
-                primary_merge_data: list[Any] = pip_utils.getMergeTableData()
-                msg = (
-                    f"Remote merge table mismatch. Expected {len(primary_merge_data)} records but got "
-                    f"{len(remote_merge_data)} for batch {batch_id}"
-                )
-                self.assertEqual(len(remote_merge_data), len(primary_merge_data), msg)
-                # For forensic merge, compare remote table against primary table, not input data
-                self.checkForensicTablesMatch(primary_merge_data, remote_merge_data, batch_id)
-            elif test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
-                # Regular forensic merge: compare live records against input data
-                live_records: list[Any] = test_utils.getLiveRecords()
-                msg = (
-                    f"Live records count mismatch. Expected {len(batch_data)} but got "
-                    f"{len(live_records)} for batch {batch_id}"
-                )
-                self.assertEqual(len(live_records), len(batch_data), msg)
-                self.checkTestRecordsMatchExpected(batch_data, live_records)
-            else:
-                raise Exception(f"Unknown milestone strategy: {test_utils.dp.milestoneStrategy}")
+            self.compare_forensic_merge_tables(test_utils, pip_utils, batch_id, batch_data)
             batch_id += 1
 
         test_utils.baseTearDown()
@@ -180,8 +184,25 @@ class TestMergeRemoteLive(unittest.TestCase):
 
     # Seed at batch 3, then incrementally ingest the rest.
     def test_5_batches_remote_live_b3_then_one_by_one(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
-        merge_utils.common_clear_and_insert_data([], self)
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
+    def test_5_batches_remote_forensic_b3_then_one_by_one(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
+
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    def generic_test_5_batches_remote_live_b3_then_one_by_one(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest) -> None:
+        pip_utils.common_clear_and_insert_data([], self)
 
         # First, lets do a 5 batch ingestion/test on YellowForensic.
         batch_test_data: list[list[dict[str, Any]]] = self.getBatchTestData()
@@ -190,31 +211,31 @@ class TestMergeRemoteLive(unittest.TestCase):
         # This is seed the live table with batches 1-3, then do 4 and then 5
         for batch_data in batch_test_data:
             print(f"Inserting batch {batch_id} data: {batch_data}")
-            merge_utils.common_clear_and_insert_data(batch_data, self)
+            pip_utils.common_clear_and_insert_data(batch_data, self)
 
-            self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
-            merge_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            merge_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
+            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
             # print merge table data for debugging
             if batch_id >= 3:
-                merge_table_data: list[Any] = merge_utils.getMergeTableData()
+                merge_table_data: list[Any] = pip_utils.getMergeTableData()
                 print(f"Merge table data for batch {batch_id}: {merge_table_data}")
                 # Try to ingest from the merge batch idx to the live platform.
-                self.assertEqual(live_utils.runJob(), JobStatus.DONE)
-                live_batch_id: int = batch_id - 2  # Live batch is 2 behind merge batch
-                live_utils.checkSpecificBatchStatus("Store1", live_batch_id, BatchStatus.COMMITTED, self)
-                live_records: list[Any] = live_utils.getLiveRecords()
-                msg = (
-                    f"Live records count mismatch. Expected {len(batch_data)} but got "
-                    f"{len(live_records)} for batch {live_batch_id}"
-                )
-                self.assertEqual(len(live_records), len(batch_data), msg)
-                self.checkTestRecordsMatchExpected(batch_data, live_records)
+                self.assertEqual(test_utils.runJob(), JobStatus.DONE)
+                # For remote live merge, determine the correct local batch ID
+                if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.LIVE_ONLY:
+                    # Remote live merge creates its own local batch sequence starting from 1
+                    # The first time it runs (at batch 3), it creates local batch 1
+                    local_batch_id: int = 1 if batch_id == 3 else (batch_id - 2)  # Adjust for starting at batch 3
+                else:
+                    # Remote forensic merge uses the primary batch ID as local batch ID
+                    local_batch_id = batch_id
+                test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+                self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
             batch_id += 1
 
-        live_utils.baseTearDown()
-        merge_utils.baseTearDown()
-        remote_merge_utils.baseTearDown()
+        test_utils.baseTearDown()
+        pip_utils.baseTearDown()
 
     # Seed at batch 3, then ingest batch 4 and 5 as one batch.
     def test_5_batches_remote_live_b3_then_two(self) -> None:

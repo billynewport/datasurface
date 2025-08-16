@@ -114,7 +114,6 @@ class SnapshotMergeJobForensic(Job):
                 insert_new_sql = f"""
                 INSERT INTO {mergeTableName} (
                     {', '.join(quoted_all_columns)},
-                    {sp.BATCH_ID_COLUMN_NAME},
                     {sp.ALL_HASH_COLUMN_NAME},
                     {sp.KEY_HASH_COLUMN_NAME},
                     {sp.BATCH_IN_COLUMN_NAME},
@@ -122,7 +121,6 @@ class SnapshotMergeJobForensic(Job):
                 )
                 SELECT
                     {', '.join([f's."{col}"' for col in allColumns])},
-                    {batchId},
                     s.{sp.ALL_HASH_COLUMN_NAME},
                     s.{sp.KEY_HASH_COLUMN_NAME},
                     {batchId},
@@ -157,9 +155,9 @@ class SnapshotMergeJobForensic(Job):
 
                 # Insert new versions for changed records (where the old record was just closed)
                 insert_changed_sql = f"""
-                INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME},
+                INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)},
                     {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})
-                SELECT {', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME},
+                SELECT {', '.join([f's."{col}"' for col in allColumns])}, s.{sp.ALL_HASH_COLUMN_NAME},
                     s.{sp.KEY_HASH_COLUMN_NAME}, {batchId}, {sp.LIVE_RECORD_ID}
                 FROM {stagingTableName} s
                 WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
