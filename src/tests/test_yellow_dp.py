@@ -326,7 +326,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
                 assert platform_name is not None  # Type narrowing for mypy
                 found_dp = eco.getDataPlatformOrThrow(platform_name)
                 assert isinstance(found_dp, YellowDataPlatform)
-                expected_namespace = found_dp.psp.namespace
+                expected_namespace = found_dp.psp.yp_assm.namespace
                 self.assertIn(f"**Namespace:** {expected_namespace}", secrets_content)
                 self.assertIn(f"--namespace {expected_namespace}", secrets_content)
 
