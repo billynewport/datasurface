@@ -17,6 +17,7 @@ from tests.wwi.wwi import defineTables as defineWWITeamTables
 from tests.wwi.wwi import defineWorkspaces as defineWWITeamWorkspaces
 from datasurface.md.governance import ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency, WorkspacePlatformConfig
 from datetime import timedelta
+from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowSingleDatabaseAssembly, K8sResourceLimits, StorageRequirement
 
 
 def createEcosystem() -> Ecosystem:
@@ -30,20 +31,60 @@ def createEcosystem() -> Ecosystem:
         databaseName="datasurface_merge"
     )
 
+    gitcache: GitCacheConfig = GitCacheConfig(
+        enabled=True,
+        pvc_name="git-cache",
+        pv_name="git-cache-pv",
+        storage_size=StorageRequirement("5G"),
+        storeageClass="longhorn",
+        access_mode="ReadWriteMany",
+        git_cache_max_age_minutes=1440,
+        cacheLocalPath="/cache/git-cache"
+    )
+
+    KUB_NAME_SPACE: str = "ns-wwi"
+    yp_assm: YellowSingleDatabaseAssembly = YellowSingleDatabaseAssembly(
+        name="Test_DP",
+        namespace=f"{KUB_NAME_SPACE}",
+        git_cache_config=gitcache,
+        nfs_server_node="git-cache-server",
+        afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
+        pgStorageNeeds=StorageRequirement("10G"),
+        pgResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=1.0,
+            limits_cpu=2.0
+        ),
+        afWebserverResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=1.0,
+            limits_cpu=2.0
+        ),
+        afSchedulerResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("4G"),
+            limits_memory=StorageRequirement("4G"),
+            requested_cpu=4.0,
+            limits_cpu=4.0
+        )
+    )
     psp: YellowPlatformServiceProvider = YellowPlatformServiceProvider(
         "Test_DP",
         {LocationKey("MyCorp:USA/NY_1")},
         PlainTextDocumentation("Test"),
-        namespace="ns-kub-pg-test",
+        yp_assembly=yp_assm,
         gitCredential=Credential("git", CredentialType.API_TOKEN),
         connectCredentials=Credential("connect", CredentialType.API_TOKEN),
         postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
         merge_datacontainer=merge_datacontainer,
+        pv_storage_class="longhorn",
         dataPlatforms=[
             YellowDataPlatform(
                 name="YellowLive",
                 doc=PlainTextDocumentation("Live Yellow DataPlatform"),
-                milestoneStrategy=YellowMilestoneStrategy.SCD1),
+                milestoneStrategy=YellowMilestoneStrategy.SCD1
+                ),
             YellowDataPlatform(
                 "YellowForensic",
                 doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),

@@ -12,7 +12,7 @@ from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, Kafk
 from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata, PlatformDataTransformerHint, \
     PlatformIngestionHint, PlatformRuntimeHint
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
-    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet, UserDSLObject
+    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
@@ -44,6 +44,8 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
 )
+from datasurface.platforms.yellow.assembly import K8sResourceLimits, K8sUtils, Component, Assembly
+from datasurface.platforms.yellow.assembly import K8sAssemblyFactory
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -175,48 +177,6 @@ class JobUtilities(ABC):
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
         return self.dp.psp.namingMapper.mapNoun(self.dp.getTableForPlatform(f"dt_{tableName}"))
-
-
-# Model for Kubernetes resource limits
-# Allows the requested and limit for CPU and memory to be specified for a pod.
-class K8sResourceLimits(UserDSLObject):
-    def __init__(self, requested_memory: StorageRequirement, limits_memory: StorageRequirement, requested_cpu: float, limits_cpu: float) -> None:
-        super().__init__()
-        self.requested_memory: StorageRequirement = requested_memory
-        self.limits_memory: StorageRequirement = limits_memory
-        self.requested_cpu: float = requested_cpu
-        self.limits_cpu: float = limits_cpu
-
-    def to_json(self) -> dict[str, Any]:
-        """Convert K8sResourceLimits to JSON-serializable dictionary."""
-        return {
-            "requested_memory": self.requested_memory.to_json(),
-            "limits_memory": self.limits_memory.to_json(),
-            "requested_cpu": self.requested_cpu,
-            "limits_cpu": self.limits_cpu
-        }
-
-    def to_k8s_json(self) -> dict[str, Any]:
-        """Convert K8sResourceLimits to Kubernetes JSON format."""
-        return {
-            "requested_memory": Component.storageToKubernetesFormat(self.requested_memory),
-            "limits_memory": Component.storageToKubernetesFormat(self.limits_memory),
-            "requested_cpu": Component.cpuToKubernetesFormat(self.requested_cpu),
-            "limits_cpu": Component.cpuToKubernetesFormat(self.limits_cpu)
-            }
-
-    def lint(self, tree: ValidationTree):
-        """This validates the K8sResourceLimits object."""
-        self.requested_memory.lint(tree.addSubTree(self.requested_memory))
-        self.limits_memory.lint(tree.addSubTree(self.limits_memory))
-        if self.requested_memory > self.limits_memory:
-            tree.addProblem(f"Requested memory must be less than or equal to limits memory, got {self.requested_memory} and {self.limits_memory}")
-        if self.requested_cpu < 0:
-            tree.addProblem(f"Requested CPU must be greater than 0, got {self.requested_cpu}")
-        if self.limits_cpu < 0:
-            tree.addProblem(f"Limits CPU must be greater than 0, got {self.limits_cpu}")
-        if self.requested_cpu > self.limits_cpu:
-            tree.addProblem(f"Requested CPU must be less than or equal to limits CPU, got {self.requested_cpu} and {self.limits_cpu}")
 
 
 class K8sDataTransformerHint(PlatformDataTransformerHint):
@@ -617,16 +577,14 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
     """This acts as a factory to create credentials and allow DataPlatforms to get credentials. It tries to hide the mechanism. Whether
     this uses local files or env variables is hidden from the DataPlatform. The secrets exist within a single namespace. This code returns
     the various types of supported credentials in methods which are called by the DataPlatform."""
-    def __init__(self, name: str, locs: set[LocationKey], namespace: str):
+    def __init__(self, name: str, locs: set[LocationKey]):
         super().__init__(name, locs)
-        self.namespace: str = namespace
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
                 "_type": self.__class__.__name__,
-                "namespace": self.namespace
             }
         )
         return rc
@@ -634,6 +592,12 @@ class KubernetesEnvVarsCredentialStore(CredentialStore):
     def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
         """This is used to check if a Credential is supported by this store."""
         pass
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and \
+            isinstance(other, KubernetesEnvVarsCredentialStore) and \
+            self.name == other.name and \
+            self.locs == other.locs
 
     def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
         """This returns the username and password for the credential"""
@@ -1040,12 +1004,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                             # Add credential information for this stream
                             if stream_config["ingestion_type"] == IngestionType.KAFKA.value:
-                                stream_config["kafka_connect_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(
+                                stream_config["kafka_connect_credential_secret_name"] = K8sUtils.to_k8s_name(
                                     self.dp.psp.connectCredentials.name)
                             elif stream_config["ingestion_type"] == IngestionType.SQL_SOURCE.value:
                                 # For SQL snapshot ingestion, we need the source database credentials
                                 if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
-                                    stream_config["source_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
+                                    stream_config["source_credential_secret_name"] = K8sUtils.to_k8s_name(store.cmd.credential.name)
 
                             ingestion_streams.append(stream_config)
                     else:
@@ -1064,12 +1028,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                         # Add credential information for this stream
                         if stream_config["ingestion_type"] == IngestionType.KAFKA.value:
-                            stream_config["kafka_connect_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(
+                            stream_config["kafka_connect_credential_secret_name"] = K8sUtils.to_k8s_name(
                                 self.dp.psp.connectCredentials.name)
                         elif stream_config["ingestion_type"] == IngestionType.SQL_SOURCE.value:
                             # For SQL snapshot ingestion, we need the source database credentials
                             if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
-                                stream_config["source_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
+                                stream_config["source_credential_secret_name"] = K8sUtils.to_k8s_name(store.cmd.credential.name)
 
                         ingestion_streams.append(stream_config)
                 elif isinstance(store.cmd, DataTransformerOutput):
@@ -1093,31 +1057,30 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             git_repo_owner, git_repo_name = git_repo_parts
 
             # Common context for all streams (platform-level configuration)
-            common_context: dict[str, Any] = {
-                "namespace_name": self.dp.psp.namespace,
-                "platform_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.name),
-                "original_platform_name": self.dp.name,  # Original platform name for job execution
-                "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": YellowPlatformServiceProvider.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
-                "postgres_database": self.dp.psp.mergeStore.databaseName,
-                "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.postgresCredential.name),
-                "git_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.gitCredential.name),
-                "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
-                "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
-                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                "git_repo_branch": gitRepo.branchName,
-                "git_repo_name": gitRepo.repositoryName,
-                "git_repo_owner": git_repo_owner,
-                "git_repo_repo_name": git_repo_name,
-                # Git cache configuration variables
-                "pv_storage_class": self.dp.psp.pv_storage_class,
-                "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
-                "git_cache_storage_size": Component.storageToKubernetesFormat(self.dp.psp.git_cache_storage_size),
-                "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
-                "git_cache_enabled": self.dp.psp.git_cache_enabled,
-            }
+            common_context: dict[str, Any] = self.dp.psp.yp_assm.createYAMLContext(eco)
+            common_context.update(
+                {
+                    "namespace_name": self.dp.psp.yp_assm.namespace,
+                    "platform_name": K8sUtils.to_k8s_name(self.dp.name),
+                    "original_platform_name": self.dp.name,  # Original platform name for job execution
+                    "ecosystem_name": eco.name,  # Original ecosystem name
+                    "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
+                    "postgres_database": self.dp.psp.mergeStore.databaseName,
+                    "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
+                    "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.postgresCredential.name),
+                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
+                    "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
+                    "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
+                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                    "git_repo_branch": gitRepo.branchName,
+                    "git_repo_name": gitRepo.repositoryName,
+                    "git_repo_owner": git_repo_owner,
+                    "git_repo_repo_name": git_repo_name,
+                    # Git cache configuration variables
+                    "pv_storage_class": self.dp.psp.pv_storage_class,
+                }
+            )
 
             # Get table name
             table_name = self.dp.getPhysDAGTableName()
@@ -1216,11 +1179,11 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                                     stream_key = ydu.getIngestionStreamKey()
 
                                 # Regular ingestion DAG naming pattern
-                                dag_id = f"{YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}__{stream_key}_ingestion"
+                                dag_id = f"{K8sUtils.to_k8s_name(self.dp.name)}__{stream_key}_ingestion"
 
                             elif isinstance(store.cmd, DataTransformerOutput):
                                 # DataTransformer output store - use dt_ingestion naming pattern
-                                dag_id = f"{YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}__{sink.storeName}_dt_ingestion"
+                                dag_id = f"{K8sUtils.to_k8s_name(self.dp.name)}__{sink.storeName}_dt_ingestion"
 
                             else:
                                 # Unsupported store type, skip
@@ -1256,7 +1219,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                     assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
                     if workspace.dataTransformer.code.repo.credential is not None:
-                        dt_config["git_credential_secret_name"] = YellowPlatformServiceProvider.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
+                        dt_config["git_credential_secret_name"] = K8sUtils.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
 
                     # Add schedule information if DataTransformer has a trigger
                     if workspace.dataTransformer.trigger is not None:
@@ -1283,31 +1246,29 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             git_repo_owner, git_repo_name = git_repo_parts
 
             # Common context for all DataTransformers (platform-level configuration)
-            common_context: dict[str, Any] = {
-                "namespace_name": self.dp.psp.namespace,
-                "platform_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.name),
-                "original_platform_name": self.dp.name,  # Original platform name for job execution
-                "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": YellowPlatformServiceProvider.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
-                "postgres_database": self.dp.psp.mergeStore.databaseName,
-                "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.postgresCredential.name),
-                "git_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.gitCredential.name),
-                "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
-                "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
-                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                "git_repo_branch": gitRepo.branchName,
-                "git_repo_name": gitRepo.repositoryName,
-                "git_repo_owner": git_repo_owner,
-                "git_repo_repo_name": git_repo_name,
-                # Git cache configuration variables
-                "pv_storage_class": self.dp.psp.pv_storage_class,
-                "git_cache_access_mode": self.dp.psp.git_cache_access_mode,
-                "git_cache_storage_size": Component.storageToKubernetesFormat(self.dp.psp.git_cache_storage_size),
-                "git_cache_max_age_minutes": self.dp.psp.git_cache_max_age_minutes,
-                "git_cache_enabled": self.dp.psp.git_cache_enabled,
-            }
+            common_context: dict[str, Any] = self.dp.psp.yp_assm.createYAMLContext(eco)
+            common_context.update(
+                {
+                    "platform_name": K8sUtils.to_k8s_name(self.dp.name),
+                    "original_platform_name": self.dp.name,  # Original platform name for job execution
+                    "ecosystem_name": eco.name,  # Original ecosystem name
+                    "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
+                    "postgres_database": self.dp.psp.mergeStore.databaseName,
+                    "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
+                    "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.postgresCredential.name),
+                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
+                    "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
+                    "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
+                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                    "git_repo_branch": gitRepo.branchName,
+                    "git_repo_name": gitRepo.repositoryName,
+                    "git_repo_owner": git_repo_owner,
+                    "git_repo_repo_name": git_repo_name,
+                    # Git cache configuration variables
+                    "pv_storage_class": self.dp.psp.pv_storage_class,
+                }
+            )
 
             # Get table name
             table_name = self.dp.getPhysDataTransformerTableName()
@@ -1386,19 +1347,19 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             {
                 'credential': self.dp.psp.postgresCredential,
                 'purpose': 'PostgreSQL database access for merge store',
-                'k8s_name': YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.postgresCredential.name),
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.postgresCredential.name),
                 'category': 'Platform Core'
             },
             {
                 'credential': self.dp.psp.gitCredential,
                 'purpose': 'Git repository access for ecosystem model',
-                'k8s_name': YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.gitCredential.name),
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
                 'category': 'Platform Core'
             },
             {
                 'credential': self.dp.psp.connectCredentials,
                 'purpose': 'Kafka Connect cluster API access',
-                'k8s_name': YellowPlatformServiceProvider.to_k8s_name(self.dp.psp.connectCredentials.name),
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.connectCredentials.name),
                 'category': 'Platform Core'
             }
         ]
@@ -1414,7 +1375,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 store: Datastore = storeEntry.datastore
 
                 if isinstance(store.cmd, IngestionMetadata) and store.cmd.credential is not None:
-                    k8s_name = YellowPlatformServiceProvider.to_k8s_name(store.cmd.credential.name)
+                    k8s_name = K8sUtils.to_k8s_name(store.cmd.credential.name)
                     if k8s_name not in secrets_info:
                         secrets_info[k8s_name] = {
                             'credential': store.cmd.credential,
@@ -1441,7 +1402,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             if workspace.dataTransformer is not None:
                 assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
                 if workspace.dataTransformer.code.repo.credential is not None:
-                    k8s_name = YellowPlatformServiceProvider.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
+                    k8s_name = K8sUtils.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
                     if k8s_name not in secrets_info:
                         secrets_info[k8s_name] = {
                             'credential': workspace.dataTransformer.code.repo.credential,
@@ -1467,7 +1428,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             f"This document lists all Kubernetes secrets required for the `{self.dp.name}` YellowDataPlatform deployment.",
             "",
             f"**Platform:** {self.dp.name}",
-            f"**Namespace:** {self.dp.psp.namespace}",
+            f"**Namespace:** {self.dp.psp.yp_assm.namespace}",
             f"**Ecosystem Repository:** {gitRepo.repositoryName}",
             "",
             "## Overview",
@@ -1543,7 +1504,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         f"kubectl create secret generic {k8s_name} \\",
                         "  --from-literal=POSTGRES_USER='your-username' \\",
                         "  --from-literal=POSTGRES_PASSWORD='your-password' \\",
-                        f"  --namespace {self.dp.psp.namespace}",
+                        f"  --namespace {self.dp.psp.yp_assm.namespace}",
                         "```",
                         ""
                     ])
@@ -1553,7 +1514,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "```bash",
                         f"kubectl create secret generic {k8s_name} \\",
                         "  --from-literal=token='your-api-token' \\",
-                        f"  --namespace {self.dp.psp.namespace}",
+                        f"  --namespace {self.dp.psp.yp_assm.namespace}",
                         "```",
                         ""
                     ])
@@ -1564,7 +1525,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         f"kubectl create secret generic {k8s_name} \\",
                         "  --from-literal=api_key='your-api-key' \\",
                         "  --from-literal=api_secret='your-api-secret' \\",
-                        f"  --namespace {self.dp.psp.namespace}",
+                        f"  --namespace {self.dp.psp.yp_assm.namespace}",
                         "```",
                         ""
                     ])
@@ -1576,13 +1537,13 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             "",
             "```bash",
             "# List all secrets in the namespace",
-            f"kubectl get secrets -n {self.dp.psp.namespace}",
+            f"kubectl get secrets -n {self.dp.psp.yp_assm.namespace}",
             "",
             "# Verify specific secrets exist",
         ])
 
         for k8s_name in sorted(secrets_info.keys()):
-            markdown_lines.append(f"kubectl get secret {k8s_name} -n {self.dp.psp.namespace}")
+            markdown_lines.append(f"kubectl get secret {k8s_name} -n {self.dp.psp.yp_assm.namespace}")
 
         markdown_lines.extend([
             "```",
@@ -1619,7 +1580,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         yaml_lines = [
             "# Operational Network Policy for External Database Access",
             f"# Generated for platform: {self.dp.name}",
-            f"# Namespace: {self.dp.psp.namespace}",
+            f"# Namespace: {self.dp.psp.yp_assm.namespace}",
             f"# Generated at: {datetime.now().isoformat()}",
             "#",
             "# Apply this network policy to allow pods to connect to external databases",
@@ -1634,10 +1595,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             "apiVersion: networking.k8s.io/v1",
             "kind: NetworkPolicy",
             "metadata:",
-            f"  name: {YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}-operational-database-access",
-            f"  namespace: {self.dp.psp.namespace}",
+            f"  name: {K8sUtils.to_k8s_name(self.dp.name)}-operational-database-access",
+            f"  namespace: {self.dp.psp.yp_assm.namespace}",
             "  labels:",
-            f"    app: {YellowPlatformServiceProvider.to_k8s_name(self.dp.name)}",
+            f"    app: {K8sUtils.to_k8s_name(self.dp.name)}",
             "    component: operational-network-policy",
             "spec:",
             "  podSelector: {}",
@@ -1733,338 +1694,6 @@ class YellowGenericDataPlatform(DataPlatform['YellowPlatformServiceProvider']):
         raise NotImplementedError("This is an abstract method")
 
 
-class Component(ABC):
-    """A component can a hostname, a credential and"""
-    def __init__(self, name: str, namespace: str) -> None:
-        super().__init__()
-        self.name: str = name
-        self.namespace: str = namespace
-
-    @abstractmethod
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        """This renders the component to a string."""
-        raise NotImplementedError("This is an abstract method")
-
-    @staticmethod
-    def storageToKubernetesFormat(s: StorageRequirement) -> str:
-        """Convert storage spec to Kubernetes format by ensuring binary units have 'i' suffix"""
-        if s.spec[-1].upper() in ['G', 'T', 'P', 'E', 'Z', 'Y']:
-            # Binary units in Kubernetes should have 'i' suffix
-            return s.spec + 'i'
-        # For other units like M, K, B, return as-is
-        return s.spec
-
-    @staticmethod
-    def cpuToKubernetesFormat(cpu: float) -> str:
-        """Convert CPU spec to Kubernetes format by ensuring binary units have 'm' suffix"""
-        return f"{int(cpu * 1000)}m"
-
-
-class NamespaceComponent(Component):
-    def __init__(self, name: str, namespace: str) -> None:
-        super().__init__(name, namespace)
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        namespace_template: Template = env.get_template('psp_namespace.yaml.j2')
-        ctxt: dict[str, Any] = templateContext.copy()
-        ctxt.update(
-            {
-                "namespace_name": YellowPlatformServiceProvider.to_k8s_name(self.namespace)
-            }
-        )
-        namespace_rendered: str = namespace_template.render(ctxt)
-        yaml += namespace_rendered
-        return yaml
-
-
-class LoggingComponent(Component):
-    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider') -> None:
-        super().__init__(name, namespace)
-        self.psp: 'YellowPlatformServiceProvider' = psp
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        logging_template: Template = env.get_template('psp_logging.yaml.j2')
-        ctxt: dict[str, Any] = templateContext.copy()
-        ctxt.update(
-            {
-                "namespace_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.namespace),
-                "psp_k8s_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.name),
-                "psp_name": self.psp.name,
-            }
-        )
-        logging_rendered: str = logging_template.render(ctxt)
-        yaml += logging_rendered
-        return yaml
-
-
-class NetworkPolicyComponent(Component):
-    def __init__(self, name: str, namespace: str, psp: 'YellowPlatformServiceProvider') -> None:
-        super().__init__(name, namespace)
-        self.psp: 'YellowPlatformServiceProvider' = psp
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        network_policy_template: Template = env.get_template('psp_networkpolicy.yaml.j2')
-        ctxt: dict[str, Any] = templateContext.copy()
-        ctxt.update(
-            {
-                "namespace_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.namespace),
-                "psp_k8s_name": YellowPlatformServiceProvider.to_k8s_name(self.psp.name),
-                "psp_name": self.psp.name,
-            }
-        )
-        network_policy_rendered: str = network_policy_template.render(ctxt)
-        yaml += network_policy_rendered
-        return yaml
-
-
-class Airflow281Component(Component):
-    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
-                 dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
-                 schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.8.1") -> None:
-        super().__init__(name, namespace)
-        self.dbCred: Credential = dbCred
-        self.db: PostgresDatabase = db
-        self.dagCreds: list[Credential] = dagCreds
-        self.webserverResourceLimits: K8sResourceLimits = webserverResourceLimits or K8sResourceLimits(
-            requested_memory=StorageRequirement("1G"),
-            limits_memory=StorageRequirement("2G"),
-            requested_cpu=0.5,
-            limits_cpu=1.0
-            )
-        self.schedulerResourceLimits: K8sResourceLimits = schedulerResourceLimits or K8sResourceLimits(
-            requested_memory=StorageRequirement("2G"),
-            limits_memory=StorageRequirement("4G"),
-            requested_cpu=0.5,
-            limits_cpu=1.0
-        )
-        self.airflow_image: str = airflow_image
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        airflow_template: Template = env.get_template('airflow281/psp_airflow.yaml.j2')
-        ctxt: dict[str, Any] = templateContext.copy()
-        ctxt.update(
-            {
-                "airflow_k8s_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
-                "postgres_hostname": self.db.hostPortPair.hostName,
-                "postgres_database": self.db.databaseName,
-                "postgres_port": self.db.hostPortPair.port,
-                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),  # Airflow uses postgres creds
-                "extra_credentials": [YellowPlatformServiceProvider.to_k8s_name(cred.name) for cred in self.dagCreds],
-                "webserver_requested_memory": Component.storageToKubernetesFormat(self.webserverResourceLimits.requested_memory),
-                "webserver_limits_memory": Component.storageToKubernetesFormat(self.webserverResourceLimits.limits_memory),
-                "webserver_requested_cpu": Component.cpuToKubernetesFormat(self.webserverResourceLimits.requested_cpu),
-                "webserver_limits_cpu": Component.cpuToKubernetesFormat(self.webserverResourceLimits.limits_cpu),
-                "scheduler_requested_memory": Component.storageToKubernetesFormat(self.schedulerResourceLimits.requested_memory),
-                "scheduler_limits_memory": Component.storageToKubernetesFormat(self.schedulerResourceLimits.limits_memory),
-                "scheduler_requested_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.requested_cpu),
-                "scheduler_limits_cpu": Component.cpuToKubernetesFormat(self.schedulerResourceLimits.limits_cpu),
-                "airflow_image": self.airflow_image
-            }
-        )
-        airflow_rendered: str = airflow_template.render(ctxt)
-        yaml += airflow_rendered
-        return yaml
-
-
-class PostgresComponent(Component):
-    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
-                 storageNeeds: StorageRequirement, resourceLimits: Optional[K8sResourceLimits] = None, postgres_image: str = "postgres:15") -> None:
-        super().__init__(name, namespace)
-        self.dbCred: Credential = dbCred
-        self.db: PostgresDatabase = db
-        self.resourceLimits: K8sResourceLimits = resourceLimits or K8sResourceLimits(
-            requested_memory=StorageRequirement("1G"),
-            limits_memory=StorageRequirement("2G"),
-            requested_cpu=0.5,
-            limits_cpu=1.0
-        )
-        self.storageNeeds: StorageRequirement = storageNeeds
-        self.postgres_image: str = postgres_image
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        postgres_template: Template = env.get_template('psp_postgres.yaml.j2')
-
-        # Add the postgres instance variables to a private template context
-        ctxt: dict[str, Any] = templateContext.copy()
-        ctxt.update(
-            {
-                "instance_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
-                "postgres_hostname": self.db.hostPortPair.hostName,
-                "postgres_port": self.db.hostPortPair.port,
-                "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.dbCred.name),
-                "postgres_storage": Component.storageToKubernetesFormat(self.storageNeeds),
-                "postgres_requested_memory": Component.storageToKubernetesFormat(self.resourceLimits.requested_memory),
-                "postgres_limits_memory": Component.storageToKubernetesFormat(self.resourceLimits.limits_memory),
-                "postgres_requested_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.requested_cpu),
-                "postgres_limits_cpu": Component.cpuToKubernetesFormat(self.resourceLimits.limits_cpu),
-                "postgres_image": self.postgres_image
-            }
-        )
-        postgres_rendered: str = postgres_template.render(ctxt)
-        yaml += postgres_rendered
-        return yaml
-
-
-class PVCComponent(Component):
-    def __init__(self, name: str, namespace: str, capacity: StorageRequirement, storageClass: str, accessMode: str) -> None:
-        super().__init__(name, namespace)
-        self.capacity: StorageRequirement = capacity
-        self.storageClass: str = storageClass
-        self.accessMode: str = accessMode
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        pvc_template: Template = env.get_template('psp_pvc.yaml.j2')
-        ctxt: dict[str, Any] = templateContext.copy()
-        ctxt.update(
-            {
-                "pvc_name": YellowPlatformServiceProvider.to_k8s_name(self.name),
-                "pvc_storage_class": self.storageClass,
-                "pvc_access_mode": self.accessMode,
-                "pvc_storage_size": Component.storageToKubernetesFormat(self.capacity)
-            }
-        )
-        pvc_rendered: str = pvc_template.render(ctxt)
-        yaml += pvc_rendered
-        return yaml
-
-
-class NFSComponent(Component):
-    def __init__(self, name: str, namespace: str, nfs_server_node: str,
-                 nfs_server_pvc_name: str, nfs_server_pv_name: str,
-                 nfs_client_pvc_name: str, nfs_client_pv_name: str,
-                 nfs_server_storage: StorageRequirement = StorageRequirement("20G"),
-                 nfs_client_storage: StorageRequirement = StorageRequirement("10G"), nfs_server_host_path: Optional[str] = None,
-                 nfs_server_image: str = "erichough/nfs-server:2.2.1") -> None:
-        super().__init__(name, namespace)
-        self.nfs_server_node: str = nfs_server_node
-        self.nfs_server_storage: StorageRequirement = nfs_server_storage
-        self.nfs_client_storage: StorageRequirement = nfs_client_storage
-        self.nfs_server_host_path: str = nfs_server_host_path or f"/opt/{name}-nfs-storage"
-        self.nfs_server_image: str = nfs_server_image
-        name_k8s: str = YellowPlatformServiceProvider.to_k8s_name(name)
-        self.nfs_server_pvc_name: str = nfs_server_pvc_name or f"{name_k8s}-nfs-server-pvc"
-        self.nfs_server_pv_name: str = nfs_server_pv_name or f"{name_k8s}-nfs-server-pv"
-        self.nfs_client_pvc_name: str = nfs_client_pvc_name or f"{name_k8s}-nfs-client-pvc"
-        self.nfs_client_pv_name: str = nfs_client_pv_name or f"{name_k8s}-nfs-client-pv"
-
-    def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        yaml: str = ""
-        nfs_template: Template = env.get_template('psp_nfs.yaml.j2')
-
-        # Add the NFS instance variables to a private template context
-        ctxt: dict[str, Any] = templateContext.copy()
-        name_k8s: str = YellowPlatformServiceProvider.to_k8s_name(self.name)
-        ctxt.update(
-            {
-                "instance_name": name_k8s,
-                "nfs_server_image": self.nfs_server_image,
-                "nfs_server_node": self.nfs_server_node,
-                "nfs_server_host_path": self.nfs_server_host_path,
-                "nfs_server_storage": Component.storageToKubernetesFormat(self.nfs_server_storage),
-                "nfs_service_name": f"{name_k8s}-nfs-service",
-                "nfs_shared_path": "/shared",
-                "nfs_client_storage": Component.storageToKubernetesFormat(self.nfs_client_storage),
-                "nfs_server_pvc_name": self.nfs_server_pvc_name,
-                "nfs_server_pv_name": self.nfs_server_pv_name,
-                "nfs_client_pvc_name": self.nfs_client_pvc_name,
-                "nfs_client_pv_name": self.nfs_client_pv_name,
-                "nfs_server_memory_request": "1Gi",
-                "nfs_server_memory_limit": "2Gi",
-                "nfs_server_cpu_request": "500m",
-                "nfs_server_cpu_limit": "1000m"
-            }
-        )
-        nfs_rendered: str = nfs_template.render(ctxt)
-        yaml += nfs_rendered
-        return yaml
-
-
-class Assembly:
-    def __init__(self, name: str, namespace: str, components: list[Component]) -> None:
-        super().__init__()
-        self.name: str = name
-        self.components: list[Component] = components
-        self.namespace: str = namespace
-
-    def generateYaml(self, env: Environment, templateContext: dict[str, Any]) -> str:
-        """This generates the yaml for the assembly."""
-        yaml_parts: list[str] = []
-        for component in self.components:
-            rendered = component.render(env, templateContext)
-            if rendered.strip():  # Only add non-empty templates
-                yaml_parts.append(rendered.rstrip())  # Remove trailing whitespace
-
-        # Join with proper YAML document separator
-        return '\n'.join(yaml_parts) + '\n'
-
-
-def createYellowAssemblySingleDatabase(
-        name: str,
-        psp: 'YellowPlatformServiceProvider',
-        nfs_server_node: str,
-        pgCred: Credential,
-        pgDB: PostgresDatabase,
-        afHostPortPair: HostPortPair,
-        pgStorageNeeds: StorageRequirement,
-        pgResourceLimits: Optional[K8sResourceLimits] = None,
-        afResourceLimits: Optional[K8sResourceLimits] = None,
-        afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
-        afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> Assembly:
-    """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
-    database is used for both the merge store and the airflow database."""
-
-    assembly: Assembly = Assembly(
-        name, psp.namespace,
-        components=list()
-    )
-    assembly.components.append(NamespaceComponent("ns", psp.namespace))
-    if psp.git_cache_enabled:
-        assembly.components.append(
-            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode))
-    assembly.components.append(LoggingComponent("logging", psp.namespace, psp))
-    assembly.components.append(NetworkPolicyComponent("np", psp.namespace, psp))
-    assembly.components.append(PostgresComponent("pg", psp.namespace, pgCred, pgDB, pgStorageNeeds, pgResourceLimits))
-    # Airflow uses the same database as the merge store
-    assembly.components.append(
-        Airflow281Component("airflow", psp.namespace, pgCred, pgDB, [],
-                            webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
-    return assembly
-
-
-def createYellowAssemblyTwinDatabase(
-        name: str,
-        psp: 'YellowPlatformServiceProvider',
-        nfs_server_node: str,
-        pgCred: Credential,
-        mergeDBD: PostgresDatabase,
-        mergeDBStorageNeeds: StorageRequirement,
-        afDBcred: Credential,
-        afDB: PostgresDatabase,
-        afDBStorageNeeds: StorageRequirement,
-        afHostPortPair: HostPortPair) -> Assembly:
-    """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
-    reasons."""
-    assembly: Assembly = Assembly(
-        name, psp.namespace,
-        components=[
-            NamespaceComponent("ns", psp.namespace),
-            LoggingComponent("logging", psp.namespace, psp),
-            NetworkPolicyComponent("np", psp.namespace, psp),
-            PVCComponent(psp.getGitCachePVC(), psp.namespace, psp.git_cache_storage_size, psp.pv_storage_class, psp.git_cache_access_mode),
-            PostgresComponent("pg-merge", psp.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
-            PostgresComponent("pg-airflow", psp.namespace, afDBcred, afDB, afDBStorageNeeds),
-            Airflow281Component("airflow", psp.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
-        ]
-    )
-    return assembly
-
-
 class K8sImagePullPolicy(Enum):
     """This is the image pull policy for the kubernetes pods."""
     ALWAYS = "Always"
@@ -2076,32 +1705,25 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
     """This provides basic kubernetes services to the YellowDataPlatforms it manages. It provides
     a kubernetes namespace, an airflow instance and a merge store."""
 
-    def __init__(self, name: str, locs: set[LocationKey], doc: Documentation, namespace: str,
-                 postgresCredential: Credential, gitCredential: Credential,
+    def __init__(self, name: str, locs: set[LocationKey], doc: Documentation,
+                 gitCredential: Credential,
                  connectCredentials: Credential,
                  merge_datacontainer: PostgresDatabase,
-                 mergeDBStorageNeeds: StorageRequirement = StorageRequirement("5G"),
-                 mergeDBResourceLimits: Optional[K8sResourceLimits] = None,
+                 postgresCredential: Credential,
+                 yp_assembly: K8sAssemblyFactory,
                  kafkaConnectName: str = "kafka-connect",
                  kafkaClusterName: str = "kafka",
                  airflowName: str = "airflow",
-                 afDBStorageNeeds: StorageRequirement = StorageRequirement("5G"),
-                 afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
-                 afSchedulerResourceLimits: Optional[K8sResourceLimits] = None,
                  dataPlatforms: list['DataPlatform'] = [],
                  datasurfaceDockerImage: str = "datasurface/datasurface:latest",
                  pv_storage_class: str = "standard",
-                 git_cache_access_mode: str = "ReadWriteOnce",
-                 git_cache_storage_size: StorageRequirement = StorageRequirement("5G"), git_cache_max_age_minutes: int = 5,
-                 git_cache_enabled: bool = True,
-                 git_cache_nfs_server_node: str = "kub-test",
                  image_pull_policy: K8sImagePullPolicy = K8sImagePullPolicy.IF_NOT_PRESENT,
                  hints: dict[str, PlatformRuntimeHint] = dict()):
         super().__init__(
             name,
             locs,
             KubernetesEnvVarsCredentialStore(
-                name=f"{name}-cred-store", locs=locs, namespace=namespace
+                name=f"{name}-cred-store", locs=locs
                 ),
             dataPlatforms=dataPlatforms,
             hints=hints
@@ -2109,14 +1731,9 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
         # TODO: remove this once we have a way to set the git cache nfs server node
         # git_cache_enabled = True
-        self.namespace: str = namespace
-        self.mergeDBStorageNeeds: StorageRequirement = mergeDBStorageNeeds
-        self.afDBStorageNeeds: StorageRequirement = afDBStorageNeeds
-        self.mergeDBResourceLimits: Optional[K8sResourceLimits] = mergeDBResourceLimits
-        self.afWebserverResourceLimits: Optional[K8sResourceLimits] = afWebserverResourceLimits
-        self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
-        self.postgresCredential: Credential = postgresCredential
+        self.yp_assm: K8sAssemblyFactory = yp_assembly
         self.gitCredential: Credential = gitCredential
+        self.postgresCredential: Credential = postgresCredential
         self.connectCredentials: Credential = connectCredentials
         self.kafkaConnectName: str = kafkaConnectName
         self.kafkaClusterName: str = kafkaClusterName
@@ -2124,28 +1741,23 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         self.airflowName: str = airflowName
         self.datasurfaceDockerImage: str = datasurfaceDockerImage
         self.pv_storage_class: str = pv_storage_class
-        self.git_cache_access_mode: str = git_cache_access_mode
-        self.git_cache_storage_size: StorageRequirement = git_cache_storage_size
-        self.git_cache_max_age_minutes: int = git_cache_max_age_minutes
-        self.git_cache_enabled: bool = git_cache_enabled
-        self.git_cache_nfs_server_node: str = git_cache_nfs_server_node
         self.mergeStore: PostgresDatabase = merge_datacontainer
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
         self.image_pull_policy: K8sImagePullPolicy = image_pull_policy
         self.kafkaConnectCluster = KafkaConnectCluster(
             name=kafkaConnectName,
             locs=self.locs,
-            restAPIUrlString=f"http://{kafkaConnectName}-service.{namespace}.svc.cluster.local:8083",
+            restAPIUrlString=f"http://{kafkaConnectName}-service.{self.yp_assm.namespace}.svc.cluster.local:8083",
             kafkaServer=KafkaServer(
                 name=kafkaClusterName,
                 locs=self.locs,
-                bootstrapServers=HostPortPairList([HostPortPair(f"{kafkaClusterName}-service.{namespace}.svc.cluster.local", 9092)])
+                bootstrapServers=HostPortPairList([HostPortPair(f"{kafkaClusterName}-service.{self.yp_assm.namespace}.svc.cluster.local", 9092)])
             )
         )
 
     def getGitCachePVRootName(self) -> str:
         """This returns the root name for the git cache PV."""
-        return f"{self.to_k8s_name(self.name)}-git-model-cache"
+        return f"{K8sUtils.to_k8s_name(self.name)}-git-model-cache"
 
     def getGitCachePVC(self) -> str:
         return f"{self.getGitCachePVRootName()}-pvc"
@@ -2155,7 +1767,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
     def getNFSServerPVRootName(self) -> str:
         """This returns the root name for the NFS server PV."""
-        return f"{self.to_k8s_name(self.name)}-nfs-server"
+        return f"{K8sUtils.to_k8s_name(self.name)}-nfs-server"
 
     def getNFSServerPVC(self) -> str:
         return f"{self.getNFSServerPVRootName()}-pvc"
@@ -2168,7 +1780,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         rc.update(
             {
                 "_type": self.__class__.__name__,
-                "namespace": self.namespace,
+                "namespace": self.yp_assm.namespace,
                 "postgresCredential": self.postgresCredential.to_json(),
                 "gitCredential": self.gitCredential.to_json(),
                 "connectCredentials": self.connectCredentials.to_json(),
@@ -2178,15 +1790,6 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "airflowName": self.airflowName,
                 "datasurfaceDockerImage": self.datasurfaceDockerImage,
                 "pv_storage_class": self.pv_storage_class,
-                "git_cache_access_mode": self.git_cache_access_mode,
-                "git_cache_storage_size": self.git_cache_storage_size.to_json(),
-                "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
-                "git_cache_enabled": self.git_cache_enabled,
-                "mergeDBStorageNeeds": self.mergeDBStorageNeeds.to_json(),
-                "mergeDBResourceLimits": self.mergeDBResourceLimits.to_json() if self.mergeDBResourceLimits else None,
-                "afDBStorageNeeds": self.afDBStorageNeeds.to_json(),
-                "afWebserverResourceLimits": self.afWebserverResourceLimits.to_json() if self.afWebserverResourceLimits else None,
-                "afSchedulerResourceLimits": self.afSchedulerResourceLimits.to_json() if self.afSchedulerResourceLimits else None,
                 "image_pull_policy": self.image_pull_policy.value
             }
         )
@@ -2197,19 +1800,13 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
-        if not YellowPlatformServiceProvider.isLegalKubernetesNamespaceName(self.namespace):
-            tree.addProblem(
-                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
-                ProblemSeverity.ERROR
-            )
         if self.postgresCredential.credentialType != CredentialType.USER_PASSWORD:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.postgresCredential, [CredentialType.USER_PASSWORD]))
         if self.connectCredentials.credentialType != CredentialType.API_TOKEN:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.connectCredentials, [CredentialType.API_TOKEN]))
         if self.gitCredential.credentialType != CredentialType.API_TOKEN:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.gitCredential, [CredentialType.API_TOKEN]))
-        self.mergeDBStorageNeeds.lint(tree.addSubTree(self.mergeDBStorageNeeds))
-        self.afDBStorageNeeds.lint(tree.addSubTree(self.afDBStorageNeeds))
+        self.yp_assm.lint(eco, tree.addSubTree(self.yp_assm))
 
         # Check the hints are the right type
         for hint in self.hints.values():
@@ -2219,9 +1816,6 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         # check the ecosystem repository is a GitHub repository, we're only supporting GitHub for now
         if not isinstance(eco.liveRepo, GitHubRepository):
             tree.addRaw(ObjectNotSupportedByDataPlatform(eco.liveRepo, [GitHubRepository], ProblemSeverity.ERROR))
-
-        # Check the git cache storage size is valid
-        self.git_cache_storage_size.lint(tree.addSubTree(self.git_cache_storage_size))
 
         # Check all dataplatforms are generic yellow
         dp: DataPlatform
@@ -2234,21 +1828,10 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         for loc in self.locs:
             loc.lint(tree.addSubTree(loc))
         eco.checkAllRepositoriesInEcosystem(tree, [GitHubRepository])
-        if self.mergeDBResourceLimits:
-            self.mergeDBResourceLimits.lint(tree.addSubTree(self.mergeDBResourceLimits))
-        if self.afWebserverResourceLimits:
-            self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
-        if self.afSchedulerResourceLimits:
-            self.afSchedulerResourceLimits.lint(tree.addSubTree(self.afSchedulerResourceLimits))
-
-    @staticmethod
-    def isLegalKubernetesNamespaceName(name: str) -> bool:
-        """Check if the name is a valid Kubernetes namespace (RFC 1123 label)."""
-        return re.match(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', name) is not None
 
     def _getKafkaBootstrapServers(self) -> str:
         """Calculate the Kafka bootstrap servers from the created Kafka cluster."""
-        return f"{self.kafkaClusterName}-service.{self.namespace}.svc.cluster.local:9092"
+        return f"{self.kafkaClusterName}-service.{self.yp_assm.namespace}.svc.cluster.local:9092"
 
     def mergeHandler(self, eco: 'Ecosystem', basePlatformDir: str):
         """This is the merge handler implementation."""
@@ -2300,34 +1883,32 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             for dpRaw in self.dataPlatforms.values():
                 dp: YellowDataPlatform = cast(YellowDataPlatform, dpRaw)
                 # Common context for all factory DAGs (platform-level configuration)
-                common_context: dict[str, Any] = {
-                    "namespace_name": self.namespace,
-                    "platform_name": YellowPlatformServiceProvider.to_k8s_name(dp.name),
-                    "original_platform_name": dp.name,  # Original platform name for job execution
-                    "ecosystem_name": eco.name,  # Original ecosystem name
-                    "ecosystem_k8s_name": YellowPlatformServiceProvider.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                    "postgres_hostname": self.mergeStore.hostPortPair.hostName,
-                    "postgres_database": self.mergeStore.databaseName,
-                    "postgres_port": self.mergeStore.hostPortPair.port,
-                    "postgres_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.postgresCredential.name),
-                    "git_credential_secret_name": YellowPlatformServiceProvider.to_k8s_name(self.gitCredential.name),
-                    "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
-                    "datasurface_docker_image": self.datasurfaceDockerImage,
-                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                    "git_repo_branch": gitRepo.branchName,
-                    "git_repo_name": gitRepo.repositoryName,
-                    "git_repo_owner": git_repo_owner,
-                    "git_repo_repo_name": git_repo_name,
-                    # Physical table names for factory DAGs to query
-                    "phys_dag_table_name": dp.getPhysDAGTableName(),
-                    "phys_datatransformer_table_name": dp.getPhysDataTransformerTableName(),
-                    # Git cache configuration variables
-                    "pv_storage_class": self.pv_storage_class,
-                    "git_cache_access_mode": self.git_cache_access_mode,
-                    "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
-                    "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
-                    "git_cache_enabled": self.git_cache_enabled,
-                }
+                common_context: dict[str, Any] = self.yp_assm.createYAMLContext(eco)
+                common_context.update(
+                    {
+                        "namespace_name": self.yp_assm.namespace,
+                        "platform_name": K8sUtils.to_k8s_name(dp.name),
+                        "original_platform_name": dp.name,  # Original platform name for job execution
+                        "ecosystem_name": eco.name,  # Original ecosystem name
+                        "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                        "postgres_hostname": self.mergeStore.hostPortPair.hostName,
+                        "postgres_database": self.mergeStore.databaseName,
+                        "postgres_port": self.mergeStore.hostPortPair.port,
+                        "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.postgresCredential.name),
+                        "git_credential_secret_name": K8sUtils.to_k8s_name(self.gitCredential.name),
+                        "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
+                        "datasurface_docker_image": self.datasurfaceDockerImage,
+                        "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                        "git_repo_branch": gitRepo.branchName,
+                        "git_repo_name": gitRepo.repositoryName,
+                        "git_repo_owner": git_repo_owner,
+                        "git_repo_repo_name": git_repo_name,
+                        # Physical table names for factory DAGs to query
+                        "phys_dag_table_name": dp.getPhysDAGTableName(),
+                        "phys_datatransformer_table_name": dp.getPhysDataTransformerTableName(),
+                        # Git cache configuration variables
+                        "pv_storage_class": self.pv_storage_class
+                    })
 
                 # Factory DAG configurations to create
                 factory_configs.append(
@@ -2371,15 +1952,6 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         except Exception:
             raise
 
-    @staticmethod
-    def to_k8s_name(name: str) -> str:
-        """Convert a name to a valid Kubernetes resource name (RFC 1123)."""
-        name = name.lower().replace('_', '-').replace(' ', '-')
-        name = re.sub(r'[^a-z0-9-]', '', name)
-        name = re.sub(r'-+', '-', name)
-        name = name.strip('-')
-        return name
-
     def createTemplateContext(self, eco: Ecosystem) -> dict[str, Any]:
         # Prepare template context with all required variables
         gitRepo: GitHubRepository = cast(GitHubRepository, eco.liveRepo)
@@ -2390,28 +1962,25 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             raise ValueError(f"Invalid repository name format: {gitRepo.repositoryName}. Expected 'owner/repo'")
         git_repo_owner, git_repo_name = git_repo_parts
 
-        context: dict[str, Any] = {
-            "namespace_name": self.namespace,
-            "psp_name": self.name,
-            "psp_k8s_name": self.to_k8s_name(self.name),
-            "ecosystem_name": eco.name,  # Original ecosystem name
-            "ecosystem_k8s_name": self.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-            "datasurface_docker_image": self.datasurfaceDockerImage,
-            "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
-            "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
-            "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-            "git_repo_branch": gitRepo.branchName,
-            "git_repo_name": gitRepo.repositoryName,
-            "git_repo_owner": git_repo_owner,
-            "git_repo_repo_name": git_repo_name,
-            "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
-            # Git cache configuration variables
-            "pv_storage_class": self.pv_storage_class,
-            "git_cache_access_mode": self.git_cache_access_mode,
-            "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
-            "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
-            "git_cache_enabled": self.git_cache_enabled,
-        }
+        context: dict[str, Any] = self.yp_assm.createYAMLContext(eco)
+        context.update(
+            {
+                "psp_name": self.name,
+                "psp_k8s_name": K8sUtils.to_k8s_name(self.name),
+                "ecosystem_name": eco.name,  # Original ecosystem name
+                "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                "datasurface_docker_image": self.datasurfaceDockerImage,
+                "git_credential_secret_name": K8sUtils.to_k8s_name(self.gitCredential.name),
+                "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
+                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                "git_repo_branch": gitRepo.branchName,
+                "git_repo_name": gitRepo.repositoryName,
+                "git_repo_owner": git_repo_owner,
+                "git_repo_repo_name": git_repo_name,
+                "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
+                # Git cache configuration variables
+                "pv_storage_class": self.pv_storage_class,
+            })
         return context
 
     def createTemplateContextForDataPlatform(self, eco: Ecosystem, dataPlatform: DataPlatform) -> dict[str, Any]:
@@ -2419,7 +1988,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         context: dict[str, Any] = self.createTemplateContext(eco)
         context.update(
             {
-                "platform_name": self.to_k8s_name(dataPlatform.name),
+                "platform_name": K8sUtils.to_k8s_name(dataPlatform.name),
                 "original_platform_name": dataPlatform.name,
             }
         )
@@ -2470,19 +2039,9 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
             # Load the bootstrap template
             # This defines the kubernetes services for the Yellow environment which the data platforms run inside.
-            afHostPort: HostPortPair = HostPortPair(f"{self.airflowName}-service.{self.namespace}.svc.cluster.local", 8080)
-            assembly: Assembly = createYellowAssemblySingleDatabase(
-                name=self.name,
-                psp=self,
-                nfs_server_node=self.git_cache_nfs_server_node,
+            assembly: Assembly = self.yp_assm.createAssembly(
                 pgCred=self.postgresCredential,
-                pgDB=self.mergeStore,
-                pgStorageNeeds=self.mergeDBStorageNeeds,
-                pgResourceLimits=self.mergeDBResourceLimits,
-                afWebserverResourceLimits=self.afWebserverResourceLimits,
-                afSchedulerResourceLimits=self.afSchedulerResourceLimits,
-                afHostPortPair=afHostPort
-            )
+                pgDB=self.mergeStore)
 
             # Load the infrastructure DAG template
 
@@ -2495,42 +2054,36 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             git_repo_owner, git_repo_name = git_repo_parts
 
             # Prepare template context with all required variables
-            context: dict[str, Any] = {
-                "namespace_name": self.namespace,
-                "psp_k8s_name": self.to_k8s_name(self.name),
-                "psp_name": self.name,  # Original platform name for job execution
-                "ecosystem_name": eco.name,  # Original ecosystem name
-                "ecosystem_k8s_name": self.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                "postgres_hostname": self.mergeStore.hostPortPair.hostName,
-                "postgres_database": self.mergeStore.databaseName,
-                "postgres_port": self.mergeStore.hostPortPair.port,
-                "postgres_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),
-                "airflow_name": self.to_k8s_name(self.airflowName),
-                "airflow_credential_secret_name": self.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
-                "kafka_cluster_name": self.to_k8s_name(self.kafkaClusterName),
-                "kafka_connect_name": self.to_k8s_name(self.kafkaConnectName),
-                "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
-                "datasurface_docker_image": self.datasurfaceDockerImage,
-                "git_credential_secret_name": self.to_k8s_name(self.gitCredential.name),
-                "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
-                "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
-                "git_repo_branch": gitRepo.branchName,
-                "git_repo_name": gitRepo.repositoryName,
-                "git_repo_owner": git_repo_owner,
-                "git_repo_repo_name": git_repo_name,
-                "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
-                # Git cache configuration variables
-                "pv_storage_class": self.pv_storage_class,
-                "git_cache_access_mode": self.git_cache_access_mode,
-                "git_clone_cache_pvc": self.getGitCachePVC(),
-                "git_clone_cache_pv": self.getGitCachePV(),
-                "git_cache_storage_size": Component.storageToKubernetesFormat(self.git_cache_storage_size),
-                "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
-                "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
-                "git_cache_enabled": self.git_cache_enabled,
-                "git_cache_local_path": "/cache/git-cache",
-                "image_pull_policy": self.image_pull_policy.value
-            }
+            context: dict[str, Any] = self.yp_assm.createYAMLContext(eco)
+            context.update(
+                {
+                    "psp_k8s_name": K8sUtils.to_k8s_name(self.name),
+                    "psp_name": self.name,  # Original platform name for job execution
+                    "ecosystem_name": eco.name,  # Original ecosystem name
+                    "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "postgres_hostname": self.mergeStore.hostPortPair.hostName,
+                    "postgres_database": self.mergeStore.databaseName,
+                    "postgres_port": self.mergeStore.hostPortPair.port,
+                    "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.postgresCredential.name),
+                    "airflow_name": K8sUtils.to_k8s_name(self.airflowName),
+                    "airflow_credential_secret_name": K8sUtils.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
+                    "kafka_cluster_name": K8sUtils.to_k8s_name(self.kafkaClusterName),
+                    "kafka_connect_name": K8sUtils.to_k8s_name(self.kafkaConnectName),
+                    "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
+                    "datasurface_docker_image": self.datasurfaceDockerImage,
+                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.gitCredential.name),
+                    "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
+                    "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
+                    "git_repo_branch": gitRepo.branchName,
+                    "git_repo_name": gitRepo.repositoryName,
+                    "git_repo_owner": git_repo_owner,
+                    "git_repo_repo_name": git_repo_name,
+                    "ingestion_streams": {},  # Empty for bootstrap - no ingestion streams yet
+                    # Git cache configuration variables
+                    "pv_storage_class": self.pv_storage_class,
+                    "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
+                    "image_pull_policy": self.image_pull_policy.value
+                })
 
             # Render the templates
             rendered_yaml: str = assembly.generateYaml(env, self.createTemplateContext(eco))
