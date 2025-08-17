@@ -45,7 +45,7 @@ If a data producer insists on a specific data model/tooling being used against t
 
 ## Creating a Data producer
 
-Lets assume there is already a team called OurTeam. We will add a new Datastore for the NorthWind database to it with one table or Dataset. We will specify that we can use CDC to ingest the data when a platform needs to.
+Lets assume there is already a team called OurTeam. We will add a new Datastore for the NorthWind database to it with one table or Dataset. We will specify that we can use SQL snapshot ingestion to ingest the data when a platform needs to.
 
 ```python
     # Find the EU Zone
@@ -55,21 +55,21 @@ Lets assume there is already a team called OurTeam. We will add a new Datastore 
 
     # Add the team documentation and a single Datastore to start.
     ourTeam.add(
-        PlainTextDocumentation("This is our team responsible for vaious EU specific data and workspaces"),
+        PlainTextDocumentation("This is our team responsible for various EU specific data and workspaces"),
         Datastore("EU_Customers",
             PlainTextDocumentation("EU Customer data"),
             # Capture Meta data to describe how a dataplatform will ingest this data source
-            CDCCaptureIngestion(
-                PyOdbcSourceInfo(
-                    e.getLocationOrThrow("AWS", ["EU", "eu-central-1"]), # Where is the database
-                    serverHost="tcp:nwdb.database.windows.net,1433",
-                    databaseName="nwdb",
-                    driver="{ODBC Driver 17 for SQL Server}",
-                    connectionStringTemplate="mssql+pyodbc://{username}:{password}@{serverHost}/{databaseName}?driver={driver}"
+            SQLSnapshotIngestion(
+                PostgresDatabase(
+                    "CustomerDB",  # Model name for database
+                    hostPort=HostPortPair("customer-db.eu-central-1.rds.amazonaws.com", 5432),  # Host and port for database
+                    locations={LocationKey("AWS:EU/eu-central-1")},  # Locations for database
+                    databaseName="customer_db"  # Database name
                 ),
-                CronTrigger("NW_Data Every 10 mins", "*/10 * * * *"),
-                IngestionConsistencyType.MULTI_DATASET,
-                AzureKeyVaultCredential("https://mykeyvault.vault.azure.net", "NWDB_Creds")),
+                CronTrigger("Customer_Data Every 10 mins", "*/10 * * * *"),  # Cron trigger for ingestion
+                IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
+                Credential("postgres_customer_db", CredentialType.USER_PASSWORD)  # Credential for platform to read from database
+            ),
             # A single dataset
             Dataset("customers",
                 DataClassification.PC3, # Privacy high data
@@ -91,7 +91,17 @@ Lets assume there is already a team called OurTeam. We will add a new Datastore 
 
 ```
 
-This create the team under the zone 'EU', and adds a single Datastore 'EU_Customers' to it. There is a snippet of documentation, a preliminary (when this is working, this will be fleshed out) CDC ingestion metadata, and a single dataset for the table customers.
+This creates the team under the zone 'EU', and adds a single Datastore 'EU_Customers' to it. There is a snippet of documentation, SQL snapshot ingestion metadata that works with the Yellow platform, and a single dataset for the table customers.
+
+**Required imports for this example:**
+```python
+from datasurface.md import LocationKey, Ecosystem, GovernanceZone, Team, PlainTextDocumentation, PostgresDatabase
+from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType
+from datasurface.md.credential import Credential, CredentialType
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
+from datasurface.md.types import VarChar
+from datasurface.md.policy import DataClassification
+```
 
 ## Data classification
 

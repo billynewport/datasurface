@@ -1,55 +1,19 @@
-# YellowDataPlatform Setup Guide
+# YellowDataPlatform Ecosystem Model Setup
 
-This guide walks you through setting up a complete YellowDataPlatform environment for DataSurface, including all required services and configurations.
+This guide shows you how to create a DataSurface ecosystem model using the YellowDataPlatform with the modern PSP (Platform Service Provider) and assembly pattern.
 
-This is a work in progress, the guide is not complete and may lag the implementation for now.
+For complete deployment instructions including Kubernetes setup, secrets management, and troubleshooting, see the [YellowDataPlatform Environment Setup Guide](yellow_dp/HOWTO_Setup_YellowDataPlatform_Environment.md).
 
-## Prerequisites
+## Overview
 
-### Required Software
+The YellowDataPlatform uses a structured approach with:
+- **Platform Service Provider (PSP)**: Manages platform configuration and assembly
+- **Assembly Configuration**: Defines Kubernetes resources, storage, and networking
+- **Dual Platforms**: Live (SCD1) and Forensic (SCD2) data processing modes
 
-- **Docker Desktop** with Kubernetes enabled
-- **kubectl** command-line tool
-- **Python 3.12+** with virtual environment support
-- **Git** for version control
+## Create Your Ecosystem Model
 
-### System Requirements
-
-- **Memory**: At least 8GB RAM (16GB recommended)
-- **Storage**: At least 20GB free disk space
-- **CPU**: Multi-core processor recommended
-
-## Step 1: Environment Setup
-
-### 1.1 Clone and Setup DataSurface Repository
-
-```bash
-# Clone the DataSurface repository
-git clone <your-datasurface-repo-url>
-cd datasurface
-
-# Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -e .
-```
-
-### 1.2 Verify Docker Desktop Kubernetes
-
-```bash
-# Ensure Docker Desktop is running with Kubernetes enabled
-kubectl cluster-info
-
-# Verify you can access the cluster
-kubectl get nodes
-```
-
-## Step 2: Create Your Ecosystem Model
-
-### 2.1 Define Your Ecosystem
+### Step 1: Create Project Structure
 
 Create a directory structure for your ecosystem model:
 
@@ -57,393 +21,290 @@ Create a directory structure for your ecosystem model:
 mkdir -p src/tests/my-ecosystem
 ```
 
+### Step 2: Define the Ecosystem Model
+
 Create `src/tests/my-ecosystem/eco.py`:
 
 ```python
-"""
-// Copyright (c) Your Name
-// SPDX-License-Identifier: BUSL-1.1
-"""
+from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
+from datasurface.md import Ecosystem, LocationKey, StorageRequirement
+from datasurface.md.credential import Credential, CredentialType
+from datasurface.md.documentation import PlainTextDocumentation
+from datasurface.md.repo import GitHubRepository
+from datasurface.platforms.yellow import YellowDataPlatform, YellowMilestoneStrategy, YellowPlatformServiceProvider, K8sResourceLimits
+from datasurface.md import CloudVendor, WorkspacePlatformConfig
+from datasurface.md import ValidationTree
+from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType, \
+    ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
+from datasurface.md.types import VarChar, Date
+from datasurface.md.policy import SimpleDC, SimpleDCTypes
+from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase, DataPlatformManagedDataContainer
+from datasurface.platforms.yellow.assembly import YellowSingleDatabaseAssembly, GitCacheConfig
+from typing import Any, Optional
+from datetime import timedelta
 
-from datasurface.md import Ecosystem, GitHubRepository, Documentation, PlainTextDocumentation
-from datasurface.md import LocationKey, Credential, CredentialType
-from datasurface.md import CloudVendor, InfrastructureLocation, InfrastructureVendor
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform
+# Configuration constants
+KUB_NAME_SPACE: str = "my-kub-namespace"  # Your Kubernetes namespace
+GH_REPO_OWNER: str = "your-username"  # Your GitHub username
+GH_REPO_NAME: str = "your-repo"  # Your GitHub repository name
+
+
+def createPSP() -> YellowPlatformServiceProvider:
+    """Create the Platform Service Provider with assembly configuration."""
+    
+    # Kubernetes merge database configuration
+    k8s_merge_datacontainer: PostgresDatabase = PostgresDatabase(
+        "K8sMergeDB",  # Container name for Kubernetes deployment
+        hostPort=HostPortPair(f"pg-data.{KUB_NAME_SPACE}.svc.cluster.local", 5432),
+        locations={LocationKey("MyCorp:USA/NY_1")},  # Kubernetes cluster location
+        databaseName="datasurface_merge"  # The merge database name
+    )
+
+    # Git cache configuration for shared repository access
+    gitcache: GitCacheConfig = GitCacheConfig(
+        enabled=True,
+        storageClass="longhorn",  # Use appropriate storage class for your cluster
+    )
+
+    # Yellow platform assembly configuration
+    yp_assm: YellowSingleDatabaseAssembly = YellowSingleDatabaseAssembly(
+        name="MyKubPlatform",
+        namespace=f"{KUB_NAME_SPACE}",
+        git_cache_config=gitcache,
+        nfs_server_node="git-cache-server",
+        afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
+        pgStorageNeeds=StorageRequirement("10G"),
+        pgResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=1.0,
+            limits_cpu=2.0
+        ),
+        afWebserverResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=1.0,
+            limits_cpu=2.0
+        ),
+        afSchedulerResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("4G"),
+            limits_memory=StorageRequirement("4G"),
+            requested_cpu=4.0,
+            limits_cpu=4.0
+        )
+    )
+    
+    # Platform Service Provider with both Live and Forensic platforms
+    psp: YellowPlatformServiceProvider = YellowPlatformServiceProvider(
+        "MyKubPlatform",
+        {LocationKey("MyCorp:USA/NY_1")},
+        PlainTextDocumentation("YellowDataPlatform Service Provider"),
+        yp_assembly=yp_assm,
+        gitCredential=Credential("git", CredentialType.API_TOKEN),
+        connectCredentials=Credential("connect", CredentialType.API_TOKEN),
+        postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
+        merge_datacontainer=k8s_merge_datacontainer,
+        pv_storage_class="longhorn",
+        dataPlatforms=[
+            YellowDataPlatform(
+                name="YellowLive",
+                doc=PlainTextDocumentation("Live Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD1
+                ),
+            YellowDataPlatform(
+                "YellowForensic",
+                doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD2
+                )
+        ]
+    )
+    return psp
+
 
 def createEcosystem() -> Ecosystem:
     """Create the ecosystem for the YellowDataPlatform."""
     
-    # Define documentation
-    doc: Documentation = PlainTextDocumentation("YellowDataPlatform Ecosystem")
-    
-    # Define locations
-    us_location: LocationKey = LocationKey(
-        name="US",
-        vendor=InfrastructureVendor.PRIVATE,
-        cloudVendor=CloudVendor.PRIVATE
-    )
-    
-    # Define credentials
-    postgres_credential: Credential = Credential(
-        name="postgres",
-        credentialType=CredentialType.USER_PASSWORD,
-        doc=PlainTextDocumentation("PostgreSQL database credentials")
-    )
-    
-    git_credential: Credential = Credential(
-        name="git",
-        credentialType=CredentialType.API_TOKEN,
-        doc=PlainTextDocumentation("GitHub API token")
-    )
-    
-    slack_credential: Credential = Credential(
-        name="slack",
-        credentialType=CredentialType.API_TOKEN,
-        doc=PlainTextDocumentation("Slack webhook token")
-    )
-    
-    connect_credential: Credential = Credential(
-        name="connect",
-        credentialType=CredentialType.API_TOKEN,
-        doc=PlainTextDocumentation("Kafka Connect API token")
-    )
-    
-    # Define the repository
-    repo: GitHubRepository = GitHubRepository(
-        repo="your-username/your-repo",
-        branchName="main",
-        doc=PlainTextDocumentation("Main ecosystem repository")
-    )
-    
-    # Create the ecosystem
-    eco: Ecosystem = Ecosystem(
+    git: Credential = Credential("git", CredentialType.API_TOKEN)
+
+    ecosys: Ecosystem = Ecosystem(
         name="MyKubEcosystem",
-        owningRepo=repo,
-        doc=doc
+        repo=GitHubRepository(f"{GH_REPO_OWNER}/{GH_REPO_NAME}", "main", credential=git),
+        platform_services_providers=[createPSP()],
+        governance_zone_declarations=[
+            GovernanceZoneDeclaration("USA", GitHubRepository(f"{GH_REPO_OWNER}/{GH_REPO_NAME}", "gzmain"))
+        ],
+        infrastructure_vendors=[
+            # Private data centers
+            InfrastructureVendor(
+                name="MyCorp",
+                cloud_vendor=CloudVendor.PRIVATE,
+                documentation=PlainTextDocumentation("Private company data centers"),
+                locations=[
+                    InfrastructureLocation(
+                        name="USA",
+                        locations=[
+                            InfrastructureLocation(name="NY_1")
+                        ]
+                    )
+                ]
+            )
+        ],
+        liveRepo=GitHubRepository(f"{GH_REPO_OWNER}/{GH_REPO_NAME}", "main", credential=git)
     )
     
-    # Add locations
-    eco.addLocation(us_location)
+    gz: GovernanceZone = ecosys.getZoneOrThrow("USA")
+
+    # Add a team to the governance zone
+    gz.add(TeamDeclaration(
+        "team1",
+        GitHubRepository(f"{GH_REPO_OWNER}/{GH_REPO_NAME}", "team1", credential=git)
+        ))
+
+    team: Team = gz.getTeamOrThrow("team1")
     
-    # Add credentials
-    eco.addCredential(postgres_credential)
-    eco.addCredential(git_credential)
-    eco.addCredential(slack_credential)
-    eco.addCredential(connect_credential)
-    
-    # Create the data platform
-    platform: YellowDataPlatform = YellowDataPlatform(
-        name="my-kub-platform",
-        locs={us_location},
-        doc=PlainTextDocumentation("YellowDataPlatform"),
-        namespace="my-kub-namespace",
-        connectCredentials=connect_credential,
-        postgresCredential=postgres_credential,
-        gitCredential=git_credential,
-        slackCredential=slack_credential,
-        airflowName="airflow",
-        postgresName="pg-data",
-        kafkaConnectName="kafka-connect",
-        kafkaClusterName="kafka-cluster",
-        slackChannel="datasurface-events"
+    # Add a sample datastore with PostgreSQL source
+    team.add(
+        Datastore(
+            "SampleStore",
+            documentation=PlainTextDocumentation("Sample datastore for testing"),
+            capture_metadata=SQLSnapshotIngestion(
+                PostgresDatabase(
+                    "SampleDB",  # Model name for database
+                    hostPort=HostPortPair("your-db-host.com", 5432),  # Your database host
+                    locations={LocationKey("MyCorp:USA/NY_1")},  # Database location
+                    databaseName="sample_db"  # Database name
+                ),
+                CronTrigger("Sample_Data Every 10 mins", "*/10 * * * *"),  # Cron trigger for ingestion
+                IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
+                Credential("sample_db_creds", CredentialType.USER_PASSWORD)  # Database credentials
+            ),
+            datasets=[
+                Dataset(
+                    "customers",
+                    schema=DDLTable(
+                        DDLColumn("customer_id", VarChar(10), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                        DDLColumn("company_name", VarChar(100), NullableStatus.NOT_NULLABLE),
+                        DDLColumn("contact_name", VarChar(50)),
+                        DDLColumn("email", VarChar(100)),
+                        DDLColumn("created_date", Date())
+                    ),
+                    classification=SimpleDC(SimpleDCTypes.PC2),  # Personal data classification
+                    documentation=PlainTextDocumentation("Customer information")
+                )
+            ]
+        )
     )
+
+    # Add a sample workspace
+    retention_req = ConsumerRetentionRequirements(
+        DataMilestoningStrategy.LIVE_ONLY,
+        DataLatency.MINUTES,
+        "Sample retention policy",
+        timedelta(days=365)
+    )
+    chooser = WorkspacePlatformConfig(retention_req)
     
-    # Add the platform to the ecosystem
-    eco.addDataPlatform(platform)
+    team.add(
+        Workspace(
+            "SampleWorkspace",
+            documentation=PlainTextDocumentation("Sample workspace for data consumers"),
+            datasetGroups=[
+                DatasetGroup(
+                    "CustomerData",
+                    documentation=PlainTextDocumentation("Customer data group"),
+                    dataContainer=DataPlatformManagedDataContainer(),
+                    sinks=[
+                        DatasetSink("customers", "SampleStore")
+                    ],
+                    platformConfig=chooser
+                )
+            ]
+        )
+    )
+
+    # Validate the ecosystem
+    tree: ValidationTree = ecosys.lintAndHydrateCaches()
+    if tree.hasErrors():
+        tree.printTree()
+        raise Exception("Ecosystem validation failed")
     
-    return eco
+    return ecosys
 ```
 
-### 2.2 Validate Your Ecosystem
+### Step 3: Validate Your Ecosystem
 
 ```bash
 # Test your ecosystem model
 python -c "
-from src.tests.my-ecosystem.eco import createEcosystem
+import sys
+sys.path.append('src/tests/my-ecosystem')
+from eco import createEcosystem
 eco = createEcosystem()
 print('Ecosystem created successfully:', eco.name)
+print('Platform Service Providers:', len(eco.platform_services_providers))
+print('Data Platforms:', [dp.name for psp in eco.platform_services_providers for dp in psp.dataPlatforms])
 "
 ```
 
-## Step 3: Generate Kubernetes Artifacts
-
-### 3.1 Generate Bootstrap Files
+### Step 4: Generate Kubernetes Artifacts
 
 ```bash
 # Generate the Kubernetes YAML and Airflow DAG
 python -m datasurface.cmd.platform generatePlatformBootstrap \
-    "src/tests/my-ecosystem" \
-    "src/tests/my-ecosystem/output" \
-    "my-kub-platform"
+    --ringLevel 0 \
+    --model src/tests/my-ecosystem \
+    --output src/tests/my-ecosystem/output \
+    --psp MyKubPlatform
 ```
 
-This will create:
+This will create in `src/tests/my-ecosystem/output/MyKubPlatform/`:
 
 - `kubernetes-bootstrap.yaml` - Complete Kubernetes deployment
-- `my-kub-platform_infrastructure_dag.py` - Airflow DAG for infrastructure
-
-### 3.2 Review Generated Files
+- `mykubplatform_infrastructure_dag.py` - Airflow DAG for infrastructure management
+- `mykubplatform_model_merge_job.yaml` - Model merge job for populating ingestion configurations
+- `mykubplatform_ring1_init_job.yaml` - Ring 1 initialization job for database schemas
+- `mykubplatform_reconcile_views_job.yaml` - Workspace views reconciliation job
 
 ```bash
 # Check the generated files
-ls -la src/tests/my-ecosystem/output/my-kub-platform/
+ls -la src/tests/my-ecosystem/output/MyKubPlatform/
 ```
 
-## Step 4: Deploy to Kubernetes
-
-### 4.1 Create Required Secrets
-
-```bash
-# Create namespace (if not already created by the YAML)
-kubectl create namespace my-kub-namespace
-
-# Create PostgreSQL secret
-kubectl create secret generic postgres \
-    -n my-kub-namespace \
-    --from-literal=POSTGRES_USER=airflow \
-    --from-literal=POSTGRES_PASSWORD=your-secure-password
-
-# Create Airflow secret
-kubectl create secret generic airflow \
-    -n my-kub-namespace \
-    --from-literal=AIRFLOW__CORE__FERNET_KEY=your-fernet-key-here \
-    --from-literal=AIRFLOW__CORE__SECRET_KEY=your-secret-key-here
-
-# Create Git secret
-kubectl create secret generic git \
-    -n my-kub-namespace \
-    --from-literal=GIT_TOKEN=your-github-token
-
-# Create Slack secret
-kubectl create secret generic slack \
-    -n my-kub-namespace \
-    --from-literal=SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your-webhook
-
-# Create Kafka Connect secret
-kubectl create secret generic connect \
-    -n my-kub-namespace \
-    --from-literal=CONNECT_REST_ADVERTISED_HOST_NAME=kafka-connect-service.my-kub-namespace.svc.cluster.local
-```
-
-### 4.2 Apply Kubernetes Configuration
-
-```bash
-# Apply the generated Kubernetes YAML
-kubectl apply -f src/tests/my-ecosystem/output/my-kub-platform/kubernetes-bootstrap.yaml
-```
-
-### 4.3 Monitor Deployment
-
-```bash
-# Watch the pods start up
-kubectl get pods -n my-kub-namespace -w
-
-# Check all resources
-kubectl get all -n my-kub-namespace
-```
-
-## Step 5: Initialize Database
-
-### 5.1 Create Airflow Database
-
-```bash
-# Get the PostgreSQL pod name
-POSTGRES_POD=$(kubectl get pods -n my-kub-namespace -l app=test-dp-postgres -o jsonpath='{.items[0].metadata.name}')
-
-# Create the airflow_db database
-kubectl exec -n my-kub-namespace $POSTGRES_POD -- psql -U airflow -c "CREATE DATABASE airflow_db;"
-```
-
-### 5.2 Restart Airflow Pods
-
-```bash
-# Restart Airflow pods to pick up the database
-kubectl delete pods -n my-kub-namespace -l app=airflow-scheduler
-kubectl delete pods -n my-kub-namespace -l app=airflow-webserver
-```
-
-## Step 6: Verify Deployment
-
-### 6.1 Check Service Status
-
-```bash
-# Verify all pods are running
-kubectl get pods -n my-kub-namespace
-
-# Check services
-kubectl get svc -n my-kub-namespace
-
-# Verify Airflow webserver is accessible
-kubectl get svc airflow-webserver-service -n my-kub-namespace
-```
-
-### 6.2 Access Airflow Web Interface
-
-```bash
-# Port forward to access Airflow locally
-kubectl port-forward -n my-kub-namespace svc/airflow-webserver-service 8080:8080
-```
-
-Then open your browser to `http://localhost:8080`
-
-### 6.3 Verify Environment Variables
-
-```bash
-# Check Git environment variables in Airflow
-kubectl exec -n my-kub-namespace $(kubectl get pods -n my-kub-namespace -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}') -- printenv | grep GIT
-```
-
-Expected output:
-
-```text
-GIT_REPO_URL=https://github.com/your-username/your-repo
-GIT_REPO_BRANCH=main
-GIT_REPO_NAME=your-username/your-repo
-GIT_TOKEN=your-github-token
-```
-
-## Step 7: Deploy Airflow DAG
-
-### 7.1 Copy DAG to Airflow
-
-```bash
-# Copy the generated DAG to Airflow's DAGs folder
-kubectl cp src/tests/my-ecosystem/output/my-kub-platform/my-kub-platform_infrastructure_dag.py \
-    my-kub-namespace/$(kubectl get pods -n my-kub-namespace -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}'):/opt/airflow/dags/
-```
-
-### 7.2 Verify DAG in Airflow
-
-1. Open Airflow web interface at `http://localhost:8080`
-2. Navigate to DAGs
-3. Look for your infrastructure DAG
-4. Enable and trigger the DAG
-
-## Step 8: Test Your Setup
-
-### 8.1 Test PostgreSQL Connection
-
-```bash
-# Test database connectivity
-kubectl exec -n my-kub-namespace $POSTGRES_POD -- psql -U airflow -d airflow_db -c "SELECT version();"
-```
-
-### 8.2 Test Kafka Connectivity
-
-```bash
-# Test Kafka connection
-kubectl exec -n my-kub-namespace $(kubectl get pods -n my-kub-namespace -l app=kafka-cluster -o jsonpath='{.items[0].metadata.name}') -- kafka-topics --bootstrap-server localhost:9092 --list
-```
-
-### 8.3 Test Git Integration
-
-Create a simple Airflow task to test Git access:
-
-```python
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from datetime import datetime
-import os
-
-def test_git_access():
-    """Test Git repository access."""
-    git_url = os.environ.get('GIT_REPO_URL')
-    git_token = os.environ.get('GIT_TOKEN')
-    print(f"Git URL: {git_url}")
-    print(f"Git token available: {'Yes' if git_token else 'No'}")
-
-dag = DAG('test_git_access', start_date=datetime(2024, 1, 1))
-
-test_task = PythonOperator(
-    task_id='test_git',
-    python_callable=test_git_access,
-    dag=dag
-)
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### 1. Pods Stuck in Pending
-
-```bash
-# Check resource availability
-kubectl describe pod <pod-name> -n my-kub-namespace
-
-# Check node resources
-kubectl top nodes
-```
-
-#### 2. Airflow Database Connection Issues
-
-```bash
-# Verify database exists
-kubectl exec -n my-kub-namespace $POSTGRES_POD -- psql -U airflow -l
-
-# Check Airflow logs
-kubectl logs -n my-kub-namespace <airflow-pod-name>
-```
-
-#### 3. Secret Not Found Errors
-
-```bash
-# Verify secrets exist
-kubectl get secrets -n my-kub-namespace
-
-# Check secret contents (be careful with sensitive data)
-kubectl get secret <secret-name> -n my-kub-namespace -o yaml
-```
-
-#### 4. Namespace Validation Errors
-
-```bash
-# Ensure namespace follows RFC 1123 (lowercase, hyphens only)
-# Valid: my-kub-namespace
-# Invalid: My_Kub_Namespace
-```
-
-### Useful Commands
-
-```bash
-# Get detailed pod information
-kubectl describe pod <pod-name> -n my-kub-namespace
-
-# View pod logs
-kubectl logs <pod-name> -n my-kub-namespace
-
-# Execute commands in pods
-kubectl exec -it <pod-name> -n my-kub-namespace -- /bin/bash
-
-# Check resource usage
-kubectl top pods -n my-kub-namespace
-```
-
-## Cleanup
-
-### Remove the Environment
-
-```bash
-# Delete the namespace (removes all resources)
-kubectl delete namespace my-kub-namespace
-
-# Or delete individual resources
-kubectl delete -f src/tests/my-ecosystem/output/my-kub-platform/kubernetes-bootstrap.yaml
-```
-
-## Next Steps
-
-1. **Configure Data Pipelines**: Add your data sources and transformations to the ecosystem
-2. **Set Up Monitoring**: Configure logging and monitoring for your data platform
-3. **Security Hardening**: Implement proper security practices and secrets management
-4. **Scaling**: Configure resource limits and scaling policies
-5. **Backup Strategy**: Implement database and configuration backups
-
-## Support
-
-For issues and questions:
-
-- Check the DataSurface documentation
-- Review Kubernetes and Airflow logs
-- Consult the troubleshooting section above
-- Open an issue in the DataSurface repository
+## Next Steps: Deploy to Kubernetes
+
+Once you have generated your ecosystem artifacts, you can deploy them to a Kubernetes cluster. For complete deployment instructions including:
+
+- Kubernetes cluster setup and configuration
+- Secrets management and credential configuration  
+- Database initialization and Ring 1 setup
+- Airflow DAG deployment and management
+- Troubleshooting and monitoring
+
+See the comprehensive [YellowDataPlatform Environment Setup Guide](yellow_dp/HOWTO_Setup_YellowDataPlatform_Environment.md).
+
+## Key Concepts Explained
+
+### Platform Service Provider (PSP)
+The PSP manages the overall platform configuration and contains:
+- **Assembly Configuration**: Kubernetes resource specifications
+- **Credential Management**: Database, Git, and API credentials
+- **Multiple Data Platforms**: Live and Forensic processing modes
+- **Storage Configuration**: Persistent volumes and storage classes
+
+### Assembly Configuration
+The `YellowSingleDatabaseAssembly` defines:
+- **Resource Limits**: CPU and memory for each component
+- **Storage Requirements**: Persistent volume sizes
+- **Network Configuration**: Service endpoints and port mappings
+- **Git Cache**: Shared repository access configuration
+
+### Dual Platform Architecture
+- **YellowLive (SCD1)**: Current state data processing
+- **YellowForensic (SCD2)**: Historical data with full audit trail
+
+### Data Flow
+1. **Datastore**: Defines source data and ingestion metadata
+2. **Workspace**: Defines consumer access patterns
+3. **Platform**: Processes and transforms data according to requirements
+4. **Views**: Provides consumer-friendly data access interfaces
