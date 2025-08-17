@@ -350,12 +350,16 @@ def getLatestCachedModel(cacheBasePath: str, repo: GitHubRepository) -> Optional
 def isModelCacheStale(cached_model_path: str, repo: GitHubRepository, credStore: CredentialStore, max_age_minutes: int = 5) -> bool:
     """Check if cached model is stale by comparing with remote repository."""
     if not os.path.exists(cached_model_path):
+        logger.info(f"Cache miss: cached model path does not exist: {cached_model_path}")
         return True
 
     # Check cache age first (quick check)
     cache_timestamp = int(os.path.basename(cached_model_path).split("-")[1])
     current_timestamp = int(time.time())
     age_minutes = (current_timestamp - cache_timestamp) / 60
+
+    logger.info(f"Cache age analysis: {age_minutes:.1f} minutes old (max: {max_age_minutes} minutes), "
+                f"cache is {'fresh' if age_minutes < max_age_minutes else 'stale by age'}")
 
     if age_minutes < max_age_minutes:
         logger.info(f"Cache is fresh ({age_minutes:.1f} minutes old), skipping remote check")
@@ -379,6 +383,7 @@ def isModelCacheStale(cached_model_path: str, repo: GitHubRepository, credStore:
             return False  # Assume cache is still good if we can't check remote
 
         remote_commit = result.stdout.split('\t')[0]
+        logger.info(f"Remote commit hash: {remote_commit[:8]}...")
 
         # Check if cached commit matches remote
         local_commit_result = subprocess.run(
@@ -391,8 +396,18 @@ def isModelCacheStale(cached_model_path: str, repo: GitHubRepository, credStore:
         if local_commit_result.returncode == 0:
             local_commit = local_commit_result.stdout.strip()
             is_stale = local_commit != remote_commit
-            logger.debug(f"Cache check: local={local_commit[:8]}, remote={remote_commit[:8]}, stale={is_stale}")
+            logger.info(f"Local commit hash: {local_commit[:8]}...")
+
+            if is_stale:
+                logger.info(f"Cache is STALE - commits differ (local: {local_commit[:8]}, remote: {remote_commit[:8]})")
+            else:
+                logger.info(f"Cache is FRESH - commits match (local: {local_commit[:8]}, remote: {remote_commit[:8]})")
+
             return is_stale
+        else:
+            logger.error(f"Failed to get local commit hash: {local_commit_result.stderr}")
+            logger.warning("Cannot verify local commit, assuming cache is stale to force refresh")
+            return True
 
     except subprocess.TimeoutExpired:
         logger.warning("Remote check timed out, assuming cache is still good")
