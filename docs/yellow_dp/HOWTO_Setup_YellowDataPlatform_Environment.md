@@ -2,10 +2,17 @@
 
 ## Tip on how to use this document.
 
-I (Billy) am testing this on my Macbook Pro with cursor and docker desktop installed. Docker desktop is running and has kubernetes enabled. Open cursor and select this file in your edit window in cursor. Make a new AI chat, it should automatically add this file in the chat. Select the auto model. Use the following prompt to stand up your YellowDataPlatform environment.
+I (Billy) am testing this on my Macbook Pro with cursor and docker desktop installed. I typically use claude 4 sonnet and I ask Claude in Cursor to setup these environments following this document.Docker desktop is running and has kubernetes enabled. Open cursor and select this file in your edit window in cursor. Make a new AI chat, it should automatically add this file in the chat. Select the auto model. Use the following prompt to stand up your YellowDataPlatform environment.
 
 ```text
-I want to stand up a  yellowdataplatform on my local kubernetes machine. Please follow the instructions in @HOWTO_Setup_YellowDataPlatform_Environment.md exactly. The gut hub PAT to use is:
+I have a kubernetes cluster available on kub-test. You can login using ssh using 'ssh -i ~/.ssh/id_rsa_batch billy@kub-test'. billy can sudo if needed.
+
+I want to stand up a  yellowdataplatform on my remote kubernetes machine. Please follow the instructions in @HOWTO_Setup_YellowDataPlatform_Environment.md exactly. The gut hub PAT to use is:
+put_your_git_pat_here
+
+When creating the postgres secrets, please use the correct case as indicated in the HOWTO exactly.
+
+We first need to rebuild the project docker container using buildx for multiplatform and pull it down on kub-test before starting
 put_your_git_pat_here
 ```
 
@@ -14,6 +21,8 @@ The first time you do this, it will download the different container images used
 The running environment takes just over 4GB of memory in docker. I use 2 assigned CPUs. I have assigned 2 CPUs, 24GB of memory and 180GB of disk space to docker desktop. My machine has 96GB of RAM and 2TB of disk. When configuring kubernetes in docker desktop, I use kind with 1.32.3 and 6 nodes.
 
 I have also tested this on an M2 Macbook Air with 24GB RAM and 2TB SSD. The same docker desktop settings. It's slower and tight on memory (20GB used total) but it does work.
+
+My dominant test environment is the 128GB Ubuntu 24 Kubernetes machine which is 10th gen Intel with 10 cores, 128GB of RAM and 8TB of SSDs. It runs proxmox and has a container called kub-test (4 cores, 64GB of RAM, 200GB disk) running Ubuntu 24 with kubernetes installed, this is kub-test in my setup.
 
 ## Overview
 
@@ -101,6 +110,8 @@ cat dsg_platform_mapping.json
 - Workspace and DatasetGroup configurations
 
 ### Step 3: Generate Bootstrap Artifacts
+
+It's important to use the correct docker image, especially when developing. Kubernetes and docker use DIFFERENT container caches. You need to docker pull the container image before running this command.
 
 ```bash
 # Generate artifacts for both platforms
@@ -454,8 +465,8 @@ kubectl run data-simulator-continuous --rm -i --restart=Never \
   --database customer_db \
   --user postgres \
   --password datasurface123 \
-  --min-interval 10 \
-  --max-interval 30 \
+  --min-interval 1 \
+  --max-interval 1 \
   --verbose &
 
 # The simulator will run continuously in the background
@@ -690,7 +701,7 @@ sudo kubectl run data-simulator --rm -i --restart=Never \
   --verbose
 ```
 
-### Step 6: Set Up NFS for Git Caching (Required for YellowDataPlatform)
+### Step 6: Set Up NFS for Git Caching (Optional for YellowDataPlatform when using NFS, default for yellow_starter is now longhorn)
 
 **NFS Server and Client Setup:**
 The YellowDataPlatform uses NFS for shared git repository caching between pods. This requires specific kernel modules and packages to be installed on the host system.
