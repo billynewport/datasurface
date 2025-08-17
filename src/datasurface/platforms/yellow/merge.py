@@ -183,6 +183,13 @@ class Job(YellowDatasetUtilities):
         state: BatchState = BatchState(all_datasets=allDatasets, schema_versions=schema_versions)  # Start with the first dataset
         return self.createBatchCommon(connection, key, state)
 
+    def truncateStagingTables(self, mergeConnection: Connection, state: BatchState) -> None:
+        """This truncates the staging tables for each dataset in the batch state"""
+        for datasetName in state.all_datasets:
+            dataset: Dataset = self.store.datasets[datasetName]
+            stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
+            mergeConnection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
+
     def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""
         # Start a new transaction
@@ -198,10 +205,7 @@ class Job(YellowDatasetUtilities):
             # Grab batch state from the batch metrics table
             state: BatchState = self.getBatchState(mergeEngine, connection, self.getIngestionStreamKey(), newBatchId)
             # Truncate the staging table for each dataset in the batch state
-            for datasetName in state.all_datasets:
-                dataset: Dataset = self.store.datasets[datasetName]
-                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-                connection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
+            self.truncateStagingTables(connection, state)
         return newBatchId
 
     def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
@@ -440,7 +444,11 @@ class Job(YellowDatasetUtilities):
                     current_dataset_index=state.current_dataset_index,
                     total_datasets=len(state.all_datasets))
         recordsInserted = 0  # Initialize counter for all datasets
-        totalRecords = 0  # Initialize total records counter
+
+        # Truncate the staging tables for each dataset in the batch state
+        with mergeEngine.begin() as mergeConn:
+            self.truncateStagingTables(mergeConn, state)
+
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():  # While there is a dataset to ingest
                 # Get source table name, Map the dataset name if necessary
@@ -481,52 +489,45 @@ class Job(YellowDatasetUtilities):
                 # When all datasets are done then the job will set the batch status to ingested. The transistion is start
                 # means we're ingesting the data for all datasets.
 
-                # Read from source table
-                # Get total count for metrics
-                countResult = sourceConn.execute(text(f"SELECT COUNT(*) FROM {sourceTableName}"))
-                totalRecords = countResult.fetchone()[0]
-
-                # Read data in batches to avoid memory issues
-                batchSize = 1000
-                offset: int = state.current_offset
-                recordsInserted = 0
+                # Execute single query to get all records with consistent snapshot
+                quoted_columns = [f'"{col}"' for col in allColumns]
+                selectSql = f"""
+                SELECT {', '.join(quoted_columns)},
+                    MD5({allColumnsHashExpr}) as {self.schemaProjector.ALL_HASH_COLUMN_NAME},
+                    MD5({keyColumnsHashExpr}) as {self.schemaProjector.KEY_HASH_COLUMN_NAME}
+                FROM {sourceTableName}
+                """
+                logger.debug("Executing source query for complete dataset",
+                             dataset_name=datasetToIngestName)
+                result = sourceConn.execute(text(selectSql))
+                column_names = result.keys()
 
                 # Build insert statement with SQLAlchemy named parameters
-                quoted_columns = [f'"{col}"' for col in allColumns] + \
+                quoted_insert_columns = [f'"{col}"' for col in allColumns] + \
                     [
                         f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
                         f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
                         f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"']
-                placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
-                insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
+                placeholders = ", ".join([f":{i}" for i in range(len(quoted_insert_columns))])
+                insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
+
+                # Process records in blocks for memory efficiency
+                batchSize = 1000
+                recordsInserted = 0
 
                 while True:
-                    # Read batch from source with hash calculation in SQL
-                    quoted_columns = [f'"{col}"' for col in allColumns]
-                    selectSql = f"""
-                    SELECT {', '.join(quoted_columns)},
-                        MD5({allColumnsHashExpr}) as {self.schemaProjector.ALL_HASH_COLUMN_NAME},
-                        MD5({keyColumnsHashExpr}) as {self.schemaProjector.KEY_HASH_COLUMN_NAME}
-                    FROM {sourceTableName}
-                    LIMIT {batchSize} OFFSET {offset}
-                    """
-                    logger.debug("Executing source query",
-                                 dataset_name=datasetToIngestName,
-                                 batch_size=batchSize,
-                                 offset=offset)
-                    result = sourceConn.execute(text(selectSql))
-                    rows = result.fetchall()
-                    column_names = result.keys()
-                    logger.debug("Retrieved rows from source table",
-                                 dataset_name=datasetToIngestName,
-                                 row_count=len(rows),
-                                 offset=offset)
-
+                    # Read batch from result set (no re-querying)
+                    rows = result.fetchmany(batchSize)
                     if not rows:
-                        logger.info("No more rows in source table, completed dataset ingestion",
+                        logger.info("Completed dataset ingestion",
                                     dataset_name=datasetToIngestName,
                                     total_records_ingested=recordsInserted)
                         break
+
+                    logger.debug("Processing batch of rows",
+                                 dataset_name=datasetToIngestName,
+                                 batch_size=len(rows),
+                                 total_processed=recordsInserted)
 
                     # Process batch and insert into staging
                     # Each batch is delimited from others because each record in staging has the batch id which
@@ -553,22 +554,9 @@ class Job(YellowDatasetUtilities):
                         mergeConn.execute(text(insertSql), all_params)
                         numRowsInserted: int = len(batchValues)
                         recordsInserted += numRowsInserted
-                        # Write the offset to the state
-                        state.current_offset = offset + numRowsInserted
-                        # Update the state in the batch metrics table
-                        mergeConn.execute(text(
-                            f'UPDATE {self.getPhysBatchMetricsTableName()} SET "state" = :state'
-                            f' WHERE "key" = :key AND "batch_id" = :batch_id'), {
-                                "state": state.model_dump_json(),
-                                "key": key,
-                                "batch_id": batchId
-                            })
 
-                    offset = state.current_offset
-
-                logger.debug("Exited ingestion loop for dataset", dataset_name=datasetToIngestName)
+                logger.debug("Completed dataset ingestion", dataset_name=datasetToIngestName, records_inserted=recordsInserted)
                 # All rows for this dataset have been ingested, move to next dataset.
-                logger.debug("Finished ingesting dataset", dataset_name=datasetToIngestName, has_more_datasets=state.hasMoreDatasets())
 
                 # Move to next dataset if any
                 state.moveToNextDataset()
@@ -592,4 +580,4 @@ class Job(YellowDatasetUtilities):
                 logger.debug("Ensuring batch status is set to INGESTED after processing all datasets")
                 self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
-        return recordsInserted, 0, totalRecords  # No updates or deletes in snapshot ingestion
+        return recordsInserted, 0, recordsInserted  # No updates or deletes in snapshot ingestion
