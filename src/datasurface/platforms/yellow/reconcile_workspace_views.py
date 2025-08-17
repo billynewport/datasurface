@@ -578,8 +578,7 @@ Examples:
             from datasurface.platforms.yellow.yellow_dp import KubernetesEnvVarsCredentialStore
             cred_store = KubernetesEnvVarsCredentialStore(
                 name="env-cred-store",
-                locs=set(),  # Will be populated by the platform
-                namespace="default"  # Will be overridden by the platform
+                locs=set()  # Will be populated by the platform
             )
         else:
             logger.error(f"Error: Unsupported credential store type: {args.credential_store}")

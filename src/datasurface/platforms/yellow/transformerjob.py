@@ -253,7 +253,7 @@ def main():
     parser.add_argument('--max-cache-age-minutes', type=int, default=5, help='Maximum cache age in minutes before checking remote (default: 5)')
 
     args = parser.parse_args()
-    credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
+    credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set())
 
     # Ensure the working directory exists
     os.makedirs(args.working_folder, exist_ok=True)

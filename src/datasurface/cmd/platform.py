@@ -568,7 +568,7 @@ if __name__ == "__main__":
             # Create credential store and repository
             set_context(psp=",".join(args.psp))
 
-            cred_store = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
+            cred_store = KubernetesEnvVarsCredentialStore("Job cred store", set())
             repo = GitHubRepository(
                 f"{args.git_repo_owner}/{args.git_repo_name}",
                 args.git_repo_branch,
@@ -597,7 +597,7 @@ if __name__ == "__main__":
             # Create credential store and repository
             set_context(psp=",".join(args.psp))
 
-            cred_store = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
+            cred_store = KubernetesEnvVarsCredentialStore("Job cred store", set())
             repo = GitHubRepository(
                 f"{args.git_repo_owner}/{args.git_repo_name}",
                 args.git_repo_branch,

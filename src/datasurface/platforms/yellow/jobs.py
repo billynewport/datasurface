@@ -81,7 +81,7 @@ def main():
 
     args = parser.parse_args()
 
-    credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set(), "default")
+    credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set())
 
     # Ensure the directory exists
     os.makedirs(args.git_repo_path, exist_ok=True)

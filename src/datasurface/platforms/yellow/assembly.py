@@ -82,15 +82,15 @@ class K8sResourceLimits(UserDSLObject):
 
 class GitCacheConfig(UserDSLObject):
     def __init__(self,
-                 enabled: bool, pvc_name: str, pv_name: str,
-                 storage_size: StorageRequirement, storeageClass: str,
-                 access_mode: str, git_cache_max_age_minutes: int, cacheLocalPath: str) -> None:
+                 enabled: bool = True, pvc_name: str = "git-cache-pvc", pv_name: str = "git-cache-pv",
+                 storage_size: StorageRequirement = StorageRequirement("5G"), storageClass: str = "standard",
+                 access_mode: str = "ReadWriteMany", git_cache_max_age_minutes: int = 5, cacheLocalPath: str = "/cache/git-cache") -> None:
         super().__init__()
         self.enabled: bool = enabled
         self.pvc_name: str = pvc_name
         self.pv_name: str = pv_name
         self.storage_size: StorageRequirement = storage_size
-        self.storeageClass: str = storeageClass
+        self.storageClass: str = storageClass
         self.access_mode: str = access_mode
         self.git_cache_max_age_minutes: int = git_cache_max_age_minutes
         self.cacheLocalPath: str = cacheLocalPath
@@ -101,7 +101,7 @@ class GitCacheConfig(UserDSLObject):
             "pvc_name": self.pvc_name,
             "pv_name": self.pv_name,
             "storage_size": self.storage_size.to_json(),
-            "storeageClass": self.storeageClass,
+            "storageClass": self.storageClass,
             "access_mode": self.access_mode,
             "git_cache_max_age_minutes": self.git_cache_max_age_minutes,
             "cacheLocalPath": self.cacheLocalPath
@@ -496,7 +496,7 @@ class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
         assembly.components.append(
             PVCComponent(
                 self.git_cache_config.pvc_name, self.namespace,
-                self.git_cache_config.storage_size, self.git_cache_config.storeageClass,
+                self.git_cache_config.storage_size, self.git_cache_config.storageClass,
                 self.git_cache_config.access_mode))
         assembly.components.append(LoggingComponent(self.name, self.namespace))
         assembly.components.append(NetworkPolicyComponent(self.name, self.namespace))
@@ -557,7 +557,7 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory):
                 NetworkPolicyComponent(self.name, self.namespace),
                 PVCComponent(
                     self.git_cache_config.pvc_name, self.namespace,
-                    self.git_cache_config.storage_size, self.git_cache_config.storeageClass,
+                    self.git_cache_config.storage_size, self.git_cache_config.storageClass,
                     self.git_cache_config.access_mode),
                 PostgresComponent("pg-merge", self.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
                 PostgresComponent("pg-airflow", self.namespace, afDBcred, afDB, afDBStorageNeeds),

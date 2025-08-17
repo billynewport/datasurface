@@ -33,13 +33,7 @@ def createEcosystem() -> Ecosystem:
 
     gitcache: GitCacheConfig = GitCacheConfig(
         enabled=True,
-        pvc_name="git-cache",
-        pv_name="git-cache-pv",
-        storage_size=StorageRequirement("5G"),
-        storeageClass="longhorn",
-        access_mode="ReadWriteMany",
-        git_cache_max_age_minutes=1440,
-        cacheLocalPath="/cache/git-cache"
+        storageClass="longhorn",
     )
 
     KUB_NAME_SPACE: str = "ns-wwi"
