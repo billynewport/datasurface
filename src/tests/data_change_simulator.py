@@ -62,6 +62,11 @@ class DataChangeSimulator:
         self.running = True
         self.changes_made = 0
         self.connection: Optional[psycopg2.extensions.connection] = None
+        self.connection_retry_count = 0
+        self.max_connection_retries = 5
+        self.connection_retry_delay = 5  # seconds
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 10  # Stop after 10 consecutive operation failures
 
         # Setup logging
         log_level = logging.DEBUG if verbose else logging.INFO
@@ -160,7 +165,8 @@ class DataChangeSimulator:
 
                 # Insert initial test data if tables are empty
                 cursor.execute("SELECT COUNT(*) as count FROM customers")
-                customer_count = cursor.fetchone()['count']
+                result = cursor.fetchone()
+                customer_count = result['count'] if result else 0  # type: ignore
 
                 if customer_count == 0:
                     self.logger.info("📊 Inserting initial test data...")
@@ -181,6 +187,66 @@ class DataChangeSimulator:
         except psycopg2.Error as e:
             self.logger.error(f"Failed to create tables: {e}")
             sys.exit(1)
+
+    def is_connection_healthy(self) -> bool:
+        """Check if the database connection is healthy."""
+        if not self.connection:
+            return False
+
+        try:
+            # Try a simple query to test the connection
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+            return True
+        except (psycopg2.Error, psycopg2.InterfaceError, psycopg2.OperationalError):
+            return False
+
+    def ensure_connection(self) -> bool:
+        """Ensure we have a healthy database connection, reconnecting if necessary."""
+        if self.is_connection_healthy():
+            self.connection_retry_count = 0  # Reset retry count on successful connection
+            return True
+
+        if self.connection_retry_count >= self.max_connection_retries:
+            self.logger.error(f"❌ Maximum connection retry attempts ({self.max_connection_retries}) exceeded. Stopping simulator.")
+            self.running = False
+            return False
+
+        self.logger.warning("⚠️  Database connection lost. Attempting to reconnect... " +
+                            f"(attempt {self.connection_retry_count + 1}/{self.max_connection_retries})")
+
+        # Close existing connection if it exists
+        if self.connection:
+            try:
+                self.connection.close()
+            except Exception:
+                pass  # Ignore errors when closing a broken connection
+            self.connection = None
+
+        try:
+            self.connection = psycopg2.connect(
+                host=self.host,
+                port=self.port,
+                database=self.database,
+                user=self.user,
+                password=self.password,
+                cursor_factory=RealDictCursor
+            )
+            self.connection.autocommit = True
+            self.logger.info(f"✅ Successfully reconnected to database {self.database} at {self.host}:{self.port}")
+            self.connection_retry_count = 0
+            return True
+
+        except psycopg2.Error as e:
+            self.connection_retry_count += 1
+            self.logger.error(f"❌ Failed to reconnect to database (attempt {self.connection_retry_count}/{self.max_connection_retries}): {e}")
+
+            if self.connection_retry_count < self.max_connection_retries:
+                self.logger.info(f"⏳ Waiting {self.connection_retry_delay} seconds before next retry...")
+                time.sleep(self.connection_retry_delay)
+
+            return False
 
     def close_connection(self) -> None:
         """Close database connection."""
@@ -231,6 +297,9 @@ class DataChangeSimulator:
 
     def get_existing_customers(self) -> List[Any]:
         """Get list of existing customers."""
+        if not self.ensure_connection():
+            return []
+
         try:
             with self.connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM customers")
@@ -241,6 +310,9 @@ class DataChangeSimulator:
 
     def get_existing_addresses(self) -> List[Any]:
         """Get list of existing addresses."""
+        if not self.ensure_connection():
+            return []
+
         try:
             with self.connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM addresses")
@@ -251,6 +323,9 @@ class DataChangeSimulator:
 
     def insert_new_customer(self) -> bool:
         """Insert a new customer with a primary address."""
+        if not self.ensure_connection():
+            return False
+
         try:
             # Generate customer data
             customer_id = self.generate_customer_id()
@@ -304,6 +379,9 @@ class DataChangeSimulator:
         if not customers:
             return False
 
+        if not self.ensure_connection():
+            return False
+
         try:
             customer = random.choice(customers)
             customer_id = customer['id']
@@ -345,6 +423,9 @@ class DataChangeSimulator:
         if not customers:
             return False
 
+        if not self.ensure_connection():
+            return False
+
         try:
             customer = random.choice(customers)
             customer_id = customer['id']
@@ -380,6 +461,9 @@ class DataChangeSimulator:
     def update_address(self, addresses: List[Any]) -> bool:
         """Update an existing address."""
         if not addresses:
+            return False
+
+        if not self.ensure_connection():
             return False
 
         try:
@@ -422,6 +506,9 @@ class DataChangeSimulator:
     def delete_address(self, addresses: List[Any], customers: List[Any]) -> bool:
         """Delete an address (only if customer has multiple addresses)."""
         if not addresses or not customers:
+            return False
+
+        if not self.ensure_connection():
             return False
 
         try:
@@ -506,11 +593,17 @@ class DataChangeSimulator:
 
         if success:
             self.changes_made += 1
+            self.consecutive_failures = 0  # Reset failure counter on success
             if self.max_changes and self.changes_made >= self.max_changes:
                 self.logger.info(f"🎯 Reached maximum changes limit ({self.max_changes}). Stopping...")
                 self.running = False
-        elif self.verbose:
-            self.logger.debug(f"Operation {operation} could not be performed (no suitable data)")
+        else:
+            self.consecutive_failures += 1
+            if self.consecutive_failures >= self.max_consecutive_failures:
+                self.logger.error(f"❌ Too many consecutive failures ({self.consecutive_failures}). Stopping simulator to prevent infinite loop.")
+                self.running = False
+            elif self.verbose:
+                self.logger.debug(f"Operation {operation} could not be performed (no suitable data) - consecutive failures: {self.consecutive_failures}")
 
     def run(self) -> None:
         """Main simulation loop."""
