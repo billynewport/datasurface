@@ -2008,3 +2008,58 @@ Exception: SnapshotMergeJob failed with code -1 - manual intervention required
 - [MVP Kubernetes Infrastructure Setup](MVP_Kubernetes_Infrastructure_Setup.md)
 - [July MVP Plan](July_MVP_Plan.md)
 - [HOWTO: Measure DataTransformer Lag](HOWTO_MeasureDataTransformerLag.md) 
+
+## DNS: Kubernetes + Tailscale resolution fix
+
+This section documents a reliable DNS configuration for clusters that use Tailscale (MagicDNS) alongside standard internet DNS. It addresses intermittent `SERVFAIL` for public domains and inconsistent `ts.net` resolution inside pods.
+
+### Symptoms
+
+- Intermittent `SERVFAIL` for `github.com` inside pods, while host lookups succeed.
+- `ts.net` names (e.g., `postgres.leopard-mizar.ts.net`) not consistently resolving in pods.
+- Tailscale status warning on host about reaching configured DNS servers, despite host lookups working.
+
+### Root cause
+
+- CoreDNS forwarded all queries to `192.168.4.1 100.100.100.100`. Using Tailscale resolver (`100.100.100.100`) for general/public domains is unreliable. CoreDNS lacked an explicit stub for `ts.net`.
+
+### Fix (CoreDNS Corefile)
+
+Replace the default forwarders with an explicit `ts.net` stub and set general domains to use a normal resolver plus a public fallback:
+
+```text
+forward ts.net 100.100.100.100
+forward . 192.168.4.1 1.1.1.1
+```
+
+### Apply on K3s
+
+```bash
+# Note: On K3s servers you may need sudo; replace kubectl with: sudo k3s kubectl
+kubectl -n kube-system get configmap coredns -o yaml > /tmp/coredns.yaml
+sed -i 's/forward \. 192\.168\.4\.1 100\.100\.100\.100/forward ts.net 100.100.100.100\n        forward . 192.168.4.1 1.1.1.1/' /tmp/coredns.yaml
+kubectl -n kube-system apply -f /tmp/coredns.yaml
+kubectl -n kube-system rollout restart deployment coredns
+kubectl -n kube-system rollout status deployment coredns --timeout=90s
+```
+
+### Verify from a pod
+
+```bash
+kubectl run dns-test --image=busybox:1.36 --restart=Never --command -- sleep 300
+kubectl wait --for=condition=Ready pod/dns-test --timeout=90s
+kubectl exec -i dns-test -- nslookup github.com
+kubectl exec -i dns-test -- nslookup postgres.leopard-mizar.ts.net
+kubectl exec -i dns-test -- nslookup kubernetes.default.svc.cluster.local
+kubectl delete pod dns-test --ignore-not-found
+```
+
+### Optional host checks
+
+```bash
+getent hosts github.com
+getent hosts postgres.leopard-mizar.ts.net
+tailscale netcheck
+```
+
+Results after applying the fix should show successful resolution of public domains, `ts.net` names via MagicDNS, and Kubernetes service names inside pods.
