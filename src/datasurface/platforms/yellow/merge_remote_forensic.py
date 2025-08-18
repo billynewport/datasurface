@@ -93,7 +93,9 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Proceed to merge the staging data into the forensic merge table
         # Even if no records were inserted, we need to mark the batch as committed
         # to indicate we've processed up to this remote batch ID
-        self.mergeStagingToMergeAndCommit(mergeEngine, remoteBatchId, key)
+        # Handle case where dataset might be None (e.g., in tests)
+        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
+        self.mergeStagingToMergeAndCommit(mergeEngine, remoteBatchId, key, batchSize)
         return JobStatus.DONE
 
     def ingestNextBatchToStaging(
@@ -222,14 +224,16 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             bool: True if processing should continue, False if already up to date
         """
         # Check if this batch already exists
+        # Fetch batch state and batch status
         result = connection.execute(text(f"""
-            SELECT "batch_status" FROM {self.getPhysBatchMetricsTableName()}
+            SELECT "batch_status", "state" FROM {self.getPhysBatchMetricsTableName()}
             WHERE "key" = :key AND "batch_id" = :batch_id
         """), {"key": key, "batch_id": remoteBatchId})
         existing_batch = result.fetchone()
 
         if existing_batch is not None:
             batch_status = existing_batch[0]
+            batch_state = BatchState.model_validate_json(existing_batch[1])
             if batch_status == BatchStatus.COMMITTED.value:
                 logger.info("Remote batch already committed, job is up to date",
                             remote_batch_id=remoteBatchId, key=key)
@@ -237,8 +241,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             else:
                 logger.info("Remote batch exists but not committed, will reprocess",
                             remote_batch_id=remoteBatchId, key=key, status=batch_status)
-                # Clear staging tables for reprocessing
-                self._clearStagingTables(connection)
+                # Clear staging records for current batch before reprocessing
+                self.truncateStagingTables(connection, batch_state, remoteBatchId)
                 return True  # Continue processing
         else:
             # Create initial batch state for remote processing
@@ -261,8 +265,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             # Update the batch counter to reflect the remote batch ID when creating the batch
             self._updateBatchCounter(connection, key, remoteBatchId)
 
-            # Clear staging tables for new batch processing
-            self._clearStagingTables(connection)
+            # Clear staging records for current batch before processing
+            self.truncateStagingTables(connection, state, remoteBatchId)
 
             logger.info("Created new batch record for remote batch",
                         remote_batch_id=remoteBatchId, key=key)
@@ -379,7 +383,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
         recordsInserted = 0
-        batchSize = 1000
+        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
 
         with mergeEngine.begin() as mergeConn:
             for i in range(0, len(rows), batchSize):
@@ -660,14 +664,3 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                 VALUES (:key, :batch_id)
             """), {"key": key, "batch_id": batchId})
             logger.debug("Inserted new batch counter", key=key, batch_id=batchId)
-
-    def _clearStagingTables(self, connection) -> None:
-        """Clear all staging tables for this store to prepare for new batch processing.
-
-        This is equivalent to the TRUNCATE TABLE operation in the normal startBatch method.
-        """
-        for datasetName in self.store.datasets.keys():
-            dataset: Dataset = self.store.datasets[datasetName]
-            stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-            connection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
-            logger.debug("Cleared staging table for new batch", table_name=stagingTableName)

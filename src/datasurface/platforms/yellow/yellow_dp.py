@@ -422,15 +422,15 @@ class YellowDatasetUtilities(JobUtilities):
                             table_name=tableName,
                             column_name=columnName)
 
-    def createOrUpdateForensicTable(self, mergeEngine: Engine, mergeTable: Table, tableName: str) -> None:
-        """Create or update a forensic table, handling primary key changes by dropping and recreating if needed"""
+    def _createOrUpdateTableWithPrimaryKeyHandling(self, mergeEngine: Engine, table: Table, tableName: str, tableType: str) -> None:
+        """Common method to create or update a table, handling primary key changes by modifying constraints"""
         from sqlalchemy import inspect
         inspector = inspect(mergeEngine)
 
         if not inspector.has_table(tableName):
             # Table doesn't exist, create it
-            mergeTable.create(mergeEngine)
-            logger.info("Created forensic table", table_name=tableName)
+            table.create(mergeEngine)
+            logger.info(f"Created {tableType} table", table_name=tableName)
             return
 
         # Table exists, check if primary key needs to be updated
@@ -442,31 +442,44 @@ class YellowDatasetUtilities(JobUtilities):
             if col.primary_key:
                 current_pk_columns.append(col.name)
 
-        # Get desired primary key columns from the merge table
+        # Get desired primary key columns from the table
         desired_pk_columns = []
-        for col in mergeTable.columns:
+        for col in table.columns:
             if col.primary_key:
                 desired_pk_columns.append(col.name)
 
         # Check if primary key needs to be changed
         if set(current_pk_columns) != set(desired_pk_columns):
-            logger.info("Primary key change detected for forensic table",
+            logger.info(f"Primary key change detected for {tableType} table",
                         table_name=tableName,
                         current_pk=current_pk_columns,
                         desired_pk=desired_pk_columns)
 
-            # Drop and recreate the table with new primary key
+            # Modify primary key constraint without dropping table
             with mergeEngine.begin() as connection:
-                # Drop the existing table
-                connection.execute(sqlalchemy.text(f"DROP TABLE {tableName} CASCADE"))
-                logger.info("Dropped table for primary key change", table_name=tableName)
+                # Get the primary key constraint name
+                pk_constraints = inspector.get_pk_constraint(tableName)
+                pk_name = pk_constraints.get('name', f"{tableName}_pkey")
 
-            # Create the new table
-            mergeTable.create(mergeEngine)
-            logger.info("Recreated table with new primary key", table_name=tableName)
+                # Drop the existing primary key constraint
+                connection.execute(sqlalchemy.text(f"ALTER TABLE {tableName} DROP CONSTRAINT {pk_name}"))
+                logger.info("Dropped primary key constraint", table_name=tableName, constraint_name=pk_name)
+
+                # Add the new primary key constraint
+                pk_columns_str = ", ".join(desired_pk_columns)
+                connection.execute(sqlalchemy.text(f"ALTER TABLE {tableName} ADD PRIMARY KEY ({pk_columns_str})"))
+                logger.info("Added new primary key constraint", table_name=tableName, pk_columns=desired_pk_columns)
         else:
             # Primary key is the same, use normal update
-            createOrUpdateTable(mergeEngine, mergeTable)
+            createOrUpdateTable(mergeEngine, table)
+
+    def createOrUpdateForensicTable(self, mergeEngine: Engine, mergeTable: Table, tableName: str) -> None:
+        """Create or update a forensic table, handling primary key changes by modifying constraints"""
+        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, mergeTable, tableName, "forensic")
+
+    def createOrUpdateStagingTable(self, mergeEngine: Engine, stagingTable: Table, tableName: str) -> None:
+        """Create or update a staging table, handling primary key changes by modifying constraints"""
+        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, stagingTable, tableName, "staging")
 
     def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
         """This will make sure the staging table exists and has the current schema for each dataset"""
@@ -474,7 +487,8 @@ class YellowDatasetUtilities(JobUtilities):
             # Map the dataset name if necessary
             tableName: str = self.getPhysStagingTableNameForDataset(dataset)
             stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName, mergeEngine)
-            createOrUpdateTable(mergeEngine, stagingTable)
+            # Handle primary key changes for staging tables
+            self.createOrUpdateStagingTable(mergeEngine, stagingTable, tableName)
             # Create performance indexes for staging table
             self.createStagingTableIndexes(mergeEngine, tableName)
 
@@ -2520,6 +2534,11 @@ class YellowSchemaProjector(SchemaProjector):
             ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
             ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            # For staging tables, modify the primary key to include batch_id to allow same business keys across batches
+            if ddlSchema.primaryKeyColumns:
+                # Create new primary key with original columns plus batch_id
+                new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [self.BATCH_ID_COLUMN_NAME]
+                ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
             return pds
         else:
             raise ValueError(f"Invalid schema type: {schemaType}")

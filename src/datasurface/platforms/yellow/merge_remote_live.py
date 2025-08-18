@@ -356,7 +356,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
         recordsInserted = 0
-        batchSize = 1000
+        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
 
         with mergeEngine.begin() as mergeConn:
             for i in range(0, len(rows), batchSize):

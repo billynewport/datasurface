@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType
+    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint
 )
 from sqlalchemy import Table, MetaData, text
 import sqlalchemy
@@ -100,6 +100,25 @@ class Job(YellowDatasetUtilities):
         t: Table = self.getBatchCounterTable()
         createOrUpdateTable(mergeEngine, t)
 
+    def getIngestionOverrideValue(self, key: str, defaultValue: int) -> int:
+        """This allows the an runtime parameter to be overridden for a given ingestionstream"""
+        # Handle case where dataset might be None (e.g., in tests)
+        jobHint: Optional[PlatformRuntimeHint] = None
+        if self.dataset is not None:
+            jobHint = self.dp.psp.getIngestionJobHint(self.store.name, self.dataset.name)
+        else:
+            jobHint = self.dp.psp.getIngestionJobHint(self.store.name)
+
+        value: int = defaultValue
+        if jobHint is not None:
+            value = jobHint.kv.get(key, defaultValue)
+            # Log the override
+            if self.dataset is not None:
+                logger.info(f"Parameter override for {key}", value=value, key=key, store_name=self.store.name, dataset_name=self.dataset.name)
+            else:
+                logger.info(f"Parameter override for {key}", value=value, key=key, store_name=self.store.name)
+        return value
+
     def createBatchMetricsTable(self, mergeEngine: Engine) -> None:
         """This creates the batch metrics table"""
         t: Table = self.getBatchMetricsTable()
@@ -183,12 +202,15 @@ class Job(YellowDatasetUtilities):
         state: BatchState = BatchState(all_datasets=allDatasets, schema_versions=schema_versions)  # Start with the first dataset
         return self.createBatchCommon(connection, key, state)
 
-    def truncateStagingTables(self, mergeConnection: Connection, state: BatchState) -> None:
+    def truncateStagingTables(self, mergeConnection: Connection, state: BatchState, batchId: int) -> None:
         """This truncates the staging tables for each dataset in the batch state"""
         for datasetName in state.all_datasets:
             dataset: Dataset = self.store.datasets[datasetName]
             stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-            mergeConnection.execute(text(f"TRUNCATE TABLE {stagingTableName}"))
+            # Delete all records for batch id in staging
+            # Use BATCH_ID_COLUMN_NAME from the schema projector
+            mergeConnection.execute(
+                text(f"DELETE FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = :batch_id"), {"batch_id": batchId})
 
     def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""
@@ -205,7 +227,7 @@ class Job(YellowDatasetUtilities):
             # Grab batch state from the batch metrics table
             state: BatchState = self.getBatchState(mergeEngine, connection, self.getIngestionStreamKey(), newBatchId)
             # Truncate the staging table for each dataset in the batch state
-            self.truncateStagingTables(connection, state)
+            self.truncateStagingTables(connection, state, newBatchId)
         return newBatchId
 
     def getBatchState(self, mergeEngine: Engine, connection: Connection, key: str, batchId: int) -> BatchState:
@@ -354,10 +376,12 @@ class Job(YellowDatasetUtilities):
         with mergeEngine.begin() as connection:
             currentStatus = self.checkBatchStatus(connection, key, batchId)
 
+        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
+
         if currentStatus == BatchStatus.INGESTED.value:
             # Merge the staging in to the merge tables.
             logger.info("Continuing batch merge", batch_id=batchId, key=key, status=currentStatus)
-            self.mergeStagingToMergeAndCommit(mergeEngine, batchId, key)
+            self.mergeStagingToMergeAndCommit(mergeEngine, batchId, key, batchSize)
         return JobStatus.DONE
 
     def run(self) -> JobStatus:
@@ -447,7 +471,7 @@ class Job(YellowDatasetUtilities):
 
         # Truncate the staging tables for each dataset in the batch state
         with mergeEngine.begin() as mergeConn:
-            self.truncateStagingTables(mergeConn, state)
+            self.truncateStagingTables(mergeConn, state, batchId)
 
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():  # While there is a dataset to ingest
@@ -512,7 +536,7 @@ class Job(YellowDatasetUtilities):
                 insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
 
                 # Process records in blocks for memory efficiency
-                batchSize = 1000
+                batchSize = self.getIngestionOverrideValue("batchSize", 50000)
                 recordsInserted = 0
 
                 while True:

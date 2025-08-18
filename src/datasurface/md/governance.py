@@ -1530,16 +1530,17 @@ class PlatformService(JSONable):
 class PlatformRuntimeHint(UserDSLObject):
     """These allow hints to be provided by the operations team to a PSP. These allow specific job tuning
     for ingestion or transformer jobs."""
-    def __init__(self, name: str):
+    def __init__(self, name: str, kv: dict[str, Any] = dict()):
         UserDSLObject.__init__(self)
         self.name: str = name
+        self.kv: dict[str, Any] = kv
 
     def to_json(self) -> dict[str, Any]:
-        return {"_type": self.__class__.__name__, "name": self.name}
+        return {"_type": self.__class__.__name__, "name": self.name, "kv": self.kv}
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, PlatformRuntimeHint):
-            return super().__eq__(other) and self.name == other.name
+            return super().__eq__(other) and self.name == other.name and self.kv == other.kv
         return False
 
     @abstractmethod
@@ -1548,8 +1549,8 @@ class PlatformRuntimeHint(UserDSLObject):
 
 
 class PlatformIngestionHint(PlatformRuntimeHint):
-    def __init__(self, storeName: str, datasetName: Optional[str] = None):
-        PlatformRuntimeHint.__init__(self, PlatformIngestionHint.getHintName(storeName, datasetName))
+    def __init__(self, storeName: str, datasetName: Optional[str] = None, kv: dict[str, Any] = dict()):
+        PlatformRuntimeHint.__init__(self, PlatformIngestionHint.getHintName(storeName, datasetName), kv)
         self.datasetName: Optional[str] = datasetName
         self.storeName: str = storeName
 
@@ -1587,8 +1588,8 @@ class PlatformIngestionHint(PlatformRuntimeHint):
 
 
 class PlatformDataTransformerHint(PlatformRuntimeHint):
-    def __init__(self, workspaceName: str):
-        PlatformRuntimeHint.__init__(self, PlatformDataTransformerHint.getHintName(workspaceName))
+    def __init__(self, workspaceName: str, kv: dict[str, Any] = dict()):
+        PlatformRuntimeHint.__init__(self, PlatformDataTransformerHint.getHintName(workspaceName), kv)
         self.workspaceName: str = workspaceName
 
     @staticmethod
