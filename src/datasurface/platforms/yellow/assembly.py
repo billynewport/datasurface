@@ -435,6 +435,13 @@ class K8sAssemblyFactory(UserDSLObject):
 
 
 class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
+    """
+    This is an assembly where a kubernetes name space is configured. It has a PVC for a git clone cache
+    and for a postgres database. The postgres database is created in a pod along with a pod for airflow
+    which shared the postgres database.
+    This is a relatively low performance setup, postgres running on top of longhorn won't be fast
+    but it is functional. The details on the postgres to create are taken from the mergecontainer provided
+    from the psp when create is called."""
     def __init__(
             self,
             name: str,
@@ -516,6 +523,85 @@ class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
             self.afHostPortPair,
             self.pgStorageNeeds,
             self.pgResourceLimits,
+            self.afWebserverResourceLimits,
+            self.afSchedulerResourceLimits)
+
+
+class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory):
+    """
+    This is an assembly where a kubernetes name space is configured. It has a PVC for a git clone cache.
+    The postgres database is external to the system and available using info from the psp merge container
+    and the credential should have SA access.
+    The airflow shares the postgres database.
+    The postgres database will be the merge database and the airflow database.
+    This is a potentially a high performance setup, postgres running externally is as fast as it
+    is configured to be. The details on the postgres are taken from the mergecontainer provided
+    from the psp when create is called."""
+    def __init__(
+            self,
+            name: str,
+            namespace: str,
+            git_cache_config: GitCacheConfig,
+            afHostPortPair: HostPortPair,
+            afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
+            afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> None:
+        super().__init__(name, namespace, git_cache_config)
+        self.afHostPortPair: HostPortPair = afHostPortPair
+        self.afWebserverResourceLimits: Optional[K8sResourceLimits] = afWebserverResourceLimits
+        self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        self.git_cache_config.lint(tree.addSubTree(self.git_cache_config))
+        if self.afWebserverResourceLimits:
+            self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
+        if self.afSchedulerResourceLimits:
+            self.afSchedulerResourceLimits.lint(tree.addSubTree(self.afSchedulerResourceLimits))
+        if not K8sUtils.isLegalKubernetesNamespaceName(self.namespace):
+            tree.addProblem(
+                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
+                ProblemSeverity.ERROR
+            )
+
+    def createYAMLContext(self, eco: Ecosystem) -> dict[str, Any]:
+        rc: dict[str, Any] = super().createYAMLContext(eco)
+        rc.update(self.git_cache_config.mergeToYAMLContext(eco))
+        return rc
+
+    def createYellowAssemblySingleDatabase(
+            self,
+            name: str,
+            pgCred: Credential,
+            pgDB: PostgresDatabase,
+            afHostPortPair: HostPortPair,
+            afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
+            afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> Assembly:
+        """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
+        database is used for both the merge store and the airflow database."""
+
+        assembly: Assembly = Assembly(
+            name, self.namespace,
+            components=list()
+        )
+        assembly.components.append(NamespaceComponent("ns", self.namespace))
+        assembly.components.append(
+            PVCComponent(
+                self.git_cache_config.pvc_name, self.namespace,
+                self.git_cache_config.storage_size, self.git_cache_config.storageClass,
+                self.git_cache_config.access_mode))
+        assembly.components.append(LoggingComponent(self.name, self.namespace))
+        assembly.components.append(NetworkPolicyComponent(self.name, self.namespace))
+        # Airflow uses the same database as the merge store
+        assembly.components.append(
+            Airflow281Component("airflow", self.namespace, pgCred, pgDB, [],
+                                webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
+        return assembly
+
+    def createAssembly(self, pgCred: Credential, pgDB: PostgresDatabase) -> Assembly:
+        """This creates the assembly for the kubernetes yaml file."""
+        return self.createYellowAssemblySingleDatabase(
+            self.name,
+            pgCred, pgDB,
+            self.afHostPortPair,
             self.afWebserverResourceLimits,
             self.afSchedulerResourceLimits)
 
