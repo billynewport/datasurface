@@ -100,6 +100,9 @@ class Job(YellowDatasetUtilities):
         t: Table = self.getBatchCounterTable()
         createOrUpdateTable(mergeEngine, t)
 
+    CHUNK_SIZE_KEY: str = "chunkSize"
+    CHUNK_SIZE_DEFAULT: int = 50000
+
     def getIngestionOverrideValue(self, key: str, defaultValue: int) -> int:
         """This allows the an runtime parameter to be overridden for a given ingestionstream"""
         # Handle case where dataset might be None (e.g., in tests)
@@ -335,7 +338,7 @@ class Job(YellowDatasetUtilities):
         pass
 
     @abstractmethod
-    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """This will merge the staging table to the merge table"""
         pass
 
@@ -376,12 +379,12 @@ class Job(YellowDatasetUtilities):
         with mergeEngine.begin() as connection:
             currentStatus = self.checkBatchStatus(connection, key, batchId)
 
-        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
+        chunkSize: int = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
 
         if currentStatus == BatchStatus.INGESTED.value:
             # Merge the staging in to the merge tables.
             logger.info("Continuing batch merge", batch_id=batchId, key=key, status=currentStatus)
-            self.mergeStagingToMergeAndCommit(mergeEngine, batchId, key, batchSize)
+            self.mergeStagingToMergeAndCommit(mergeEngine, batchId, key, chunkSize)
         return JobStatus.DONE
 
     def run(self) -> JobStatus:
@@ -536,21 +539,21 @@ class Job(YellowDatasetUtilities):
                 insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
 
                 # Process records in blocks for memory efficiency
-                batchSize = self.getIngestionOverrideValue("batchSize", 50000)
+                chunkSize = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
                 recordsInserted = 0
 
                 while True:
                     # Read batch from result set (no re-querying)
-                    rows = result.fetchmany(batchSize)
+                    rows = result.fetchmany(chunkSize)
                     if not rows:
                         logger.info("Completed dataset ingestion",
                                     dataset_name=datasetToIngestName,
                                     total_records_ingested=recordsInserted)
                         break
 
-                    logger.debug("Processing batch of rows",
+                    logger.debug("Processing chunk of rows",
                                  dataset_name=datasetToIngestName,
-                                 batch_size=len(rows),
+                                 chunk_size=len(rows),
                                  total_processed=recordsInserted)
 
                     # Process batch and insert into staging

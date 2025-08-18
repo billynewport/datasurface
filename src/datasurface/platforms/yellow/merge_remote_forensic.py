@@ -94,8 +94,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Even if no records were inserted, we need to mark the batch as committed
         # to indicate we've processed up to this remote batch ID
         # Handle case where dataset might be None (e.g., in tests)
-        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
-        self.mergeStagingToMergeAndCommit(mergeEngine, remoteBatchId, key, batchSize)
+        chunkSize: int = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
+        self.mergeStagingToMergeAndCommit(mergeEngine, remoteBatchId, key, chunkSize)
         return JobStatus.DONE
 
     def ingestNextBatchToStaging(
@@ -383,11 +383,11 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
         recordsInserted = 0
-        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
+        chunkSize: int = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
 
         with mergeEngine.begin() as mergeConn:
-            for i in range(0, len(rows), batchSize):
-                batch_rows = rows[i:i + batchSize]
+            for i in range(0, len(rows), chunkSize):
+                batch_rows = rows[i:i + chunkSize]
                 batchValues: List[List[Any]] = []
 
                 for row in batch_rows:
@@ -423,7 +423,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         return recordsInserted
 
-    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into forensic merge table using forensic milestoning.
 
         This handles both seed batches (full sync) and incremental batches (delta changes) for forensic tables:
@@ -473,7 +473,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     # Seed batch: Close all existing records and insert new ones
                     dataset_inserted, dataset_updated, dataset_deleted = self._processForensicSeedBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-                        localBatchId, sp, batch_size)
+                        localBatchId, sp, chunkSize)
                 else:
                     logger.debug("Processing forensic incremental batch for dataset",
                                  dataset_name=datasetToMergeName,
@@ -483,7 +483,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     # Incremental batch: Process specific IUD operations with forensic logic
                     dataset_inserted, dataset_updated, dataset_deleted = self._processForensicIncrementalBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-                        localBatchId, sp, batch_size)
+                        localBatchId, sp, chunkSize)
 
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
@@ -516,7 +516,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
     def _processForensicSeedBatch(
             self, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
-            sp: YellowSchemaProjector, batch_size: int) -> tuple[int, int, int]:
+            sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int, int]:
         """Process forensic mirror seed batch: Replace all local data with remote mirror."""
 
         # Step 1: Clear all existing data (we're doing a complete mirror replacement)
@@ -537,7 +537,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         inserted_count = 0
         # Process in batches for better memory usage
-        for offset in range(0, total_records, batch_size):
+        for offset in range(0, total_records, chunkSize):
             batch_insert_sql = f"""
             INSERT INTO {mergeTableName} (
                 {', '.join(quoted_all_columns)},
@@ -557,7 +557,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             FROM {stagingTableName} s
             WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
             ORDER BY s.{sp.KEY_HASH_COLUMN_NAME}
-            LIMIT {batch_size} OFFSET {offset}
+            LIMIT {chunkSize} OFFSET {offset}
             """
 
             batch_result = connection.execute(text(batch_insert_sql))
@@ -573,7 +573,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
     def _processForensicIncrementalBatch(
             self, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
-            sp: YellowSchemaProjector, batch_size: int) -> tuple[int, int, int]:
+            sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int, int]:
         """Process forensic mirror incremental batch: Apply remote changes preserving exact milestoning."""
 
         total_inserted = 0

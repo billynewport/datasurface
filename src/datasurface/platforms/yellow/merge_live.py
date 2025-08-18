@@ -48,23 +48,23 @@ class SnapshotMergeJobLiveOnly(Job):
             batchId: int) -> tuple[int, int, int]:
         return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
 
-    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
 
         Args:
             mergeEngine: Database engine for merge operations
             batchId: Current batch ID
             key: Batch key identifier
-            batch_size: Number of records to process per batch (default: 10000)
+            chunkSize: Number of records to process per batch (default: 10000)
             use_merge: If True, use PostgreSQL MERGE with DELETE support (requires PostgreSQL 15+)
         """
         use_merge: bool = True
         if use_merge:
-            return self._mergeStagingToMergeWithMerge(mergeEngine, batchId, key, batch_size)
+            return self._mergeStagingToMergeWithMerge(mergeEngine, batchId, key, chunkSize)
         else:
-            return self._mergeStagingToMergeWithUpsert(mergeEngine, batchId, key, batch_size)
+            return self._mergeStagingToMergeWithUpsert(mergeEngine, batchId, key, chunkSize)
 
-    def _mergeStagingToMergeWithUpsert(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def _mergeStagingToMergeWithUpsert(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using INSERT...ON CONFLICT with batched processing for better performance on large datasets.
         This processes merge operations in smaller batches to avoid memory issues while maintaining transactional consistency.
         The entire operation is done in a single transaction to ensure consumers see consistent data."""
@@ -101,16 +101,16 @@ class SnapshotMergeJobLiveOnly(Job):
                 logger.debug("Processing records for dataset in batches",
                              dataset_name=datasetToMergeName,
                              total_records=total_records,
-                             batch_size=batch_size)
+                             chunkSize=chunkSize)
 
                 # Process in batches using INSERT...ON CONFLICT for better PostgreSQL compatibility
-                for offset in range(0, total_records, batch_size):
+                for offset in range(0, total_records, chunkSize):
                     batch_upsert_sql = f"""
                     WITH batch_data AS (
                         SELECT * FROM {stagingTableName}
                         WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
                         ORDER BY {self.schemaProjector.KEY_HASH_COLUMN_NAME}
-                        LIMIT {batch_size} OFFSET {offset}
+                        LIMIT {chunkSize} OFFSET {offset}
                     )
                     INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {self.schemaProjector.BATCH_ID_COLUMN_NAME}, {self.schemaProjector.ALL_HASH_COLUMN_NAME}, {self.schemaProjector.KEY_HASH_COLUMN_NAME})
                     SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.{self.schemaProjector.ALL_HASH_COLUMN_NAME}, b.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
@@ -179,7 +179,7 @@ class SnapshotMergeJobLiveOnly(Job):
                     total_deleted=total_deleted)
         return total_inserted, total_updated, total_deleted
 
-    def _mergeStagingToMergeWithMerge(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def _mergeStagingToMergeWithMerge(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using PostgreSQL MERGE with DELETE support (PostgreSQL 15+).
         This approach handles INSERT, UPDATE, and DELETE operations in a single MERGE statement."""
         # Initialize metrics variables

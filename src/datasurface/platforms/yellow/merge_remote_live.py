@@ -356,11 +356,11 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
         recordsInserted = 0
-        batchSize: int = self.getIngestionOverrideValue("batchSize", 50000)
+        chunkSize: int = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
 
         with mergeEngine.begin() as mergeConn:
-            for i in range(0, len(rows), batchSize):
-                batch_rows = rows[i:i + batchSize]
+            for i in range(0, len(rows), chunkSize):
+                batch_rows = rows[i:i + chunkSize]
                 batchValues: List[List[Any]] = []
 
                 for row in batch_rows:
@@ -393,7 +393,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
         return recordsInserted
 
-    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, batch_size: int = 10000) -> tuple[int, int, int]:
+    def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into live merge table using context-aware processing.
 
         This handles both seed batches (full sync) and incremental batches (delta changes) differently:
@@ -437,7 +437,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     # Seed batch: Replace entire local dataset with remote state
                     dataset_inserted, dataset_updated, dataset_deleted = self._processSeedBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-                        batchId, sp, batch_size)
+                        batchId, sp, chunkSize)
                 else:
                     logger.debug("Processing incremental batch for dataset",
                                  dataset_name=datasetToMergeName,
@@ -446,7 +446,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     # Incremental batch: Process specific IUD operations
                     dataset_inserted, dataset_updated, dataset_deleted = self._processIncrementalBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-                        batchId, sp, batch_size)
+                        batchId, sp, chunkSize)
 
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
@@ -472,7 +472,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
     def _processSeedBatch(
             self, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
-            sp: YellowSchemaProjector, batch_size: int) -> tuple[int, int, int]:
+            sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int, int]:
         """Process seed batch: Replace entire local dataset with remote state.
 
         This is a full synchronization operation where we:
@@ -497,14 +497,14 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
         inserted_count = 0
         # Process in batches for better memory usage
-        for offset in range(0, total_records, batch_size):
+        for offset in range(0, total_records, chunkSize):
             batch_insert_sql = f"""
             INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
             SELECT {', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME}, s.{sp.KEY_HASH_COLUMN_NAME}
             FROM {stagingTableName} s
             WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
             ORDER BY s.{sp.KEY_HASH_COLUMN_NAME}
-            LIMIT {batch_size} OFFSET {offset}
+            LIMIT {chunkSize} OFFSET {offset}
             """
 
             batch_result = connection.execute(text(batch_insert_sql))
@@ -521,7 +521,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
     def _processIncrementalBatch(
             self, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
-            sp: YellowSchemaProjector, batch_size: int) -> tuple[int, int, int]:
+            sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int, int]:
         """Process incremental batch: Handle specific IUD operations."""
         # Handle Deletes first
         dataset_deleted = self._processDeleteOperations(
@@ -530,7 +530,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Handle Inserts and Updates
         dataset_inserted, dataset_updated = self._processInsertUpdateOperations(
             connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
-            batchId, sp, batch_size)
+            batchId, sp, chunkSize)
 
         return dataset_inserted, dataset_updated, dataset_deleted
 
@@ -557,7 +557,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
     def _processInsertUpdateOperations(
             self, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
-            sp: YellowSchemaProjector, batch_size: int) -> tuple[int, int]:
+            sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int]:
         """Process insert and update operations from staging table in batches."""
         total_inserted = 0
         total_updated = 0
@@ -571,14 +571,14 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         total_operations = count_result.fetchone()[0]
 
         # Process in batches
-        for offset in range(0, total_operations, batch_size):
+        for offset in range(0, total_operations, chunkSize):
             batch_upsert_sql = f"""
             WITH batch_data AS (
                 SELECT * FROM {stagingTableName}
                 WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
                 ORDER BY {sp.KEY_HASH_COLUMN_NAME}
-                LIMIT {batch_size} OFFSET {offset}
+                LIMIT {chunkSize} OFFSET {offset}
             )
             INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
             SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.{sp.ALL_HASH_COLUMN_NAME}, b.{sp.KEY_HASH_COLUMN_NAME}
