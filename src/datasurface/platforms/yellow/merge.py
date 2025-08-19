@@ -103,6 +103,8 @@ class Job(YellowDatasetUtilities):
     CHUNK_SIZE_KEY: str = "chunkSize"
     CHUNK_SIZE_DEFAULT: int = 50000
 
+    STAGING_BATCHES_TO_KEEP_KEY: str = "stagingBatchesToKeep"
+
     def getIngestionOverrideValue(self, key: str, defaultValue: int) -> int:
         """This allows the an runtime parameter to be overridden for a given ingestionstream"""
         # Handle case where dataset might be None (e.g., in tests)
@@ -210,10 +212,17 @@ class Job(YellowDatasetUtilities):
         for datasetName in state.all_datasets:
             dataset: Dataset = self.store.datasets[datasetName]
             stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-            # Delete all records for batch id in staging
-            # Use BATCH_ID_COLUMN_NAME from the schema projector
-            mergeConnection.execute(
-                text(f"DELETE FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = :batch_id"), {"batch_id": batchId})
+            batchesToKeep: int = self.getIngestionOverrideValue(self.STAGING_BATCHES_TO_KEEP_KEY, self.dp.stagingBatchesToKeep)
+            if batchesToKeep < 0:
+                # Delete all records for batch id in staging
+                # Use BATCH_ID_COLUMN_NAME from the schema projector
+                mergeConnection.execute(
+                    text(f"DELETE FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = :batch_id"), {"batch_id": batchId})
+            else:
+                minBatchToKeep: int = batchId - batchesToKeep
+                mergeConnection.execute(
+                    text(f"DELETE FROM {stagingTableName} "
+                         f"  WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} < :min_batch_to_keep"), {"min_batch_to_keep": minBatchToKeep})
 
     def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""

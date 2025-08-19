@@ -2152,9 +2152,11 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             self,
             name: str,
             doc: Documentation,
-            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.SCD1):
+            milestoneStrategy: YellowMilestoneStrategy = YellowMilestoneStrategy.SCD1,
+            stagingBatchesToKeep: int = 50):
         super().__init__(name, doc, YellowPlatformExecutor())
         self.milestoneStrategy: YellowMilestoneStrategy = milestoneStrategy
+        self.stagingBatchesToKeep: int = stagingBatchesToKeep
 
         # Create the required data containers
         # Set logging context for this platform
@@ -2218,7 +2220,8 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             {
                 "_type": self.__class__.__name__,
                 "pspName": self.psp.name,
-                "milestoneStrategy": self.milestoneStrategy.value
+                "milestoneStrategy": self.milestoneStrategy.value,
+                "stagingBatchesToKeep": self.stagingBatchesToKeep
             }
         )
         return rc
