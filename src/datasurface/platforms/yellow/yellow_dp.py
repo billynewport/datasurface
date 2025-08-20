@@ -12,7 +12,7 @@ from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, Kafk
 from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata, PlatformDataTransformerHint, \
     PlatformIngestionHint, PlatformRuntimeHint
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
-    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet
+    ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet, ValidationProblem
 from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
@@ -2237,6 +2237,8 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
+        if self.stagingBatchesToKeep < -1:
+            tree.addRaw(ValidationProblem(f"Staging batches to keep must be -1 or larger, got {self.stagingBatchesToKeep}", ProblemSeverity.ERROR))
 
     def createGraphHandler(self, graph: PlatformPipelineGraph) -> DataPlatformGraphHandler:
         """This is called to handle merge events on the revised graph."""
