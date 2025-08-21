@@ -103,7 +103,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
     # Get database connection using the comprehensive createEngine method
     try:
         with log_operation_timing(logger, "database_connection_setup"):
-            db_user, db_password = cred_store.getAsUserPassword(yellow_dp.psp.postgresCredential)
+            db_user, db_password = cred_store.getAsUserPassword(yellow_dp.psp.mergeRW_Credential)
             engine = createEngine(yellow_dp.psp.mergeStore, db_user, db_password)
         logger.info("Connected to merge store database")
     except Exception as e:

@@ -17,7 +17,7 @@ from tests.wwi.wwi import defineTables as defineWWITeamTables
 from tests.wwi.wwi import defineWorkspaces as defineWWITeamWorkspaces
 from datasurface.md.governance import ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency, WorkspacePlatformConfig
 from datetime import timedelta
-from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowSingleDatabaseAssembly, K8sResourceLimits, StorageRequirement
+from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowSinglePostgresDatabaseAssembly, K8sResourceLimits, StorageRequirement
 
 
 def createEcosystem() -> Ecosystem:
@@ -37,14 +37,14 @@ def createEcosystem() -> Ecosystem:
     )
 
     KUB_NAME_SPACE: str = "ns-wwi"
-    yp_assm: YellowSingleDatabaseAssembly = YellowSingleDatabaseAssembly(
+    yp_assm: YellowSinglePostgresDatabaseAssembly = YellowSinglePostgresDatabaseAssembly(
         name="Test_DP",
         namespace=f"{KUB_NAME_SPACE}",
         git_cache_config=gitcache,
         nfs_server_node="git-cache-server",
         afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
-        pgStorageNeeds=StorageRequirement("10G"),
-        pgResourceLimits=K8sResourceLimits(
+        dbStorageNeeds=StorageRequirement("10G"),
+        dbResourceLimits=K8sResourceLimits(
             requested_memory=StorageRequirement("1G"),
             limits_memory=StorageRequirement("2G"),
             requested_cpu=1.0,
@@ -70,7 +70,7 @@ def createEcosystem() -> Ecosystem:
         yp_assembly=yp_assm,
         gitCredential=Credential("git", CredentialType.API_TOKEN),
         connectCredentials=Credential("connect", CredentialType.API_TOKEN),
-        postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
+        mergeRW_Credential=Credential("postgres", CredentialType.USER_PASSWORD),
         merge_datacontainer=merge_datacontainer,
         pv_storage_class="longhorn",
         dataPlatforms=[

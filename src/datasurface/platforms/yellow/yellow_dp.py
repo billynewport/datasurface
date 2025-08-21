@@ -17,7 +17,8 @@ from datasurface.md.exceptions import ObjectDoesntExistException
 from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
-from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, DataMilestoningStrategy
+from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, \
+    DataMilestoningStrategy, HostPortSQLDatabase
 from datasurface.md import DataPlatformManagedDataContainer, PlatformServicesProvider
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
 from datasurface.md.types import Integer, VarChar
@@ -682,7 +683,7 @@ class IngestionType(Enum):
 class YellowGraphHandler(DataPlatformGraphHandler):
     """This takes the graph and then implements the data pipeline described in the graph using the technology stack
     pattern implemented by this platform. This platform supports ingesting data from Kafka confluence connectors. It
-    takes the data from kafka topics and writes them to a postgres staging table. A seperate job scheduled by airflow
+    takes the data from kafka topics and writes them to a SQL staging table. A seperate job scheduled by airflow
     then runs periodically and merges the staging data in to a MERGE table as a batch. Any workspaces can also query the
     data in the MERGE tables through Workspace specific views."""
     def __init__(self, dp: 'YellowDataPlatform', graph: PlatformPipelineGraph) -> None:
@@ -703,7 +704,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
     def createTerraformForAllIngestedNodes(self, eco: Ecosystem, tree: ValidationTree) -> str:
         """This creates a terraform file for all the Kafka ingested nodes in the graph using jinja templates which are found
-        in the templates directory. It creates a sink connector to copy from the topics to a postgres
+        in the templates directory. It creates a sink connector to copy from the topics to a SQL
         staging file and a cluster link resource if required to recreate the topics on this cluster.
         Any errors during generation will just be added as ValidationProblems to the tree using the appropriate
         subtree so the user can see which object caused the errors. The caller method will check if the tree
@@ -785,7 +786,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Prepare the global context for the template
         try:
-            pg_user, pg_password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
+            pg_user, pg_password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
             # Prepare Kafka API keys if needed (using connectCredentials)
             # kafka_api_key, kafka_api_secret = self.getKafkaKeysFromCredential(platform.connectCredentials)
             # TODO: Implement getKafkaKeysFromCredential similar to getPostgresUserPasswordFromCredential
@@ -861,7 +862,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
     def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree) -> None:
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
         no issues then the graph is executed. Executed here means
-        1. Terraform file which creates kafka connect connectors to ingest topics to postgres tables (for Kafka ingestion).
+        1. Terraform file which creates kafka connect connectors to ingest topics to SQL tables (for Kafka ingestion).
         2. Airflow DAG which has all the needed MERGE jobs. The Jobs in Airflow should be parameterized and the parameters
         would have enough information such as DataStore name, Datasets names. The Ecosystem git clone should be on the local file
         system and the path provided to the DAG. It can then get everything it needs from that.
@@ -975,7 +976,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get database connection
-        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
+        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
         engine = createEngine(self.dp.psp.mergeStore, user, password)
 
         # Build the ingestion_streams context from the graph
@@ -1079,10 +1080,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "original_platform_name": self.dp.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                    "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
-                    "postgres_database": self.dp.psp.mergeStore.databaseName,
-                    "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                    "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.postgresCredential.name),
+                    "merge_db_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
+                    "merge_db_database": self.dp.psp.mergeStore.databaseName,
+                    "merge_db_port": self.dp.psp.mergeStore.hostPortPair.port,
+                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
                     "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
                     "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
                     "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
@@ -1139,7 +1140,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get database connection
-        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
+        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
         engine = createEngine(self.dp.psp.mergeStore, user, password)
 
         default_transformer_hint: K8sDataTransformerHint = K8sDataTransformerHint(
@@ -1267,10 +1268,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "original_platform_name": self.dp.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                    "postgres_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
-                    "postgres_database": self.dp.psp.mergeStore.databaseName,
-                    "postgres_port": self.dp.psp.mergeStore.hostPortPair.port,
-                    "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.postgresCredential.name),
+                    "merge_db_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
+                    "merge_db_database": self.dp.psp.mergeStore.databaseName,
+                    "merge_db_port": self.dp.psp.mergeStore.hostPortPair.port,
+                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
                     "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
                     "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
                     "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
@@ -1325,7 +1326,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         """This is called by the RenderEngine to instruct a DataPlatform to render the
         intention graph that it manages. For this platform it returns a dictionary containing a terraform
         file which configures all the kafka connect sink connectors to copy datastores using
-        kafka ingestion capture meta data to postgres staging tables. It also populates the database
+        kafka ingestion capture meta data to SQL staging tables. It also populates the database
         with ingestion stream configurations for the factory DAG to use."""
         # First create the terraform file
         terraform_code: str = self.createTerraformForAllIngestedNodes(self.graph.eco, issueTree)
@@ -1359,9 +1360,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Platform-level credentials (always required)
         platform_secrets = [
             {
-                'credential': self.dp.psp.postgresCredential,
-                'purpose': 'PostgreSQL database access for merge store',
-                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.postgresCredential.name),
+                'credential': self.dp.psp.mergeRW_Credential,
+                'purpose': 'SQL Read/Write database access for merge store',
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
                 'category': 'Platform Core'
             },
             {
@@ -1722,8 +1723,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
     def __init__(self, name: str, locs: set[LocationKey], doc: Documentation,
                  gitCredential: Credential,
                  connectCredentials: Credential,
-                 merge_datacontainer: PostgresDatabase,
-                 postgresCredential: Credential,
+                 merge_datacontainer: HostPortSQLDatabase,
+                 mergeRW_Credential: Credential,
                  yp_assembly: K8sAssemblyFactory,
                  kafkaConnectName: str = "kafka-connect",
                  kafkaClusterName: str = "kafka",
@@ -1747,15 +1748,15 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         # git_cache_enabled = True
         self.yp_assm: K8sAssemblyFactory = yp_assembly
         self.gitCredential: Credential = gitCredential
-        self.postgresCredential: Credential = postgresCredential
+        self.mergeRW_Credential: Credential = mergeRW_Credential
         self.connectCredentials: Credential = connectCredentials
         self.kafkaConnectName: str = kafkaConnectName
         self.kafkaClusterName: str = kafkaClusterName
-        self.merge_datacontainer: PostgresDatabase = merge_datacontainer
+        self.merge_datacontainer: HostPortSQLDatabase = merge_datacontainer
         self.airflowName: str = airflowName
         self.datasurfaceDockerImage: str = datasurfaceDockerImage
         self.pv_storage_class: str = pv_storage_class
-        self.mergeStore: PostgresDatabase = merge_datacontainer
+        self.mergeStore: HostPortSQLDatabase = merge_datacontainer
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
         self.image_pull_policy: K8sImagePullPolicy = image_pull_policy
         self.kafkaConnectCluster = KafkaConnectCluster(
@@ -1795,7 +1796,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             {
                 "_type": self.__class__.__name__,
                 "namespace": self.yp_assm.namespace,
-                "postgresCredential": self.postgresCredential.to_json(),
+                "mergeRW_Credential": self.mergeRW_Credential.to_json(),
                 "gitCredential": self.gitCredential.to_json(),
                 "connectCredentials": self.connectCredentials.to_json(),
                 "kafkaConnectName": self.kafkaConnectName,
@@ -1814,8 +1815,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         as the graph must be generated for that to happen. The lintGraph method on the KPSGraphHandler does
         that as well as generating the terraform, airflow and other artifacts."""
         super().lint(eco, tree)
-        if self.postgresCredential.credentialType != CredentialType.USER_PASSWORD:
-            tree.addRaw(CredentialTypeNotSupportedProblem(self.postgresCredential, [CredentialType.USER_PASSWORD]))
+        if self.mergeRW_Credential.credentialType != CredentialType.USER_PASSWORD:
+            tree.addRaw(CredentialTypeNotSupportedProblem(self.mergeRW_Credential, [CredentialType.USER_PASSWORD]))
         if self.connectCredentials.credentialType != CredentialType.API_TOKEN:
             tree.addRaw(CredentialTypeNotSupportedProblem(self.connectCredentials, [CredentialType.API_TOKEN]))
         if self.gitCredential.credentialType != CredentialType.API_TOKEN:
@@ -1881,7 +1882,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         """Populate the database with factory DAG configurations for meta-factory creation"""
 
         # Get database connection
-        user, password = self.credStore.getAsUserPassword(self.postgresCredential)
+        user, password = self.credStore.getAsUserPassword(self.mergeRW_Credential)
         engine = createEngine(self.mergeStore, user, password)
 
         try:
@@ -1905,10 +1906,10 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                         "original_platform_name": dp.name,  # Original platform name for job execution
                         "ecosystem_name": eco.name,  # Original ecosystem name
                         "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                        "postgres_hostname": self.mergeStore.hostPortPair.hostName,
-                        "postgres_database": self.mergeStore.databaseName,
-                        "postgres_port": self.mergeStore.hostPortPair.port,
-                        "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.postgresCredential.name),
+                        "merge_db_hostname": self.mergeStore.hostPortPair.hostName,
+                        "merge_db_database": self.mergeStore.databaseName,
+                        "merge_db_port": self.mergeStore.hostPortPair.port,
+                        "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),
                         "git_credential_secret_name": K8sUtils.to_k8s_name(self.gitCredential.name),
                         "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
                         "datasurface_docker_image": self.datasurfaceDockerImage,
@@ -2054,8 +2055,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             # Load the bootstrap template
             # This defines the kubernetes services for the Yellow environment which the data platforms run inside.
             assembly: Assembly = self.yp_assm.createAssembly(
-                pgCred=self.postgresCredential,
-                pgDB=self.mergeStore)
+                mergeRW_Credential=self.mergeRW_Credential,
+                mergeDB=self.mergeStore)
 
             # Load the infrastructure DAG template
 
@@ -2075,12 +2076,12 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     "psp_name": self.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
-                    "postgres_hostname": self.mergeStore.hostPortPair.hostName,
-                    "postgres_database": self.mergeStore.databaseName,
-                    "postgres_port": self.mergeStore.hostPortPair.port,
-                    "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.postgresCredential.name),
+                    "merge_db_hostname": self.mergeStore.hostPortPair.hostName,
+                    "merge_db_database": self.mergeStore.databaseName,
+                    "merge_db_port": self.mergeStore.hostPortPair.port,
+                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),
                     "airflow_name": K8sUtils.to_k8s_name(self.airflowName),
-                    "airflow_credential_secret_name": K8sUtils.to_k8s_name(self.postgresCredential.name),  # Airflow uses postgres creds
+                    "airflow_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),  # Airflow uses postgres creds
                     "kafka_cluster_name": K8sUtils.to_k8s_name(self.kafkaClusterName),
                     "kafka_connect_name": K8sUtils.to_k8s_name(self.kafkaConnectName),
                     "kafka_bootstrap_servers": self._getKafkaBootstrapServers(),
@@ -2132,7 +2133,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             }
         elif ringLevel == 1:
             # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
-            mergeUser, mergePassword = self.credStore.getAsUserPassword(self.postgresCredential)
+            mergeUser, mergePassword = self.credStore.getAsUserPassword(self.mergeRW_Credential)
             mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
             createOrUpdateTable(mergeEngine, self.getFactoryDAGTable())
 
@@ -2146,8 +2147,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
 
 class YellowDataPlatform(YellowGenericDataPlatform):
-    """This defines the kubernetes postgres starter data platform. It can consume data from sources and write them to a postgres based merge store.
-      It has the use of a postgres database for staging and merge tables as well as Workspace views"""
+    """This defines the kubernetes Merge DB starter data platform. It can consume data from sources and write them to a Merge DB based merge store.
+      It has the use of a Merge DB database for staging and merge tables as well as Workspace views"""
     def __init__(
             self,
             name: str,
@@ -2186,7 +2187,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             cmd: SQLIngestion = SQLMergeIngestion(
                 primDP.psp.mergeStore,  # The merge tables are in the primary platform's merge store
                 primDP,
-                self.psp.postgresCredential,  # This dataplatforms credentials MUST have read access to the primary platform's merge store
+                self.psp.mergeRW_Credential,  # This dataplatforms credentials MUST have read access to the primary platform's merge store
                 store.cmd.singleOrMultiDatasetIngestion
             )
             return cmd
@@ -2314,7 +2315,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         """
 
         # Get credentials and create database connection
-        user, password = self.psp.credStore.getAsUserPassword(self.psp.postgresCredential)
+        user, password = self.psp.credStore.getAsUserPassword(self.psp.mergeRW_Credential)
         engine = createEngine(self.psp.mergeStore, user, password)
 
         # Create schema projector to access column name constants

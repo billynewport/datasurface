@@ -55,22 +55,22 @@ common_env_vars = [
     k8s.V1EnvVar(name='DATASURFACE_PSP_NAME', value='{{ psp_k8s_name }}'),
     k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
     
-    # Postgres credentials (for merge store)
+    # Merge SQL credentials (for merge store)
     k8s.V1EnvVar(
-        name='{{ postgres_credential_secret_name }}_USER',
+        name='{{ merge_db_credential_secret_name }}_USER',
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
-                name='{{ postgres_credential_secret_name }}',
-                key='{{ postgres_credential_secret_name }}_USER'
+                name='{{ merge_db_credential_secret_name }}',
+                key='{{ merge_db_credential_secret_name }}_USER'
             )
         )
     ),
     k8s.V1EnvVar(
-        name='{{ postgres_credential_secret_name }}_PASSWORD',
+        name='{{ merge_db_credential_secret_name }}_PASSWORD',
         value_from=k8s.V1EnvVarSource(
             secret_key_ref=k8s.V1SecretKeySelector(
-                name='{{ postgres_credential_secret_name }}',
-                key='{{ postgres_credential_secret_name }}_PASSWORD'
+                name='{{ merge_db_credential_secret_name }}',
+                key='{{ merge_db_credential_secret_name }}_PASSWORD'
             )
         )
     ),
@@ -234,22 +234,22 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
         k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
         k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
         
-        # Postgres credentials (for merge store)
+        # Merge SQL credentials (for merge store)
         k8s.V1EnvVar(
-            name=f"{platform_config['postgres_credential_secret_name']}_USER",
+            name=f"{platform_config['merge_db_credential_secret_name']}_USER",
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['postgres_credential_secret_name'],
-                    key='{{ postgres_credential_secret_name }}_USER'
+                    name=platform_config['merge_db_credential_secret_name'],
+                    key=platform_config['merge_db_credential_secret_name'] + '_USER'
                 )
             )
         ),
         k8s.V1EnvVar(
-            name=f"{platform_config['postgres_credential_secret_name']}_PASSWORD",
+            name=f"{platform_config['merge_db_credential_secret_name']}_PASSWORD",
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['postgres_credential_secret_name'],
-                    key='{{ postgres_credential_secret_name }}_PASSWORD'
+                    name=platform_config['merge_db_credential_secret_name'],
+                    key=platform_config['merge_db_credential_secret_name'] + '_PASSWORD'
                 )
             )
         ),
@@ -268,14 +268,14 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
     # Source database credentials for SQL snapshot ingestion (only if different from merge store)
     if (stream_config.get('ingestion_type') == 'sql_source' and 
         stream_config.get('source_credential_secret_name') and 
-        stream_config['source_credential_secret_name'] != platform_config['postgres_credential_secret_name']):
+        stream_config['source_credential_secret_name'] != platform_config['merge_db_credential_secret_name']):
         env_vars.extend([
             k8s.V1EnvVar(
                 name=f"{stream_config['source_credential_secret_name']}_USER",
                 value_from=k8s.V1EnvVarSource(
                     secret_key_ref=k8s.V1SecretKeySelector(
                         name=stream_config['source_credential_secret_name'],
-                        key='{{ postgres_credential_secret_name }}_USER'
+                        key=platform_config['source_credential_secret_name'] + '_USER'
                     )
                 )
             ),
@@ -284,7 +284,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
                 value_from=k8s.V1EnvVarSource(
                     secret_key_ref=k8s.V1SecretKeySelector(
                         name=stream_config['source_credential_secret_name'],
-                        key='{{ postgres_credential_secret_name }}_PASSWORD'
+                        key=platform_config['source_credential_secret_name'] + '_PASSWORD'
                     )
                 )
             )
@@ -471,18 +471,18 @@ def load_platform_configurations(config: dict):
         from sqlalchemy import create_engine, text
         
         # Build database connection string using environment variables
-        postgres_user = os.environ.get(f"{config['postgres_credential_secret_name']}_USER")
-        postgres_password = os.environ.get(f"{config['postgres_credential_secret_name']}_PASSWORD")
-        postgres_host = config['postgres_hostname']
-        postgres_port = config['postgres_port']
-        postgres_db = config['postgres_database']
+        merge_db_user = os.environ.get(f"{config['merge_db_credential_secret_name']}_USER")
+        merge_db_password = os.environ.get(f"{config['merge_db_credential_secret_name']}_PASSWORD")
+        merge_db_host = config['merge_db_hostname']
+        merge_db_port = config['merge_db_port']
+        merge_db_db_name = config['merge_db_database']
         
-        if not postgres_user or not postgres_password:
-            print("Missing PostgreSQL credentials in environment variables")
+        if not merge_db_user or not merge_db_password:
+            print("Missing Merge SQL credentials in environment variables")
             return {}
         
         # Create database connection
-        engine = create_engine(f'postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}')
+        engine = create_engine(f'postgresql://{merge_db_user}:{merge_db_password}@{merge_db_host}:{merge_db_port}/{merge_db_db_name}')
         
         # Read from the platform-specific airflow_dsg table
         table_name = config['phys_dag_table_name']
@@ -704,22 +704,22 @@ def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict)
         k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
         k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
         
-        # Postgres credentials (for merge store)
+        # Merge SQL credentials (for merge store)
         k8s.V1EnvVar(
-            name=f"{platform_config['postgres_credential_secret_name']}_USER",
+            name=f"{platform_config['merge_db_credential_secret_name']}_USER",
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['postgres_credential_secret_name'],
-                    key=f"{platform_config['postgres_credential_secret_name']}_USER"
+                    name=platform_config['merge_db_credential_secret_name'],
+                    key=f"{platform_config['merge_db_credential_secret_name']}_USER"
                 )
             )
         ),
         k8s.V1EnvVar(
-            name=f"{platform_config['postgres_credential_secret_name']}_PASSWORD",
+            name=f"{platform_config['merge_db_credential_secret_name']}_PASSWORD",
             value_from=k8s.V1EnvVarSource(
                 secret_key_ref=k8s.V1SecretKeySelector(
-                    name=platform_config['postgres_credential_secret_name'],
-                    key=f"{platform_config['postgres_credential_secret_name']}_PASSWORD"
+                    name=platform_config['merge_db_credential_secret_name'],
+                    key=f"{platform_config['merge_db_credential_secret_name']}_PASSWORD"
                 )
             )
         ),
@@ -953,18 +953,18 @@ def load_datatransformer_configurations(config: dict):
         from sqlalchemy import create_engine, text
         
         # Build database connection string using environment variables
-        postgres_user = os.environ.get(f"{config['postgres_credential_secret_name']}_USER")
-        postgres_password = os.environ.get(f"{config['postgres_credential_secret_name']}_PASSWORD")
-        postgres_host = config['postgres_hostname']
-        postgres_port = config['postgres_port']
-        postgres_db = config['postgres_database']
+        merge_db_user = os.environ.get(f"{config['merge_db_credential_secret_name']}_USER")
+        merge_db_password = os.environ.get(f"{config['merge_db_credential_secret_name']}_PASSWORD")
+        merge_db_host = config['merge_db_hostname']
+        merge_db_port = config['merge_db_port']
+        merge_db_db_name = config['merge_db_database']
         
-        if not postgres_user or not postgres_password:
-            print("Missing PostgreSQL credentials in environment variables")
+        if not merge_db_user or not merge_db_password:
+            print("Missing Merge SQL credentials in environment variables")
             return {}
         
         # Create database connection
-        engine = create_engine(f'postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}')
+        engine = create_engine(f'postgresql://{merge_db_user}:{merge_db_password}@{merge_db_host}:{merge_db_port}/{merge_db_db_name}')
         
         # Read from the platform-specific airflow_datatransformer table
         table_name = config['phys_datatransformer_table_name']
@@ -1136,21 +1136,21 @@ def create_factory_dags_from_database(**context):
         from sqlalchemy import create_engine, text
         
         # Build database connection string using environment variables
-        postgres_user = os.environ.get('{{ postgres_credential_secret_name | replace("-", "_") }}_USER')
-        postgres_password = os.environ.get('{{ postgres_credential_secret_name | replace("-", "_") }}_PASSWORD')
-        postgres_host = '{{ postgres_hostname }}'
-        postgres_port = {{ postgres_port }}
-        postgres_db = '{{ postgres_database }}'
+        merge_db_user = os.environ.get('{{ merge_db_credential_secret_name | replace("-", "_") }}_USER')
+        merge_db_password = os.environ.get('{{ merge_db_credential_secret_name | replace("-", "_") }}_PASSWORD')
+        merge_db_host = '{{ merge_db_hostname }}'
+        merge_db_port = {{ merge_db_port }}
+        merge_db_db_name = '{{ merge_db_database }}'
         
-        if not postgres_user or not postgres_password:
+        if not merge_db_user or not merge_db_password:
             if task_instance:
-                raise Exception("Missing PostgreSQL credentials in environment variables")
+                raise Exception("Missing Merge SQL credentials in environment variables")
             else:
-                log_message("Missing PostgreSQL credentials - factory DAGs will be created during task execution")
+                log_message("Missing Merge SQL credentials - factory DAGs will be created during task execution")
                 return "Factory DAG creation deferred to task execution"
         
         # Create database connection
-        engine = create_engine(f'postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}')
+        engine = create_engine(f'postgresql://{merge_db_user}:{merge_db_password}@{merge_db_host}:{merge_db_port}/{merge_db_db_name}')
         
         # Read factory DAG configurations - table created/populated by handleModelMerge
         factory_table_name = '{{ phys_factory_table_name }}'

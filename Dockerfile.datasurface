@@ -8,13 +8,23 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
+ENV ACCEPT_EULA=Y
 
-# Install system dependencies
+# Install system dependencies, unixODBC, and Microsoft ODBC Driver 18 for SQL Server
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    gnupg \
+    ca-certificates \
+    apt-transport-https \
     libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    unixodbc \
+    unixodbc-dev \
+    build-essential \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \
+    && echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft-prod.list \
+    && apt-get update && apt-get install -y msodbcsql18 \
+    && rm -rf /var/lib/apt/lists/* /usr/share/keyrings/microsoft.gpg
 
 # Set working directory
 WORKDIR /app

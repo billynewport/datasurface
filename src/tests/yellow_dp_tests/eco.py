@@ -19,7 +19,7 @@ from datasurface.md.types import VarChar, Date
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase, DataPlatformManagedDataContainer
 from tests.nwdb.nwdb import addDSGPlatformMappingForWorkspace
-from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowSingleDatabaseAssembly, K8sResourceLimits, StorageRequirement
+from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowSinglePostgresDatabaseAssembly, K8sResourceLimits, StorageRequirement
 
 
 def createEcosystem() -> Ecosystem:
@@ -31,14 +31,14 @@ def createEcosystem() -> Ecosystem:
     )
 
     KUB_NAME_SPACE: str = "ns-kub-pg-test"
-    yp_assm: YellowSingleDatabaseAssembly = YellowSingleDatabaseAssembly(
+    yp_assm: YellowSinglePostgresDatabaseAssembly = YellowSinglePostgresDatabaseAssembly(
         name="Test_DP",
         namespace=f"{KUB_NAME_SPACE}",
         git_cache_config=gitcache,
         nfs_server_node="git-cache-server",
         afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
-        pgStorageNeeds=StorageRequirement("10G"),
-        pgResourceLimits=K8sResourceLimits(
+        dbStorageNeeds=StorageRequirement("10G"),
+        dbResourceLimits=K8sResourceLimits(
             requested_memory=StorageRequirement("1G"),
             limits_memory=StorageRequirement("2G"),
             requested_cpu=1.0,
@@ -64,7 +64,7 @@ def createEcosystem() -> Ecosystem:
         yp_assembly=yp_assm,
         gitCredential=Credential("git", CredentialType.API_TOKEN),
         connectCredentials=Credential("connect", CredentialType.API_TOKEN),
-        postgresCredential=Credential("postgres", CredentialType.USER_PASSWORD),
+        mergeRW_Credential=Credential("postgres", CredentialType.USER_PASSWORD),
         merge_datacontainer=PostgresDatabase(
             "Test_DB",  # Model name for database
             hostPort=HostPortPair("localhost", 5432),  # Host and port for database

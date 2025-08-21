@@ -401,7 +401,7 @@ class Job(YellowDatasetUtilities):
         isDataTransformerOutput = isinstance(self.store.cmd, DataTransformerOutput)
 
         # Now, get a connection to the merge database
-        mergeUser, mergePassword = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.postgresCredential)
+        mergeUser, mergePassword = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
         mergeEngine: Engine = createEngine(self.dp.psp.mergeStore, mergeUser, mergePassword)
 
         ingestionType: IngestionConsistencyType = IngestionConsistencyType.MULTI_DATASET

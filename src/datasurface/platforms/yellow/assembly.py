@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 """
 
-from typing import Any, Optional
+from typing import Any, Generic, Optional, TypeVar
 from jinja2 import Environment, Template
 from datasurface.md import StorageRequirement
 import re
@@ -13,7 +13,7 @@ from datasurface.platforms.yellow.logging_utils import (
 )
 from datasurface.md import UserDSLObject, ValidationTree, ProblemSeverity
 from datasurface.md.credential import Credential
-from datasurface.md import PostgresDatabase
+from datasurface.md import HostPortSQLDatabase, PostgresDatabase
 from datasurface.md import HostPortPair
 from datasurface.md import Ecosystem
 
@@ -214,12 +214,12 @@ class NetworkPolicyComponent(Component):
 
 
 class Airflow281Component(Component):
-    def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
+    def __init__(self, name: str, namespace: str, dbCred: Credential, db: HostPortSQLDatabase,
                  dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
                  schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.8.1") -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
-        self.db: PostgresDatabase = db
+        self.db: HostPortSQLDatabase = db
         self.dagCreds: list[Credential] = dagCreds
         self.webserverResourceLimits: K8sResourceLimits = webserverResourceLimits or K8sResourceLimits(
             requested_memory=StorageRequirement("1G"),
@@ -397,7 +397,10 @@ class Assembly:
         return '\n'.join(yaml_parts) + '\n'
 
 
-class K8sAssemblyFactory(UserDSLObject):
+DB = TypeVar('DB', bound=HostPortSQLDatabase)
+
+
+class K8sAssemblyFactory(UserDSLObject, Generic[DB]):
     def __init__(self, name: str, namespace: str, git_cache_config: GitCacheConfig) -> None:
         super().__init__()
         self.name: str = name
@@ -413,7 +416,7 @@ class K8sAssemblyFactory(UserDSLObject):
         }
 
     @abstractmethod
-    def createAssembly(self, pgCred: Credential, pgDB: PostgresDatabase) -> Assembly:
+    def createAssembly(self, mergeRW_Credential: Credential, mergeDB: DB) -> Assembly:
         pass
 
     @abstractmethod
@@ -434,7 +437,7 @@ class K8sAssemblyFactory(UserDSLObject):
         return rc
 
 
-class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
+class YellowSinglePostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
     """
     This is an assembly where a kubernetes name space is configured. It has a PVC for a git clone cache
     and for a postgres database. The postgres database is created in a pod along with a pod for airflow
@@ -449,23 +452,23 @@ class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
             git_cache_config: GitCacheConfig,
             nfs_server_node: str,
             afHostPortPair: HostPortPair,
-            pgStorageNeeds: StorageRequirement,
-            pgResourceLimits: Optional[K8sResourceLimits] = None,
+            dbStorageNeeds: StorageRequirement,
+            dbResourceLimits: Optional[K8sResourceLimits] = None,
             afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
             afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> None:
         super().__init__(name, namespace, git_cache_config)
         self.nfs_server_node: str = nfs_server_node
         self.afHostPortPair: HostPortPair = afHostPortPair
-        self.pgStorageNeeds: StorageRequirement = pgStorageNeeds
-        self.pgResourceLimits: Optional[K8sResourceLimits] = pgResourceLimits
+        self.dbStorageNeeds: StorageRequirement = dbStorageNeeds
+        self.dbResourceLimits: Optional[K8sResourceLimits] = dbResourceLimits
         self.afWebserverResourceLimits: Optional[K8sResourceLimits] = afWebserverResourceLimits
         self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
         self.git_cache_config.lint(tree.addSubTree(self.git_cache_config))
-        self.pgStorageNeeds.lint(tree.addSubTree(self.pgStorageNeeds))
-        if self.pgResourceLimits:
-            self.pgResourceLimits.lint(tree.addSubTree(self.pgResourceLimits))
+        self.dbStorageNeeds.lint(tree.addSubTree(self.dbStorageNeeds))
+        if self.dbResourceLimits:
+            self.dbResourceLimits.lint(tree.addSubTree(self.dbResourceLimits))
         if self.afWebserverResourceLimits:
             self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
         if self.afSchedulerResourceLimits:
@@ -481,15 +484,15 @@ class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
         rc.update(self.git_cache_config.mergeToYAMLContext(eco))
         return rc
 
-    def createYellowAssemblySingleDatabase(
+    def createYellowAssemblySinglePostgresDatabase(
             self,
             name: str,
             nfs_server_node: str,
-            pgCred: Credential,
-            pgDB: PostgresDatabase,
+            dbRWCred: Credential,
+            db: PostgresDatabase,
             afHostPortPair: HostPortPair,
-            pgStorageNeeds: StorageRequirement,
-            pgResourceLimits: Optional[K8sResourceLimits] = None,
+            dbStorageNeeds: StorageRequirement,
+            dbResourceLimits: Optional[K8sResourceLimits] = None,
             afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
             afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> Assembly:
         """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
@@ -507,27 +510,27 @@ class YellowSingleDatabaseAssembly(K8sAssemblyFactory):
                 self.git_cache_config.access_mode))
         assembly.components.append(LoggingComponent(self.name, self.namespace))
         assembly.components.append(NetworkPolicyComponent(self.name, self.namespace))
-        assembly.components.append(PostgresComponent("pg", self.namespace, pgCred, pgDB, pgStorageNeeds, pgResourceLimits))
+        assembly.components.append(PostgresComponent("pg", self.namespace, dbRWCred, db, dbStorageNeeds, dbResourceLimits))
         # Airflow uses the same database as the merge store
         assembly.components.append(
-            Airflow281Component("airflow", self.namespace, pgCred, pgDB, [],
+            Airflow281Component("airflow", self.namespace, dbRWCred, db, [],
                                 webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
         return assembly
 
-    def createAssembly(self, pgCred: Credential, pgDB: PostgresDatabase) -> Assembly:
+    def createAssembly(self, mergeRW_Credential: Credential, mergeDB: PostgresDatabase) -> Assembly:
         """This creates the assembly for the kubernetes yaml file."""
-        return self.createYellowAssemblySingleDatabase(
+        return self.createYellowAssemblySinglePostgresDatabase(
             self.name,
             self.nfs_server_node,
-            pgCred, pgDB,
+            mergeRW_Credential, mergeDB,
             self.afHostPortPair,
-            self.pgStorageNeeds,
-            self.pgResourceLimits,
+            self.dbStorageNeeds,
+            self.dbResourceLimits,
             self.afWebserverResourceLimits,
             self.afSchedulerResourceLimits)
 
 
-class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory):
+class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
     """
     This is an assembly where a kubernetes name space is configured. It has a PVC for a git clone cache.
     The postgres database is external to the system and available using info from the psp merge container
@@ -570,8 +573,8 @@ class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory):
     def createYellowAssemblySingleDatabase(
             self,
             name: str,
-            pgCred: Credential,
-            pgDB: PostgresDatabase,
+            dbRWCred: Credential,
+            db: HostPortSQLDatabase,
             afHostPortPair: HostPortPair,
             afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
             afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> Assembly:
@@ -592,21 +595,21 @@ class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory):
         assembly.components.append(NetworkPolicyComponent(self.name, self.namespace))
         # Airflow uses the same database as the merge store
         assembly.components.append(
-            Airflow281Component("airflow", self.namespace, pgCred, pgDB, [],
+            Airflow281Component("airflow", self.namespace, dbRWCred, db, [],
                                 webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
         return assembly
 
-    def createAssembly(self, pgCred: Credential, pgDB: PostgresDatabase) -> Assembly:
+    def createAssembly(self, mergeRW_Credential: Credential, mergeDB: HostPortSQLDatabase) -> Assembly:
         """This creates the assembly for the kubernetes yaml file."""
         return self.createYellowAssemblySingleDatabase(
             self.name,
-            pgCred, pgDB,
+            mergeRW_Credential, mergeDB,
             self.afHostPortPair,
             self.afWebserverResourceLimits,
             self.afSchedulerResourceLimits)
 
 
-class YellowTwinDatabaseAssembly(K8sAssemblyFactory):
+class YellowTwinPostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
     def __init__(self, name: str, namespace: str, git_cache_config: GitCacheConfig,
                  nfs_server_node: str,
                  mergeDBStorageNeeds: StorageRequirement,
@@ -652,13 +655,13 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory):
         )
         return assembly
 
-    def createAssembly(self, pgCred: Credential, pgDB: PostgresDatabase) -> Assembly:
+    def createAssembly(self, mergeRW_Credential: Credential, mergeDB: PostgresDatabase) -> Assembly:
         """This creates the assembly for the kubernetes yaml file."""
         return self.createYellowAssemblyTwinDatabase(
             self.name,
             self.nfs_server_node,
-            pgCred,
-            pgDB,
+            mergeRW_Credential,
+            mergeDB,
             self.mergeDBStorageNeeds,
             self.afDBcred,
             self.afDB,
