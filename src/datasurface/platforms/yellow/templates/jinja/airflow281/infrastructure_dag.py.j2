@@ -20,6 +20,7 @@ from airflow.operators.python import BranchPythonOperator
 from kubernetes.client import models as k8s
 import json
 import os
+from typing import Optional
 
 # Default arguments for the DAG
 default_args = {
@@ -462,6 +463,26 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
     
     return dag
 
+def create_database_connection(driver: str, user: str, password: str, host: str, port: int, database: str, driver: Optional[str] = None):
+    """Helper function to create database connection URL and engine consistently"""
+    # Build common URL parameters
+    url_params = {
+        "drivername": driver,
+        "username": user,
+        "password": password,
+        "host": host,
+        "port": port,
+        "database": database,
+    }
+    
+    # Add query parameters if needed
+    if driver:
+        url_params["query"] = {"driver": driver}
+    
+    db_url = URL.create(**url_params)
+    return create_engine(db_url)
+
+
 def load_platform_configurations(config: dict):
     """Load configurations from database and create DAG objects - identical to original template"""
     generated_dags = {}
@@ -469,20 +490,31 @@ def load_platform_configurations(config: dict):
     try:
         import sqlalchemy
         from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
         
-        # Build database connection string using environment variables
+        # Build database connection using environment variables
+        merge_db_driver = config['merge_db_driver']
         merge_db_user = os.environ.get(f"{config['merge_db_credential_secret_name']}_USER")
         merge_db_password = os.environ.get(f"{config['merge_db_credential_secret_name']}_PASSWORD")
         merge_db_host = config['merge_db_hostname']
         merge_db_port = config['merge_db_port']
         merge_db_db_name = config['merge_db_database']
+        merge_db_query = config.get('merge_db_query', None)
         
         if not merge_db_user or not merge_db_password:
             print("Missing Merge SQL credentials in environment variables")
             return {}
         
-        # Create database connection
-        engine = create_engine(f'postgresql://{merge_db_user}:{merge_db_password}@{merge_db_host}:{merge_db_port}/{merge_db_db_name}')
+        # Create database connection using helper function
+        engine = create_database_connection(
+            driver=merge_db_driver,
+            user=merge_db_user,
+            password=merge_db_password,
+            host=merge_db_host,
+            port=merge_db_port,
+            database=merge_db_db_name,
+            driver=merge_db_query
+        )
         
         # Read from the platform-specific airflow_dsg table
         table_name = config['phys_dag_table_name']
@@ -951,20 +983,31 @@ def load_datatransformer_configurations(config: dict):
     try:
         import sqlalchemy
         from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
         
-        # Build database connection string using environment variables
+        # Build database connection using environment variables
+        merge_db_driver = config['merge_db_driver']
         merge_db_user = os.environ.get(f"{config['merge_db_credential_secret_name']}_USER")
         merge_db_password = os.environ.get(f"{config['merge_db_credential_secret_name']}_PASSWORD")
         merge_db_host = config['merge_db_hostname']
         merge_db_port = config['merge_db_port']
         merge_db_db_name = config['merge_db_database']
+        merge_db_query = config.get('merge_db_query', None)
         
         if not merge_db_user or not merge_db_password:
             print("Missing Merge SQL credentials in environment variables")
             return {}
         
-        # Create database connection
-        engine = create_engine(f'postgresql://{merge_db_user}:{merge_db_password}@{merge_db_host}:{merge_db_port}/{merge_db_db_name}')
+        # Create database connection using helper function
+        engine = create_database_connection(
+            driver=merge_db_driver,
+            user=merge_db_user,
+            password=merge_db_password,
+            host=merge_db_host,
+            port=merge_db_port,
+            database=merge_db_db_name,
+            driver=merge_db_query
+        )
         
         # Read from the platform-specific airflow_datatransformer table
         table_name = config['phys_datatransformer_table_name']
@@ -1134,13 +1177,15 @@ def create_factory_dags_from_database(**context):
     try:
         import sqlalchemy
         from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
         
-        # Build database connection string using environment variables
+        # Build database connection using environment variables
         merge_db_user = os.environ.get('{{ merge_db_credential_secret_name | replace("-", "_") }}_USER')
         merge_db_password = os.environ.get('{{ merge_db_credential_secret_name | replace("-", "_") }}_PASSWORD')
         merge_db_host = '{{ merge_db_hostname }}'
         merge_db_port = {{ merge_db_port }}
         merge_db_db_name = '{{ merge_db_database }}'
+        merge_db_query = '{{ merge_db_query }}'
         
         if not merge_db_user or not merge_db_password:
             if task_instance:
@@ -1149,8 +1194,16 @@ def create_factory_dags_from_database(**context):
                 log_message("Missing Merge SQL credentials - factory DAGs will be created during task execution")
                 return "Factory DAG creation deferred to task execution"
         
-        # Create database connection
-        engine = create_engine(f'postgresql://{merge_db_user}:{merge_db_password}@{merge_db_host}:{merge_db_port}/{merge_db_db_name}')
+        # Create database connection using helper function
+        engine = create_database_connection(
+            driver='{{ merge_db_driver }}',
+            user=merge_db_user,
+            password=merge_db_password,
+            host=merge_db_host,
+            port=merge_db_port,
+            database=merge_db_db_name,
+            driver=merge_db_query
+        )
         
         # Read factory DAG configurations - table created/populated by handleModelMerge
         factory_table_name = '{{ phys_factory_table_name }}'

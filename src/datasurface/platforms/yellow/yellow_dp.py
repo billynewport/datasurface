@@ -34,7 +34,7 @@ import sqlalchemy
 from typing import List
 from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
 from sqlalchemy import text
-from datasurface.platforms.yellow.db_utils import createEngine
+from datasurface.platforms.yellow.db_utils import createEngine, getDriverNameAndQueryForDataContainer
 from datasurface.md.sqlalchemyutils import createOrUpdateTable, datasetToSQLAlchemyTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger, SQLMergeIngestion, CaptureMetaData
 from pydantic import BaseModel, Field
@@ -1073,6 +1073,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
             # Common context for all streams (platform-level configuration)
             common_context: dict[str, Any] = self.dp.psp.yp_assm.createYAMLContext(eco)
+            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.dp.psp.mergeStore)
             common_context.update(
                 {
                     "namespace_name": self.dp.psp.yp_assm.namespace,
@@ -1080,6 +1081,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "original_platform_name": self.dp.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "merge_db_driver": merge_db_driver,
                     "merge_db_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
                     "merge_db_database": self.dp.psp.mergeStore.databaseName,
                     "merge_db_port": self.dp.psp.mergeStore.hostPortPair.port,
@@ -1096,6 +1098,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "pv_storage_class": self.dp.psp.pv_storage_class,
                 }
             )
+            if merge_db_query:
+                common_context["merge_db_query"] = merge_db_query
 
             # Get table name
             table_name = self.dp.getPhysDAGTableName()
@@ -1262,12 +1266,14 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
             # Common context for all DataTransformers (platform-level configuration)
             common_context: dict[str, Any] = self.dp.psp.yp_assm.createYAMLContext(eco)
+            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.dp.psp.mergeStore)
             common_context.update(
                 {
                     "platform_name": K8sUtils.to_k8s_name(self.dp.name),
                     "original_platform_name": self.dp.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "merge_db_driver": merge_db_driver,
                     "merge_db_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
                     "merge_db_database": self.dp.psp.mergeStore.databaseName,
                     "merge_db_port": self.dp.psp.mergeStore.hostPortPair.port,
@@ -1284,6 +1290,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "pv_storage_class": self.dp.psp.pv_storage_class,
                 }
             )
+            if merge_db_query:
+                common_context["merge_db_query"] = merge_db_query
 
             # Get table name
             table_name = self.dp.getPhysDataTransformerTableName()
@@ -1899,6 +1907,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 dp: YellowDataPlatform = cast(YellowDataPlatform, dpRaw)
                 # Common context for all factory DAGs (platform-level configuration)
                 common_context: dict[str, Any] = self.yp_assm.createYAMLContext(eco)
+                merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.mergeStore)
                 common_context.update(
                     {
                         "namespace_name": self.yp_assm.namespace,
@@ -1906,6 +1915,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                         "original_platform_name": dp.name,  # Original platform name for job execution
                         "ecosystem_name": eco.name,  # Original ecosystem name
                         "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                        "merge_db_driver": merge_db_driver,
                         "merge_db_hostname": self.mergeStore.hostPortPair.hostName,
                         "merge_db_database": self.mergeStore.databaseName,
                         "merge_db_port": self.mergeStore.hostPortPair.port,
@@ -1924,6 +1934,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                         # Git cache configuration variables
                         "pv_storage_class": self.pv_storage_class
                     })
+                if merge_db_query:
+                    common_context["merge_db_query"] = merge_db_query
 
                 # Factory DAG configurations to create
                 factory_configs.append(
@@ -2070,12 +2082,14 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
             # Prepare template context with all required variables
             context: dict[str, Any] = self.yp_assm.createYAMLContext(eco)
+            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.mergeStore)
             context.update(
                 {
                     "psp_k8s_name": K8sUtils.to_k8s_name(self.name),
                     "psp_name": self.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
+                    "merge_db_driver": merge_db_driver,
                     "merge_db_hostname": self.mergeStore.hostPortPair.hostName,
                     "merge_db_database": self.mergeStore.databaseName,
                     "merge_db_port": self.mergeStore.hostPortPair.port,
@@ -2099,6 +2113,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
                     "image_pull_policy": self.image_pull_policy.value
                 })
+            if merge_db_query:
+                context["merge_db_query"] = merge_db_query
 
             # Render the templates
             rendered_yaml: str = assembly.generateYaml(env, self.createTemplateContext(eco))

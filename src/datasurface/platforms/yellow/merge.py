@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint
+    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint, HostPortSQLDatabase
 )
 from sqlalchemy import Table, MetaData, text
 import sqlalchemy
@@ -417,6 +417,7 @@ class Job(YellowDatasetUtilities):
             # Now, get an Engine for the source database
             sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
             assert self.store.cmd.dataContainer is not None
+            assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
             sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
             assert cmd.singleOrMultiDatasetIngestion is not None
             ingestionType = cmd.singleOrMultiDatasetIngestion
