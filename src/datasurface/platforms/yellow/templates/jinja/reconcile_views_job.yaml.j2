@@ -39,16 +39,16 @@ spec:
             secretKeyRef:
               name: {{ git_credential_secret_name }}
               key: token
-        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_USER
+        - name: {{ merge_db_credential_secret_name | replace('-', '_') }}_USER
           valueFrom:
             secretKeyRef:
-              name: {{ postgres_credential_secret_name }}
-              key: {{ postgres_credential_secret_name }}_USER
-        - name: {{ postgres_credential_secret_name | replace('-', '_') }}_PASSWORD
+              name: {{ merge_db_credential_secret_name }}
+              key: {{ merge_db_credential_secret_name }}_USER
+        - name: {{ merge_db_credential_secret_name | replace('-', '_') }}_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ postgres_credential_secret_name }}
-              key: {{ postgres_credential_secret_name }}_PASSWORD
+              name: {{ merge_db_credential_secret_name }}
+              key: {{ merge_db_credential_secret_name }}_PASSWORD
         {% if git_cache_enabled %}
         volumeMounts:
         - name: git-model-cache
