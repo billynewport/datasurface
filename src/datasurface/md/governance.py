@@ -1148,27 +1148,37 @@ class SQLSnapshotIngestion(SQLIngestion):
         super().lint(eco, gz, t, d, tree)
 
 
-class SQLSnapshotDeltaIngestion(SQLIngestion):
+class SQLWatermarkSnapshotDeltaIngestion(SQLIngestion):
     """This IMD describes how to pull a snapshot 'dump' from each dataset and then persist
-    state variables which are used to next pull a delta per dataset and then persist the state
-    again so that another delta can be pulled on the next pass and so on"""
-    def __init__(self, db: SQLDatabase, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    state variables which are used to next pull a delta per dataset. A watermark query is used to fetch
+    the high watermark in the target across all datasets. The watermark is used to grab a seed of every record
+    and finally a new watermark is pulled and records between the two watermarks are pulled in a delta. The
+    watermarks are persisted in the BatchState.
+
+    select MAX({{wcol}}) as w from {{table}}
+    select * from {{table}} where {{wcol}} < {{watermark}}
+    select * from {{table}} where {{wcol}} >= {{low}} and {{wcol}} < {{high}}
+
+    @param watermarkSQL: This is an unparameterized SQL string to return the max watermark value"""
+    def __init__(self, db: SQLDatabase, watermarkColumn: str, watermarkSQL: str, snapshotSQL: str, deltaSQL: str, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(db, *args)
-        self.variableNames: list[str] = []
-        """The names of state variables produced by snapshot and delta sql strings"""
-        self.snapshotSQL: dict[str, str] = OrderedDict()
-        """A SQL string per dataset which pulls a per table snapshot"""
-        self.deltaSQL: dict[str, str] = OrderedDict()
-        """A SQL string per dataset which pulls all rows which changed since last time for a table"""
+        self.watermarkColumn: str = watermarkColumn
+        self.watermarkSQL: str = watermarkSQL
+        self.snapshotSQL: str = snapshotSQL
+        self.deltaSQL: str = deltaSQL
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__, "variableNames": self.variableNames, "snapshotSQL": self.snapshotSQL, "deltaSQL": self.deltaSQL})
+        rc.update(
+            {
+                "_type": self.__class__.__name__, "watermarkColumn": self.watermarkColumn, "watermarkSQL": self.watermarkSQL,
+                "snapshotSQL": self.snapshotSQL, "deltaSQL": self.deltaSQL
+            })
         return rc
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, SQLSnapshotDeltaIngestion):
-            return super().__eq__(other) and self.variableNames == other.variableNames and \
+        if isinstance(other, SQLWatermarkSnapshotDeltaIngestion):
+            return super().__eq__(other) and self.watermarkColumn == other.watermarkColumn and self.watermarkSQL == other.watermarkSQL and \
                 self.snapshotSQL == other.snapshotSQL and self.deltaSQL == other.deltaSQL
         return False
 
