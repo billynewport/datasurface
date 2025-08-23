@@ -28,7 +28,7 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
         req.retention.milestoningStrategy = DataMilestoningStrategy.FORENSIC
 
         assert eco is not None
-        BaseSnapshotMergeJobTest.__init__(self, eco, dp.name)
+        BaseSnapshotMergeJobTest.__init__(self, eco, dp.name, "Store1")
         unittest.TestCase.__init__(self, methodName)
 
     def baseTearDown(self) -> None:
@@ -201,6 +201,7 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
             'ds_surf_batch_out': 2147483647
         }, self)
 
+        self.assertEqual(self.job.numReconcileDDLs, 1)
         print("All forensic merge scenario tests passed!")
 
 

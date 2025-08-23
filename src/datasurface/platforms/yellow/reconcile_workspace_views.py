@@ -15,6 +15,7 @@ from datasurface.md.credential import CredentialStore
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowSchemaProjector
 from datasurface.md.schema import DDLTable
 from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, createEngine
+from datasurface.platforms.yellow.db_utils import createInspector
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
@@ -134,6 +135,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
     merge_tables_processed = 0
     merge_tables_failed = 0
 
+    inspector = createInspector(engine)
     for store_name in sorted(stores_to_process):
         try:
             logger.info("Processing merge tables for store", store_name=store_name)
@@ -145,7 +147,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
             # Create/update all merge tables for this store
             with log_operation_timing(logger, "reconcile_merge_tables", store_name=store_name):
-                utils.reconcileMergeTableSchemas(engine, store)
+                utils.reconcileMergeTableSchemas(engine, inspector, store)
 
             logger.info("Successfully processed merge tables for store",
                         store_name=store_name,

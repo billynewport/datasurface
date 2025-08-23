@@ -37,5 +37,44 @@
             "status": "PROVISIONED"
           }
         ]
-      }
-    ]
+      },
+      {
+        "dsgName": "DSGLive",
+        "workspace": "SQLServerConsumerLive",
+        "assignments": [
+          {
+            "dataPlatform": "YellowLiveSQLServer",
+            "documentation": "Test DataPlatform",
+            "productionStatus": "PRODUCTION",
+            "deprecationsAllowed": "NEVER",
+            "status": "PROVISIONED"
+          }
+        ]
+      },
+      {
+          "dsgName": "DSGForensic",
+          "workspace": "SQLServerConsumerForensic",
+          "assignments": [
+            {
+              "dataPlatform": "YellowForensicSQLServer",
+              "documentation": "Test DataPlatform",
+              "productionStatus": "PRODUCTION",
+              "deprecationsAllowed": "NEVER",
+              "status": "PROVISIONED"
+            }
+          ]
+        },
+        {
+          "dsgName": "DSGForensic",
+          "workspace": "SQLServerConsumerRemoteForensic",
+          "assignments": [
+            {
+              "dataPlatform": "YellowRemoteForensicSQLServer",
+              "documentation": "Test DataPlatform",
+              "productionStatus": "PRODUCTION",
+              "deprecationsAllowed": "NEVER",
+              "status": "PROVISIONED"
+            }
+          ]
+        }
+      ]

@@ -12,7 +12,7 @@ from datasurface.md import (
 from datasurface.md.credential import CredentialType
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, KubernetesEnvVarsCredentialStore
 from sqlalchemy import Engine, text
-from datasurface.platforms.yellow.merge import createEngine
+from datasurface.platforms.yellow.db_utils import createEngine, createInspector
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
 from typing import cast, Dict, Any, Optional, Callable
 from datasurface.cmd.platform import cloneGitRepository, getLatestModelAtTimestampedFolder
@@ -180,6 +180,7 @@ class DataTransformerJob(JobUtilities):
             with log_operation_timing(logger, "database_connection_setup"):
                 systemMergeUser, systemMergePassword = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
                 systemMergeEngine: Engine = createEngine(self.dp.psp.mergeStore, systemMergeUser, systemMergePassword)
+                inspector = createInspector(systemMergeEngine)
 
             # Need to create the dt tables for the output datastore if they don't exist
             wce: WorkspaceCacheEntry = self.eco.cache_getWorkspaceOrThrow(self.workspaceName)
@@ -201,7 +202,7 @@ class DataTransformerJob(JobUtilities):
                 store: Datastore = self.eco.cache_getDatastoreOrThrow(outputDatastore.name).datastore
                 t: Table = datasetToSQLAlchemyTable(
                     dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData(), systemMergeEngine)
-                createOrUpdateTable(systemMergeEngine, t)
+                createOrUpdateTable(systemMergeEngine, inspector, t)
 
             # Reset an open batch if one exists.
             with log_operation_timing(logger, "batch_creation_or_reset"):

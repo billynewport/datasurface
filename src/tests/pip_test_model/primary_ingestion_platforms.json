@@ -2,5 +2,9 @@
     {
         "storeName": "Store1",
         "dataPlatforms": ["YellowForensic"]
+    },
+    {
+        "storeName": "Store2",
+        "dataPlatforms": ["YellowForensicSQLServer"]
     }
 ]

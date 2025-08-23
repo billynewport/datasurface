@@ -21,6 +21,8 @@ from kubernetes.client import models as k8s
 import json
 import os
 from typing import Optional
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 # Default arguments for the DAG
 default_args = {
@@ -463,7 +465,7 @@ def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> D
     
     return dag
 
-def create_database_connection(driver: str, user: str, password: str, host: str, port: int, database: str, driver: Optional[str] = None):
+def create_database_connection(driver: str, user: str, password: str, host: str, port: int, database: str, query_driver: Optional[str] = None):
     """Helper function to create database connection URL and engine consistently"""
     # Build common URL parameters
     url_params = {
@@ -476,8 +478,8 @@ def create_database_connection(driver: str, user: str, password: str, host: str,
     }
     
     # Add query parameters if needed
-    if driver:
-        url_params["query"] = {"driver": driver}
+    if query_driver:
+        url_params["query"] = {"driver": query_driver}
     
     db_url = URL.create(**url_params)
     return create_engine(db_url)
@@ -513,7 +515,7 @@ def load_platform_configurations(config: dict):
             host=merge_db_host,
             port=merge_db_port,
             database=merge_db_db_name,
-            driver=merge_db_query
+            query_driver=merge_db_query
         )
         
         # Read from the platform-specific airflow_dsg table
@@ -1006,7 +1008,7 @@ def load_datatransformer_configurations(config: dict):
             host=merge_db_host,
             port=merge_db_port,
             database=merge_db_db_name,
-            driver=merge_db_query
+            query_driver=merge_db_query
         )
         
         # Read from the platform-specific airflow_datatransformer table
@@ -1202,7 +1204,7 @@ def create_factory_dags_from_database(**context):
             host=merge_db_host,
             port=merge_db_port,
             database=merge_db_db_name,
-            driver=merge_db_query
+            query_driver=merge_db_query
         )
         
         # Read factory DAG configurations - table created/populated by handleModelMerge

@@ -89,7 +89,7 @@ class SnapshotMergeJobCDCForensic(MergeSCD2ForensicJob):
                 result = connection.execute(text(f"""
                     SELECT MAX("batch_id")
                     FROM {self.getPhysBatchMetricsTableName()}
-                    WHERE key = :key AND batch_status = :batch_status
+                    WHERE "key" = :key AND batch_status = :batch_status
                 """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
                 lastCompletedBatch = result.fetchone()
                 lastCompletedBatch = lastCompletedBatch[0] if lastCompletedBatch and lastCompletedBatch[0] else None
@@ -157,45 +157,27 @@ class SnapshotMergeJobCDCForensic(MergeSCD2ForensicJob):
                     allColumns: List[str] = [col.name for col in schema.columns.values()]
                     quoted_columns = [f'"{col}"' for col in allColumns]
 
-                    # Build hash expressions
-                    all_hash_expr = " || ".join([f'COALESCE("{col}"::text, \"\")' for col in allColumns])
-                    key_hash_expr = " || ".join([f'COALESCE("{col}"::text, \"\")' for col in pkColumns])
-
-                    # Conflate per key to last TX in (last_tx, high_tx_global] and map source IUD -> 'I'/'U'/'D'
-                    insert_sql = f"""
-                    WITH cdc_filtered AS (
-                        SELECT {', '.join(quoted_columns)},
-                               {quoted_tx} AS tx,
-                               {quoted_iud} AS src_iud,
-                               MD5({all_hash_expr}) AS {sp.ALL_HASH_COLUMN_NAME},
-                               MD5({key_hash_expr}) AS {sp.KEY_HASH_COLUMN_NAME}
-                        FROM {cdcTableName}
-                        WHERE {quoted_tx} > :last_tx AND {quoted_tx} <= :high_tx
-                    ), labeled AS (
-                        SELECT *,
-                               CASE
-                                   WHEN src_iud = :map_i THEN 'I'
-                                   WHEN src_iud = :map_u THEN 'U'
-                                   WHEN src_iud = :map_d THEN 'D'
-                                   ELSE 'U'
-                               END AS {sp.IUD_COLUMN_NAME}
-                        FROM cdc_filtered
-                    ), ranked AS (
-                        SELECT *, ROW_NUMBER() OVER (PARTITION BY {sp.KEY_HASH_COLUMN_NAME} ORDER BY tx DESC) AS rn
-                        FROM labeled
+                    # Use database operations for CDC conflation
+                    insert_sql = self.merge_db_ops.get_cdc_conflation_sql(
+                        cdcTableName,
+                        stagingTableName,
+                        allColumns,
+                        pkColumns,
+                        tx_col,
+                        iud_col,
+                        sp.ALL_HASH_COLUMN_NAME,
+                        sp.KEY_HASH_COLUMN_NAME,
+                        sp.BATCH_ID_COLUMN_NAME,
+                        batchId,
+                        last_tx,
+                        high_tx_global,
+                        map_i,
+                        map_u,
+                        map_d
                     )
-                    INSERT INTO {stagingTableName} (
-                        {', '.join(quoted_columns)},
-                        {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME}, {sp.IUD_COLUMN_NAME}
-                    )
-                    SELECT {', '.join([f'r."{col}"' for col in allColumns])},
-                           {batchId}, r.{sp.ALL_HASH_COLUMN_NAME}, r.{sp.KEY_HASH_COLUMN_NAME}, r.{sp.IUD_COLUMN_NAME}
-                    FROM ranked r
-                    WHERE r.rn = 1
-                    """
 
-                    params = {"last_tx": last_tx, "high_tx": high_tx_global, "map_i": map_i, "map_u": map_u, "map_d": map_d}
-                    result = mergeConn.execute(text(insert_sql), params)
+                    # Note: CDC conflation SQL doesn't use named parameters in the current implementation
+                    result = mergeConn.execute(text(insert_sql))
                     inserted = int(result.rowcount or 0)
 
                     recordsInserted += inserted

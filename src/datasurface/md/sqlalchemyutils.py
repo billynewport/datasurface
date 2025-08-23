@@ -7,12 +7,13 @@ from typing import Any, List, Optional, Sequence, TypeVar, Dict
 from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
     VarChar, NVarChar, Geography, GeometryType, SpatialReferenceSystem
 import sqlalchemy
-from sqlalchemy import inspect, MetaData, text
+from sqlalchemy import MetaData, text
+from sqlalchemy.inspection import inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.schema import Table, Column, PrimaryKeyConstraint
 from sqlalchemy.types import Boolean as SQLBoolean, SmallInteger, Integer as SQLInteger, BigInteger, Float, DECIMAL, Date as SQLDate, \
-    TIMESTAMP, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double
+    TIMESTAMP, DATETIME, Interval as SQLInterval, LargeBinary, CHAR, VARCHAR, TEXT, Double
 from datasurface.md import Dataset, Datastore
 from datasurface.md import Workspace, DatasetGroup, DatasetSink, DataContainer, PostgresDatabase
 from datasurface.md import EcosystemPipelineGraph, DataPlatform
@@ -22,6 +23,7 @@ from abc import ABC, abstractmethod
 from geoalchemy2 import Geography as GA2Geography, Geometry as GA2Geometry
 from sqlalchemy.engine.url import URL
 import logging
+from sqlalchemy.engine.reflection import Inspector
 
 # Standard Python logger - works everywhere
 logger = logging.getLogger(__name__)
@@ -51,7 +53,27 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None)
     elif isinstance(dataType.type, Date):
         t = SQLDate()
     elif isinstance(dataType.type, Timestamp):
-        t = TIMESTAMP()
+        # Use database-specific datetime type - this is critical for cross-database compatibility
+        if engine is not None and hasattr(engine, 'dialect'):
+            dialect_name = str(engine.dialect.name).lower()
+            if 'mssql' in dialect_name:
+                # SQL Server: use DATETIME instead of TIMESTAMP (which is binary row version)
+                t = DATETIME()
+            elif 'mysql' in dialect_name:
+                # MySQL: use DATETIME for timestamp semantics
+                t = DATETIME()
+            elif 'oracle' in dialect_name:
+                # Oracle: use TIMESTAMP
+                t = TIMESTAMP()
+            elif 'db2' in dialect_name:
+                # DB2: use TIMESTAMP
+                t = TIMESTAMP()
+            else:
+                # PostgreSQL and others: use TIMESTAMP
+                t = TIMESTAMP()
+        else:
+            # Default to TIMESTAMP when engine is not available
+            t = TIMESTAMP()
     elif isinstance(dataType.type, Interval):
         t = SQLInterval()
     elif isinstance(dataType.type, Variant):
@@ -164,6 +186,9 @@ def convertSQLAlchemyTableToDataset(table: Table) -> Dataset:
         elif isinstance(colType, SQLDate):
             newType = Date()
         elif isinstance(colType, TIMESTAMP):
+            newType = Timestamp()
+        elif isinstance(colType, DATETIME):
+            # DATETIME is also a timestamp in our model
             newType = Timestamp()
         elif isinstance(colType, SQLInterval):
             newType = Interval()
@@ -362,6 +387,12 @@ def _types_are_compatible(current_type: str, desired_type: str) -> bool:
     if current in ['BOOLEAN', 'BOOL'] and desired in ['BOOLEAN', 'BOOL']:
         return True
 
+    # TIMESTAMP/DATETIME equivalencies - these represent the same semantic meaning
+    # across different databases but use different SQL types
+    timestamp_types = ['TIMESTAMP', 'DATETIME', 'TIMESTAMP WITHOUT TIME ZONE', 'TIMESTAMP WITH TIME ZONE']
+    if current in timestamp_types and desired in timestamp_types:
+        return True
+
     # For VARCHAR and CHAR, we need to be strict about lengths
     # Only consider them compatible if they have the same constraints
     # This means VARCHAR(50) and VARCHAR(200) are NOT compatible
@@ -420,120 +451,250 @@ def _extract_decimal_params(type_str: str) -> tuple[int, int]:
         return -1, -1  # Invalid format
 
 
-def createOrUpdateTable(engine: Engine, table: Table) -> bool:
-    """This will create the table if it doesn't exist or update it if it does. Returns True if created or altered, False if no changes were needed."""
-    inspector = inspect(engine)  # type: ignore[attr-defined]
-    if not inspector.has_table(table.name):  # type: ignore[attr-defined]
+def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, createOnly: bool = False) -> bool:
+    """Create the table if it doesn't exist; otherwise add/alter columns per dialect.
+
+    Returns True if created or altered, False if no changes were needed.
+    """
+    import time
+    start_time = time.time()
+
+    logger.info(f"⏱️  Starting createOrUpdateTable for {table.name}")
+
+    # Time the has_table check
+    has_table_start = time.time()
+    table_exists = inspector.has_table(table.name)  # type: ignore[attr-defined]
+    has_table_time = time.time() - has_table_start
+    logger.info(f"⏱️  has_table() check took {has_table_time:.3f}s for {table.name} (exists: {table_exists})")
+
+    if not table_exists:
+        create_start = time.time()
         table.create(engine)
-        logger.info("Created table %s", table.name)
+        create_time = time.time() - create_start
+        total_time = time.time() - start_time
+        logger.info(f"⏱️  table.create() took {create_time:.3f}s for {table.name}")
+        logger.info(f"⏱️  TOTAL createOrUpdateTable took {total_time:.3f}s for {table.name}")
         return True
-    else:
-        currentSchema: Table = Table(table.name, MetaData(), autoload_with=engine)
-        newColumns: List[Column[Any]] = []
+
+    if createOnly:
+        logger.info(f"⏱️  createOnly is True, skipping schema fingerprint check for {table.name}")
+        return True
+
+    # PERFORMANCE OPTIMIZATION: Use fast schema fingerprint for SQL Server before expensive schema autoload
+    dialect_name = str(engine.dialect.name).lower()
+    is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
+
+    if is_mssql:
+        # Create comprehensive but fast schema fingerprint
+        fingerprint_start = time.time()
+        with engine.connect() as conn:
+            result = conn.execute(text(f"""
+                SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = '{table.name}'
+                ORDER BY ORDINAL_POSITION
+            """))
+            existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]
+
+        # Generate expected schema fingerprint from table definition
+        expected_schema = []
         for column in table.columns:
-            col_typed: Column[Any] = column  # Type annotation for clarity
-            if col_typed.name not in currentSchema.columns:  # type: ignore[attr-defined]
-                newColumns.append(col_typed)
-        columnsToAlter: List[Column[Any]] = []
-        for column in currentSchema.columns:
-            col_typed: Column[Any] = column  # Type annotation for clarity
-            if col_typed.name not in table.columns:  # type: ignore[attr-defined]
-                continue
-            current_type_str = str(col_typed.type).upper()  # type: ignore[attr-defined]
-            desired_type_str = str(table.columns[col_typed.name].type).upper()  # type: ignore[attr-defined]
-            if current_type_str != desired_type_str and not _types_are_compatible(current_type_str, desired_type_str):
-                columnsToAlter.append(table.columns[col_typed.name])  # type: ignore[attr-defined]
-        if newColumns or columnsToAlter:
-            with engine.begin() as connection:
-                for column in newColumns:
-                    column_type = str(column.type)  # type: ignore[attr-defined]
-                    alter_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"  # type: ignore[attr-defined]
-                    if column.nullable is False:
-                        alter_sql += " NOT NULL"
-                    connection.execute(text(alter_sql))
-                if columnsToAlter:
-                    alter_parts = []
-                    for column in columnsToAlter:
-                        alter_parts.append(f"ALTER COLUMN {column.name} TYPE {str(column.type)}")  # type: ignore[attr-defined]
-                    alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
-                    connection.execute(text(alter_sql))
-            if newColumns:
-                logger.info("Added columns to table %s: %s", table.name, [col.name for col in newColumns])  # type: ignore[attr-defined]
-            if columnsToAlter:
-                logger.info("Altered columns in table %s: %s", table.name, [col.name for col in columnsToAlter])  # type: ignore[attr-defined]
-            return True
+            col_name = column.name
+            col_type = str(column.type).lower()
+
+            # Extract type details for comparison
+            if hasattr(column.type, 'length') and getattr(column.type, 'length', None):
+                max_length = getattr(column.type, 'length', None)
+            else:
+                max_length = None
+
+            nullable = column.nullable
+            expected_schema.append((col_name, col_type, max_length, None, None, nullable))
+
+        fingerprint_time = time.time() - fingerprint_start
+        logger.info(f"⏱️  Schema fingerprint check took {fingerprint_time:.3f}s for {table.name}")
+
+        # Compare schemas (simplified comparison for key differences)
+        schemas_match = (len(existing_schema) == len(expected_schema))
+        if schemas_match:
+            for i, (existing_col, expected_col) in enumerate(zip(existing_schema, expected_schema)):
+                # Compare: name, type, length (key properties that affect compatibility)
+                if (existing_col[0].lower() != expected_col[0].lower() or
+                        existing_col[2] != expected_col[2]):  # different name or length
+                    schemas_match = False
+                    break
+
+        if schemas_match:
+            total_time = time.time() - start_time
+            logger.info(f"⏱️  TOTAL createOrUpdateTable took {total_time:.3f}s for {table.name} (schema fingerprint matches, skipped full schema check)")
+            return False  # No changes needed
         else:
-            return False
+            logger.info("⏱️  Schema fingerprint mismatch detected, proceeding with full schema validation")
+            logger.info(f"⏱️  Existing: {existing_schema}")
+            logger.info(f"⏱️  Expected: {expected_schema}")
+
+    # Time the schema loading
+    schema_start = time.time()
+    currentSchema: Table = Table(table.name, MetaData(), autoload_with=engine)
+    schema_time = time.time() - schema_start
+    logger.info(f"⏱️  Schema autoload took {schema_time:.3f}s for {table.name}")
+
+    # Determine dialect
+    dialect_name = str(engine.dialect.name).lower()
+    is_postgres = 'postgres' in dialect_name
+    is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
+
+    # Identify new and altered columns
+    newColumns: List[Column[Any]] = []
+    for column in table.columns:
+        col_typed: Column[Any] = column
+        if col_typed.name not in currentSchema.columns:  # type: ignore[attr-defined]
+            newColumns.append(col_typed)
+
+    columnsToAlter: List[Column[Any]] = []
+    for column in currentSchema.columns:
+        col_typed: Column[Any] = column
+        if col_typed.name not in table.columns:  # type: ignore[attr-defined]
+            continue
+        current_type_str = str(col_typed.type).upper()  # type: ignore[attr-defined]
+        desired_type_str = str(table.columns[col_typed.name].type).upper()  # type: ignore[attr-defined]
+        if current_type_str != desired_type_str and not _types_are_compatible(current_type_str, desired_type_str):
+            columnsToAlter.append(table.columns[col_typed.name])  # type: ignore[attr-defined]
+
+    if not newColumns and not columnsToAlter:
+        return False
+
+    with engine.begin() as connection:
+        # Add new columns
+        for column in newColumns:
+            column_type = str(column.type)  # type: ignore[attr-defined]
+            if is_postgres:
+                add_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"
+            elif is_mssql:
+                add_sql = f"ALTER TABLE {table.name} ADD {column.name} {column_type}"
+            else:
+                # Fallback to ANSI-ish syntax without COLUMN keyword
+                add_sql = f"ALTER TABLE {table.name} ADD {column.name} {column_type}"
+            if column.nullable is False:
+                add_sql += " NOT NULL"
+            connection.execute(text(add_sql))
+
+        # Alter existing columns' types when necessary
+        if columnsToAlter:
+            if is_postgres:
+                alter_parts = [f"ALTER COLUMN {c.name} TYPE {str(c.type)}" for c in columnsToAlter]  # type: ignore[attr-defined]
+                alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
+                connection.execute(text(alter_sql))
+            elif is_mssql:
+                # SQL Server requires separate ALTERs and uses no TYPE keyword
+                for c in columnsToAlter:
+                    alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {c.name} {str(c.type)}"  # type: ignore[attr-defined]
+                    connection.execute(text(alter_sql))
+            else:
+                # Best-effort generic path: attempt separate ALTERs
+                for c in columnsToAlter:
+                    alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {c.name} {str(c.type)}"  # type: ignore[attr-defined]
+                    connection.execute(text(alter_sql))
+
+    if newColumns:
+        logger.info("Added columns to table %s: %s", table.name, [col.name for col in newColumns])  # type: ignore[attr-defined]
+    if columnsToAlter:
+        logger.info("Altered columns in table %s: %s", table.name, [col.name for col in columnsToAlter])  # type: ignore[attr-defined]
+
+    total_time = time.time() - start_time
+    logger.info(f"⏱️  TOTAL createOrUpdateTable took {total_time:.3f}s for {table.name}")
+    return True
 
 
 def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyingTable: str, where_clause: Optional[str] = None) -> bool:
-    """This will create the view if it doesn't exist or update it if it does to match the current dataset schema
+    """Create or update a view to match the dataset schema across databases.
 
-    Args:
-        engine: SQLAlchemy engine for the database
-        dataset: Dataset defining the schema
-        viewName: Name of the view to create/update
-        underlyingTable: Name of the underlying table
-        where_clause: Optional WHERE clause to filter the view (e.g., "batch_out = 2147483647")
-
-    Returns:
-        bool: True if the view was created or modified, False if no changes were needed
+    For PostgreSQL: uses CREATE OR REPLACE VIEW and pg_get_viewdef for comparison.
+    For SQL Server: uses CREATE OR ALTER VIEW and sys.sql_modules for comparison.
     """
     inspector = inspect(engine)  # type: ignore[attr-defined]
+    dialect_name = str(engine.dialect.name).lower()
+    is_postgres = 'postgres' in dialect_name
+    is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
 
-    # Generate the new view SQL using CREATE OR REPLACE VIEW with optional WHERE clause
-    newViewSql: str = datasetToSQLAlchemyView(dataset, viewName, underlyingTable, MetaData(), where_clause)
+    # Build SELECT list from dataset schema
+    if isinstance(dataset.originalSchema, DDLTable):
+        table: DDLTable = dataset.originalSchema
+        columnNames: List[str] = [col.name for col in table.columns.values()]
+        select_clause = f"SELECT {', '.join(columnNames)} FROM {underlyingTable}"
+        if where_clause:
+            select_clause += f" WHERE {where_clause}"
+    else:
+        raise Exception("Unknown schema type")
+
+    # Generate dialect-specific CREATE statement
+    if is_postgres:
+        newViewSql: str = f"CREATE OR REPLACE VIEW {viewName} AS {select_clause}"
+    elif is_mssql:
+        newViewSql = f"CREATE OR ALTER VIEW {viewName} AS {select_clause}"
+    else:
+        # Fallback to ANSI-ish CREATE OR REPLACE (supported by several engines)
+        newViewSql = f"CREATE OR REPLACE VIEW {viewName} AS {select_clause}"
 
     # Check if view exists
     exists: bool = viewName in inspector.get_view_names()
     if exists:  # type: ignore[attr-defined]
-        # View exists, check if it needs to be updated
+        # View exists; compare current definition to decide if update is needed
         try:
-            # Get the current view definition
             with engine.connect() as connection:
-                result = connection.execute(text(f"SELECT pg_get_viewdef('{viewName}', true) as view_def"))
-                currentViewDef = result.fetchone()[0]
+                if is_postgres:
+                    result = connection.execute(text(f"SELECT pg_get_viewdef('{viewName}', true) as view_def"))
+                    currentViewDef = result.fetchone()[0]
+                elif is_mssql:
+                    # Prefer sys.sql_modules for full definition
+                    result = connection.execute(
+                        text(
+                            "SELECT sm.definition FROM sys.sql_modules sm "
+                            "JOIN sys.views v ON sm.object_id = v.object_id "
+                            "WHERE v.name = :vname"
+                        ),
+                        {"vname": viewName},
+                    )
+                    row = result.fetchone()
+                    currentViewDef = row[0] if row else None
+                else:
+                    currentViewDef = None
 
-                # Normalize the view definitions for comparison
-                # Remove whitespace, newlines, and convert to uppercase for comparison
-                normalizedCurrent = ' '.join(currentViewDef.replace('\n', ' ').replace(';', '').split()).upper().strip()
+                if currentViewDef is None:
+                    # If we cannot retrieve definition, update defensively
+                    with engine.begin() as connection2:
+                        connection2.execute(text(newViewSql))
+                    logger.info("Updated view %s to match current schema", viewName)
+                    return True
 
-                # Extract just the SELECT part from the new view SQL (after CREATE OR REPLACE VIEW ... AS)
+                # Normalize SELECT parts and compare
+                normalizedCurrent = ' '.join(str(currentViewDef).replace('\n', ' ').replace(';', '').split()).upper().strip()
                 selectStart = newViewSql.upper().find('SELECT')
                 if selectStart != -1:
                     normalizedNewSelect = ' '.join(newViewSql[selectStart:].replace('\n', ' ').split()).upper().strip()
                 else:
                     normalizedNewSelect = ' '.join(newViewSql.replace('\n', ' ').split()).upper().strip()
 
-                # Debug output for troubleshooting
-                logger.debug("Current view def: %s", repr(normalizedCurrent))
-                logger.debug("New view def: %s", repr(normalizedNewSelect))
-
-                # Check if the SELECT part matches
                 if normalizedCurrent == normalizedNewSelect:
-                    # No changes needed
                     logger.info("View %s already matches current schema", viewName)
                     return False
-                else:
-                    # View needs to be updated
-                    with engine.begin() as connection:
-                        connection.execute(text(newViewSql))
-                    logger.info("Updated view %s to match current schema", viewName)
-                    return True
 
+                with engine.begin() as connection2:
+                    connection2.execute(text(newViewSql))
+                logger.info("Updated view %s to match current schema", viewName)
+                return True
         except Exception as e:
-            # If we can't get the current view definition, assume it needs updating
             logger.warning("Could not compare view definitions for %s, updating anyway: %s", viewName, e)
-            with engine.begin() as connection:
-                connection.execute(text(newViewSql))
+            with engine.begin() as connection2:
+                connection2.execute(text(newViewSql))
             logger.info("Updated view %s to match current schema", viewName)
             return True
-    else:
-        # View doesn't exist, create it
-        with engine.begin() as connection:
-            connection.execute(text(newViewSql))
-        logger.info("Created view %s with current schema", viewName)
-        return True
+
+    # View doesn't exist; create it
+    with engine.begin() as connection:
+        connection.execute(text(newViewSql))
+    logger.info("Created view %s with current schema", viewName)
+    return True
 
 
 def reconcileViewSchemas(engine: Engine, store: Datastore, viewNameMapper, underlyingTableMapper) -> dict[str, bool]:

@@ -80,7 +80,7 @@ data:
   airflow.cfg: |
     [core]
     executor = LocalExecutor
-    sql_alchemy_conn = postgresql+psycopg2://$({{ postgres_credential_secret_name}}_USER):$({{ postgres_credential_secret_name }}_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/{{ airflow_k8s_name }}_db
+    sql_alchemy_conn = {{ airflow_db_url }}
     dags_folder = /opt/airflow/dags
     load_examples = False
 
@@ -93,7 +93,7 @@ data:
     remote_logging = False
 
     [database]
-    sql_alchemy_conn = postgresql+psycopg2://$({{ postgres_credential_secret_name}}_USER):$({{ postgres_credential_secret_name }}_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/{{ airflow_k8s_name }}_db
+    sql_alchemy_conn = {{ airflow_db_url }}
 ---
 # Airflow Scheduler Deployment
 apiVersion: apps/v1
@@ -127,10 +127,10 @@ spec:
           - airflow db init
         envFrom:
           - secretRef:
-              name: {{ postgres_credential_secret_name }}
+              name: {{ airflow_db_credential_secret_name }}
         env:
           - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-            value: "postgresql+psycopg2://$({{ postgres_credential_secret_name }}_USER):$({{ postgres_credential_secret_name }}_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/{{ airflow_k8s_name }}_db"
+            value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
         volumeMounts:
           - name: airflow-dags
             mountPath: /opt/airflow/dags
@@ -145,7 +145,7 @@ spec:
           command: ["airflow", "scheduler"]
           envFrom:
             - secretRef:
-                name: {{ postgres_credential_secret_name }}
+                name: {{ airflow_db_credential_secret_name }}
             - secretRef:
                 name: {{ git_credential_secret_name }}
             - configMapRef:
@@ -154,7 +154,7 @@ spec:
             - name: AIRFLOW_UID
               value: "50000"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://$({{ postgres_credential_secret_name }}_USER):$({{ postgres_credential_secret_name }}_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/{{ airflow_k8s_name }}_db"
+              value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
             - name: GIT_REPO_URL
               value: "{{ git_repo_url }}"
             - name: GIT_REPO_BRANCH
@@ -259,7 +259,7 @@ spec:
             - containerPort: 8080
           envFrom:
             - secretRef:
-                name: {{ postgres_credential_secret_name }}
+                name: {{ airflow_db_credential_secret_name }}
             - secretRef:
                 name: {{ git_credential_secret_name }}
             - configMapRef:
@@ -268,7 +268,7 @@ spec:
             - name: AIRFLOW_UID
               value: "50000"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://$({{ postgres_credential_secret_name }}_USER):$({{ postgres_credential_secret_name }}_PASSWORD)@{{ postgres_hostname }}:{{ postgres_port }}/{{ airflow_k8s_name }}_db"
+              value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
             - name: GIT_REPO_URL
               value: "{{ git_repo_url }}"
             - name: GIT_REPO_BRANCH

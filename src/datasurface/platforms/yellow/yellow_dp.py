@@ -34,12 +34,14 @@ import sqlalchemy
 from typing import List
 from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
 from sqlalchemy import text
-from datasurface.platforms.yellow.db_utils import createEngine, getDriverNameAndQueryForDataContainer
+from datasurface.platforms.yellow.db_utils import createEngine, getDriverNameAndQueryForDataContainer, createInspector
+from datasurface.platforms.yellow.database_operations import DatabaseOperationsFactory
 from datasurface.md.sqlalchemyutils import createOrUpdateTable, datasetToSQLAlchemyTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger, SQLMergeIngestion, CaptureMetaData
 from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 import hashlib
+from sqlalchemy.engine.reflection import Inspector
 from datasurface.md.codeartifact import PythonRepoCodeArtifact
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
@@ -120,14 +122,20 @@ class JobUtilities(ABC):
                          Column("currentBatch", sqlalchemy.Integer()))
         return t
 
-    def getBatchMetricsTable(self) -> Table:
+    def getBatchMetricsTable(self, engine: Optional[Engine] = None) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
+        # Use database-specific datetime type - default to TIMESTAMP for compatibility
+        if engine is not None and hasattr(engine, 'dialect') and 'mssql' in str(engine.dialect.name):
+            from sqlalchemy.types import DATETIME
+            datetime_type = DATETIME()
+        else:
+            datetime_type = sqlalchemy.TIMESTAMP()
         t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
                          Column("key", sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("batch_id", sqlalchemy.Integer(), primary_key=True),
-                         Column("batch_start_time", sqlalchemy.TIMESTAMP()),
-                         Column("batch_end_time", sqlalchemy.TIMESTAMP(), nullable=True),
+                         Column("batch_start_time", datetime_type),
+                         Column("batch_end_time", datetime_type, nullable=True),
                          Column("batch_status", sqlalchemy.String(length=32)),
                          Column("records_inserted", sqlalchemy.Integer(), nullable=True),
                          Column("records_updated", sqlalchemy.Integer(), nullable=True),
@@ -252,6 +260,12 @@ class YellowDatasetUtilities(JobUtilities):
         self.datasetName: Optional[str] = datasetName
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
 
+        # Initialize database operations based on merge store type
+        assert self.schemaProjector is not None, "Schema projector must be initialized"
+        self.db_ops = DatabaseOperationsFactory.create_database_operations(
+            dp.psp.mergeStore, self.schemaProjector
+        )
+
     def checkForSchemaChanges(self, state: 'BatchState') -> None:
         """Check if any dataset schemas have changed since batch start"""
         for dataset_name in state.all_datasets:
@@ -301,29 +315,24 @@ class YellowDatasetUtilities(JobUtilities):
         batchKeyIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_key")
         indexes = [
             # Primary: batch filtering (used in every query)
-            (batchIdIndexName, f"CREATE INDEX IF NOT EXISTS {batchIdIndexName} ON {tableName} ({sp.BATCH_ID_COLUMN_NAME})"),
+            (batchIdIndexName, [sp.BATCH_ID_COLUMN_NAME]),
 
             # Secondary: join performance
-            (keyHashIndexName, f"CREATE INDEX IF NOT EXISTS {keyHashIndexName} ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})"),
+            (keyHashIndexName, [sp.KEY_HASH_COLUMN_NAME]),
 
             # Composite: optimal for most queries that filter by batch AND join by key
-            (batchKeyIndexName,
-             f"CREATE INDEX IF NOT EXISTS {batchKeyIndexName} ON {tableName} ({sp.BATCH_ID_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})")
+            (batchKeyIndexName, [sp.BATCH_ID_COLUMN_NAME, sp.KEY_HASH_COLUMN_NAME])
         ]
 
         with mergeEngine.begin() as connection:
-            for index_name, index_sql in indexes:
-                # Check if index already exists
-                check_sql = """
-                SELECT COUNT(*) FROM pg_indexes
-                WHERE indexname = :index_name AND tablename = :table_name
-                """
-                result = connection.execute(sqlalchemy.text(check_sql), {"index_name": index_name, "table_name": tableName})
-                index_exists = result.fetchone()[0] > 0
+            for index_name, columns in indexes:
+                # Check if index already exists using database operations
+                index_exists = self.db_ops.check_index_exists(connection, tableName, index_name)
 
                 if not index_exists:
                     try:
                         with log_operation_timing(logger, "create_staging_index", index_name=index_name):
+                            index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
                             connection.execute(sqlalchemy.text(index_sql))
                         logger.info("Created staging index successfully", index_name=index_name, table_name=tableName)
                     except Exception as e:
@@ -340,7 +349,7 @@ class YellowDatasetUtilities(JobUtilities):
         keyHashIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_key_hash")
         indexes = [
             # Critical: join performance (exists in all modes)
-            (keyHashIndexName, f"CREATE INDEX IF NOT EXISTS {keyHashIndexName} ON {tableName} ({sp.KEY_HASH_COLUMN_NAME})")
+            (keyHashIndexName, [sp.KEY_HASH_COLUMN_NAME])
         ]
 
         # Add forensic-specific indexes for batch milestoned tables
@@ -351,40 +360,35 @@ class YellowDatasetUtilities(JobUtilities):
             batchRangeIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_range")
             indexes.extend([
                 # Critical: live record filtering (batch_out = 2147483647)
-                (batchOutIndexName, f"CREATE INDEX IF NOT EXISTS {batchOutIndexName} ON {tableName} ({sp.BATCH_OUT_COLUMN_NAME})"),
+                (batchOutIndexName, [sp.BATCH_OUT_COLUMN_NAME]),
 
                 # Composite: optimal for live record joins (most common pattern)
-                (liveRecordsIndexName,
-                 f"CREATE INDEX IF NOT EXISTS {liveRecordsIndexName} ON {tableName} ({sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})"),
+                (liveRecordsIndexName, [sp.KEY_HASH_COLUMN_NAME, sp.BATCH_OUT_COLUMN_NAME]),
 
                 # For forensic queries: finding recently closed records
-                (batchInIndexName, f"CREATE INDEX IF NOT EXISTS {batchInIndexName} ON {tableName} ({sp.BATCH_IN_COLUMN_NAME})"),
+                (batchInIndexName, [sp.BATCH_IN_COLUMN_NAME]),
 
                 # For forensic history queries
-                (batchRangeIndexName,
-                 f"CREATE INDEX IF NOT EXISTS {batchRangeIndexName} ON {tableName} ({sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})")
+                (batchRangeIndexName, [sp.BATCH_IN_COLUMN_NAME, sp.BATCH_OUT_COLUMN_NAME])
             ])
         else:
             # For live-only mode, we can create an index on ds_surf_all_hash for change detection
             allHashIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_all_hash")
             indexes.extend([
                 # For live-only mode: change detection performance
-                (allHashIndexName, f"CREATE INDEX IF NOT EXISTS {allHashIndexName} ON {tableName} ({sp.ALL_HASH_COLUMN_NAME})")
+                (allHashIndexName, [sp.ALL_HASH_COLUMN_NAME])
             ])
 
         with mergeEngine.begin() as connection:
-            for index_name, index_sql in indexes:
+            for index_name, columns in indexes:
                 # Check if index already exists
-                check_sql = """
-                SELECT COUNT(*) FROM pg_indexes
-                WHERE indexname = :index_name AND tablename = :table_name
-                """
-                result = connection.execute(sqlalchemy.text(check_sql), {"index_name": index_name, "table_name": tableName})
-                index_exists = result.fetchone()[0] > 0
+                # Check if index already exists using database operations
+                index_exists = self.db_ops.check_index_exists(connection, tableName, index_name)
 
                 if not index_exists:
                     try:
                         with log_operation_timing(logger, "create_merge_index", index_name=index_name):
+                            index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
                             connection.execute(sqlalchemy.text(index_sql))
                         logger.info("Created merge index successfully", index_name=index_name, table_name=tableName)
                     except Exception as e:
@@ -423,10 +427,8 @@ class YellowDatasetUtilities(JobUtilities):
                             table_name=tableName,
                             column_name=columnName)
 
-    def _createOrUpdateTableWithPrimaryKeyHandling(self, mergeEngine: Engine, table: Table, tableName: str, tableType: str) -> None:
+    def _createOrUpdateTableWithPrimaryKeyHandling(self, mergeEngine: Engine, inspector: Inspector, table: Table, tableName: str, tableType: str) -> None:
         """Common method to create or update a table, handling primary key changes by modifying constraints"""
-        from sqlalchemy import inspect
-        inspector = inspect(mergeEngine)
 
         if not inspector.has_table(tableName):
             # Table doesn't exist, create it
@@ -472,28 +474,28 @@ class YellowDatasetUtilities(JobUtilities):
                 logger.info("Added new primary key constraint", table_name=tableName, pk_columns=desired_pk_columns)
         else:
             # Primary key is the same, use normal update
-            createOrUpdateTable(mergeEngine, table)
+            createOrUpdateTable(mergeEngine, inspector, table)
 
-    def createOrUpdateForensicTable(self, mergeEngine: Engine, mergeTable: Table, tableName: str) -> None:
+    def createOrUpdateForensicTable(self, mergeEngine: Engine, inspector: Inspector, mergeTable: Table, tableName: str) -> None:
         """Create or update a forensic table, handling primary key changes by modifying constraints"""
-        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, mergeTable, tableName, "forensic")
+        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, inspector, mergeTable, tableName, "forensic")
 
-    def createOrUpdateStagingTable(self, mergeEngine: Engine, stagingTable: Table, tableName: str) -> None:
+    def createOrUpdateStagingTable(self, mergeEngine: Engine, inspector: Inspector, stagingTable: Table, tableName: str) -> None:
         """Create or update a staging table, handling primary key changes by modifying constraints"""
-        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, stagingTable, tableName, "staging")
+        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, inspector, stagingTable, tableName, "staging")
 
-    def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
+    def reconcileStagingTableSchemas(self, mergeEngine: Engine, inspector: Inspector, store: Datastore) -> None:
         """This will make sure the staging table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = self.getPhysStagingTableNameForDataset(dataset)
             stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName, mergeEngine)
             # Handle primary key changes for staging tables
-            self.createOrUpdateStagingTable(mergeEngine, stagingTable, tableName)
+            self.createOrUpdateStagingTable(mergeEngine, inspector, stagingTable, tableName)
             # Create performance indexes for staging table
             self.createStagingTableIndexes(mergeEngine, tableName)
 
-    def reconcileMergeTableSchemas(self, mergeEngine: Engine, store: Datastore) -> None:
+    def reconcileMergeTableSchemas(self, mergeEngine: Engine, inspector: Inspector, store: Datastore) -> None:
         """This will make sure the merge table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
@@ -502,9 +504,9 @@ class YellowDatasetUtilities(JobUtilities):
 
             # For forensic mode, we need to handle primary key changes
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-                self.createOrUpdateForensicTable(mergeEngine, mergeTable, tableName)
+                self.createOrUpdateForensicTable(mergeEngine, inspector, mergeTable, tableName)
             else:
-                createOrUpdateTable(mergeEngine, mergeTable)
+                createOrUpdateTable(mergeEngine, inspector, mergeTable)
                 # Only add unique constraint on key_hash for live-only mode
                 # In forensic mode, multiple records can have the same key_hash (different versions)
                 self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
@@ -1712,7 +1714,7 @@ class YellowGenericDataPlatform(DataPlatform['YellowPlatformServiceProvider']):
         super().__init__(name, doc, executor)
 
     @abstractmethod
-    def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine) -> None:
+    def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the tables for the data platform in the merge engine."""
         raise NotImplementedError("This is an abstract method")
 
@@ -2029,15 +2031,21 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         """This returns the name of the Factory DAG table"""
         return self.namingMapper.mapNoun(self.getTableForPSP("factory_dags"))
 
-    def getFactoryDAGTable(self) -> Table:
+    def getFactoryDAGTable(self, engine: Optional[Engine] = None) -> Table:
         """This constructs the sqlalchemy table for Factory DAG configurations."""
+        # Use database-specific datetime type - default to TIMESTAMP for compatibility
+        if engine is not None and hasattr(engine, 'dialect') and 'mssql' in str(engine.dialect.name):
+            from sqlalchemy.types import DATETIME
+            datetime_type = DATETIME()
+        else:
+            datetime_type = TIMESTAMP()
         t: Table = Table(self.getPhysFactoryDAGTableName(), MetaData(),
                          Column("platform_name", sqlalchemy.String(length=255), primary_key=True),
                          Column("factory_type", sqlalchemy.String(length=50), primary_key=True),
                          Column("config_json", sqlalchemy.String(length=8192)),
                          Column("status", sqlalchemy.String(length=50)),
-                         Column("created_at", TIMESTAMP()),
-                         Column("updated_at", TIMESTAMP()))
+                         Column("created_at", datetime_type),
+                         Column("updated_at", datetime_type))
         return t
 
     @staticmethod
@@ -2151,12 +2159,13 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
             mergeUser, mergePassword = self.credStore.getAsUserPassword(self.mergeRW_Credential)
             mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
-            createOrUpdateTable(mergeEngine, self.getFactoryDAGTable())
+            inspector = createInspector(mergeEngine)
+            createOrUpdateTable(mergeEngine, inspector, self.getFactoryDAGTable())
 
             ydp: DataPlatform
             for ydp in self.dataPlatforms.values():
                 assert isinstance(ydp, YellowGenericDataPlatform)
-                ydp.createPlatformTables(eco, mergeEngine)
+                ydp.createPlatformTables(eco, mergeEngine, inspector)
             return {}
         else:
             raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
@@ -2179,10 +2188,10 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         # Set logging context for this platform
         set_context(platform=name)
 
-    def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine) -> None:
+    def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the tables for the data platform in the merge engine during bootstrapping."""
-        createOrUpdateTable(mergeEngine, self.getAirflowDAGTable())
-        createOrUpdateTable(mergeEngine, self.getDataTransformerDAGTable())
+        createOrUpdateTable(mergeEngine, inspector, self.getAirflowDAGTable())
+        createOrUpdateTable(mergeEngine, inspector, self.getDataTransformerDAGTable())
 
     def getEffectiveCMDForDatastore(self, eco: Ecosystem, store: Datastore) -> CaptureMetaData:
         """If there is a pip for the datastore then construct a new SQLMergeIngestion and return it. Otherwise return the current cmd."""

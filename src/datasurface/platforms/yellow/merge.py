@@ -11,7 +11,7 @@ import sqlalchemy
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.schema import Column
 from datasurface.md.schema import DDLTable
-from sqlalchemy.types import Integer, String, TIMESTAMP
+from sqlalchemy.types import Integer, String
 from sqlalchemy.engine.row import Row
 from typing import cast, List, Any, Optional
 from datasurface.md.governance import SQLIngestion, DataTransformerOutput
@@ -25,6 +25,9 @@ from abc import abstractmethod
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger,
 )
+from sqlalchemy.engine.reflection import Inspector
+from datasurface.platforms.yellow.database_operations import DatabaseOperations, DatabaseOperationsFactory
+from datasurface.platforms.yellow.db_utils import createInspector
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -71,6 +74,18 @@ class Job(YellowDatasetUtilities):
     step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
+        # Initialize database operations based on merge store type
+        assert self.schemaProjector is not None, "Schema projector must be initialized"
+        self.merge_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
+            dp.psp.mergeStore, self.schemaProjector
+        )
+        assert self.store.cmd is not None
+        assert self.store.cmd.dataContainer is not None
+        assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
+        self.source_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
+            self.store.cmd.dataContainer, self.schemaProjector
+        )
+        self.numReconcileDDLs: int = 0
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
@@ -79,14 +94,16 @@ class Job(YellowDatasetUtilities):
                          Column("currentBatch", Integer()))
         return t
 
-    def getBatchMetricsTable(self) -> Table:
+    def getBatchMetricsTable(self, engine: Optional[Engine] = None) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
+        # Use database-specific datetime type from database operations
+        datetime_type = self.merge_db_ops.get_datetime_sqlalchemy_type()
         t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
                          Column("key", String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
                          Column("batch_id", Integer(), primary_key=True),
-                         Column("batch_start_time", TIMESTAMP()),
-                         Column("batch_end_time", TIMESTAMP(), nullable=True),
+                         Column("batch_start_time", datetime_type),
+                         Column("batch_end_time", datetime_type, nullable=True),
                          Column("batch_status", String(length=32)),
                          Column("records_inserted", Integer(), nullable=True),
                          Column("records_updated", Integer(), nullable=True),
@@ -95,10 +112,10 @@ class Job(YellowDatasetUtilities):
                          Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold a BatchState in JSON format.
         return t
 
-    def createBatchCounterTable(self, mergeEngine: Engine) -> None:
+    def createBatchCounterTable(self, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the batch counter table"""
         t: Table = self.getBatchCounterTable()
-        createOrUpdateTable(mergeEngine, t)
+        createOrUpdateTable(mergeEngine, inspector, t, createOnly=True)
 
     CHUNK_SIZE_KEY: str = "chunkSize"
     CHUNK_SIZE_DEFAULT: int = 50000
@@ -124,10 +141,10 @@ class Job(YellowDatasetUtilities):
                 logger.info(f"Parameter override for {key}", value=value, key=key, store_name=self.store.name)
         return value
 
-    def createBatchMetricsTable(self, mergeEngine: Engine) -> None:
+    def createBatchMetricsTable(self, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the batch metrics table"""
-        t: Table = self.getBatchMetricsTable()
-        createOrUpdateTable(mergeEngine, t)
+        t: Table = self.getBatchMetricsTable(mergeEngine)
+        createOrUpdateTable(mergeEngine, inspector, t, createOnly=True)
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
@@ -160,7 +177,7 @@ class Job(YellowDatasetUtilities):
                 raise Exception(f"Batch {currentBatchId} is not committed")
             newBatch = currentBatchId + 1
             connection.execute(text(
-                f'UPDATE {self.getPhysBatchCounterTableName()} SET "currentBatch" = :new_batch WHERE key = :key'
+                f'UPDATE {self.getPhysBatchCounterTableName()} SET "currentBatch" = :new_batch WHERE "key" = :key'
             ), {"new_batch": newBatch, "key": key})
         else:
             newBatch = 1
@@ -169,7 +186,7 @@ class Job(YellowDatasetUtilities):
         connection.execute(text(
             f"INSERT INTO {self.getPhysBatchMetricsTableName()} "
             f'("key", "batch_id", "batch_start_time", "batch_status", "state") '
-            f"VALUES (:key, :batch_id, NOW(), :batch_status, :state)"
+            f"VALUES (:key, :batch_id, {self.merge_db_ops.get_current_timestamp_expression()}, :batch_status, :state)"
         ), {
             "key": key,
             "batch_id": newBatch,
@@ -248,8 +265,10 @@ class Job(YellowDatasetUtilities):
             f'SELECT "state" FROM {self.getPhysBatchMetricsTableName()} WHERE "key" = :key AND "batch_id" = :batch_id'
         ), {"key": key, "batch_id": batchId})
         row = result.fetchone()
-
-        return BatchState.model_validate_json(row[0]) if row else BatchState(all_datasets=list(self.store.datasets.keys()))
+        if row is not None:
+            return BatchState.model_validate_json(row[0])
+        else:
+            return BatchState(all_datasets=list(self.store.datasets.keys()))
 
     def checkBatchStatus(self, connection: Connection, key: str, batchId: int) -> Optional[str]:
         """Check the current batch status for a given key. Returns the status or None if no batch exists."""
@@ -263,29 +282,16 @@ class Job(YellowDatasetUtilities):
 
     def getCurrentBatchId(self, connection: Connection, key: str) -> int:
         """Get the current batch ID for a given key, create a new batch counter if one doesn't exist."""
-        # First check if the table exists
-        from sqlalchemy import inspect
-        inspector = inspect(connection.engine)
-        table_name = self.getPhysBatchCounterTableName()
-        logger.debug("Checking if table exists", table_name=table_name)
-        if not inspector.has_table(table_name):
-            logger.info("Creating batch counter table", table_name=table_name)
-            # Create the table
-            t = self.getBatchCounterTable()
-            t.create(connection.engine)
-            logger.info("Batch counter table created successfully", table_name=table_name)
-        else:
-            logger.debug("Batch counter table already exists", table_name=table_name)
 
         # Now query the table
         result = connection.execute(text(
-            f'SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()} WHERE key = :key'
+            f'SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()} WHERE "key" = :key'
         ), {"key": key})
         row = result.fetchone()
         if row is None:
             # Insert a new batch counter
             connection.execute(text(
-                f'INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch") VALUES (:key, :current_batch)'
+                f'INSERT INTO {self.getPhysBatchCounterTableName()} ("key", "currentBatch") VALUES (:key, :current_batch)'
             ), {"key": key, "current_batch": 1})
             return 1
         else:
@@ -302,7 +308,7 @@ class Job(YellowDatasetUtilities):
             update_params = {"batch_status": status.value, "key": key, "batch_id": batchId}
 
             if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
-                update_parts.append("batch_end_time = NOW()")
+                update_parts.append(f"batch_end_time = {self.merge_db_ops.get_current_timestamp_expression()}")
             if recordsInserted is not None:
                 update_parts.append("records_inserted = :records_inserted")
                 update_params["records_inserted"] = recordsInserted
@@ -328,7 +334,7 @@ class Job(YellowDatasetUtilities):
         """Mark the batch as merged"""
         update_parts = [f"batch_status = '{status.value}'"]
         if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
-            update_parts.append("batch_end_time = NOW()")
+            update_parts.append(f"batch_end_time = {self.merge_db_ops.get_current_timestamp_expression()}")
         if recordsInserted is not None:
             update_parts.append(f"records_inserted = {recordsInserted}")
         if recordsUpdated is not None:
@@ -354,6 +360,16 @@ class Job(YellowDatasetUtilities):
     @abstractmethod
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         raise NoopJobException("This method must be implemented by the subclass")
+
+    def getMaxCommittedBatchId(self, connection: Connection, key: str) -> Optional[int]:
+        """Get the max committed batch id for a given key"""
+        result = connection.execute(text(f"""
+            SELECT MAX("batch_id")
+            FROM {self.getPhysBatchMetricsTableName()}
+            WHERE "key" = :key AND batch_status = :batch_status
+        """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
+        row = result.fetchone()
+        return row[0] if row else None
 
     def executeNormalRollingBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         """This executes an ingestion/merge batch. The logic is as follows:
@@ -424,26 +440,42 @@ class Job(YellowDatasetUtilities):
         else:
             raise Exception(f"Unknown store command type: {type(self.store.cmd)}")
 
-        # Make sure the staging and merge tables exist and have the current schema for each dataset
-        self.reconcileStagingTableSchemas(mergeEngine, self.store)
-        self.reconcileMergeTableSchemas(mergeEngine, self.store)
-
-        # Create batch counter and metrics tables if they don't exist
-        self.createBatchCounterTable(mergeEngine)
-        self.createBatchMetricsTable(mergeEngine)
-
         # Check current batch status to determine what to do
         if ingestionType == IngestionConsistencyType.SINGLE_DATASET:
             # For single dataset ingestion, process each dataset separately
-            for dataset in self.store.datasets.values():
-                ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, dataset.name)
-                key = ydu.getIngestionStreamKey()
-                currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
+            ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, self.dataset.name)
         else:
             # For multi-dataset ingestion, process all datasets in a single batch
             ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store)
-            key = ydu.getIngestionStreamKey()
-            currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
+        key: str = ydu.getIngestionStreamKey()
+
+        # Create batch counter and metrics tables if they don't exist
+        inspector = createInspector(mergeEngine)
+
+        self.createBatchCounterTable(mergeEngine, inspector)
+        self.createBatchMetricsTable(mergeEngine, inspector)
+        # Make sure the staging and merge tables exist and have the current schema for each dataset
+        # WE only want to do this if the schema hash for the schemas we care about are different than the schema hash in the previous batch
+        with mergeEngine.begin() as connection:
+            # Need to get the max committed batch id if any
+            maxCommittedBatchId: Optional[int] = self.getMaxCommittedBatchId(connection, key)
+            if maxCommittedBatchId is None:
+                currentState: BatchState = BatchState(all_datasets=list(self.store.datasets.keys()))
+            else:
+                currentState: BatchState = self.getBatchState(mergeEngine, connection, key, maxCommittedBatchId)
+        reconcileNeeded: bool = False
+        for dataset in self.store.datasets.values():
+            if dataset.name not in currentState.schema_versions or currentState.schema_versions[dataset.name] != ydu.getSchemaHash(dataset):
+                reconcileNeeded = True
+                break
+        if reconcileNeeded:
+            logger.info("Reconciling staging and merge tables", key=key)
+            self.numReconcileDDLs += 1
+            self.reconcileStagingTableSchemas(mergeEngine, inspector, self.store)
+            self.reconcileMergeTableSchemas(mergeEngine, inspector, self.store)
+            logger.info("Reconciling staging and merge tables completed", key=key)
+
+        currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus
 
     def getPhysSourceTableName(self, dataset: Dataset) -> str:
@@ -512,12 +544,7 @@ class Job(YellowDatasetUtilities):
                 # Get all column names
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
-                # Build hash expressions for PostgreSQL MD5 function
-                # For all columns hash: concatenate all column values
-                allColumnsHashExpr = " || ".join([f'COALESCE("{col}"::text, \'\')' for col in allColumns])
-
-                # For key columns hash: concatenate only primary key column values
-                keyColumnsHashExpr = " || ".join([f'COALESCE("{col}"::text, \'\')' for col in pkColumns])
+                # Hash expressions are now built within the database operations
 
                 # This job will for a new batch, initialize the state with all the datasets in the store and then
                 # remove one with an offset of 0 to start. The job will read a "chunk" from that source table and
@@ -527,24 +554,20 @@ class Job(YellowDatasetUtilities):
                 # means we're ingesting the data for all datasets.
 
                 # Execute single query to get all records with consistent snapshot
-                quoted_columns = [f'"{col}"' for col in allColumns]
-                selectSql = f"""
-                SELECT {', '.join(quoted_columns)},
-                    MD5({allColumnsHashExpr}) as {self.schemaProjector.ALL_HASH_COLUMN_NAME},
-                    MD5({keyColumnsHashExpr}) as {self.schemaProjector.KEY_HASH_COLUMN_NAME}
-                FROM {sourceTableName}
-                """
+                selectSql = self.source_db_ops.build_source_query_with_hashes(
+                    sourceTableName, allColumns, pkColumns
+                )
                 logger.debug("Executing source query for complete dataset",
                              dataset_name=datasetToIngestName)
                 result = sourceConn.execute(text(selectSql))
                 column_names = result.keys()
 
                 # Build insert statement with SQLAlchemy named parameters
-                quoted_insert_columns = [f'"{col}"' for col in allColumns] + \
-                    [
-                        f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
-                        f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
-                        f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"']
+                quoted_insert_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
+                    f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
+                    f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
+                    f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"'
+                ]
                 placeholders = ", ".join([f":{i}" for i in range(len(quoted_insert_columns))])
                 insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
 

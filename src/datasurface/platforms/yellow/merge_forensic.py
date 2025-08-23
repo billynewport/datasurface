@@ -18,8 +18,6 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
 from datasurface.platforms.yellow.merge import Job, JobStatus
-
-
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
@@ -84,99 +82,46 @@ class SnapshotMergeJobForensic(Job):
                 mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
                 allColumns: list[str] = [col.name for col in schema.columns.values()]
-                quoted_all_columns = [f'"{col}"' for col in allColumns]
-
-                # PostgreSQL 16 compatible forensic merge operations - split into multiple statements
-                # Step 1: Close changed records (equivalent to WHEN MATCHED AND hash differs)
-                close_changed_sql = f"""
-                UPDATE {mergeTableName} m
-                SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
-                FROM {stagingTableName} s
-                WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                    AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
-                    AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME}
-                    AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                """
-
-                # Step 2: Close records not in source (equivalent to WHEN NOT MATCHED BY SOURCE)
-                close_deleted_sql = f"""
-                UPDATE {mergeTableName} m
-                SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
-                WHERE m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
-                AND NOT EXISTS (
-                    SELECT 1 FROM {stagingTableName} s
-                    WHERE s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
-                    AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                # Database-specific forensic merge operations
+                forensic_merge_statements = self.merge_db_ops.get_forensic_merge_sql(
+                    mergeTableName,
+                    stagingTableName,
+                    allColumns,
+                    sp.KEY_HASH_COLUMN_NAME,
+                    sp.ALL_HASH_COLUMN_NAME,
+                    sp.BATCH_ID_COLUMN_NAME,
+                    sp.BATCH_IN_COLUMN_NAME,
+                    sp.BATCH_OUT_COLUMN_NAME,
+                    sp.LIVE_RECORD_ID,
+                    batchId
                 )
-                """
 
-                # Step 3: Insert new records (equivalent to WHEN NOT MATCHED BY TARGET)
-                insert_new_sql = f"""
-                INSERT INTO {mergeTableName} (
-                    {', '.join(quoted_all_columns)},
-                    {sp.ALL_HASH_COLUMN_NAME},
-                    {sp.KEY_HASH_COLUMN_NAME},
-                    {sp.BATCH_IN_COLUMN_NAME},
-                    {sp.BATCH_OUT_COLUMN_NAME}
-                )
-                SELECT
-                    {', '.join([f's."{col}"' for col in allColumns])},
-                    s.{sp.ALL_HASH_COLUMN_NAME},
-                    s.{sp.KEY_HASH_COLUMN_NAME},
-                    {batchId},
-                    {sp.LIVE_RECORD_ID}
-                FROM {stagingTableName} s
-                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                AND NOT EXISTS (
-                    SELECT 1 FROM {mergeTableName} m
-                    WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                    AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
-                )
-                """
+                logger.debug("Executing database-specific forensic merge for dataset", dataset_name=datasetToMergeName)
 
-                logger.debug("Executing PostgreSQL 16 compatible forensic merge for dataset", dataset_name=datasetToMergeName)
-                logger.debug("Step 1 - Closing changed records")
-                result1 = connection.execute(text(close_changed_sql))
-                changed_records = result1.rowcount
-                total_updated += changed_records
-                logger.debug("Step 1 - Closed changed records", changed_records=changed_records)
+                # Execute forensic merge statements
+                changed_records = 0
+                deleted_records = 0
+                new_records = 0
 
-                logger.debug("Step 2 - Closing deleted records")
-                result2 = connection.execute(text(close_deleted_sql))
-                deleted_records = result2.rowcount
-                total_deleted += deleted_records
-                logger.debug("Step 2 - Closed deleted records", deleted_records=deleted_records)
-
-                logger.debug("Step 3 - Inserting new records")
-                result3 = connection.execute(text(insert_new_sql))
-                new_records = result3.rowcount
-                total_inserted += new_records
-                logger.debug("Step 3 - Inserted new records", new_records=new_records)
-
-                # Insert new versions for changed records (where the old record was just closed)
-                insert_changed_sql = f"""
-                INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)},
-                    {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME}, {sp.BATCH_IN_COLUMN_NAME}, {sp.BATCH_OUT_COLUMN_NAME})
-                SELECT {', '.join([f's."{col}"' for col in allColumns])}, s.{sp.ALL_HASH_COLUMN_NAME},
-                    s.{sp.KEY_HASH_COLUMN_NAME}, {batchId}, {sp.LIVE_RECORD_ID}
-                FROM {stagingTableName} s
-                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                AND EXISTS (
-                    SELECT 1 FROM {mergeTableName} m
-                    WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                    AND m.{sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM {mergeTableName} m2
-                    WHERE m2.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                    AND m2.{sp.BATCH_IN_COLUMN_NAME} = {batchId}
-                )
-                """
-                logger.debug("Step 4 - Inserting new versions for changed records")
-                result4 = connection.execute(text(insert_changed_sql))
-                changed_new_records = result4.rowcount
-                total_inserted += changed_new_records
-                logger.debug("Step 4 - Inserted new versions for changed records", changed_new_records=changed_new_records)
+                for i, sql_statement in enumerate(forensic_merge_statements):
+                    logger.debug(f"Step {i+1} - Executing forensic merge statement")
+                    result = connection.execute(text(sql_statement))
+                    if i == 0:  # Close changed records
+                        changed_records = result.rowcount
+                        total_updated += changed_records
+                        logger.debug("Step 1 - Closed changed records", changed_records=changed_records)
+                    elif i == 1:  # Close deleted records
+                        deleted_records = result.rowcount
+                        total_deleted += deleted_records
+                        logger.debug("Step 2 - Closed deleted records", deleted_records=deleted_records)
+                    elif i == 2:  # Insert new records
+                        new_records = result.rowcount
+                        total_inserted += new_records
+                        logger.debug("Step 3 - Inserted new records", new_records=new_records)
+                    elif i == 3:  # Insert new versions for changed records
+                        changed_new_records = result.rowcount
+                        total_inserted += changed_new_records
+                        logger.debug("Step 4 - Inserted new versions for changed records", changed_new_records=changed_new_records)
 
                 # Count total records processed from staging for this dataset
                 count_result = connection.execute(
@@ -188,8 +133,7 @@ class SnapshotMergeJobForensic(Job):
                              dataset_name=datasetToMergeName,
                              new_records=new_records,
                              changed_records=changed_records,
-                             deleted_records=deleted_records,
-                             changed_new_versions=changed_new_records)
+                             deleted_records=deleted_records)
 
             # Now update the batch status to merged within the existing transaction
             self.markBatchMerged(

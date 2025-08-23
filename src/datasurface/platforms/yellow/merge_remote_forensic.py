@@ -128,7 +128,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                 result = connection.execute(text(f"""
                     SELECT MAX("batch_id")
                     FROM {self.getPhysBatchMetricsTableName()}
-                    WHERE key = :key AND batch_status = :batch_status
+                    WHERE "key" = :key AND batch_status = :batch_status
                 """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
                 lastCompletedBatch = result.fetchone()
                 lastCompletedBatch = lastCompletedBatch[0] if lastCompletedBatch and lastCompletedBatch[0] else None
@@ -210,6 +210,14 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     # Update final state before marking as ingested
                     state.job_state[self.remoteBatchIdKey] = currentRemoteBatchId
                     state.job_state[self.isSeedBatchKey] = False  # Next batch will be incremental
+
+                    # Create schema hashes for all datasets
+                    # Store the current schema hashes in the batch state
+                    schema_versions = {}
+                    for dataset_name in state.all_datasets:
+                        schema_versions[dataset_name] = self.getSchemaHash(self.store.datasets[dataset_name])
+                    state.schema_versions = schema_versions
+
                     self.updateBatchStatusInTx(mergeEngine, key, localBatchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords
@@ -254,7 +262,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             connection.execute(text(f"""
                 INSERT INTO {self.getPhysBatchMetricsTableName()}
                 ("key", "batch_id", "batch_start_time", "batch_status", "state")
-                VALUES (:key, :batch_id, NOW(), :batch_status, :state)
+                VALUES (:key, :batch_id, {self.merge_db_ops.get_current_timestamp_expression()}, :batch_status, :state)
             """), {
                 "key": key,
                 "batch_id": remoteBatchId,
@@ -284,7 +292,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Query for ALL records that existed as of the current remote batch ID
         # This includes both live and historical records to create a complete mirror
         # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = [f'"{col}"' for col in allColumns]
+        quoted_columns = self.merge_db_ops.get_quoted_columns(allColumns)
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
             {sp.ALL_HASH_COLUMN_NAME},
@@ -332,7 +340,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Get ALL new records since last batch - both new records and record closures
         # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = [f'"{col}"' for col in allColumns]
+        quoted_columns = self.merge_db_ops.get_quoted_columns(allColumns)
 
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
@@ -372,7 +380,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
 
         # Build insert statement - includes remote batch_in/batch_out columns
-        quoted_columns = [f'"{col}"' for col in allColumns] + [
+        quoted_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
             f'"{sp.BATCH_ID_COLUMN_NAME}"',
             f'"{sp.ALL_HASH_COLUMN_NAME}"',
             f'"{sp.KEY_HASH_COLUMN_NAME}"',
@@ -456,7 +464,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
 
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
-                quoted_all_columns = [f'"{col}"' for col in allColumns]
+                quoted_all_columns = self.merge_db_ops.get_quoted_columns(allColumns)
 
                 # Get total count for processing
                 count_result = connection.execute(
@@ -557,7 +565,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             FROM {stagingTableName} s
             WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
             ORDER BY s.{sp.KEY_HASH_COLUMN_NAME}
-            LIMIT {chunkSize} OFFSET {offset}
+            {self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)}
             """
 
             batch_result = connection.execute(text(batch_insert_sql))
@@ -581,16 +589,10 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Step 1: Update existing records that were closed remotely
         logger.debug("Updating local records that were closed remotely")
-        update_closed_sql = f"""
-        UPDATE {mergeTableName} m
-        SET {sp.BATCH_OUT_COLUMN_NAME} = s."remote_{sp.BATCH_OUT_COLUMN_NAME}"
-        FROM {stagingTableName} s
-        WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-            AND m.{sp.BATCH_IN_COLUMN_NAME} = s."remote_{sp.BATCH_IN_COLUMN_NAME}"
-            AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
-            AND s."remote_{sp.BATCH_OUT_COLUMN_NAME}" != {sp.LIVE_RECORD_ID}
-            AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-        """
+        # Use database-specific UPDATE FROM syntax
+        update_closed_sql = self.merge_db_ops.get_remote_forensic_update_closed_sql(
+            mergeTableName, stagingTableName, sp, batchId
+        )
 
         result1 = connection.execute(text(update_closed_sql))
         updated_records = result1.rowcount
@@ -645,7 +647,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # First check if a counter record exists
         result = connection.execute(text(f"""
             SELECT "currentBatch" FROM {self.getPhysBatchCounterTableName()}
-            WHERE key = :key
+            WHERE "key" = :key
         """), {"key": key})
         existing_row = result.fetchone()
 
@@ -654,13 +656,13 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             connection.execute(text(f"""
                 UPDATE {self.getPhysBatchCounterTableName()}
                 SET "currentBatch" = :batch_id
-                WHERE key = :key
+                WHERE "key" = :key
             """), {"key": key, "batch_id": batchId})
             logger.debug("Updated batch counter", key=key, batch_id=batchId)
         else:
             # Insert new counter record with remote batch ID
             connection.execute(text(f"""
-                INSERT INTO {self.getPhysBatchCounterTableName()} (key, "currentBatch")
+                INSERT INTO {self.getPhysBatchCounterTableName()} ("key", "currentBatch")
                 VALUES (:key, :batch_id)
             """), {"key": key, "batch_id": batchId})
             logger.debug("Inserted new batch counter", key=key, batch_id=batchId)

@@ -90,8 +90,6 @@ class SnapshotMergeJobLiveOnly(Job):
 
                 # Get all column names
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
-                quoted_all_columns = [f'"{col}"' for col in allColumns]
-
                 # Get total count for processing
                 count_result = connection.execute(
                     text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}"))
@@ -103,39 +101,35 @@ class SnapshotMergeJobLiveOnly(Job):
                              total_records=total_records,
                              chunkSize=chunkSize)
 
-                # Process in batches using INSERT...ON CONFLICT for better PostgreSQL compatibility
+                # Process in batches using database-specific upsert operation
                 for offset in range(0, total_records, chunkSize):
-                    batch_upsert_sql = f"""
-                    WITH batch_data AS (
-                        SELECT * FROM {stagingTableName}
-                        WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
-                        ORDER BY {self.schemaProjector.KEY_HASH_COLUMN_NAME}
-                        LIMIT {chunkSize} OFFSET {offset}
+                    # Create a temporary view for this batch chunk
+                    limit_clause = self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
+                    batch_source_table = (f"(SELECT * FROM {stagingTableName} "
+                                          f"WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId} "
+                                          f"ORDER BY {self.schemaProjector.KEY_HASH_COLUMN_NAME} {limit_clause})")
+
+                    batch_upsert_sql = self.merge_db_ops.get_upsert_sql(
+                        mergeTableName,
+                        batch_source_table,
+                        allColumns,
+                        self.schemaProjector.KEY_HASH_COLUMN_NAME,
+                        self.schemaProjector.ALL_HASH_COLUMN_NAME,
+                        self.schemaProjector.BATCH_ID_COLUMN_NAME,
+                        batchId
                     )
-                    INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {self.schemaProjector.BATCH_ID_COLUMN_NAME}, {self.schemaProjector.ALL_HASH_COLUMN_NAME}, {self.schemaProjector.KEY_HASH_COLUMN_NAME})
-                    SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.{self.schemaProjector.ALL_HASH_COLUMN_NAME}, b.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
-                    FROM batch_data b
-                    ON CONFLICT ({self.schemaProjector.KEY_HASH_COLUMN_NAME})
-                    DO UPDATE SET
-                        {', '.join([f'"{col}" = EXCLUDED."{col}"' for col in allColumns])},
-                        {self.schemaProjector.BATCH_ID_COLUMN_NAME} = EXCLUDED.{self.schemaProjector.BATCH_ID_COLUMN_NAME},
-                        {self.schemaProjector.ALL_HASH_COLUMN_NAME} = EXCLUDED.{self.schemaProjector.ALL_HASH_COLUMN_NAME},
-                        {self.schemaProjector.KEY_HASH_COLUMN_NAME} = EXCLUDED.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
-                    WHERE {mergeTableName}.{self.schemaProjector.ALL_HASH_COLUMN_NAME} != EXCLUDED.{self.schemaProjector.ALL_HASH_COLUMN_NAME}
-                    """
 
                     logger.debug("Executing batch upsert", offset=offset)
                     connection.execute(text(batch_upsert_sql))
 
                 # Handle deletions once after all inserts/updates for this dataset
-                delete_sql = f"""
-                DELETE FROM {mergeTableName} m
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM {stagingTableName} s
-                    WHERE s.{self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
-                    AND s.{self.schemaProjector.KEY_HASH_COLUMN_NAME} = m.{self.schemaProjector.KEY_HASH_COLUMN_NAME}
+                delete_sql = self.merge_db_ops.get_delete_missing_records_sql(
+                    mergeTableName,
+                    stagingTableName,
+                    self.schemaProjector.KEY_HASH_COLUMN_NAME,
+                    self.schemaProjector.BATCH_ID_COLUMN_NAME,
+                    batchId
                 )
-                """
                 logger.debug("Executing deletion query for dataset", dataset_name=datasetToMergeName)
                 delete_result = connection.execute(text(delete_sql))
                 dataset_deleted = delete_result.rowcount
@@ -207,8 +201,6 @@ class SnapshotMergeJobLiveOnly(Job):
 
                 # Get all column names
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
-                quoted_all_columns = [f'"{col}"' for col in allColumns]
-
                 # Get total count for processing
                 count_result = connection.execute(
                     text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
@@ -268,7 +260,7 @@ class SnapshotMergeJobLiveOnly(Job):
                         {sp.ALL_HASH_COLUMN_NAME} = s.{sp.ALL_HASH_COLUMN_NAME},
                         {sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
                 WHEN NOT MATCHED AND s.operation = 'INSERT' THEN
-                    INSERT ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
+                    INSERT ({', '.join([f'"{col}"' for col in allColumns])}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
                     VALUES ({', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME}, s.{sp.KEY_HASH_COLUMN_NAME})
                 """
 

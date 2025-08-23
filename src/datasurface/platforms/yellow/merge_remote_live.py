@@ -58,7 +58,7 @@ class MergeRemoteJob(Job):
             result = sourceConn.execute(text(f"""
                 SELECT MAX(batch_id)
                 FROM {remoteMetricsTableName}
-                WHERE key = :key AND batch_status = '{BatchStatus.COMMITTED.value}'
+                WHERE "key" = :key AND batch_status = '{BatchStatus.COMMITTED.value}'
             """), {"key": key})
 
             row = result.fetchone()
@@ -192,6 +192,14 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     # Update final state before marking as ingested
                     state.job_state[self.remoteBatchIdKey] = currentRemoteBatchId
                     state.job_state[self.isSeedBatchKey] = SeedBatch  # Whether batch is delta or seed
+
+                    # Create schema hashes for all datasets
+                    # Store the current schema hashes in the batch state
+                    schema_versions = {}
+                    for dataset_name in state.all_datasets:
+                        schema_versions[dataset_name] = self.getSchemaHash(self.store.datasets[dataset_name])
+                    state.schema_versions = schema_versions
+
                     self.updateBatchStatusInTx(mergeEngine, key, batchId, BatchStatus.INGESTED, state=state)
 
         return recordsInserted, 0, totalRecords
@@ -205,19 +213,17 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     source_table=sourceTableName,
                     as_of_remote_batch=currentRemoteBatchId)
 
-        # Query for records that were live as of the current remote batch ID
-        # This means: created by currentRemoteBatchId or earlier AND still alive after currentRemoteBatchId
-        # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = [f'"{col}"' for col in allColumns]
-        selectSql = f"""
-        SELECT {', '.join(quoted_columns)},
-            {sp.ALL_HASH_COLUMN_NAME},
-            {sp.KEY_HASH_COLUMN_NAME},
-            'I' as {sp.IUD_COLUMN_NAME}
-        FROM {sourceTableName}
-        WHERE {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId}
-        AND {sp.BATCH_OUT_COLUMN_NAME} > {currentRemoteBatchId}
-        """
+        # Query for records that were live as of the current remote batch ID using database operations
+        selectSql = self.merge_db_ops.get_remote_seed_batch_sql(
+            sourceTableName,
+            allColumns,
+            sp.ALL_HASH_COLUMN_NAME,
+            sp.KEY_HASH_COLUMN_NAME,
+            sp.BATCH_IN_COLUMN_NAME,
+            sp.BATCH_OUT_COLUMN_NAME,
+            sp.IUD_COLUMN_NAME,
+            currentRemoteBatchId
+        )
 
         logger.debug("Executing seed batch query", query=selectSql)
         result = sourceConn.execute(text(selectSql))
@@ -254,72 +260,18 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     last_remote_batch=lastRemoteBatchId,
                     current_remote_batch=currentRemoteBatchId)
 
-        # Get changes since last batch using milestoning
-        # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = [f'"{col}"' for col in allColumns]
-
-        # For live-only destination, we need to identify keys that were affected by changes
-        # and then get the current state of those keys as of currentRemoteBatchId
-        selectSql = f"""
-        WITH changed_keys AS (
-            -- Find all keys that had any changes between lastRemoteBatchId and currentRemoteBatchId
-            SELECT DISTINCT {sp.KEY_HASH_COLUMN_NAME}
-            FROM {sourceTableName}
-            WHERE ({sp.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
-                   AND {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
-               OR ({sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
-                   AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
-        ),
-        current_state AS (
-            -- Get the current state of changed keys as of currentRemoteBatchId
-            SELECT {', '.join(quoted_columns)},
-                {sp.ALL_HASH_COLUMN_NAME},
-                {sp.KEY_HASH_COLUMN_NAME},
-                {sp.BATCH_IN_COLUMN_NAME},
-                {sp.BATCH_OUT_COLUMN_NAME}
-            FROM {sourceTableName} s
-            WHERE s.{sp.KEY_HASH_COLUMN_NAME} IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM changed_keys)
-              AND s.{sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId}
-              AND s.{sp.BATCH_OUT_COLUMN_NAME} > {currentRemoteBatchId}
-        ),
-        previous_state AS (
-            -- Get the previous state of changed keys as of lastRemoteBatchId
-            SELECT {sp.KEY_HASH_COLUMN_NAME},
-                {sp.ALL_HASH_COLUMN_NAME} as prev_all_hash
-            FROM {sourceTableName} s
-            WHERE s.{sp.KEY_HASH_COLUMN_NAME} IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM changed_keys)
-              AND s.{sp.BATCH_IN_COLUMN_NAME} <= {lastRemoteBatchId}
-              AND s.{sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
+        # Get changes since last batch using database operations
+        selectSql = self.merge_db_ops.get_remote_incremental_batch_sql(
+            sourceTableName,
+            allColumns,
+            sp.ALL_HASH_COLUMN_NAME,
+            sp.KEY_HASH_COLUMN_NAME,
+            sp.BATCH_IN_COLUMN_NAME,
+            sp.BATCH_OUT_COLUMN_NAME,
+            sp.IUD_COLUMN_NAME,
+            lastRemoteBatchId,
+            currentRemoteBatchId
         )
-        SELECT {', '.join(quoted_columns)},
-            cs.{sp.ALL_HASH_COLUMN_NAME},
-            cs.{sp.KEY_HASH_COLUMN_NAME},
-            CASE
-                WHEN ps.{sp.KEY_HASH_COLUMN_NAME} IS NULL THEN 'I'  -- New record
-                WHEN cs.{sp.ALL_HASH_COLUMN_NAME} != ps.prev_all_hash THEN 'U'  -- Updated record
-                ELSE 'U'  -- Default to update for safety
-            END as {sp.IUD_COLUMN_NAME}
-        FROM current_state cs
-        LEFT JOIN previous_state ps ON cs.{sp.KEY_HASH_COLUMN_NAME} = ps.{sp.KEY_HASH_COLUMN_NAME}
-        
-        UNION ALL
-        
-        -- Handle deletions: keys that existed at lastRemoteBatchId but not at currentRemoteBatchId
-        SELECT {', '.join([f'ps."{col}"' for col in allColumns])},
-            ps.{sp.ALL_HASH_COLUMN_NAME},
-            ps.{sp.KEY_HASH_COLUMN_NAME},
-            'D' as {sp.IUD_COLUMN_NAME}
-        FROM (
-            SELECT {', '.join(quoted_columns)},
-                {sp.ALL_HASH_COLUMN_NAME},
-                {sp.KEY_HASH_COLUMN_NAME}
-            FROM {sourceTableName} s
-            WHERE s.{sp.KEY_HASH_COLUMN_NAME} IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM changed_keys)
-              AND s.{sp.BATCH_IN_COLUMN_NAME} <= {lastRemoteBatchId}
-              AND s.{sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
-        ) ps
-        WHERE ps.{sp.KEY_HASH_COLUMN_NAME} NOT IN (SELECT {sp.KEY_HASH_COLUMN_NAME} FROM current_state)
-        """
 
         logger.debug("Executing incremental batch query", query=selectSql)
         result = sourceConn.execute(text(selectSql))
@@ -345,8 +297,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Create column name mapping for robust data extraction
         column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
 
-        # Build insert statement
-        quoted_columns = [f'"{col}"' for col in allColumns] + [
+        # Build insert statement using database operations
+        quoted_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
             f'"{sp.BATCH_ID_COLUMN_NAME}"',
             f'"{sp.ALL_HASH_COLUMN_NAME}"',
             f'"{sp.KEY_HASH_COLUMN_NAME}"',
@@ -421,7 +373,6 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
 
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
-                quoted_all_columns = [f'"{col}"' for col in allColumns]
 
                 # Get total count for processing
                 count_result = connection.execute(
@@ -435,6 +386,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                                  total_records=total_records)
 
                     # Seed batch: Replace entire local dataset with remote state
+                    quoted_all_columns = self.merge_db_ops.get_quoted_columns(allColumns)
                     dataset_inserted, dataset_updated, dataset_deleted = self._processSeedBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
                         batchId, sp, chunkSize)
@@ -444,6 +396,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                                  total_records=total_records)
 
                     # Incremental batch: Process specific IUD operations
+                    quoted_all_columns = self.merge_db_ops.get_quoted_columns(allColumns)
                     dataset_inserted, dataset_updated, dataset_deleted = self._processIncrementalBatch(
                         connection, stagingTableName, mergeTableName, allColumns, quoted_all_columns,
                         batchId, sp, chunkSize)
@@ -498,13 +451,15 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         inserted_count = 0
         # Process in batches for better memory usage
         for offset in range(0, total_records, chunkSize):
+            quoted_all_columns = self.merge_db_ops.get_quoted_columns(allColumns)
+            limit_clause = self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
             batch_insert_sql = f"""
             INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
             SELECT {', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME}, s.{sp.KEY_HASH_COLUMN_NAME}
             FROM {stagingTableName} s
             WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
             ORDER BY s.{sp.KEY_HASH_COLUMN_NAME}
-            LIMIT {chunkSize} OFFSET {offset}
+            {limit_clause}
             """
 
             batch_result = connection.execute(text(batch_insert_sql))
@@ -538,15 +493,11 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             self, connection, stagingTableName: str, mergeTableName: str,
             batchId: int, sp: YellowSchemaProjector) -> int:
         """Process delete operations from staging table."""
-        delete_sql = f"""
-        DELETE FROM {mergeTableName} m
-        WHERE EXISTS (
-            SELECT 1 FROM {stagingTableName} s
-            WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-            AND s.{sp.IUD_COLUMN_NAME} = 'D'
-            AND s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
+        delete_sql = self.merge_db_ops.get_delete_marked_records_sql(
+            mergeTableName, stagingTableName,
+            sp.KEY_HASH_COLUMN_NAME, sp.BATCH_ID_COLUMN_NAME, sp.IUD_COLUMN_NAME,
+            batchId
         )
-        """
 
         logger.debug("Executing delete operations")
         delete_result = connection.execute(text(delete_sql))
@@ -572,43 +523,59 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
         # Process in batches
         for offset in range(0, total_operations, chunkSize):
-            batch_upsert_sql = f"""
-            WITH batch_data AS (
+            # Create a batch source table for this chunk
+            limit_clause = self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
+            batch_source = f"""(
                 SELECT * FROM {stagingTableName}
                 WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
                 AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
                 ORDER BY {sp.KEY_HASH_COLUMN_NAME}
-                LIMIT {chunkSize} OFFSET {offset}
+                {limit_clause}
+            )"""
+
+            batch_upsert_sql = self.merge_db_ops.get_upsert_sql(
+                mergeTableName,
+                batch_source,
+                allColumns,
+                sp.KEY_HASH_COLUMN_NAME,
+                sp.ALL_HASH_COLUMN_NAME,
+                sp.BATCH_ID_COLUMN_NAME,
+                batchId
             )
-            INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
-            SELECT {', '.join([f'b."{col}"' for col in allColumns])}, {batchId}, b.{sp.ALL_HASH_COLUMN_NAME}, b.{sp.KEY_HASH_COLUMN_NAME}
-            FROM batch_data b
-            ON CONFLICT ({sp.KEY_HASH_COLUMN_NAME})
-            DO UPDATE SET
-                {', '.join([f'"{col}" = EXCLUDED."{col}"' for col in allColumns])},
-                {sp.BATCH_ID_COLUMN_NAME} = EXCLUDED.{sp.BATCH_ID_COLUMN_NAME},
-                {sp.ALL_HASH_COLUMN_NAME} = EXCLUDED.{sp.ALL_HASH_COLUMN_NAME},
-                {sp.KEY_HASH_COLUMN_NAME} = EXCLUDED.{sp.KEY_HASH_COLUMN_NAME}
-            WHERE {mergeTableName}.{sp.ALL_HASH_COLUMN_NAME} != EXCLUDED.{sp.ALL_HASH_COLUMN_NAME}
-            """
 
             logger.debug("Executing batch insert/update operations", offset=offset)
             connection.execute(text(batch_upsert_sql))
 
         # Get final metrics for insert/update operations
-        metrics_sql = f"""
-        SELECT
-            COUNT(*) FILTER (WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}) as current_batch_count,
-            COUNT(*) FILTER (WHERE {sp.BATCH_ID_COLUMN_NAME} != {batchId} AND {sp.KEY_HASH_COLUMN_NAME} IN (
+        # Use database-specific approach to avoid subqueries in aggregates for SQL Server
+        if self.merge_db_ops.supports_merge_statement() and hasattr(self.merge_db_ops, 'get_json_extract_expression'):
+            # SQL Server - use JOINs to avoid subqueries in aggregates
+            metrics_sql = f"""
+            SELECT
+                SUM(CASE WHEN m.{sp.BATCH_ID_COLUMN_NAME} = {batchId} THEN 1 ELSE 0 END) as current_batch_count,
+                SUM(CASE WHEN m.{sp.BATCH_ID_COLUMN_NAME} != {batchId} THEN 1 ELSE 0 END) as updated_count
+            FROM {mergeTableName} m
+            INNER JOIN {stagingTableName} s ON m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
+            WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId} AND s.{sp.IUD_COLUMN_NAME} IN ('I', 'U')
+            """
+        else:
+            # PostgreSQL - can use FILTER clause with subqueries
+            current_batch_filter = f"{sp.BATCH_ID_COLUMN_NAME} = {batchId}"
+            updated_filter = (
+                f"{sp.BATCH_ID_COLUMN_NAME} != {batchId} AND {sp.KEY_HASH_COLUMN_NAME} IN "
+                f"(SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} "
+                f"WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId} AND {sp.IUD_COLUMN_NAME} IN ('I', 'U'))"
+            )
+            metrics_sql = f"""
+            SELECT
+                {self.merge_db_ops.get_count_filter_expression(current_batch_filter)} as current_batch_count,
+                {self.merge_db_ops.get_count_filter_expression(updated_filter)} as updated_count
+            FROM {mergeTableName}
+            WHERE {sp.KEY_HASH_COLUMN_NAME} IN (
                 SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName}
                 WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId} AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
-            )) as updated_count
-        FROM {mergeTableName}
-        WHERE {sp.KEY_HASH_COLUMN_NAME} IN (
-            SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName}
-            WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId} AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
-        )
-        """
+            )
+            """
 
         metrics_result = connection.execute(text(metrics_sql))
         metrics_row = metrics_result.fetchone()

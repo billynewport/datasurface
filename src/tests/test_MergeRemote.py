@@ -4,6 +4,8 @@
 """
 
 import unittest
+import os
+import pytest
 from datasurface.platforms.yellow.jobs import JobStatus
 from datasurface.platforms.yellow.merge_remote_forensic import SnapshotMergeJobRemoteForensic
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
@@ -19,8 +21,17 @@ from typing import Any, Optional, Type
 from datetime import datetime
 from datasurface.platforms.yellow.jobs import Job
 
+# Check if SQL Server tests should be enabled
+ENABLE_SQLSERVER_TESTS = os.getenv("ENABLE_SQLSERVER_TESTS", "false").lower() == "true"
+skip_sqlserver = pytest.mark.skipif(
+    not ENABLE_SQLSERVER_TESTS,
+    reason="SQL Server tests disabled. Set ENABLE_SQLSERVER_TESTS=true to enable."
+)
+
 
 class TestMergeRemoteLive(unittest.TestCase):
+
+    """In the ecosystem which is configured, Store1 is a postgres source and Store2 is a SQLServer source."""
 
     def checkTestRecordsMatchExpected(self, test_data: list[dict[str, Any]], live_records: list[Any]) -> None:
         # Adapter test_data to a dict on key so we can find the record quickly.
@@ -67,7 +78,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                     f"Primary record: {primary_record}, Remote record: {remote_record}"
                 )
 
-    def setup_stream_test(self, platformName: str, job_class: Type[Job]) -> BaseSnapshotMergeJobTest:
+    def setup_stream_test(self, platformName: str, storeName: str, job_class: Type[Job]) -> BaseSnapshotMergeJobTest:
         eco: Optional[Ecosystem]
         tree: Optional[ValidationTree]
         eco, tree = loadEcosystemFromEcoModule("src/tests/pip_test_model")
@@ -76,16 +87,23 @@ class TestMergeRemoteLive(unittest.TestCase):
         assert not tree.hasErrors()
         dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow(platformName))
         assert dp is not None
-        utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(eco, platformName)
+        # Choose the correct store based on platform type
+        utils: BaseSnapshotMergeJobTest = BaseSnapshotMergeJobTest(eco, platformName, storeName)
         assert utils.store is not None
         utils.store.cmd = dp.getEffectiveCMDForDatastore(eco, utils.store)
         utils.common_setup_job(job_class, self)
         return utils
 
-    def setup_live_and_merge_batch_runs(self) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
-        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", SnapshotMergeJobRemoteLive)
-        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
-        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", SnapshotMergeJobRemoteForensic)
+    def setup_live_and_merge_batch_runs(self, storeName: str) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", storeName, SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", storeName, SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", storeName, SnapshotMergeJobRemoteForensic)
+        return live_utils, merge_utils, remote_merge_utils
+
+    def setup_live_and_merge_batch_runsSQLServer(self, storeName: str) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSQLServer", storeName, SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", storeName, SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSQLServer", storeName, SnapshotMergeJobRemoteForensic)
         return live_utils, merge_utils, remote_merge_utils
 
     def getBatchTestData(self) -> list[list[dict[str, Any]]]:
@@ -149,14 +167,14 @@ class TestMergeRemoteLive(unittest.TestCase):
             pip_utils.common_clear_and_insert_data(batch_data, self)
 
             self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
-            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            pip_utils.checkSpecificBatchStatus(pip_utils.storeName, batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs(pip_utils.storeName, batch_id, self)
             # print merge table data for debugging
             merge_table_data: list[Any] = pip_utils.getMergeTableData()
             print(f"Merge table data for batch {batch_id}: {merge_table_data}")
             # Try to ingest from the merge batch idx to the live platform.
             self.assertEqual(test_utils.runJob(), JobStatus.DONE)
-            test_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
+            test_utils.checkSpecificBatchStatus(test_utils.storeName, batch_id, BatchStatus.COMMITTED, self)
 
             # For remote forensic merge, compare the remote table against the primary table
             assert test_utils.dp is not None
@@ -164,28 +182,60 @@ class TestMergeRemoteLive(unittest.TestCase):
             self.compare_forensic_merge_tables(test_utils, pip_utils, batch_id, batch_data)
             batch_id += 1
 
+        self.assertEqual(test_utils.job.numReconcileDDLs, 1)
+        self.assertEqual(pip_utils.job.numReconcileDDLs, 1)
+
         test_utils.baseTearDown()
         pip_utils.baseTearDown()
 
     def test_5_batches_remote_forensic_one_by_one(self) -> None:
-        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
-        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", SnapshotMergeJobRemoteForensic)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", "Store1", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
+
+    @skip_sqlserver
+    def test_5_batches_remote_forensic_one_by_one_SQLServer(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSQLServer", "Store2", SnapshotMergeJobRemoteForensic)
 
         self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
 
     def test_5_batches_remote_live_one_by_one(self) -> None:
-        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", SnapshotMergeJobRemoteLive)
-        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", "Store1", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
 
         self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
 
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
 
+    @skip_sqlserver
+    def test_5_batches_remote_live_one_by_one_SQLServer(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSQLServer", "Store2", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
+
+        self.assertEqual(live_utils.job.numReconcileDDLs, 1)
+        self.assertEqual(merge_utils.job.numReconcileDDLs, 1)
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
     # Seed at batch 3, then incrementally ingest the rest.
     def test_5_batches_remote_live_b3_then_one_by_one(self) -> None:
-        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", SnapshotMergeJobRemoteLive)
-        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", "Store1", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
+    @skip_sqlserver
+    def test_5_batches_remote_live_b3_then_one_by_one_SQLServer(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSQLServer", "Store2", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
 
         self.generic_test_5_batches_remote_live_b3_then_one_by_one(live_utils, merge_utils)
 
@@ -193,8 +243,18 @@ class TestMergeRemoteLive(unittest.TestCase):
         merge_utils.baseTearDown()
 
     def test_5_batches_remote_forensic_b3_then_one_by_one(self) -> None:
-        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", SnapshotMergeJobForensic)
-        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", SnapshotMergeJobRemoteForensic)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", "Store1", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
+
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_sqlserver
+    def test_5_batches_remote_forensic_b3_then_one_by_one_SQLServer(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSQLServer", "Store2", SnapshotMergeJobRemoteForensic)
 
         self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
 
@@ -214,8 +274,8 @@ class TestMergeRemoteLive(unittest.TestCase):
             pip_utils.common_clear_and_insert_data(batch_data, self)
 
             self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
-            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            pip_utils.checkSpecificBatchStatus(pip_utils.storeName, batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs(pip_utils.storeName, batch_id, self)
             # print merge table data for debugging
             if batch_id >= 3:
                 merge_table_data: list[Any] = pip_utils.getMergeTableData()
@@ -230,7 +290,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                 else:
                     # Remote forensic merge uses the primary batch ID as local batch ID
                     local_batch_id = batch_id
-                test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+                test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
                 self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
             batch_id += 1
 
@@ -249,8 +309,8 @@ class TestMergeRemoteLive(unittest.TestCase):
             pip_utils.common_clear_and_insert_data(batch_data, self)
 
             self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
-            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            pip_utils.checkSpecificBatchStatus(pip_utils.storeName, batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs(pip_utils.storeName, batch_id, self)
             # print merge table data for debugging
             if batch_id == 3 or batch_id == 5:
                 merge_table_data: list[Any] = pip_utils.getMergeTableData()
@@ -262,7 +322,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                     # Remote live merge creates its own local batch sequence starting from 1
                     # The local batch ID corresponds to the number of remote merge jobs run
                     local_batch_id: int = 1 if batch_id == 3 else 2
-                    test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+                    test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
                     live_records: list[Any] = test_utils.getLiveRecords()
                     msg = (
                         f"Live records count mismatch. Expected {len(batch_data)} but got "
@@ -273,13 +333,13 @@ class TestMergeRemoteLive(unittest.TestCase):
                 else:
                     # For remote forensic merge, the batch ID is the same as the primary batch ID (remote batch ID)
                     local_batch_id: int = batch_id  # Remote forensic uses primary batch ID as local batch ID
-                    test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+                    test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
                     self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
             batch_id += 1
 
     # Seed at batch 3, then ingest batch 4 and 5 as one batch.
     def test_5_batches_remote_live_b3_then_two(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
 
         self.generic_test_5_batches_remote_live_b3_then_two(live_utils, merge_utils)
 
@@ -288,7 +348,27 @@ class TestMergeRemoteLive(unittest.TestCase):
         remote_merge_utils.baseTearDown()
 
     def test_5_batches_remote_forensic_b3_then_two(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
+
+        self.generic_test_5_batches_remote_live_b3_then_two(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_sqlserver
+    def test_5_batches_remote_live_b3_then_two_SQLServer(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSQLServer("Store2")
+
+        self.generic_test_5_batches_remote_live_b3_then_two(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_sqlserver
+    def test_5_batches_remote_forensic_b3_then_two_SQLServer(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSQLServer("Store2")
 
         self.generic_test_5_batches_remote_live_b3_then_two(remote_merge_utils, merge_utils)
 
@@ -308,8 +388,8 @@ class TestMergeRemoteLive(unittest.TestCase):
             pip_utils.common_clear_and_insert_data(batch_data, self)
 
             self.assertEqual(pip_utils.runJob(), JobStatus.DONE)
-            pip_utils.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, self)
-            pip_utils.checkCurrentBatchIs("Store1", batch_id, self)
+            pip_utils.checkSpecificBatchStatus(pip_utils.storeName, batch_id, BatchStatus.COMMITTED, self)
+            pip_utils.checkCurrentBatchIs(pip_utils.storeName, batch_id, self)
             # print merge table data for debugging
             batch_id += 1
 
@@ -324,7 +404,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         if test_utils.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
             # Remote live merge creates its own local batch sequence starting from 1
             local_batch_id: int = 1
-            test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+            test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
             live_records: list[Any] = test_utils.getLiveRecords()
             msg = (
                 f"Live records count mismatch. Expected {len(batch_data)} but got "
@@ -335,12 +415,12 @@ class TestMergeRemoteLive(unittest.TestCase):
         else:
             # Remote forensic merge uses primary batch ID as local batch ID
             local_batch_id: int = batch_id
-            test_utils.checkSpecificBatchStatus("Store1", local_batch_id, BatchStatus.COMMITTED, self)
+            test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
             self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
 
     # Seed at batch 5
     def test_5_batches_remote_live_b5(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
 
         self.generic_test_5_batches_remote_live_b5(live_utils, merge_utils)
 
@@ -349,7 +429,27 @@ class TestMergeRemoteLive(unittest.TestCase):
         remote_merge_utils.baseTearDown()
 
     def test_5_batches_remote_forensic_b5(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
+
+        self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_sqlserver
+    def test_5_batches_remote_live_b5_SQLServer(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSQLServer("Store2")
+
+        self.generic_test_5_batches_remote_live_b5(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_sqlserver
+    def test_5_batches_remote_forensic_b5_SQLServer(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSQLServer("Store2")
 
         self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
 
@@ -358,7 +458,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         remote_merge_utils.baseTearDown()
 
     def test_noop_incremental_batch(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
 
         # Batch 1: seed a single record
         seed_data: list[dict[str, Any]] = [
@@ -379,7 +479,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         remote_merge_utils.baseTearDown()
 
     def test_reinsert_after_delete(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
 
         # Batch 1: insert id1
         merge_utils.common_clear_and_insert_data([
@@ -409,7 +509,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         merge_utils.baseTearDown()
 
     def test_idempotent_same_batch_rerun(self) -> None:
-        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs()
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runs("Store1")
 
         # Batch 1: insert id1
         merge_utils.common_clear_and_insert_data([

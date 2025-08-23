@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import Team, GovernanceZoneDeclaration, GovernanceZone, InfrastructureVendor, InfrastructureLocation, TeamDeclaration
-from datasurface.md import Ecosystem, LocationKey
+from datasurface.md import Ecosystem, LocationKey, SQLServerDatabase
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.md.documentation import PlainTextDocumentation
 from datasurface.md.repo import GitHubRepository
@@ -18,7 +18,8 @@ from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import PostgresDatabase, Datastore, SQLSnapshotIngestion, CronTrigger, IngestionConsistencyType, Dataset, Workspace, \
     DatasetGroup, DataPlatformManagedDataContainer, DatasetSink
 from datasurface.md.governance import ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency, WorkspacePlatformConfig
-from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowSinglePostgresDatabaseAssembly, K8sResourceLimits, StorageRequirement
+from datasurface.platforms.yellow.assembly import GitCacheConfig, YellowExternalSingleDatabaseAssembly, YellowSinglePostgresDatabaseAssembly, \
+    K8sResourceLimits, StorageRequirement
 
 
 def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
@@ -36,6 +37,47 @@ def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
                 CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
                 IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
                 Credential("postgres", CredentialType.USER_PASSWORD),  # Credential for platform to read from database
+                ),
+            datasets=[
+                Dataset(
+                    "people",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn(
+                                "id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
+                            DDLColumn(
+                                "firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "First Name")]),
+                            DDLColumn(
+                                "lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Last Name")]),
+                            DDLColumn(
+                                "dob", Date(), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Birth")]),
+                            DDLColumn(
+                                "employer", VarChar(100), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Employer")]),
+                            DDLColumn(
+                                "dod", Date(), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Death")])
+                        ]
+                    )
+                )
+            ]),
+        Datastore(
+            "Store2",
+            documentation=PlainTextDocumentation("Test datastore"),
+            capture_metadata=SQLSnapshotIngestion(
+                SQLServerDatabase(
+                    "Test_DB",  # Model name for database
+                    hostPort=HostPortPair("sqlserver", 1433),  # Host and port for database
+                    locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                    databaseName="test_db"  # Database name
+                ),
+                CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
+                IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
+                Credential("sa", CredentialType.USER_PASSWORD),  # Credential for platform to read from database
                 ),
             datasets=[
                 Dataset(
@@ -84,7 +126,7 @@ def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
         ),
         Workspace(
             "ConsumerRemoteForensic",
-            DataPlatformManagedDataContainer("ConsumerLive container"),
+            DataPlatformManagedDataContainer("ConsumerForensic container"),
             DatasetGroup(
                 "DSGForensic",
                 sinks=[
@@ -115,6 +157,57 @@ def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
                     )
                 )
             )
+        ),
+        Workspace(
+            "SQLServerConsumerLive",
+            DataPlatformManagedDataContainer("SQLServerConsumerLive container"),
+            DatasetGroup(
+                "DSGLive",
+                sinks=[
+                    DatasetSink("Store2", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.LIVE_ONLY,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
+        ),
+        Workspace(
+            "SQLServerConsumerForensic",
+            DataPlatformManagedDataContainer("SQLServerConsumerForensic container"),
+            DatasetGroup(
+                "DSGForensic",
+                sinks=[
+                    DatasetSink("Store2", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.FORENSIC,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
+        ),
+        Workspace(
+            "SQLServerConsumerRemoteForensic",
+            DataPlatformManagedDataContainer("SQLServerConsumerRemoteForensic container"),
+            DatasetGroup(
+                "DSGForensic",
+                sinks=[
+                    DatasetSink("Store2", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.FORENSIC,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
         )
     )
 
@@ -126,6 +219,12 @@ def createEcosystem() -> Ecosystem:
     merge_datacontainer: PostgresDatabase = PostgresDatabase(
         "MergeDB",
         hostPort=HostPortPair("localhost", 5432),
+        locations={LocationKey("MyCorp:USA/NY_1")},
+        databaseName="datasurface_merge"
+    )
+    merge_sqlserver_datacontainer: SQLServerDatabase = SQLServerDatabase(
+        "MergeDB",
+        hostPort=HostPortPair("sqlserver", 1433),
         locations={LocationKey("MyCorp:USA/NY_1")},
         databaseName="datasurface_merge"
     )
@@ -149,6 +248,24 @@ def createEcosystem() -> Ecosystem:
             requested_cpu=1.0,
             limits_cpu=2.0
         ),
+        afWebserverResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=1.0,
+            limits_cpu=2.0
+        ),
+        afSchedulerResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("4G"),
+            limits_memory=StorageRequirement("4G"),
+            requested_cpu=4.0,
+            limits_cpu=4.0
+        )
+    )
+    yp_assmSQLServer: YellowExternalSingleDatabaseAssembly = YellowExternalSingleDatabaseAssembly(
+        name="Test_DP_SQLServer",
+        namespace=f"{KUB_NAME_SPACE}",
+        git_cache_config=gitcache,
+        afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
         afWebserverResourceLimits=K8sResourceLimits(
             requested_memory=StorageRequirement("1G"),
             limits_memory=StorageRequirement("2G"),
@@ -190,11 +307,39 @@ def createEcosystem() -> Ecosystem:
                 )
         ]
     )
+    pspSQLServer: YellowPlatformServiceProvider = YellowPlatformServiceProvider(
+        "Test_DP_SQLServer",
+        {LocationKey("MyCorp:USA/NY_1")},
+        PlainTextDocumentation("Test"),
+        yp_assembly=yp_assmSQLServer,
+        gitCredential=Credential("git", CredentialType.API_TOKEN),
+        connectCredentials=Credential("connect", CredentialType.API_TOKEN),
+        mergeRW_Credential=Credential("sa", CredentialType.USER_PASSWORD),
+        merge_datacontainer=merge_sqlserver_datacontainer,
+        pv_storage_class="longhorn",
+        dataPlatforms=[
+            YellowDataPlatform(
+                name="YellowLiveSQLServer",
+                doc=PlainTextDocumentation("Live Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD1
+                ),
+            YellowDataPlatform(
+                "YellowForensicSQLServer",
+                doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD2
+                ),
+            YellowDataPlatform(
+                "YellowRemoteForensicSQLServer",
+                doc=PlainTextDocumentation("Forensic remote Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD2
+                )
+        ]
+    )
 
     ecosys: Ecosystem = Ecosystem(
         name="WorldWideImporters",
         repo=GitHubRepository("billynewport/mvpmodel", "main"),
-        platform_services_providers=[psp],
+        platform_services_providers=[psp, pspSQLServer],
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],

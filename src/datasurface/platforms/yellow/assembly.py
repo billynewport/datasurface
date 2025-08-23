@@ -7,6 +7,7 @@ from typing import Any, Generic, Optional, TypeVar
 from jinja2 import Environment, Template
 from datasurface.md import StorageRequirement
 import re
+import urllib.parse
 from abc import ABC, abstractmethod
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
@@ -16,6 +17,8 @@ from datasurface.md.credential import Credential
 from datasurface.md import HostPortSQLDatabase, PostgresDatabase
 from datasurface.md import HostPortPair
 from datasurface.md import Ecosystem
+from datasurface.platforms.yellow.db_utils import getDriverNameAndQueryForDataContainer
+
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -239,13 +242,19 @@ class Airflow281Component(Component):
         yaml: str = ""
         airflow_template: Template = env.get_template('airflow281/psp_airflow.yaml.j2')
         ctxt: dict[str, Any] = templateContext.copy()
+        driverName, query = getDriverNameAndQueryForDataContainer(self.db)
+
+        # URL-encode the driver query parameter to handle spaces and special characters
+        encoded_query = urllib.parse.quote_plus(query) if query else None
+        
         ctxt.update(
             {
                 "airflow_k8s_name": K8sUtils.to_k8s_name(self.name),
-                "postgres_hostname": self.db.hostPortPair.hostName,
-                "postgres_database": self.db.databaseName,
-                "postgres_port": self.db.hostPortPair.port,
-                "postgres_credential_secret_name": K8sUtils.to_k8s_name(self.dbCred.name),  # Airflow uses postgres creds
+                "airflow_db_hostname": self.db.hostPortPair.hostName,
+                "airflow_db_port": self.db.hostPortPair.port,
+                "airflow_db_driver": driverName,
+                "airflow_db_query": encoded_query,
+                "airflow_db_credential_secret_name": K8sUtils.to_k8s_name(self.dbCred.name),  # Airflow uses merge db creds
                 "extra_credentials": [K8sUtils.to_k8s_name(cred.name) for cred in self.dagCreds],
                 "webserver_requested_memory": Component.storageToKubernetesFormat(self.webserverResourceLimits.requested_memory),
                 "webserver_limits_memory": Component.storageToKubernetesFormat(self.webserverResourceLimits.limits_memory),
@@ -533,12 +542,12 @@ class YellowSinglePostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase])
 class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
     """
     This is an assembly where a kubernetes name space is configured. It has a PVC for a git clone cache.
-    The postgres database is external to the system and available using info from the psp merge container
+    The SQL database is external to the system and available using info from the psp merge container
     and the credential should have SA access.
-    The airflow shares the postgres database.
-    The postgres database will be the merge database and the airflow database.
+    The airflow shares the SQL database.
+    The SQL database will be the merge database and the airflow database.
     This is a potentially a high performance setup, postgres running externally is as fast as it
-    is configured to be. The details on the postgres are taken from the mergecontainer provided
+    is configured to be. The details on the SQL are taken from the mergecontainer provided
     from the psp when create is called."""
     def __init__(
             self,
@@ -578,7 +587,7 @@ class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabas
             afHostPortPair: HostPortPair,
             afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
             afSchedulerResourceLimits: Optional[K8sResourceLimits] = None) -> Assembly:
-        """This create the kubernetes yaml to build a single database YellowDataPlatform where a single postgres
+        """This create the kubernetes yaml to build a single database YellowDataPlatform where a single SQL
         database is used for both the merge store and the airflow database."""
 
         assembly: Assembly = Assembly(

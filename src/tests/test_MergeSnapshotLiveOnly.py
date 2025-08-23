@@ -4,17 +4,18 @@
 """
 
 import unittest
-from unittest.mock import patch
+
 from typing import Optional
-from sqlalchemy import create_engine, text, MetaData
+from sqlalchemy import text, MetaData
 from sqlalchemy.engine import Engine
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
+from datasurface.platforms.yellow import db_utils
 from datasurface.platforms.yellow.jobs import Job, JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
-from datasurface.md import Ecosystem
-from datasurface.md import Datastore, DataContainer, Dataset
+from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase
+from datasurface.md import Datastore, Dataset, SQLIngestion
 from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, WorkspacePlatformConfig
-from datasurface.md import DataPlatform
+from datasurface.md import DataPlatform, HostPortSQLDatabase
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowDatasetUtilities
 from datasurface.md.lint import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
@@ -22,10 +23,14 @@ from datasurface.md.credential import CredentialStore, Credential
 from typing import cast
 from abc import ABC
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
+from datasurface.platforms.yellow.database_operations import DatabaseOperationsFactory
+from datasurface.platforms.yellow.db_utils import createInspector
 
 
 class BaseSnapshotMergeJobTest(ABC):
     """Base class for SnapshotMergeJob tests (live-only and forensic)"""
+    _current_test_instance: Optional['BaseSnapshotMergeJobTest'] = None
+
     tree: Optional[ValidationTree]
     dp: Optional[YellowDataPlatform]
     store_entry: Optional[DatastoreCacheEntry]
@@ -35,18 +40,23 @@ class BaseSnapshotMergeJobTest(ABC):
     merge_engine: Optional[Engine]
     ydu: YellowDatasetUtilities
 
-    def __init__(self, eco: Ecosystem, dpName: str) -> None:
+    def __init__(self, eco: Ecosystem, dpName: str, storeName: str = "Store1") -> None:
         self.eco: Ecosystem = eco
         self.dpName: str = dpName
+        self.storeName: str = storeName
         dp: Optional[DataPlatform] = self.eco.getDataPlatform(self.dpName)
         if dp is None:
             raise Exception("Platform not found")
         self.dp = cast(YellowDataPlatform, dp)
-        store_entry: Optional[DatastoreCacheEntry] = self.eco.cache_getDatastore("Store1")
+
+        store_entry: Optional[DatastoreCacheEntry] = self.eco.cache_getDatastore(storeName)
         if store_entry is None:
-            raise Exception("Store not found")
+            raise Exception(f"Store {storeName} not found")
         self.store_entry = store_entry
         self.store = self.store_entry.datastore
+
+        # Initialize database operations for test cleanup
+        self.db_ops = None
 
     @staticmethod
     def loadEcosystem(path: str) -> Optional[Ecosystem]:
@@ -61,6 +71,9 @@ class BaseSnapshotMergeJobTest(ABC):
         return eco
 
     def baseSetUp(self) -> None:
+        # Set the current test instance for the mock to use
+        BaseSnapshotMergeJobTest._current_test_instance = self
+
         self.tree = None
         self.source_engine = None
         self.merge_engine = None
@@ -69,49 +82,90 @@ class BaseSnapshotMergeJobTest(ABC):
         self.overrideCredentialStore()
         assert self.dp is not None
         assert self.store is not None
+        # Create YellowDatasetUtilities after credential store override to ensure it uses the mock
         self.ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.dp.psp.credStore, self.dp, self.store)
+
+        # Initialize database operations for test utilities
+        if self.ydu.schemaProjector is not None:
+            self.db_ops = DatabaseOperationsFactory.create_database_operations(
+                self.dp.psp.mergeStore, self.ydu.schemaProjector
+            )
+
         self.setupDatabases()
 
     def baseTearDown(self) -> None:
-        if hasattr(self, '_engine_patcher'):
-            self._engine_patcher.stop()
         self.cleanupBatchTables()
         if hasattr(self, 'source_engine') and self.source_engine is not None:
             with self.source_engine.begin() as conn:
-                conn.execute(text('DROP TABLE IF EXISTS people CASCADE'))
+                if self.db_ops is None:
+                    raise Exception("Database operations not initialized - this is a critical system error")
+
+                # Use database operations for cleanup
+                drop_sql = self.db_ops.get_drop_table_sql('people')
+                try:
+                    conn.execute(text(drop_sql))
+                except Exception:
+                    pass  # Table might not exist
                 conn.commit()
             self.source_engine.dispose()
         if hasattr(self, 'merge_engine') and self.merge_engine is not None:
             with self.merge_engine.begin() as conn:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}" CASCADE'))
-                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}" CASCADE'))
-                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchCounterTableName()}" CASCADE'))
-                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchMetricsTableName()}" CASCADE'))
+                if self.db_ops is None:
+                    raise Exception("Database operations not initialized - this is a critical system error")
+
+                # Use database operations for cleanup
+                tables_to_drop = [
+                    self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"]),
+                    self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"]),
+                    self.ydu.getPhysBatchCounterTableName(),
+                    self.ydu.getPhysBatchMetricsTableName()
+                ]
+                for table_name in tables_to_drop:
+                    drop_sql = self.db_ops.get_drop_table_sql(table_name)
+                    try:
+                        conn.execute(text(drop_sql))
+                    except Exception:
+                        pass  # Table might not exist
                 conn.commit()
             self.merge_engine.dispose()
 
+        # Reset any mocked credential stores to prevent test isolation issues
+        if hasattr(self, 'dp') and self.dp is not None and hasattr(self.dp, 'psp'):
+            # Store original credential store if it exists, otherwise set to None
+            if not hasattr(self, '_original_cred_store'):
+                self._original_cred_store = None
+            if self._original_cred_store is not None:
+                self.dp.psp.credStore = self._original_cred_store
+
+        # Clear the current test instance reference
+        if BaseSnapshotMergeJobTest._current_test_instance == self:
+            BaseSnapshotMergeJobTest._current_test_instance = None
+
     def overrideJobConnections(self) -> None:
-        def local_create_engine(container: DataContainer, userName: str, password: str) -> Engine:
-            from datasurface.md import PostgresDatabase
-            if isinstance(container, PostgresDatabase) and hasattr(container, 'databaseName') and container.databaseName == 'datasurface_merge':
-                return create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
-            else:
-                return create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
-        patcher = patch('datasurface.platforms.yellow.db_utils.createEngine', new=local_create_engine)
-        self._engine_patcher = patcher
-        patcher.start()
+        # This method is now a no-op since we only need to mock the credential store
+        # The db_utils.createEngine function will automatically use the mocked credentials
+        pass
 
     def overrideCredentialStore(self) -> None:
         class MockCredentialStore(CredentialStore):
 
-            def __init__(self) -> None:
+            def __init__(self, user: str, password: str) -> None:
                 super().__init__("MockCredentialStore", set())
+                self.user = user
+                self.password = password
 
             def checkCredentialIsAvailable(self, cred: Credential, tree) -> None:
                 pass
 
             def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
-                return "postgres", "postgres"
+                # Return appropriate credentials based on the credential name
+                if cred.name == "postgres":
+                    return "postgres", "postgres"
+                elif cred.name == "sa":
+                    return "sa", "pass@w0rd"
+                else:
+                    # Default fallback to the initialized credentials
+                    return self.user, self.password
 
             def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
                 raise NotImplementedError("MockCredentialStore does not support certificates")
@@ -122,35 +176,68 @@ class BaseSnapshotMergeJobTest(ABC):
             def lintCredential(self, cred: Credential, tree) -> None:
                 pass
 
-        mock_cred_store = MockCredentialStore()
+        if isinstance(self.dp.psp.mergeStore, PostgresDatabase):
+            mock_cred_store = MockCredentialStore("postgres", "postgres")
+        elif isinstance(self.dp.psp.mergeStore, SQLServerDatabase):
+            mock_cred_store = MockCredentialStore("sa", "pass@w0rd")
+        else:
+            raise Exception(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
 
         if self.job is not None:
             self.job.credStore = mock_cred_store  # type: ignore[attr-defined]
 
         # Also mock the data platform's credential store for resetBatchState method
         assert self.dp is not None
+
+        # Store original credential store before overriding
+        if hasattr(self.dp.psp, 'credStore'):
+            self._original_cred_store = self.dp.psp.credStore
+        else:
+            self._original_cred_store = None
+
         self.dp.psp.credStore = mock_cred_store  # type: ignore[attr-defined]
 
     def setupDatabases(self) -> None:
-        self.source_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_db')
-        # This needs to used the values in the self.dp.mergeStore
-        host = self.dp.psp.mergeStore.hostPortPair.hostName
-        port = self.dp.psp.mergeStore.hostPortPair.port
-        db_name = self.dp.psp.mergeStore.databaseName
-        self.merge_engine = create_engine(f'postgresql://postgres:postgres@{host}:{port}/{db_name}')
+
+        # Create source engine based on merge store type for consistency
+        assert isinstance(self.store.cmd, SQLIngestion)
+        assert self.store.cmd.credential is not None
+        username, password = self.dp.psp.credStore.getAsUserPassword(self.store.cmd.credential)
+        assert self.store.cmd.dataContainer is not None
+        assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
+        self.source_engine = db_utils.createEngine(self.store.cmd.dataContainer, username, password)
+
+        # Create merge engine using the actual merge store configuration
+        username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
+        self.merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
         self.createSourceTable()
         self.createMergeDatabase()
+        inspector = createInspector(self.merge_engine)
         if self.job is not None:
-            # Drop the meta tables so we can start fresh
+            # Drop the meta tables so we can start fresh using database operations
             with self.merge_engine.begin() as conn:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchCounterTableName()}" CASCADE'))
-                conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchMetricsTableName()}" CASCADE'))
-                # Drop all staging and merge tables for all datasets in self.store
+                if self.db_ops is None:
+                    raise Exception("Database operations not initialized - this is a critical system error")
+
+                # Use database operations for table cleanup
+                tables_to_drop = [
+                    self.ydu.getPhysBatchCounterTableName(),
+                    self.ydu.getPhysBatchMetricsTableName()
+                ]
+                # Add staging and merge tables for all datasets
                 for dataset in self.store.datasets.values():
-                    conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysMergeTableNameForDataset(dataset)}" CASCADE'))
-                    conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysStagingTableNameForDataset(dataset)}" CASCADE'))
-            self.job.createBatchCounterTable(self.merge_engine)  # type: ignore[attr-defined]
-            self.job.createBatchMetricsTable(self.merge_engine)  # type: ignore[attr-defined]
+                    tables_to_drop.append(self.ydu.getPhysMergeTableNameForDataset(dataset))
+                    tables_to_drop.append(self.ydu.getPhysStagingTableNameForDataset(dataset))
+
+                for table_name in tables_to_drop:
+                    drop_sql = self.db_ops.get_drop_table_sql(table_name)
+                    try:
+                        conn.execute(text(drop_sql))
+                    except Exception:
+                        pass  # Table might not exist
+
+            self.job.createBatchCounterTable(self.merge_engine, inspector)
+            self.job.createBatchMetricsTable(self.merge_engine, inspector)
 
     def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
         """Check the batch status for a given key"""
@@ -177,7 +264,7 @@ class BaseSnapshotMergeJobTest(ABC):
 
         # Ensure staging table exists before calling startBatch
         assert self.store is not None
-        self.ydu.reconcileStagingTableSchemas(self.merge_engine, self.store)
+        self.ydu.reconcileStagingTableSchemas(self.merge_engine, createInspector(self.merge_engine), self.store)
 
         self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
         self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED, tc)
@@ -205,14 +292,16 @@ class BaseSnapshotMergeJobTest(ABC):
             metadata.create_all(self.source_engine)
 
     def createMergeDatabase(self) -> None:
-        postgres_engine = create_engine('postgresql://postgres:postgres@localhost:5432/postgres')
-        with postgres_engine.begin() as conn:
+        username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
+        merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
+        databaseName = self.dp.psp.mergeStore.databaseName
+        with merge_engine.begin() as conn:
             conn.execute(text("COMMIT"))
             try:
-                conn.execute(text("CREATE DATABASE test_merge_db"))
+                conn.execute(text(f"CREATE DATABASE {databaseName}"))
             except Exception:
                 pass
-        postgres_engine.dispose()
+        merge_engine.dispose()
 
     def insertTestData(self, data: list[dict]) -> None:
         with self.source_engine.begin() as conn:
@@ -295,11 +384,33 @@ class BaseSnapshotMergeJobTest(ABC):
         return status
 
     def cleanupBatchTables(self) -> None:
+
         if not hasattr(self, 'merge_engine'):
-            self.merge_engine = create_engine('postgresql://postgres:postgres@localhost:5432/test_merge_db')
+            # Use the same connection logic as setupDatabases
+            username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
+            self.merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
+
+            # Initialize database operations if not already available
+            if self.db_ops is None and hasattr(self, 'ydu') and self.ydu.schemaProjector is not None:
+                self.db_ops = DatabaseOperationsFactory.create_database_operations(
+                    self.dp.psp.mergeStore, self.ydu.schemaProjector
+                )
+
         with self.merge_engine.begin() as conn:
-            conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchCounterTableName()}" CASCADE'))
-            conn.execute(text(f'DROP TABLE IF EXISTS "{self.ydu.getPhysBatchMetricsTableName()}" CASCADE'))
+            if self.db_ops is None:
+                raise Exception("Database operations not initialized - this is a critical system error")
+
+            # Use database operations for cleanup
+            tables_to_drop = [
+                self.ydu.getPhysBatchCounterTableName(),
+                self.ydu.getPhysBatchMetricsTableName()
+            ]
+            for table_name in tables_to_drop:
+                drop_sql = self.db_ops.get_drop_table_sql(table_name)
+                try:
+                    conn.execute(text(drop_sql))
+                except Exception:
+                    pass  # Table might not exist
 
     def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
         """Common job setup pattern"""
@@ -314,7 +425,6 @@ class BaseSnapshotMergeJobTest(ABC):
             self.store
         )
         self.baseSetUp()
-        self.overrideCredentialStore()
 
     def common_verify_batch_completion(self, batch_id: int, tc: unittest.TestCase) -> None:
         """Common pattern to verify a batch completed successfully"""
@@ -436,6 +546,7 @@ class BaseSnapshotMergeJobTest(ABC):
             else:
                 tc.assertEqual(row['ds_surf_batch_id'], 2)  # Original batch 2, unchanged
 
+        tc.assertEqual(self.job.numReconcileDDLs, 1)
         print("All batch lifecycle tests passed!")
 
 
@@ -451,7 +562,7 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
         # Set the consumer to live-only mode
         req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
         req.retention.milestoningStrategy = DataMilestoningStrategy.LIVE_ONLY
-        BaseSnapshotMergeJobTest.__init__(self, eco, dp.name)
+        BaseSnapshotMergeJobTest.__init__(self, eco, dp.name, "Store1")
         unittest.TestCase.__init__(self, methodName)
 
     def setUp(self) -> None:
