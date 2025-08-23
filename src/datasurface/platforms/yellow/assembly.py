@@ -246,7 +246,7 @@ class Airflow281Component(Component):
 
         # URL-encode the driver query parameter to handle spaces and special characters
         encoded_query = urllib.parse.quote_plus(query) if query else None
-        
+
         ctxt.update(
             {
                 "airflow_k8s_name": K8sUtils.to_k8s_name(self.name),

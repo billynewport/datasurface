@@ -102,11 +102,75 @@ cd yellow_starter
 # Review the ecosystem model
 cat eco.py
 
-# Detect database configuration type and set environment variables
+# Review the platform assignments file (should already exist with correct format)
+cat dsg_platform_mapping.json
+```
+
+**Expected format for dsg_platform_mapping.json:**
+```json
+[
+  {
+    "dsgName": "LiveDSG",
+    "workspace": "Consumer1",
+    "assignments": [
+      {
+        "dataPlatform": "YellowLive",
+        "documentation": "Live Yellow DataPlatform",
+        "productionStatus": "PRODUCTION",
+        "deprecationsAllowed": "NEVER",
+        "status": "PROVISIONED"
+      }
+    ]
+  },
+  {
+    "dsgName": "ForensicDSG", 
+    "workspace": "Consumer1",
+    "assignments": [
+      {
+        "dataPlatform": "YellowForensic",
+        "documentation": "Forensic Yellow DataPlatform", 
+        "productionStatus": "PRODUCTION",
+        "deprecationsAllowed": "NEVER",
+        "status": "PROVISIONED"
+      }
+    ]
+  }
+]
+```
+
+**Key configurations to verify:**
+- DataPlatform names and credentials
+- PostgreSQL hostname and port configuration
+- Merge database name specification
+- Datastore connection details
+- Workspace and DatasetGroup configurations
+
+**Note:** Database configuration detection and environment variable setup is now handled by the utility scripts in Step 3.
+
+### Step 3: Create Environment Setup and Utility Scripts (Recommended)
+
+To avoid shell escaping issues and improve reliability, create these utility scripts in your `yellow_starter` directory:
+
+**Create Environment Setup Script (`setup_env.sh`):**
+```bash
+cat > setup_env.sh << 'EOF'
+#!/bin/bash
+
+# YellowDataPlatform Environment Setup Script
+echo "=== YellowDataPlatform Environment Setup ==="
+
+# Set basic variables
+export PG_PASSWORD="password"
+export PG_USER="postgres"
+export NAMESPACE="ns-yellow-starter"
+export MERGE_DB_NAME="datasurface_merge"
+export EXTERNAL_DB="true"
+
+# Detect database configuration from eco.py
 if grep -q "YellowExternalSingleDatabaseAssembly" eco.py; then
     echo "=== External PostgreSQL Database Configuration Detected ==="
     
-    # Extract database configuration from eco.py
+    # Extract database host
     PG_HOST=$(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 -c "
 import sys
 sys.path.append('.')
@@ -123,6 +187,7 @@ else:
     print('localhost')
 ")
     
+    # Extract database port
     PG_PORT=$(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 -c "
 import sys
 sys.path.append('.')
@@ -139,164 +204,131 @@ else:
     print('5432')
 ")
     
-    # Extract namespace from the assembly
-    NAMESPACE=$(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 -c "
-import sys
-sys.path.append('.')
-import eco
-ecosystem = eco.createEcosystem()
-psp = None
-for p in ecosystem.platformServicesProviders:
-    if hasattr(p, 'yp_assm'):
-        psp = p
-        break
-if psp and hasattr(psp.yp_assm, 'namespace'):
-    print(psp.yp_assm.namespace)
-else:
-    print('ns-yellow-starter')
-")
-    
-    # Extract merge database name from the PostgresDatabase
-    MERGE_DB_NAME=$(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 -c "
-import sys
-sys.path.append('.')
-import eco
-ecosystem = eco.createEcosystem()
-psp = None
-for p in ecosystem.platformServicesProviders:
-    if hasattr(p, 'mergeStore'):
-        psp = p
-        break
-if psp and hasattr(psp.mergeStore, 'databaseName'):
-    print(psp.mergeStore.databaseName)
-else:
-    print('datasurface_merge')
-")
-    
-    # Note: Username and password are stored in the credential referenced by postgresCredential
-    # The credential name is in eco.py, but actual username/password are in Kubernetes secrets
-    # For external databases, we assume 'postgres' user and require password via environment
-    PG_USER="postgres"
-    
-    # PG_PASSWORD should be provided in the initial prompt (matches the credential in eco.py)
-    if [ -z "$PG_PASSWORD" ]; then
-        echo "ERROR: PG_PASSWORD environment variable must be set for external database"
-        echo "Please set it with: export PG_PASSWORD='your_password_here'"
-        echo "This should match the password for the credential referenced in eco.py"
-        exit 1
-    fi
-    
-    echo "External PostgreSQL Configuration:"
-    echo "  Host: $PG_HOST"
-    echo "  Port: $PG_PORT" 
-    echo "  User: $PG_USER"
-    echo "  Password: [REDACTED]"
-    echo "  Namespace: $NAMESPACE"
-    echo "  Merge Database: $MERGE_DB_NAME"
-    
+    export PG_HOST PG_PORT
     EXTERNAL_DB=true
     
 else
     echo "=== Internal PostgreSQL Database Configuration Detected ==="
-    
-    # Extract namespace from the assembly (same for both internal and external)
-    NAMESPACE=$(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 -c "
-import sys
-sys.path.append('.')
-import eco
-ecosystem = eco.createEcosystem()
-psp = None
-for p in ecosystem.platformServicesProviders:
-    if hasattr(p, 'yp_assm'):
-        psp = p
-        break
-if psp and hasattr(psp.yp_assm, 'namespace'):
-    print(psp.yp_assm.namespace)
-else:
-    print('ns-yellow-starter')
-")
-    
-    # Extract merge database name from the PostgresDatabase (same for both internal and external)
-    MERGE_DB_NAME=$(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 -c "
-import sys
-sys.path.append('.')
-import eco
-ecosystem = eco.createEcosystem()
-psp = None
-for p in ecosystem.platformServicesProviders:
-    if hasattr(p, 'mergeStore'):
-        psp = p
-        break
-if psp and hasattr(psp.mergeStore, 'databaseName'):
-    print(psp.mergeStore.databaseName)
-else:
-    print('datasurface_merge')
-")
-    
-    # Use default internal database configuration
     PG_HOST="pg-data.$NAMESPACE.svc.cluster.local"
     PG_PORT="5432"
-    PG_USER="postgres"
-    PG_PASSWORD="datasurface123"
-    
-    echo "Internal PostgreSQL Configuration:"
-    echo "  Host: $PG_HOST"
-    echo "  Port: $PG_PORT"
-    echo "  User: $PG_USER"
-    echo "  Password: [REDACTED]"
-    echo "  Namespace: $NAMESPACE"
-    echo "  Merge Database: $MERGE_DB_NAME"
-    
+    export PG_HOST PG_PORT
     EXTERNAL_DB=false
 fi
 
-# Export variables for use in subsequent commands
+# Export all variables
 export PG_HOST PG_PORT PG_USER PG_PASSWORD EXTERNAL_DB NAMESPACE MERGE_DB_NAME
 
-echo "Database configuration variables set and exported."
+echo "Environment Variables Set:"
+echo "  PG_HOST=$PG_HOST"
+echo "  PG_PORT=$PG_PORT"
+echo "  PG_USER=$PG_USER"
+echo "  NAMESPACE=$NAMESPACE"
+echo "  MERGE_DB_NAME=$MERGE_DB_NAME"
+echo "  EXTERNAL_DB=$EXTERNAL_DB"
 
-# Review the platform assignments file (should already exist with correct format)
-cat dsg_platform_mapping.json
+# Save to env file for sourcing
+cat > .env << ENVEOF
+export PG_HOST="$PG_HOST"
+export PG_PORT="$PG_PORT"
+export PG_USER="$PG_USER"
+export PG_PASSWORD="$PG_PASSWORD"
+export NAMESPACE="$NAMESPACE"
+export MERGE_DB_NAME="$MERGE_DB_NAME"
+export EXTERNAL_DB="$EXTERNAL_DB"
+ENVEOF
 
-# Expected format for dsg_platform_mapping.json:
-# [
-#   {
-#     "dsgName": "LiveDSG",
-#     "workspace": "Consumer1",
-#     "assignments": [
-#       {
-#         "dataPlatform": "YellowLive",
-#         "documentation": "Live Yellow DataPlatform",
-#         "productionStatus": "PRODUCTION",
-#         "deprecationsAllowed": "NEVER",
-#         "status": "PROVISIONED"
-#       }
-#     ]
-#   },
-#   {
-#     "dsgName": "ForensicDSG", 
-#     "workspace": "Consumer1",
-#     "assignments": [
-#       {
-#         "dataPlatform": "YellowForensic",
-#         "documentation": "Forensic Yellow DataPlatform", 
-#         "productionStatus": "PRODUCTION",
-#         "deprecationsAllowed": "NEVER",
-#         "status": "PROVISIONED"
-#       }
-#     ]
-#   }
-# ]
+echo "Environment variables saved to .env file"
+echo "To use in future sessions: source .env"
+EOF
+
+chmod +x setup_env.sh
 ```
 
-**Key configurations to verify:**
-- DataPlatform names and credentials
-- PostgreSQL hostname and port configuration
-- Merge database name specification
-- Datastore connection details
-- Workspace and DatasetGroup configurations
+**Create Utility Script (`utils.sh`):**
+```bash
+cat > utils.sh << 'EOF'
+#!/bin/bash
 
-### Step 3: Generate Bootstrap Artifacts
+# YellowDataPlatform Utility Script
+source .env 2>/dev/null || { echo "Please run ./setup_env.sh first"; exit 1; }
+
+case "$1" in
+    "status")
+        echo "=== Pod Status ==="
+        sudo kubectl get pods -n "$NAMESPACE"
+        echo ""
+        echo "=== Recent Events ==="
+        sudo kubectl get events -n "$NAMESPACE" --sort-by=.metadata.creationTimestamp | tail -5
+        ;;
+    "logs")
+        echo "=== Airflow Scheduler Logs (last 50 lines) ==="
+        sudo kubectl logs deployment/airflow-scheduler -n "$NAMESPACE" --tail=50
+        ;;
+        
+    "dags")
+        echo "=== Airflow DAGs ==="
+        sudo kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- airflow dags list
+        ;;
+        
+    "db-test")
+        echo "=== Testing Database Connection ==="
+        if [ "$EXTERNAL_DB" = "true" ]; then
+            sudo kubectl run db-test-util --rm -i --restart=Never \
+              --image=postgres:16 \
+              --env="PGPASSWORD=$PG_PASSWORD" \
+              -n "$NAMESPACE" \
+              -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -c "SELECT version();"
+        else
+            sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'SELECT version();'"
+        fi
+        ;;
+        
+    "db-list")
+        echo "=== Listing Databases ==="
+        if [ "$EXTERNAL_DB" = "true" ]; then
+            sudo kubectl run db-list-util --rm -i --restart=Never \
+              --image=postgres:16 \
+              --env="PGPASSWORD=$PG_PASSWORD" \
+              -n "$NAMESPACE" \
+              -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -c "SELECT datname FROM pg_database;"
+        else
+            sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'SELECT datname FROM pg_database;'"
+        fi
+        ;;
+        
+    "port-forward")
+        echo "=== Setting up port forwarding for Airflow UI ==="
+        echo "Access Airflow at http://localhost:8080"
+        echo "Username: admin"
+        echo "Password: admin123"
+        sudo kubectl port-forward svc/airflow-webserver-service 8080:8080 -n "$NAMESPACE"
+        ;;
+        
+    *)
+        echo "YellowDataPlatform Utility Script"
+        echo "Usage: $0 {status|logs|dags|db-test|db-list|port-forward}"
+        echo ""
+        echo "Commands:"
+        echo "  status       - Show pod status and recent events"
+        echo "  logs         - Show Airflow scheduler logs"
+        echo "  dags         - List Airflow DAGs"
+        echo "  db-test      - Test database connection"
+        echo "  db-list      - List databases"
+        echo "  port-forward - Set up port forwarding for Airflow UI"
+        ;;
+esac
+EOF
+
+chmod +x utils.sh
+```
+
+**Run the Environment Setup:**
+```bash
+# Run the setup script to detect configuration and set environment variables
+./setup_env.sh
+```
+
+### Step 4: Generate Bootstrap Artifacts
 
 It's important to use the correct docker image, especially when developing. Kubernetes and docker use DIFFERENT container caches. You need to docker pull the container image before running this command.
 
@@ -313,7 +345,7 @@ docker run --rm \
   --psp Test_DP
 ```
 
-### Step 4: Verify Generated Artifacts
+### Step 5: Verify Generated Artifacts
 
 ```bash
 # Check the generated files
@@ -327,24 +359,28 @@ ls -la generated_output/Test_DP/
 - `test_dp_ring1_init_job.yaml` - Ring 1 initialization job for creating database schemas
 - `test_dp_reconcile_views_job.yaml` - Workspace views reconciliation job
 
-### Step 5: Validate Configuration
+### Step 6: Validate Configuration
 
 ## Phase 2: Kubernetes Infrastructure Setup (Ring 1)
 
 ### Step 1: Create Kubernetes Namespace and Secrets
 
+**Using Environment Variables from Setup Script:**
 ```bash
+# Source environment variables (if not already loaded)
+source .env
+
 # Create namespace
-kubectl create namespace "$NAMESPACE"
+sudo kubectl create namespace "$NAMESPACE"
 
 # Create database credentials secret (consistent format for all components)
-kubectl create secret generic postgres \
+sudo kubectl create secret generic postgres \
   --from-literal=postgres_USER="$PG_USER" \
   --from-literal=postgres_PASSWORD="$PG_PASSWORD" \
   -n "$NAMESPACE"
 
 # Create GitHub credentials secret  
-kubectl create secret generic git \
+sudo kubectl create secret generic git \
   --from-literal=token=your-github-personal-access-token \
   -n "$NAMESPACE"
 
@@ -359,34 +395,13 @@ kubectl create secret generic git \
 
 ```bash
 # Apply the Kubernetes configuration
-kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
+sudo kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
 
-# For external databases, verify connectivity before proceeding
-if [ "$EXTERNAL_DB" = "true" ]; then
-    echo "=== Verifying External PostgreSQL Connectivity ==="
-    
-    # Test connection to external database
-    kubectl run pg-test --rm -i --restart=Never \
-      --image=postgres:16 \
-      --env="PGPASSWORD=$PG_PASSWORD" \
-      -n "$NAMESPACE" \
-      -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -c "SELECT version();" || {
-        echo "ERROR: Cannot connect to external PostgreSQL database"
-        echo "Please verify:"
-        echo "  - Database is running and accessible"
-        echo "  - Host: $PG_HOST"
-        echo "  - Port: $PG_PORT"
-        echo "  - User: $PG_USER has appropriate permissions"
-        echo "  - Password is correct"
-        exit 1
-    }
-    
-    echo "✅ External PostgreSQL connectivity verified"
-else
-    echo "=== Waiting for Internal PostgreSQL Deployment ==="
-    # Wait for PostgreSQL to be ready (internal deployment only)
-    kubectl wait --for=condition=ready pod -l app=pg-postgres -n "$NAMESPACE" --timeout=300s
-fi
+# Verify database connectivity using utility script
+./utils.sh db-test
+
+# Check deployment status
+./utils.sh status
 ```
 
 ### Step 3: Run Ring 1 Initialization
@@ -394,34 +409,40 @@ fi
 Ring 1 initialization creates the database schemas required for the platform operations.
 
 ```bash
+# Source environment variables
+source .env
+
 # Create required databases manually (required before Ring 1 initialization)
 if [ "$EXTERNAL_DB" = "true" ]; then
     echo "=== Creating Databases on External PostgreSQL ==="
     
     # Create databases on external PostgreSQL
-    kubectl run db-setup --rm -i --restart=Never \
+    sudo kubectl run db-setup --rm -i --restart=Never \
       --image=postgres:16 \
       --env="PGPASSWORD=$PG_PASSWORD" \
       -n "$NAMESPACE" \
       -- bash -c "
-        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE IF NOT EXISTS airflow_db;' || echo 'airflow_db may already exist'
-        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE IF NOT EXISTS customer_db;' || echo 'customer_db may already exist'  
-        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE IF NOT EXISTS $MERGE_DB_NAME;' || echo '$MERGE_DB_NAME may already exist'
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE airflow_db;' || echo 'airflow_db may already exist'
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE customer_db;' || echo 'customer_db may already exist'  
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE $MERGE_DB_NAME;' || echo '$MERGE_DB_NAME may already exist'
       "
 else
     echo "=== Creating Databases on Internal PostgreSQL ==="
     
     # Create databases on internal PostgreSQL
-    kubectl exec -it deployment/pg-postgres -n "$NAMESPACE" -- bash -c "
-        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -c 'CREATE DATABASE IF NOT EXISTS airflow_db;' || echo 'airflow_db may already exist'
-        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -c 'CREATE DATABASE IF NOT EXISTS customer_db;' || echo 'customer_db may already exist'
-        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -c 'CREATE DATABASE IF NOT EXISTS $MERGE_DB_NAME;' || echo '$MERGE_DB_NAME may already exist'
+    sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE airflow_db;' || echo 'airflow_db may already exist'
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE customer_db;' || echo 'customer_db may already exist'
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE $MERGE_DB_NAME;' || echo '$MERGE_DB_NAME may already exist'
     "
 fi
 
+# Verify databases were created
+./utils.sh db-list
+
 # Create source tables and initial test data using the data simulator
 # This creates the customers and addresses tables with initial data and simulates some changes and leaves it running continuously.
-kubectl run data-simulator --rm -i --restart=Never \
+sudo kubectl run data-simulator --rm -i --restart=Never \
   --image=datasurface/datasurface:latest \
   --env="POSTGRES_USER=$PG_USER" \
   --env="POSTGRES_PASSWORD=$PG_PASSWORD" \
@@ -439,14 +460,17 @@ kubectl run data-simulator --rm -i --restart=Never \
 # Wait a moment for the data simulator to start creating tables, then continue
 echo "Data simulator started in background. Continuing with setup..."
 echo "Note: The data simulator will run continuously for days, simulating ongoing data changes."
-echo "You can monitor it with: kubectl logs data-simulator -n "$NAMESPACE" -f"
+echo "You can monitor it with: ./utils.sh logs | grep data-simulator"
 sleep 10
 
 # Apply Ring 1 initialization job (creates platform database schemas)
-kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
+sudo kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
 
 # Wait for Ring 1 initialization to complete
-kubectl wait --for=condition=complete job/test-dp-ring1-init -n "$NAMESPACE" --timeout=300s
+sudo kubectl wait --for=condition=complete job/test-dp-ring1-init -n "$NAMESPACE" --timeout=300s
+
+# Check status
+./utils.sh status
 ```
 
 ### Step 4: Verify Airflow Services
@@ -454,24 +478,30 @@ kubectl wait --for=condition=complete job/test-dp-ring1-init -n "$NAMESPACE" --t
 Airflow requires database initialization before the webserver can start properly.
 
 ```bash
+# Source environment variables
+source .env
+
 # Wait for Airflow scheduler to be ready
-kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=300s
+sudo kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=300s
 
 # Initialize Airflow database (required for webserver to start)
-kubectl exec -it deployment/airflow-scheduler -n "$NAMESPACE" -- airflow db init
+sudo kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- airflow db init
 
 # Wait for Airflow webserver to be ready (after database initialization)
-kubectl wait --for=condition=ready pod -l app=airflow-webserver -n "$NAMESPACE" --timeout=300s
+sudo kubectl wait --for=condition=ready pod -l app=airflow-webserver -n "$NAMESPACE" --timeout=300s
 
 # Verify Airflow database connection
-kubectl exec -it deployment/airflow-scheduler -n "$NAMESPACE" -- airflow db check
+sudo kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- airflow db check
+
+# Check status using utility script
+./utils.sh status
 ```
 
 ### Step 5: Create Airflow Admin User
 
 ```bash
 # Create Airflow admin user
-kubectl exec -it deployment/airflow-scheduler -n "$NAMESPACE" -- \
+sudo kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- \
   airflow users create \
   --username admin \
   --firstname Admin \
@@ -485,47 +515,42 @@ kubectl exec -it deployment/airflow-scheduler -n "$NAMESPACE" -- \
 
 ```bash
 # Get the current scheduler pod name
-SCHEDULER_POD=$(kubectl get pods -n "$NAMESPACE" -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
+SCHEDULER_POD=$(sudo kubectl get pods -n "$NAMESPACE" -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
 
 # Copy infrastructure DAG to Airflow
-kubectl cp generated_output/Test_DP/test_dp_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n "$NAMESPACE"
+sudo kubectl cp generated_output/Test_DP/test_dp_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n "$NAMESPACE"
 
 # Deploy model merge job to populate ingestion stream configurations
-kubectl apply -f generated_output/Test_DP/test_dp_model_merge_job.yaml
+sudo kubectl apply -f generated_output/Test_DP/test_dp_model_merge_job.yaml
 
 # Wait for model merge job to complete
-kubectl wait --for=condition=complete job/test-dp-model-merge-job -n "$NAMESPACE" --timeout=300s
+sudo kubectl wait --for=condition=complete job/test-dp-model-merge-job -n "$NAMESPACE" --timeout=300s
 
 # Deploy reconcile views job to create/update workspace views
-kubectl apply -f generated_output/Test_DP/test_dp_reconcile_views_job.yaml
+sudo kubectl apply -f generated_output/Test_DP/test_dp_reconcile_views_job.yaml
 
 # Wait for reconcile views job to complete
-kubectl wait --for=condition=complete job/test-dp-reconcile-views-job -n "$NAMESPACE" --timeout=300s
+sudo kubectl wait --for=condition=complete job/test-dp-reconcile-views-job -n "$NAMESPACE" --timeout=300s
 
 # Restart Airflow scheduler to trigger factory DAGs (creates dynamic ingestion stream DAGs)
-kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
-kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=300s
+sudo kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
+sudo kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=300s
 ```
 
 ### Step 7: Verify Deployment
 
 ```bash
 # Check all pods are running
-kubectl get pods -n "$NAMESPACE"
+./utils.sh status
 
 # Verify databases exist
-if [ "$EXTERNAL_DB" = "true" ]; then
-    kubectl run db-verify --rm -i --restart=Never \
-      --image=postgres:16 \
-      --env="PGPASSWORD=$PG_PASSWORD" \
-      -n "$NAMESPACE" \
-      -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -c "SELECT datname FROM pg_database;"
-else
-    kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'SELECT datname FROM pg_database;'"
-fi
+./utils.sh db-list
 
-# Access Airflow web interface
-kubectl port-forward svc/airflow-webserver-service 8080:8080 -n "$NAMESPACE"
+# List all DAGs
+./utils.sh dags
+
+# Access Airflow web interface (runs in foreground)
+./utils.sh port-forward
 ```
 
 The kafka and kafka connect pods are not used and may be ignored.
@@ -557,6 +582,47 @@ Open http://localhost:8080 and login with:
 
 ## Troubleshooting
 
+### Using Utility Scripts for Troubleshooting
+
+The utility scripts created in Step 3 provide easy access to common troubleshooting commands:
+
+**Quick Status Check:**
+```bash
+# Check all pod status and recent events
+./utils.sh status
+```
+
+**View Logs:**
+```bash
+# View Airflow scheduler logs
+./utils.sh logs
+
+# View specific pod logs
+sudo kubectl logs <pod-name> -n "$NAMESPACE"
+```
+
+**Database Troubleshooting:**
+```bash
+# Test database connectivity
+./utils.sh db-test
+
+# List all databases
+./utils.sh db-list
+```
+
+**DAG Management:**
+```bash
+# List all DAGs and their status
+./utils.sh dags
+```
+
+**Access Airflow UI:**
+```bash
+# Set up port forwarding (runs in foreground)
+./utils.sh port-forward
+# Then open http://localhost:8080 (admin/admin123)
+```
+
 ### Container Issues
 ```bash
 # Rebuild container if needed
@@ -572,43 +638,41 @@ docker push datasurface/datasurface:latest
 ### Kubernetes Issues
 ```bash
 # Check pod status
-kubectl describe pod <pod-name> -n "$NAMESPACE"
+sudo kubectl describe pod <pod-name> -n "$NAMESPACE"
 
 # View logs
-kubectl logs <pod-name> -n "$NAMESPACE"
+sudo kubectl logs <pod-name> -n "$NAMESPACE"
 
 # Check all pods in namespace
-kubectl get pods -n "$NAMESPACE"
+sudo kubectl get pods -n "$NAMESPACE"
 
 # Check services
-kubectl get svc -n "$NAMESPACE"
+sudo kubectl get svc -n "$NAMESPACE"
 ```
 
 ### Database Connection
+
+**Using Utility Scripts (Recommended):**
+```bash
+# Test database connectivity
+./utils.sh db-test
+
+# List all databases
+./utils.sh db-list
+```
+
+**Manual Commands (if needed):**
 ```bash
 # Test database connectivity (non-interactive)
 if [ "$EXTERNAL_DB" = "true" ]; then
-    kubectl run db-test --rm -i --restart=Never \
+    sudo kubectl run db-test-manual --rm -i --restart=Never \
       --image=postgres:16 \
       --env="PGPASSWORD=$PG_PASSWORD" \
       -n "$NAMESPACE" \
       -- pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER"
 else
-    kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "pg_isready -U '$PG_USER' -h localhost"
+    sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "pg_isready -U '$PG_USER' -h localhost"
 fi
-
-# List databases (non-interactive)
-if [ "$EXTERNAL_DB" = "true" ]; then
-    kubectl run db-list --rm -i --restart=Never \
-      --image=postgres:16 \
-      --env="PGPASSWORD=$PG_PASSWORD" \
-      -n "$NAMESPACE" \
-      -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -c "SELECT datname FROM pg_database;"
-else
-    kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'SELECT datname FROM pg_database;'"
-fi
-
-# Test with detected credentials from eco.py configuration
 ```
 AI 
 **💡 AI Tip: Database Querying Best Practices**
@@ -617,12 +681,12 @@ When querying the database through kubectl exec, use non-interactive SQL command
 ```bash
 # ✅ CORRECT: Use PGPASSWORD environment variable with bash -c wrapper (Internal DB)
 if [ "$EXTERNAL_DB" = "false" ]; then
-    kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'SELECT datname FROM pg_database;'"
+    sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'SELECT datname FROM pg_database;'"
 fi
 
 # ✅ CORRECT: Use external database connection (External DB)
 if [ "$EXTERNAL_DB" = "true" ]; then
-    kubectl run db-query --rm -i --restart=Never \
+    sudo kubectl run db-query --rm -i --restart=Never \
       --image=postgres:16 \
       --env="PGPASSWORD=$PG_PASSWORD" \
       -n "$NAMESPACE" \
@@ -631,34 +695,34 @@ fi
 
 # ✅ CORRECT: Check specific database tables (works for both internal and external)
 if [ "$EXTERNAL_DB" = "true" ]; then
-    kubectl run db-tables --rm -i --restart=Never \
+    sudo kubectl run db-tables --rm -i --restart=Never \
       --image=postgres:16 \
       --env="PGPASSWORD=$PG_PASSWORD" \
       -n "$NAMESPACE" \
       -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d customer_db -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
 else
-    kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
+    sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
 fi
 
 # ✅ CORRECT: Test database connectivity first
 if [ "$EXTERNAL_DB" = "true" ]; then
-    kubectl run db-ready --rm -i --restart=Never \
+    sudo kubectl run db-ready --rm -i --restart=Never \
       --image=postgres:16 \
       --env="PGPASSWORD=$PG_PASSWORD" \
       -n "$NAMESPACE" \
       -- pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER"
 else
-    kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "pg_isready -U '$PG_USER' -h localhost"
+    sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "pg_isready -U '$PG_USER' -h localhost"
 fi
 
 # ❌ AVOID: Interactive mode with -it flag (hangs in non-interactive environments)
-kubectl exec -it deployment/pg-postgres -n "$NAMESPACE" -- psql -U postgres -l
+sudo kubectl exec -it deployment/pg-postgres -n "$NAMESPACE" -- psql -U postgres -l
 
 # ❌ AVOID: Without PGPASSWORD (hangs waiting for password input)
-kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U postgres -c 'SELECT datname FROM pg_database;'"
+sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U postgres -c 'SELECT datname FROM pg_database;'"
 
 # ❌ AVOID: psql meta-commands like \l, \dv (require interactive mode)
-kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U postgres -l"
+sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U postgres -l"
 ```
 
 **Key improvements:**
@@ -675,24 +739,24 @@ kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U postgres
 ```bash
 # Cause: Factory DAGs haven't run yet or model merge job failed
 # Solution: Verify model merge job completed and restart scheduler
-kubectl get jobs -n "$NAMESPACE"
-kubectl logs job/test-dp-model-merge-job -n "$NAMESPACE"
-kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
+sudo kubectl get jobs -n "$NAMESPACE"
+sudo kubectl logs job/test-dp-model-merge-job -n "$NAMESPACE"
+sudo kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
 ```
 
 **Issue: Ring 1 initialization job fails**
 ```bash
 # Cause: Secret keys mismatch or database not accessible
 # Solution: Verify secret format and database connectivity
-kubectl describe job/test-dp-ring1-init -n "$NAMESPACE"
-kubectl logs job/test-dp-ring1-init -n "$NAMESPACE"
+sudo kubectl describe job/test-dp-ring1-init -n "$NAMESPACE"
+sudo kubectl logs job/test-dp-ring1-init -n "$NAMESPACE"
 ```
 
 **Issue: Secret configuration errors**
 ```bash
 # Cause: Inconsistent secret key names
 # Verify all secrets use postgres_USER/postgres_PASSWORD format:
-kubectl get secret postgres -n "$NAMESPACE" -o yaml
+sudo kubectl get secret postgres -n "$NAMESPACE" -o yaml
 ```
 
 **Issue: PostgreSQL commands hang or fail in non-interactive environments**
@@ -702,13 +766,13 @@ kubectl get secret postgres -n "$NAMESPACE" -o yaml
 # Solution: Use PGPASSWORD environment variable and avoid interactive flags
 
 # ✅ Test database connectivity first:
-kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "pg_isready -U postgres -h localhost"
+sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "pg_isready -U postgres -h localhost"
 
 # ✅ List databases (non-interactive):
-kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
+sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -c 'SELECT datname FROM pg_database;'"
 
 # ✅ Check specific database tables:
-kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
+sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "PGPASSWORD=datasurface123 psql -U postgres -h localhost -d customer_db -c 'SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'';'"
 
 # ❌ AVOID these approaches (they will hang):
 # kubectl exec -it deployment/pg-postgres -n "$NAMESPACE" -- psql -U postgres -l
@@ -734,7 +798,7 @@ To continuously simulate realistic data changes for testing the ingestion pipeli
 
 ```bash
 # Run continuous data simulation in a Kubernetes pod (background execution)
-kubectl run data-simulator-continuous --rm -i --restart=Never \
+sudo kubectl run data-simulator-continuous --rm -i --restart=Never \
   --image=datasurface/datasurface:latest \
   --env="POSTGRES_USER=$PG_USER" \
   --env="POSTGRES_PASSWORD=$PG_PASSWORD" \
@@ -753,13 +817,13 @@ kubectl run data-simulator-continuous --rm -i --restart=Never \
 # You can continue with other tasks while it runs
 
 # To stop the simulator from another terminal:
-# kubectl delete pod data-simulator-continuous -n "$NAMESPACE"
+# sudo kubectl delete pod data-simulator-continuous -n "$NAMESPACE"
 
 # To check if the simulator is still running:
-# kubectl get pods -n "$NAMESPACE" | grep data-simulator
+# sudo kubectl get pods -n "$NAMESPACE" | grep data-simulator
 
 # To view simulator logs:
-# kubectl logs data-simulator-continuous -n "$NAMESPACE" -f
+# sudo kubectl logs data-simulator-continuous -n "$NAMESPACE" -f
 ```
 
 **What the data simulator does:**
@@ -1297,7 +1361,7 @@ sudo crictl pull datasurface/datasurface:latest
 **Check NFS Server Status:**
 ```bash
 # Verify NFS server is running and ready
-kubectl logs -l app=test-dp-nfs-server -n "$NAMESPACE" --tail=10
+sudo kubectl logs -l app=test-dp-nfs-server -n "$NAMESPACE" --tail=10
 
 # Expected success output:
 # ==================================================================
@@ -1308,14 +1372,14 @@ kubectl logs -l app=test-dp-nfs-server -n "$NAMESPACE" --tail=10
 **Test NFS Mount:**
 ```bash
 # Test NFS mount with simple pod
-kubectl run nfs-test --rm -it --restart=Never --image=busybox -n "$NAMESPACE" \
+sudo kubectl run nfs-test --rm -it --restart=Never --image=busybox -n "$NAMESPACE" \
   --overrides='{"spec":{"containers":[{"name":"nfs-test","image":"busybox","command":["ls","-la","/cache"],"volumeMounts":[{"name":"nfs-cache","mountPath":"/cache"}]}],"volumes":[{"name":"nfs-cache","persistentVolumeClaim":{"claimName":"test-dp-git-model-cache-pvc"}}]}}'
 ```
 
 **Verify Service Endpoints:**
 ```bash
 # Check NFS service has endpoints
-kubectl get endpoints test-dp-nfs-service -n "$NAMESPACE"
+sudo kubectl get endpoints test-dp-nfs-service -n "$NAMESPACE"
 
 # Expected output shows IP:PORT combinations
 # NAME                  ENDPOINTS                                         AGE
@@ -1330,24 +1394,24 @@ kubectl get endpoints test-dp-nfs-service -n "$NAMESPACE"
 - **Inconsistent mount times**: Some jobs 6-10 seconds, others 30-40 seconds
 - **Volume status "degraded"** instead of "healthy"
 - **Share-manager pod restarts** every few minutes
-- **Multiple stopped replicas** in `kubectl get replicas -n longhorn-system`
+- **Multiple stopped replicas** in `sudo kubectl get replicas -n longhorn-system`
 
 **Root Cause:** Default replica count of 3 in single-node clusters
 
 **Solution:**
 ```bash
 # Fix replica count for single-node setup
-kubectl patch setting default-replica-count -n longhorn-system --type='merge' -p='{"value":"1"}'
+sudo kubectl patch setting default-replica-count -n longhorn-system --type='merge' -p='{"value":"1"}'
 
 # Find your RWX volume ID
-kubectl get pvc -n "$NAMESPACE" | grep RWX
-kubectl get volumes -n longhorn-system
+sudo kubectl get pvc -n "$NAMESPACE" | grep RWX
+sudo kubectl get volumes -n longhorn-system
 
 # Fix existing RWX volume (replace with your volume ID)
-kubectl patch volume pvc-<volume-id> -n longhorn-system --type='merge' -p='{"spec":{"numberOfReplicas":1}}'
+sudo kubectl patch volume pvc-<volume-id> -n longhorn-system --type='merge' -p='{"spec":{"numberOfReplicas":1}}'
 
 # Verify fix - should show "healthy" not "degraded"
-kubectl get volumes -n longhorn-system
+sudo kubectl get volumes -n longhorn-system
 ```
 
 ### Problem: Longhorn Share-Manager Restart Issues
@@ -1365,20 +1429,20 @@ kubectl get volumes -n longhorn-system
 **Option 1: Configuration Adjustments**
 ```bash
 # Enable storage network for RWX volumes (improves stability)
-kubectl patch setting storage-network-for-rwx-volume-enabled -n longhorn-system --type='merge' -p='{"value":"true"}'
+sudo kubectl patch setting storage-network-for-rwx-volume-enabled -n longhorn-system --type='merge' -p='{"value":"true"}'
 
 # Enable RWX fast failover
-kubectl patch setting rwx-volume-fast-failover -n longhorn-system --type='merge' -p='{"value":"true"}'
+sudo kubectl patch setting rwx-volume-fast-failover -n longhorn-system --type='merge' -p='{"value":"true"}'
 
 # Increase aggressive timeouts
-kubectl patch setting engine-replica-timeout -n longhorn-system --type='merge' -p='{"value":"30"}'
-kubectl patch setting backup-execution-timeout -n longhorn-system --type='merge' -p='{"value":"60"}'
+sudo kubectl patch setting engine-replica-timeout -n longhorn-system --type='merge' -p='{"value":"30"}'
+sudo kubectl patch setting backup-execution-timeout -n longhorn-system --type='merge' -p='{"value":"60"}'
 ```
 
 **Option 2: Update Longhorn (if issues persist)**
 ```bash
 # Check current version
-kubectl get setting current-longhorn-version -n longhorn-system -o jsonpath='{.value}'
+sudo kubectl get setting current-longhorn-version -n longhorn-system -o jsonpath='{.value}'
 
 # Consider upgrading to latest stable version if configuration workarounds insufficient
 # Follow official Longhorn upgrade documentation
@@ -1387,7 +1451,7 @@ kubectl get setting current-longhorn-version -n longhorn-system -o jsonpath='{.v
 **Verification:**
 ```bash
 # Monitor share-manager stability (should NOT restart frequently)
-kubectl get events -n longhorn-system --sort-by='.lastTimestamp' | grep share-manager | tail -5
+sudo kubectl get events -n longhorn-system --sort-by='.lastTimestamp' | grep share-manager | tail -5
 
 # Check for stable mount times (should be consistently 6-15 seconds)
 # Test by triggering Airflow jobs and timing container creation
