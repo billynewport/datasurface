@@ -219,7 +219,7 @@ class NetworkPolicyComponent(Component):
 class Airflow281Component(Component):
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: HostPortSQLDatabase,
                  dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
-                 schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.8.1") -> None:
+                 schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.11.0") -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
         self.db: HostPortSQLDatabase = db

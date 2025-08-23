@@ -80,11 +80,17 @@ class Job(YellowDatasetUtilities):
             dp.psp.mergeStore, self.schemaProjector
         )
         assert self.store.cmd is not None
-        assert self.store.cmd.dataContainer is not None
-        assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
-        self.source_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
-            self.store.cmd.dataContainer, self.schemaProjector
-        )
+
+        # For DataTransformerOutput, data is already in merge database, no external source needed
+        if isinstance(self.store.cmd, DataTransformerOutput):
+            # Use merge database as source for DataTransformer outputs
+            self.source_db_ops: DatabaseOperations = self.merge_db_ops
+        else:
+            assert self.store.cmd.dataContainer is not None
+            assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
+            self.source_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
+                self.store.cmd.dataContainer, self.schemaProjector
+            )
         self.numReconcileDDLs: int = 0
 
     def getBatchCounterTable(self) -> Table:
