@@ -1154,13 +1154,19 @@ class SQLWatermarkSnapshotDeltaIngestion(SQLIngestion):
     the high watermark in the target across all datasets. The watermark is used to grab a seed of every record
     and finally a new watermark is pulled and records between the two watermarks are pulled in a delta. The
     watermarks are persisted in the BatchState.
+    This type of ingestion allows inserts and updates to be captured only. Deletes are not captured.
 
     select MAX({{wcol}}) as w from {{table}}
     select * from {{table}} where {{wcol}} < {{watermark}}
     select * from {{table}} where {{wcol}} >= {{low}} and {{wcol}} < {{high}}
 
-    @param watermarkSQL: This is an unparameterized SQL string to return the max watermark value"""
-    def __init__(self, db: SQLDatabase, watermarkColumn: str, watermarkSQL: str, snapshotSQL: str, deltaSQL: str, *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
+    @param watermarkColumn: This is the column name to use for the watermark
+    @param watermarkSQL: This is an parameterized SQL string to return the max watermark value
+    @param snapshotSQL: This is an parameterized SQL string to return the snapshot of the data
+    @param deltaSQL: This is an parameterized SQL string to return the delta of the data"""
+
+    def __init__(self, db: SQLDatabase, watermarkColumn: str, watermarkSQL: str, snapshotSQL: str, deltaSQL: str,
+                 *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(db, *args)
         self.watermarkColumn: str = watermarkColumn
         self.watermarkSQL: str = watermarkSQL
@@ -1186,9 +1192,8 @@ class SQLWatermarkSnapshotDeltaIngestion(SQLIngestion):
         super().lint(eco, gz, t, d, tree)
         # It would be nice to check the SQL strings are valid but that's a lot of work and we're not doing it yet.
         # We'll just check the variable names are valid SQL identifiers
-        for var in self.variableNames:
-            if not is_valid_sql_identifier(var):
-                tree.addRaw(NameMustBeSQLIdentifier(var, ProblemSeverity.ERROR))
+        if not is_valid_sql_identifier(self.watermarkColumn):
+            tree.addRaw(NameMustBeSQLIdentifier(self.watermarkColumn, ProblemSeverity.ERROR))
 
     def __str__(self) -> str:
         return "SQLSnapshotDeltaIngestion()"
