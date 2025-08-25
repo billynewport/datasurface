@@ -13,7 +13,7 @@ from datasurface.platforms.yellow import db_utils
 from datasurface.platforms.yellow.jobs import Job, JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
 from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase
-from datasurface.md import Datastore, Dataset, SQLIngestion
+from datasurface.md import Datastore, SQLIngestion
 from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, WorkspacePlatformConfig
 from datasurface.md import DataPlatform, HostPortSQLDatabase
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowDatasetUtilities
@@ -27,9 +27,9 @@ from datasurface.platforms.yellow.database_operations import DatabaseOperationsF
 from datasurface.platforms.yellow.db_utils import createInspector
 
 
-class BaseSnapshotMergeJobTest(ABC):
+class BaseMergeJobTest(ABC):
     """Base class for SnapshotMergeJob tests (live-only and forensic)"""
-    _current_test_instance: Optional['BaseSnapshotMergeJobTest'] = None
+    _current_test_instance: Optional['BaseMergeJobTest'] = None
 
     tree: Optional[ValidationTree]
     dp: Optional[YellowDataPlatform]
@@ -101,11 +101,12 @@ class BaseSnapshotMergeJobTest(ABC):
                     raise Exception("Database operations not initialized - this is a critical system error")
 
                 # Use database operations for cleanup
-                drop_sql = self.db_ops.get_drop_table_sql('people')
-                try:
-                    conn.execute(text(drop_sql))
-                except Exception:
-                    pass  # Table might not exist
+                for dataset in self.store.datasets.values():
+                    drop_sql = self.db_ops.get_drop_table_sql(dataset.name)
+                    try:
+                        conn.execute(text(drop_sql))
+                    except Exception:
+                        pass  # Table might not exist
                 conn.commit()
             self.source_engine.dispose()
         if hasattr(self, 'merge_engine') and self.merge_engine is not None:
@@ -115,11 +116,13 @@ class BaseSnapshotMergeJobTest(ABC):
 
                 # Use database operations for cleanup
                 tables_to_drop = [
-                    self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"]),
-                    self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"]),
                     self.ydu.getPhysBatchCounterTableName(),
                     self.ydu.getPhysBatchMetricsTableName()
                 ]
+                for dataset in self.store.datasets.values():
+                    tables_to_drop.append(self.ydu.getPhysMergeTableNameForDataset(dataset))
+                    tables_to_drop.append(self.ydu.getPhysStagingTableNameForDataset(dataset))
+
                 for table_name in tables_to_drop:
                     drop_sql = self.db_ops.get_drop_table_sql(table_name)
                     try:
@@ -267,7 +270,7 @@ class BaseSnapshotMergeJobTest(ABC):
         self.ydu.reconcileStagingTableSchemas(self.merge_engine, createInspector(self.merge_engine), self.store)
 
         self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
-        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.STARTED, tc)
+        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.STARTED, tc)
 
     def common_test_BatchState(self, tc: unittest.TestCase) -> None:
         """Test the BatchState class"""
@@ -286,10 +289,10 @@ class BaseSnapshotMergeJobTest(ABC):
         metadata = MetaData()
         if self.store is None:
             raise Exception("Store not set")
-        people_dataset: Dataset = self.store.datasets["people"]
-        if self.source_engine is not None:
-            datasetToSQLAlchemyTable(people_dataset, "people", metadata, self.source_engine)
-            metadata.create_all(self.source_engine)
+        assert self.source_engine is not None
+        for dataset in self.store.datasets.values():
+            datasetToSQLAlchemyTable(dataset, dataset.name, metadata, self.source_engine)
+        metadata.create_all(self.source_engine)
 
     def createMergeDatabase(self) -> None:
         username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
@@ -302,6 +305,88 @@ class BaseSnapshotMergeJobTest(ABC):
             except Exception:
                 pass
         merge_engine.dispose()
+
+    def cleanupBatchTables(self) -> None:
+
+        if not hasattr(self, 'merge_engine'):
+            # Use the same connection logic as setupDatabases
+            username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
+            self.merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
+
+            # Initialize database operations if not already available
+            if self.db_ops is None and hasattr(self, 'ydu') and self.ydu.schemaProjector is not None:
+                self.db_ops = DatabaseOperationsFactory.create_database_operations(
+                    self.dp.psp.mergeStore, self.ydu.schemaProjector
+                )
+
+        with self.merge_engine.begin() as conn:
+            if self.db_ops is None:
+                raise Exception("Database operations not initialized - this is a critical system error")
+
+            # Use database operations for cleanup
+            tables_to_drop = [
+                self.ydu.getPhysBatchCounterTableName(),
+                self.ydu.getPhysBatchMetricsTableName()
+            ]
+            for table_name in tables_to_drop:
+                drop_sql = self.db_ops.get_drop_table_sql(table_name)
+                try:
+                    conn.execute(text(drop_sql))
+                except Exception:
+                    pass  # Table might not exist
+
+    def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
+        """Common job setup pattern"""
+        # Call the base class setUp to initialize eco, dp, store, etc.
+        assert self.eco is not None
+        assert self.dp is not None
+        assert self.store is not None
+        self.job = job_class(
+            self.eco,
+            self.dp.getCredentialStore(),
+            self.dp,
+            self.store
+        )
+        self.baseSetUp()
+
+    def runJob(self) -> JobStatus:
+        if self.job is None:
+            raise Exception("Job not set")
+        status = self.job.run()  # type: ignore[attr-defined]
+        if status != JobStatus.DONE:
+            raise Exception("Job failed with ERROR status")
+        return status
+
+    def common_verify_batch_completion(self, batch_id: int, tc: unittest.TestCase) -> None:
+        """Common pattern to verify a batch completed successfully"""
+        tc.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs("Store1", batch_id, tc)
+
+    def common_verify_record_exists(self, records: list, record_id: str, expected_values: dict, tc: unittest.TestCase) -> None:
+        """Common pattern to verify a record exists with expected values"""
+        record = next((r for r in records if r['id'] == record_id), None)
+        tc.assertIsNotNone(record, f"Record {record_id} not found")
+        for key, value in expected_values.items():
+            tc.assertEqual(record[key], value, f"Record {record_id} {key} mismatch")
+
+    def common_verify_record_absent(self, records: list, record_id: str, tc: unittest.TestCase) -> None:
+        """Common pattern to verify a record is absent"""
+        record = next((r for r in records if r['id'] == record_id), None)
+        tc.assertIsNone(record, f"Record {record_id} should not exist")
+
+
+class BaseSnapshotMergeJobTest(BaseMergeJobTest):
+
+    def __init__(self, eco: Ecosystem, dpName: str, storeName: str = "Store1") -> None:
+        super().__init__(eco, dpName, storeName)
+
+    def common_clear_and_insert_data(self, test_data: list, tc: unittest.TestCase) -> None:
+        """Common pattern to clear source and insert new test data"""
+        with self.source_engine.begin() as conn:
+            for dataset in self.store.datasets.values():
+                conn.execute(text(f'DELETE FROM {dataset.name}'))
+        self.insertTestData(test_data)
 
     def insertTestData(self, data: list[dict]) -> None:
         with self.source_engine.begin() as conn:
@@ -375,88 +460,13 @@ class BaseSnapshotMergeJobTest(ABC):
 
             return [row._asdict() for row in result.fetchall()]
 
-    def runJob(self) -> JobStatus:
-        if self.job is None:
-            raise Exception("Job not set")
-        status = self.job.run()  # type: ignore[attr-defined]
-        if status != JobStatus.DONE:
-            raise Exception("Job failed with ERROR status")
-        return status
-
-    def cleanupBatchTables(self) -> None:
-
-        if not hasattr(self, 'merge_engine'):
-            # Use the same connection logic as setupDatabases
-            username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-            self.merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
-
-            # Initialize database operations if not already available
-            if self.db_ops is None and hasattr(self, 'ydu') and self.ydu.schemaProjector is not None:
-                self.db_ops = DatabaseOperationsFactory.create_database_operations(
-                    self.dp.psp.mergeStore, self.ydu.schemaProjector
-                )
-
-        with self.merge_engine.begin() as conn:
-            if self.db_ops is None:
-                raise Exception("Database operations not initialized - this is a critical system error")
-
-            # Use database operations for cleanup
-            tables_to_drop = [
-                self.ydu.getPhysBatchCounterTableName(),
-                self.ydu.getPhysBatchMetricsTableName()
-            ]
-            for table_name in tables_to_drop:
-                drop_sql = self.db_ops.get_drop_table_sql(table_name)
-                try:
-                    conn.execute(text(drop_sql))
-                except Exception:
-                    pass  # Table might not exist
-
-    def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
-        """Common job setup pattern"""
-        # Call the base class setUp to initialize eco, dp, store, etc.
-        assert self.eco is not None
-        assert self.dp is not None
-        assert self.store is not None
-        self.job = job_class(
-            self.eco,
-            self.dp.getCredentialStore(),
-            self.dp,
-            self.store
-        )
-        self.baseSetUp()
-
-    def common_verify_batch_completion(self, batch_id: int, tc: unittest.TestCase) -> None:
-        """Common pattern to verify a batch completed successfully"""
-        tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store1", batch_id, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs("Store1", batch_id, tc)
-
-    def common_clear_and_insert_data(self, test_data: list, tc: unittest.TestCase) -> None:
-        """Common pattern to clear source and insert new test data"""
-        with self.source_engine.begin() as conn:
-            conn.execute(text('DELETE FROM people'))
-        self.insertTestData(test_data)
-
-    def common_verify_record_exists(self, records: list, record_id: str, expected_values: dict, tc: unittest.TestCase) -> None:
-        """Common pattern to verify a record exists with expected values"""
-        record = next((r for r in records if r['id'] == record_id), None)
-        tc.assertIsNotNone(record, f"Record {record_id} not found")
-        for key, value in expected_values.items():
-            tc.assertEqual(record[key], value, f"Record {record_id} {key} mismatch")
-
-    def common_verify_record_absent(self, records: list, record_id: str, tc: unittest.TestCase) -> None:
-        """Common pattern to verify a record is absent"""
-        record = next((r for r in records if r['id'] == record_id), None)
-        tc.assertIsNone(record, f"Record {record_id} should not exist")
-
     def common_test_batch_lifecycle_steps(self, tc: unittest.TestCase) -> None:
         """Common batch lifecycle test steps"""
         # Step 1: Run batch 1 with empty source table
         print("Step 1: Running batch 1 with empty source table")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs("Store1", 1, tc)
+        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.store.name, 1, tc)
 
         # Verify merge table is empty
         merge_data = self.getMergeTableData()
@@ -481,9 +491,9 @@ class BaseSnapshotMergeJobTest(ABC):
             tc.assertEqual(count, 5)
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store1", 1, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs("Store1", 2, tc)
-        self.checkSpecificBatchStatus("Store1", 2, BatchStatus.COMMITTED, tc)
+        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.store.name, 2, tc)
+        self.checkSpecificBatchStatus(self.store.name, 2, BatchStatus.COMMITTED, tc)
 
         # Verify all 5 rows are in merge table with batch_id = 2
         merge_data = self.getMergeTableData()
@@ -497,8 +507,8 @@ class BaseSnapshotMergeJobTest(ABC):
         self.deleteTestData("3")
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store1", 3, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs("Store1", 3, tc)
+        self.checkSpecificBatchStatus(self.store.name, 3, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.store.name, 3, tc)
 
         # Verify updated row has new batch_id and new data
         merge_data = self.getMergeTableData()
@@ -519,8 +529,8 @@ class BaseSnapshotMergeJobTest(ABC):
         self.insertTestData([{"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None}])
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store1", 4, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs("Store1", 4, tc)
+        self.checkSpecificBatchStatus(self.store.name, 4, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.store.name, 4, tc)
 
         # Verify re-inserted row is present with batch_id = 4
         merge_data = self.getMergeTableData()
@@ -530,8 +540,8 @@ class BaseSnapshotMergeJobTest(ABC):
         # Step 5: Run another batch with no changes
         print("Step 5: Running batch 5 with no changes")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store1", 5, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs("Store1", 5, tc)
+        self.checkSpecificBatchStatus(self.store.name, 5, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.store.name, 5, tc)
 
         # Verify no changes occurred - unchanged rows should keep their previous batch_ids
         merge_data_after = self.getMergeTableData()

@@ -28,13 +28,15 @@ from datasurface.platforms.yellow.merge import NoopJobException
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
+IS_SEED_BATCH_KEY = "is_seed_batch"
+REMOTE_BATCH_ID_KEY = "remote_batch_id"
+
 
 class MergeRemoteJob(Job):
+
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
                  store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
-        self.remoteBatchIdKey = "remote_batch_id"
-        self.isSeedBatchKey = "is_seed_batch"
         assert store.cmd is not None
         assert isinstance(store.cmd, SQLMergeIngestion)
         self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, store.cmd.dataPlatform)
@@ -129,7 +131,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         self.checkForSchemaChanges(state)
 
         # Determine if the previous batch was a seed batch or incremental
-        lastRemoteBatchId: Optional[int] = state.job_state.get(self.remoteBatchIdKey, None)
+        lastRemoteBatchId: Optional[int] = state.job_state.get(REMOTE_BATCH_ID_KEY, None)
 
         logger.info("Starting remote merge ingestion",
                     batch_id=batchId,
@@ -190,8 +192,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                 else:
                     logger.debug("All datasets ingested, setting status to INGESTED")
                     # Update final state before marking as ingested
-                    state.job_state[self.remoteBatchIdKey] = currentRemoteBatchId
-                    state.job_state[self.isSeedBatchKey] = SeedBatch  # Whether batch is delta or seed
+                    state.job_state[REMOTE_BATCH_ID_KEY] = currentRemoteBatchId
+                    state.job_state[IS_SEED_BATCH_KEY] = SeedBatch  # Whether batch is delta or seed
 
                     # Create schema hashes for all datasets
                     # Store the current schema hashes in the batch state
@@ -364,7 +366,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             self.checkForSchemaChanges(state)
 
             # Determine if this is a seed batch or incremental batch
-            isSeedBatch: bool = state.job_state.get(self.isSeedBatchKey, True)
+            isSeedBatch: bool = state.job_state.get(IS_SEED_BATCH_KEY, True)
 
             for datasetToMergeName in state.all_datasets:
                 dataset: Dataset = self.store.datasets[datasetToMergeName]

@@ -13,7 +13,7 @@ from sqlalchemy.schema import Column
 from datasurface.md.schema import DDLTable
 from sqlalchemy.types import Integer, String
 from sqlalchemy.engine.row import Row
-from typing import cast, List, Any, Optional
+from typing import cast, List, Any, Optional, Callable
 from datasurface.md.governance import SQLIngestion, DataTransformerOutput
 from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.platforms.yellow.yellow_dp import (
@@ -497,9 +497,115 @@ class Job(YellowDatasetUtilities):
         else:
             raise Exception(f"Unknown store command type: {type(self.store.cmd)}")
 
+    def baseIngestSingleDataset(
+            self, state: BatchState, sourceConn: Connection, mergeEngine: Engine, key: str, batchId: int,
+            sql_generator: Callable[[str, List[str], List[str]], str]) -> tuple[int, int, int]:
+        # Get source table name, Map the dataset name if necessary
+        datasetToIngestName: str = state.getCurrentDataset()
+        dataset: Dataset = self.store.datasets[datasetToIngestName]
+
+        # Get source table name - for DataTransformer output, use dt_ prefixed tables
+        if isinstance(self.store.cmd, DataTransformerOutput):
+            sourceTableName: str = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
+        else:
+            # Get source table name using mapping if necessary
+            sourceTableName: str = self.getPhysSourceTableName(dataset)
+
+        # Get destination staging table name
+        stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
+
+        # Get primary key columns
+        schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+        pkColumns: List[str] = schema.primaryKeyColumns.colNames
+        if not pkColumns:
+            # If no primary key, use all columns
+            pkColumns = [col.name for col in schema.columns.values()]
+
+        # Get all column names
+        allColumns: List[str] = [col.name for col in schema.columns.values()]
+
+        # Hash expressions are now built within the database operations
+
+        # This job will for a new batch, initialize the state with all the datasets in the store and then
+        # remove one with an offset of 0 to start. The job will read a "chunk" from that source table and
+        # write it to the staging table, updating the offset in the state as it goes. When all data is
+        # written to the staging table for that dataset, the job will set the state to the next dataset.
+        # When all datasets are done then the job will set the batch status to ingested. The transistion is start
+        # means we're ingesting the data for all datasets.
+
+        # Execute single query to get all records with consistent snapshot
+        # Use the provided SQL generator callable
+        selectSql = sql_generator(sourceTableName, allColumns, pkColumns)
+        logger.debug("Executing source query for complete dataset",
+                     dataset_name=datasetToIngestName)
+        result = sourceConn.execute(text(selectSql))
+        column_names = result.keys()
+
+        # Build insert statement with SQLAlchemy named parameters
+        quoted_insert_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
+            f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
+            f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
+            f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"'
+        ]
+        placeholders = ", ".join([f":{i}" for i in range(len(quoted_insert_columns))])
+        insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
+
+        # Process records in blocks for memory efficiency
+        chunkSize = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
+        recordsInserted = 0
+
+        while True:
+            # Read batch from result set (no re-querying)
+            rows = result.fetchmany(chunkSize)
+            if not rows:
+                logger.info("Completed dataset ingestion",
+                            dataset_name=datasetToIngestName,
+                            total_records_ingested=recordsInserted)
+                break
+
+            logger.debug("Processing chunk of rows",
+                         dataset_name=datasetToIngestName,
+                         chunk_size=len(rows),
+                         total_processed=recordsInserted)
+
+            # Process batch and insert into staging
+            # Each batch is delimited from others because each record in staging has the batch id which
+            # ingested it. This lets us delete the ingested records when resetting the batch and filter for
+            # the records in a batch when merging them in to the merge table.
+            with mergeEngine.begin() as mergeConn:
+                # Create column name mapping for robust data extraction
+                column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
+                # Prepare batch data - now includes pre-calculated hashes
+                batchValues: List[List[Any]] = []
+                for row in rows:
+                    # Extract data columns using column mapping
+                    dataValues = [row[column_map[col]] for col in allColumns]
+                    # Extract hash values using column names
+                    allHash = row[column_map[self.schemaProjector.ALL_HASH_COLUMN_NAME]]
+                    keyHash = row[column_map[self.schemaProjector.KEY_HASH_COLUMN_NAME]]
+                    # Add batch metadata
+                    insertValues = dataValues + [batchId, allHash, keyHash]
+                    batchValues.append(insertValues)
+
+                # Execute batch insert using proper SQLAlchemy batch execution
+                # Use executemany for true batch efficiency - single execute call for all rows
+                all_params = [{str(i): val for i, val in enumerate(values)} for values in batchValues]
+                mergeConn.execute(text(insertSql), all_params)
+                numRowsInserted: int = len(batchValues)
+                recordsInserted += numRowsInserted
+
+        logger.debug("Completed dataset ingestion", dataset_name=datasetToIngestName, records_inserted=recordsInserted)
+        # All rows for this dataset have been ingested, move to next dataset.
+        return recordsInserted, 0, 0
+
     def baseIngestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
             batchId: int) -> tuple[int, int, int]:
+        # Default SQL generator using the standard source query builder
+        def default_sql_generator(sourceTableName: str, allColumns: List[str], pkColumns: List[str]) -> str:
+            return self.source_db_ops.build_source_query_with_hashes(
+                sourceTableName, allColumns, pkColumns
+            )
 
         state: Optional[BatchState] = None
         # Fetch restart state from batch metrics table
@@ -527,101 +633,9 @@ class Job(YellowDatasetUtilities):
         with sourceEngine.connect() as sourceConn:
             while state.hasMoreDatasets():  # While there is a dataset to ingest
                 # Get source table name, Map the dataset name if necessary
-                datasetToIngestName: str = state.getCurrentDataset()
-                dataset: Dataset = self.store.datasets[datasetToIngestName]
-
-                # Get source table name - for DataTransformer output, use dt_ prefixed tables
-                if isinstance(self.store.cmd, DataTransformerOutput):
-                    sourceTableName: str = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
-                else:
-                    # Get source table name using mapping if necessary
-                    sourceTableName: str = self.getPhysSourceTableName(dataset)
-
-                # Get destination staging table name
-                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-
-                # Get primary key columns
-                schema: DDLTable = cast(DDLTable, dataset.originalSchema)
-                pkColumns: List[str] = schema.primaryKeyColumns.colNames
-                if not pkColumns:
-                    # If no primary key, use all columns
-                    pkColumns = [col.name for col in schema.columns.values()]
-
-                # Get all column names
-                allColumns: List[str] = [col.name for col in schema.columns.values()]
-
-                # Hash expressions are now built within the database operations
-
-                # This job will for a new batch, initialize the state with all the datasets in the store and then
-                # remove one with an offset of 0 to start. The job will read a "chunk" from that source table and
-                # write it to the staging table, updating the offset in the state as it goes. When all data is
-                # written to the staging table for that dataset, the job will set the state to the next dataset.
-                # When all datasets are done then the job will set the batch status to ingested. The transistion is start
-                # means we're ingesting the data for all datasets.
-
-                # Execute single query to get all records with consistent snapshot
-                selectSql = self.source_db_ops.build_source_query_with_hashes(
-                    sourceTableName, allColumns, pkColumns
-                )
-                logger.debug("Executing source query for complete dataset",
-                             dataset_name=datasetToIngestName)
-                result = sourceConn.execute(text(selectSql))
-                column_names = result.keys()
-
-                # Build insert statement with SQLAlchemy named parameters
-                quoted_insert_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
-                    f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
-                    f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
-                    f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"'
-                ]
-                placeholders = ", ".join([f":{i}" for i in range(len(quoted_insert_columns))])
-                insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
-
-                # Process records in blocks for memory efficiency
-                chunkSize = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
-                recordsInserted = 0
-
-                while True:
-                    # Read batch from result set (no re-querying)
-                    rows = result.fetchmany(chunkSize)
-                    if not rows:
-                        logger.info("Completed dataset ingestion",
-                                    dataset_name=datasetToIngestName,
-                                    total_records_ingested=recordsInserted)
-                        break
-
-                    logger.debug("Processing chunk of rows",
-                                 dataset_name=datasetToIngestName,
-                                 chunk_size=len(rows),
-                                 total_processed=recordsInserted)
-
-                    # Process batch and insert into staging
-                    # Each batch is delimited from others because each record in staging has the batch id which
-                    # ingested it. This lets us delete the ingested records when resetting the batch and filter for
-                    # the records in a batch when merging them in to the merge table.
-                    with mergeEngine.begin() as mergeConn:
-                        # Create column name mapping for robust data extraction
-                        column_map: dict[str, int] = {name: idx for idx, name in enumerate(column_names)}
-                        # Prepare batch data - now includes pre-calculated hashes
-                        batchValues: List[List[Any]] = []
-                        for row in rows:
-                            # Extract data columns using column mapping
-                            dataValues = [row[column_map[col]] for col in allColumns]
-                            # Extract hash values using column names
-                            allHash = row[column_map[self.schemaProjector.ALL_HASH_COLUMN_NAME]]
-                            keyHash = row[column_map[self.schemaProjector.KEY_HASH_COLUMN_NAME]]
-                            # Add batch metadata
-                            insertValues = dataValues + [batchId, allHash, keyHash]
-                            batchValues.append(insertValues)
-
-                        # Execute batch insert using proper SQLAlchemy batch execution
-                        # Use executemany for true batch efficiency - single execute call for all rows
-                        all_params = [{str(i): val for i, val in enumerate(values)} for values in batchValues]
-                        mergeConn.execute(text(insertSql), all_params)
-                        numRowsInserted: int = len(batchValues)
-                        recordsInserted += numRowsInserted
-
-                logger.debug("Completed dataset ingestion", dataset_name=datasetToIngestName, records_inserted=recordsInserted)
+                datasetRecordsInserted, datasetRecordsUpdated, datasetRecordsDeleted = self.baseIngestSingleDataset(
+                    state, sourceConn, mergeEngine, key, batchId, default_sql_generator)
+                recordsInserted += datasetRecordsInserted
                 # All rows for this dataset have been ingested, move to next dataset.
 
                 # Move to next dataset if any

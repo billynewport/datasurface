@@ -10,7 +10,7 @@ from datasurface.md import LocationKey, Credential, KafkaServer, Datastore, Kafk
     DatastoreCacheEntry, IngestionConsistencyType, DatasetConsistencyNotSupported, \
     DataTransformerNode, DataTransformer, HostPortPair, HostPortPairList, Workspace, SQLIngestion, IngestionNode
 from datasurface.md.governance import DatasetGroup, DataTransformerOutput, IngestionMetadata, PlatformDataTransformerHint, \
-    PlatformIngestionHint, PlatformRuntimeHint
+    PlatformIngestionHint, PlatformRuntimeHint, SQLWatermarkSnapshotDeltaIngestion
 from datasurface.md.lint import ObjectWrongType, ObjectMissing, UnknownObjectReference, UnexpectedExceptionProblem, \
     ObjectNotSupportedByDataPlatform, AttributeValueNotSupported, AttributeNotSet, ValidationProblem
 from datasurface.md.exceptions import ObjectDoesntExistException
@@ -764,6 +764,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # SQL snapshot ingestion doesn't need Kafka infrastructure
                     # The SnapshotMergeJob will handle the ingestion directly from source database
                     continue
+                elif isinstance(store.cmd, SQLWatermarkSnapshotDeltaIngestion):
+                    # SQL watermark snapshot delta ingestion doesn't need Kafka infrastructure
+                    # The SnapshotMergeJob will handle the ingestion directly from source database
+                    continue
                 elif isinstance(store.cmd, DataTransformerOutput):
                     # DataTransformerOutput doesn't need Kafka infrastructure
                     continue
@@ -840,8 +844,14 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         if not isinstance(store.cmd, SQLSnapshotIngestion):
             storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
         else:
-            cmdTree: ValidationTree = storeTree.addSubTree(store.cmd)
+            self.lintSQLIngestion(store, storeTree)
 
+    def lintSQLIngestion(self, store: Datastore, storeTree: ValidationTree):
+        """SQL ingestions can be single or multi dataset. Each dataset is ingested from a source table."""
+        if not isinstance(store.cmd, SQLIngestion):
+            storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+        else:
+            cmdTree: ValidationTree = storeTree.addSubTree(store.cmd)
             # Check the trigger if specified in a cron trigger
             if store.cmd.stepTrigger is None:
                 cmdTree.addRaw(ObjectMissing(store, "trigger", ProblemSeverity.ERROR))
@@ -860,6 +870,13 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     [PostgresDatabase, MySQLDatabase, OracleDatabase, SQLServerDatabase],
                     ProblemSeverity.ERROR
                 ))
+
+    def lintSQLWatermarkSnapshotDeltaIngestion(self, store: Datastore, storeTree: ValidationTree):
+        """SQL watermark snapshot delta ingestions can be single or multi dataset. Each dataset is ingested from a source table."""
+        if not isinstance(store.cmd, SQLWatermarkSnapshotDeltaIngestion):
+            storeTree.addRaw(UnsupportedIngestionType(store, self.graph.platform, ProblemSeverity.ERROR))
+        else:
+            self.lintSQLIngestion(store, storeTree)
 
     def lintGraph(self, eco: Ecosystem, credStore: 'CredentialStore', tree: ValidationTree) -> None:
         """This should be called execute graph. This is where the graph is validated and any issues are reported. If there are
@@ -898,11 +915,14 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 self.lintKafkaIngestion(store, storeTree)
             elif isinstance(store.cmd, SQLSnapshotIngestion):
                 self.lintSQLSnapshotIngestion(store, storeTree)
+            elif isinstance(store.cmd, SQLWatermarkSnapshotDeltaIngestion):
+                self.lintSQLWatermarkSnapshotDeltaIngestion(store, storeTree)
             elif isinstance(store.cmd, DataTransformerOutput):
                 # Nothing to do for DataTransformerOutput
                 pass
             else:
-                storeTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
+                storeTree.addRaw(ObjectNotSupportedByDataPlatform(
+                    store, [KafkaIngestion, SQLSnapshotIngestion, SQLWatermarkSnapshotDeltaIngestion], ProblemSeverity.ERROR))
 
         # For the DSGs assigned to the platform, check all Workspace requirements are supported by the platform
         for dsgRoot in self.graph.roots:
@@ -996,7 +1016,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 store: Datastore = storeEntry.datastore
                 store.cmd = self.dp.getEffectiveCMDForDatastore(eco, store)
 
-                if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion)):
+                if isinstance(store.cmd, (KafkaIngestion, SQLSnapshotIngestion, SQLWatermarkSnapshotDeltaIngestion)):
                     # Determine if this is single or multi dataset ingestion
                     is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
 
@@ -1057,7 +1077,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # DataTransformerOutput doesn't need Kafka infrastructure
                     continue
                 else:
-                    issueTree.addRaw(ObjectNotSupportedByDataPlatform(store, [KafkaIngestion, SQLSnapshotIngestion], ProblemSeverity.ERROR))
+                    issueTree.addRaw(ObjectNotSupportedByDataPlatform(
+                        store, [KafkaIngestion, SQLSnapshotIngestion, SQLWatermarkSnapshotDeltaIngestion], ProblemSeverity.ERROR))
                     continue
 
             except ObjectDoesntExistException:

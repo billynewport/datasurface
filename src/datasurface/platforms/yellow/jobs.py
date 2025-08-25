@@ -7,15 +7,15 @@ from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType
 )
 from typing import cast, Optional
-from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion, \
-    SQLMergeIngestion, SQLSnapshotIngestion, DataTransformerOutput
+from datasurface.md.governance import DatastoreCacheEntry, EcosystemPipelineGraph, PlatformPipelineGraph, SQLIngestion
 from datasurface.md.lint import ValidationTree
 from datasurface.md.credential import Credential, CredentialType
 from datasurface.platforms.yellow.yellow_dp import (
-    YellowDataPlatform, YellowMilestoneStrategy, KubernetesEnvVarsCredentialStore
+    YellowDataPlatform, KubernetesEnvVarsCredentialStore
 )
 from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
 import argparse
+from datasurface.platforms.yellow.merge import Job
 import sys
 from datasurface.platforms.yellow.yellow_dp import JobStatus
 from datasurface.md.repo import GitHubRepository
@@ -23,11 +23,7 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
 )
 import os
-from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
-from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
-from datasurface.platforms.yellow.merge_remote_forensic import SnapshotMergeJobRemoteForensic
-from datasurface.platforms.yellow.merge_remote_live import SnapshotMergeJobRemoteLive
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.job_factory import calculateCorrectJob
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -79,7 +75,7 @@ def main():
     parser.add_argument('--use-git-cache', action='store_true', default=True, help='Use shared git cache for better performance (default: True)')
     parser.add_argument('--max-cache-age-minutes', type=int, default=5, help='Maximum cache age in minutes before checking remote (default: 5)')
 
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     credStore: CredentialStore = KubernetesEnvVarsCredentialStore("Job cred store", set())
 
@@ -166,29 +162,10 @@ def main():
                 logger.error("Unknown dataset", dataset_name=args.dataset_name)
                 return -1  # ERROR
 
-        job: Job
-        # Check if this is a remote merge ingestion (from another platform's merge table)
-        if dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
-            if isinstance(store.cmd, SQLMergeIngestion):
-                job = SnapshotMergeJobRemoteLive(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
-            elif isinstance(store.cmd, SQLSnapshotIngestion) or isinstance(store.cmd, DataTransformerOutput):
-                job = SnapshotMergeJobLiveOnly(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
-            else:
-                logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
-                return -1  # ERROR
-        elif dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-            if isinstance(store.cmd, SQLMergeIngestion):
-                # Forensic-to-forensic ingestion: remote merge from another forensic platform
-                job = SnapshotMergeJobRemoteForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
-            elif isinstance(store.cmd, SQLSnapshotIngestion) or isinstance(store.cmd, DataTransformerOutput):
-                job = SnapshotMergeJobForensic(eco, dp.getCredentialStore(), cast(YellowDataPlatform, dp), store, args.dataset_name)
-            else:
-                logger.error("Unknown ingestion type", ingestion_type=type(store.cmd))
-                return -1  # ERROR
-        else:
-            logger.error("Unknown milestone strategy", milestone_strategy=dp.milestoneStrategy)
+        job: Optional[Job] = calculateCorrectJob(eco, dp, store, args.dataset_name)
+        if job is None:
+            logger.error("Failed to calculate correct job", operation=args.operation)
             return -1  # ERROR
-
         jobStatus: JobStatus = job.run()
         if jobStatus == JobStatus.DONE:
             logger.info("Job completed successfully",

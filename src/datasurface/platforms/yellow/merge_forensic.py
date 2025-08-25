@@ -18,9 +18,20 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
 from datasurface.platforms.yellow.merge import Job, JobStatus
+from enum import Enum
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
+
+
+class SnapshotDeltaMode(Enum):
+    """
+    This enum is used to determine the mode of the snapshot delta merge job.
+    SNAPSHOT: This mode remove any records from the merge table that are not in the source table.
+    UPSERT: This is basically an upsert of the source table into the merge table, no deletes.
+    """
+    SNAPSHOT = "snapshot"
+    UPSERT = "upsert"
 
 
 class SnapshotMergeJobForensic(Job):
@@ -46,6 +57,12 @@ class SnapshotMergeJobForensic(Job):
         return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
     def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
+        """This is the same as the normal mergeStagingToMergeAndCommit but it uses the forensic merge statements."""
+        return SnapshotMergeJobForensic.genericMergeStagingToMergeAndCommitForensic(self, mergeEngine, batchId, key, SnapshotDeltaMode.SNAPSHOT, chunkSize)
+
+    @staticmethod
+    def genericMergeStagingToMergeAndCommitForensic(job: Job, mergeEngine: Engine, batchId: int, key: str,
+                                                    mode: SnapshotDeltaMode, chunkSize: int = 10000) -> tuple[int, int, int]:
         """
         Perform a forensic merge using a single MERGE statement. All operations (insert, update, delete) are handled in one statement.
         Here is an example showing the correct behavior ingesting some batches of records.
@@ -69,21 +86,21 @@ class SnapshotMergeJobForensic(Job):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
+        assert job.schemaProjector is not None
+        sp: YellowSchemaProjector = job.schemaProjector
 
         with mergeEngine.begin() as connection:
-            state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
-            self.checkForSchemaChanges(state)
+            state: BatchState = job.getBatchState(mergeEngine, connection, key, batchId)
+            job.checkForSchemaChanges(state)
 
             for datasetToMergeName in state.all_datasets:
-                dataset: Dataset = self.store.datasets[datasetToMergeName]
-                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-                mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
+                dataset: Dataset = job.store.datasets[datasetToMergeName]
+                stagingTableName: str = job.getPhysStagingTableNameForDataset(dataset)
+                mergeTableName: str = job.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
                 allColumns: list[str] = [col.name for col in schema.columns.values()]
                 # Database-specific forensic merge operations
-                forensic_merge_statements = self.merge_db_ops.get_forensic_merge_sql(
+                forensic_merge_statements = job.merge_db_ops.get_forensic_merge_sql(
                     mergeTableName,
                     stagingTableName,
                     allColumns,
@@ -104,6 +121,10 @@ class SnapshotMergeJobForensic(Job):
                 new_records = 0
 
                 for i, sql_statement in enumerate(forensic_merge_statements):
+                    # Skip the deletion step (i == 1) in UPSERT mode
+                    if mode == SnapshotDeltaMode.UPSERT and i == 1:
+                        logger.debug("Skipping deletion step in UPSERT mode")
+                        continue
                     logger.debug(f"Step {i+1} - Executing forensic merge statement")
                     result = connection.execute(text(sql_statement))
                     if i == 0:  # Close changed records
@@ -136,7 +157,7 @@ class SnapshotMergeJobForensic(Job):
                              deleted_records=deleted_records)
 
             # Now update the batch status to merged within the existing transaction
-            self.markBatchMerged(
+            job.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 

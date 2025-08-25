@@ -18,6 +18,7 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
 from datasurface.platforms.yellow.merge import Job, JobStatus
+from datasurface.platforms.yellow.merge_forensic import SnapshotDeltaMode
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -49,6 +50,11 @@ class SnapshotMergeJobLiveOnly(Job):
         return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
 
     def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
+        return SnapshotMergeJobLiveOnly.genericMergeStagingToMergeAndCommitLive(self, mergeEngine, batchId, key, SnapshotDeltaMode.SNAPSHOT, chunkSize)
+
+    @staticmethod
+    def genericMergeStagingToMergeAndCommitLive(job: Job, mergeEngine: Engine, batchId: int, key: str, mode: SnapshotDeltaMode,
+                                                chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
 
         Args:
@@ -60,11 +66,13 @@ class SnapshotMergeJobLiveOnly(Job):
         """
         use_merge: bool = True
         if use_merge:
-            return self._mergeStagingToMergeWithMerge(mergeEngine, batchId, key, chunkSize)
+            return SnapshotMergeJobLiveOnly._mergeStagingToMergeWithMerge(job, mergeEngine, batchId, key, mode, chunkSize)
         else:
-            return self._mergeStagingToMergeWithUpsert(mergeEngine, batchId, key, chunkSize)
+            return SnapshotMergeJobLiveOnly._mergeStagingToMergeWithUpsert(job, mergeEngine, batchId, key, mode, chunkSize)
 
-    def _mergeStagingToMergeWithUpsert(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
+    @staticmethod
+    def _mergeStagingToMergeWithUpsert(job: Job, mergeEngine: Engine, batchId: int, key: str,
+                                       mode: SnapshotDeltaMode, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using INSERT...ON CONFLICT with batched processing for better performance on large datasets.
         This processes merge operations in smaller batches to avoid memory issues while maintaining transactional consistency.
         The entire operation is done in a single transaction to ensure consumers see consistent data."""
@@ -75,24 +83,24 @@ class SnapshotMergeJobLiveOnly(Job):
         totalRecords: int = 0
 
         with mergeEngine.begin() as connection:
-            state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
+            state: BatchState = job.getBatchState(mergeEngine, connection, key, batchId)
 
             # Check for schema changes before merging
-            self.checkForSchemaChanges(state)
+            job.checkForSchemaChanges(state)
 
             for datasetToMergeName in state.all_datasets:
                 # Get the dataset
-                dataset: Dataset = self.store.datasets[datasetToMergeName]
+                dataset: Dataset = job.store.datasets[datasetToMergeName]
                 # Map the dataset name if necessary
-                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-                mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
+                stagingTableName: str = job.getPhysStagingTableNameForDataset(dataset)
+                mergeTableName: str = job.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
 
                 # Get all column names
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
                 # Get total count for processing
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {job.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
@@ -104,47 +112,49 @@ class SnapshotMergeJobLiveOnly(Job):
                 # Process in batches using database-specific upsert operation
                 for offset in range(0, total_records, chunkSize):
                     # Create a temporary view for this batch chunk
-                    limit_clause = self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
+                    limit_clause = job.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
                     batch_source_table = (f"(SELECT * FROM {stagingTableName} "
-                                          f"WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId} "
-                                          f"ORDER BY {self.schemaProjector.KEY_HASH_COLUMN_NAME} {limit_clause})")
+                                          f"WHERE {job.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId} "
+                                          f"ORDER BY {job.schemaProjector.KEY_HASH_COLUMN_NAME} {limit_clause})")
 
-                    batch_upsert_sql = self.merge_db_ops.get_upsert_sql(
+                    batch_upsert_sql = job.merge_db_ops.get_upsert_sql(
                         mergeTableName,
                         batch_source_table,
                         allColumns,
-                        self.schemaProjector.KEY_HASH_COLUMN_NAME,
-                        self.schemaProjector.ALL_HASH_COLUMN_NAME,
-                        self.schemaProjector.BATCH_ID_COLUMN_NAME,
+                        job.schemaProjector.KEY_HASH_COLUMN_NAME,
+                        job.schemaProjector.ALL_HASH_COLUMN_NAME,
+                        job.schemaProjector.BATCH_ID_COLUMN_NAME,
                         batchId
                     )
 
                     logger.debug("Executing batch upsert", offset=offset)
                     connection.execute(text(batch_upsert_sql))
 
-                # Handle deletions once after all inserts/updates for this dataset
-                delete_sql = self.merge_db_ops.get_delete_missing_records_sql(
-                    mergeTableName,
-                    stagingTableName,
-                    self.schemaProjector.KEY_HASH_COLUMN_NAME,
-                    self.schemaProjector.BATCH_ID_COLUMN_NAME,
-                    batchId
-                )
-                logger.debug("Executing deletion query for dataset", dataset_name=datasetToMergeName)
-                delete_result = connection.execute(text(delete_sql))
-                dataset_deleted = delete_result.rowcount
+                # Handle deletions only in SNAPSHOT mode (ignore in UPSERT mode)
+                dataset_deleted = 0
+                if mode == SnapshotDeltaMode.SNAPSHOT:
+                    delete_sql = job.merge_db_ops.get_delete_missing_records_sql(
+                        mergeTableName,
+                        stagingTableName,
+                        job.schemaProjector.KEY_HASH_COLUMN_NAME,
+                        job.schemaProjector.BATCH_ID_COLUMN_NAME,
+                        batchId
+                    )
+                    logger.debug("Executing deletion query for dataset", dataset_name=datasetToMergeName)
+                    delete_result = connection.execute(text(delete_sql))
+                    dataset_deleted = delete_result.rowcount
                 total_deleted += dataset_deleted
 
                 # Get final metrics for this dataset more efficiently
                 metrics_sql = f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}) as inserted_count,
-                    COUNT(*) FILTER (WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} != {batchId} AND {self.schemaProjector.KEY_HASH_COLUMN_NAME} IN (
-                        SELECT {self.schemaProjector.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
+                    COUNT(*) FILTER (WHERE {job.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}) as inserted_count,
+                    COUNT(*) FILTER (WHERE {job.schemaProjector.BATCH_ID_COLUMN_NAME} != {batchId} AND {job.schemaProjector.KEY_HASH_COLUMN_NAME} IN (
+                        SELECT {job.schemaProjector.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {job.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
                     )) as updated_count
                 FROM {mergeTableName}
-                WHERE {self.schemaProjector.KEY_HASH_COLUMN_NAME} IN (
-                    SELECT {self.schemaProjector.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
+                WHERE {job.schemaProjector.KEY_HASH_COLUMN_NAME} IN (
+                    SELECT {job.schemaProjector.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {job.schemaProjector.BATCH_ID_COLUMN_NAME} = {batchId}
                 )
                 """
 
@@ -163,7 +173,7 @@ class SnapshotMergeJobLiveOnly(Job):
                              deleted=dataset_deleted)
 
             # Now update the batch status to merged within the existing transaction
-            self.markBatchMerged(
+            job.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 
@@ -173,7 +183,9 @@ class SnapshotMergeJobLiveOnly(Job):
                     total_deleted=total_deleted)
         return total_inserted, total_updated, total_deleted
 
-    def _mergeStagingToMergeWithMerge(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
+    @staticmethod
+    def _mergeStagingToMergeWithMerge(job: Job, mergeEngine: Engine, batchId: int, key: str,
+                                      mode: SnapshotDeltaMode, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using PostgreSQL MERGE with DELETE support (PostgreSQL 15+).
         This approach handles INSERT, UPDATE, and DELETE operations in a single MERGE statement."""
         # Initialize metrics variables
@@ -181,22 +193,22 @@ class SnapshotMergeJobLiveOnly(Job):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
+        assert job.schemaProjector is not None
+        sp: YellowSchemaProjector = job.schemaProjector
 
         with mergeEngine.begin() as connection:
-            state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
+            state: BatchState = job.getBatchState(mergeEngine, connection, key, batchId)
 
             # Check for schema changes before merging
-            self.checkForSchemaChanges(state)
-            nm: DataContainerNamingMapper = self.dp.psp.namingMapper
+            job.checkForSchemaChanges(state)
+            nm: DataContainerNamingMapper = job.dp.psp.namingMapper
 
             for datasetToMergeName in state.all_datasets:
                 # Get the dataset
-                dataset: Dataset = self.store.datasets[datasetToMergeName]
+                dataset: Dataset = job.store.datasets[datasetToMergeName]
                 # Map the dataset name if necessary
-                stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
-                mergeTableName: str = self.getPhysMergeTableNameForDataset(dataset)
+                stagingTableName: str = job.getPhysStagingTableNameForDataset(dataset)
+                mergeTableName: str = job.getPhysMergeTableNameForDataset(dataset)
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
 
                 # Get all column names
@@ -211,34 +223,44 @@ class SnapshotMergeJobLiveOnly(Job):
                              dataset_name=datasetToMergeName,
                              total_records=total_records)
 
-                # Create a staging view that includes records to be deleted
-                # We need to identify records that exist in merge but not in staging (deletions)
-                staging_with_deletes_sql = f"""
-                WITH staging_records AS (
-                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                ),
-                merge_records AS (
-                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {mergeTableName}
-                ),
-                records_to_delete AS (
-                    SELECT m.{sp.KEY_HASH_COLUMN_NAME}
-                    FROM merge_records m
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM staging_records s WHERE s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
+                # Create a staging view; include delete operations only in SNAPSHOT mode
+                if mode == SnapshotDeltaMode.SNAPSHOT:
+                    # Identify records that exist in merge but not in staging (deletions)
+                    staging_with_deletes_sql = f"""
+                    WITH staging_records AS (
+                        SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                    ),
+                    merge_records AS (
+                        SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {mergeTableName}
+                    ),
+                    records_to_delete AS (
+                        SELECT m.{sp.KEY_HASH_COLUMN_NAME}
+                        FROM merge_records m
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM staging_records s WHERE s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
+                        )
                     )
-                )
-                SELECT
-                    s.*,
-                    'INSERT' as operation
-                FROM {stagingTableName} s
-                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                UNION ALL
-                SELECT
-                    m.*,
-                    'DELETE' as operation
-                FROM {mergeTableName} m
-                INNER JOIN records_to_delete d ON m.{sp.KEY_HASH_COLUMN_NAME} = d.{sp.KEY_HASH_COLUMN_NAME}
-                """
+                    SELECT
+                        s.*,
+                        'INSERT' as operation
+                    FROM {stagingTableName} s
+                    WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                    UNION ALL
+                    SELECT
+                        m.*,
+                        'DELETE' as operation
+                    FROM {mergeTableName} m
+                    INNER JOIN records_to_delete d ON m.{sp.KEY_HASH_COLUMN_NAME} = d.{sp.KEY_HASH_COLUMN_NAME}
+                    """
+                else:
+                    # UPSERT mode: only inserts/updates, no deletes
+                    staging_with_deletes_sql = f"""
+                    SELECT
+                        s.*,
+                        'INSERT' as operation
+                    FROM {stagingTableName} s
+                    WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                    """
 
                 # Create temporary staging table with operation column
                 temp_staging_table = nm.mapNoun(f"temp_staging_{batchId}_{datasetToMergeName.replace('-', '_')}")
@@ -286,16 +308,19 @@ class SnapshotMergeJobLiveOnly(Job):
                 dataset_inserted = metrics_row[0] if metrics_row[0] else 0
                 dataset_updated = metrics_row[1] if metrics_row[1] else 0
 
-                # For deletions, count records that were in merge but not in staging
-                deleted_count_sql = f"""
-                SELECT COUNT(*) FROM {mergeTableName} m
-                WHERE m.{sp.KEY_HASH_COLUMN_NAME} NOT IN (
-                    SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                )
-                AND m.{sp.BATCH_ID_COLUMN_NAME} != {batchId}
-                """
-                deleted_result = connection.execute(text(deleted_count_sql))
-                dataset_deleted = deleted_result.fetchone()[0]
+                # For deletions, only count/apply in SNAPSHOT mode
+                if mode == SnapshotDeltaMode.SNAPSHOT:
+                    deleted_count_sql = f"""
+                    SELECT COUNT(*) FROM {mergeTableName} m
+                    WHERE m.{sp.KEY_HASH_COLUMN_NAME} NOT IN (
+                        SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
+                    )
+                    AND m.{sp.BATCH_ID_COLUMN_NAME} != {batchId}
+                    """
+                    deleted_result = connection.execute(text(deleted_count_sql))
+                    dataset_deleted = deleted_result.fetchone()[0]
+                else:
+                    dataset_deleted = 0
 
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
@@ -308,7 +333,7 @@ class SnapshotMergeJobLiveOnly(Job):
                              deleted=dataset_deleted)
 
             # Now update the batch status to merged within the existing transaction
-            self.markBatchMerged(
+            job.markBatchMerged(
                 connection, key, batchId, BatchStatus.COMMITTED,
                 total_inserted, total_updated, total_deleted, totalRecords)
 

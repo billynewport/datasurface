@@ -32,6 +32,8 @@ from datasurface.md.vendor import CloudVendor, InfrastructureVendor, Infrastruct
     UnknownLocationProblem, UnknownVendorProblem
 from datasurface.md.credential import Credential, CredentialStore
 from datasurface.md.keys import InvalidLocationStringProblem
+from datasurface.md.schema import DDLTable, DDLColumn
+from datasurface.md.types import FixedIntegerDataType, Timestamp
 import re
 import json
 from datasurface.md.documentation import PlainTextDocumentation
@@ -1161,31 +1163,26 @@ class SQLWatermarkSnapshotDeltaIngestion(SQLIngestion):
     select * from {{table}} where {{wcol}} >= {{low}} and {{wcol}} < {{high}}
 
     @param watermarkColumn: This is the column name to use for the watermark
-    @param watermarkSQL: This is an parameterized SQL string to return the max watermark value
-    @param snapshotSQL: This is an parameterized SQL string to return the snapshot of the data
-    @param deltaSQL: This is an parameterized SQL string to return the delta of the data"""
+    @param watermarkDataType: This is the data type of the watermark column, it must be a FixedIntegerDataType subclass or Timestamp"""
 
-    def __init__(self, db: SQLDatabase, watermarkColumn: str, watermarkSQL: str, snapshotSQL: str, deltaSQL: str,
+    def __init__(self, db: SQLDatabase, watermarkColumn: str, watermarkDataType: DataType,
                  *args: Union[Credential, StepTrigger, IngestionConsistencyType]) -> None:
         super().__init__(db, *args)
         self.watermarkColumn: str = watermarkColumn
-        self.watermarkSQL: str = watermarkSQL
-        self.snapshotSQL: str = snapshotSQL
-        self.deltaSQL: str = deltaSQL
+        self.watermarkDataType: DataType = watermarkDataType
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
-                "_type": self.__class__.__name__, "watermarkColumn": self.watermarkColumn, "watermarkSQL": self.watermarkSQL,
-                "snapshotSQL": self.snapshotSQL, "deltaSQL": self.deltaSQL
+                "_type": self.__class__.__name__, "watermarkColumn": self.watermarkColumn,
+                "watermarkDataType": self.watermarkDataType.to_json()
             })
         return rc
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SQLWatermarkSnapshotDeltaIngestion):
-            return super().__eq__(other) and self.watermarkColumn == other.watermarkColumn and self.watermarkSQL == other.watermarkSQL and \
-                self.snapshotSQL == other.snapshotSQL and self.deltaSQL == other.deltaSQL
+            return super().__eq__(other) and self.watermarkColumn == other.watermarkColumn and self.watermarkDataType == other.watermarkDataType
         return False
 
     def lint(self, eco: 'Ecosystem', gz: 'GovernanceZone', t: 'Team', d: 'Datastore', tree: ValidationTree) -> None:
@@ -1195,8 +1192,25 @@ class SQLWatermarkSnapshotDeltaIngestion(SQLIngestion):
         if not is_valid_sql_identifier(self.watermarkColumn):
             tree.addRaw(NameMustBeSQLIdentifier(self.watermarkColumn, ProblemSeverity.ERROR))
 
+        # Supported data types are FixedIntegerDataType subclasses or Timestamp
+        if not isinstance(self.watermarkDataType, FixedIntegerDataType) and not isinstance(self.watermarkDataType, Timestamp):
+            tree.addRaw(AttributeNotSet("watermarkDataType must be a FixedIntegerDataType subclass or Timestamp"))
+
+        # Now check the watermarkColumn exists in all dataset schemas
+        for dataset in d.datasets.values():
+            schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+            column: Optional[DDLColumn] = schema.columns.get(self.watermarkColumn)
+            if column is None:
+                tree.addRaw(AttributeNotSet(f"Watermark column {self.watermarkColumn} not found in dataset {dataset.name}"))
+            else:
+                # Column type must be consistent across all datasets, it must be numeric
+                if column.type != self.watermarkDataType:
+                    tree.addRaw(AttributeNotSet(
+                        f"Watermark column {self.watermarkColumn} in dataset {dataset.name} is not the same data type"
+                        f" as the watermark data type {self.watermarkDataType}"))
+
     def __str__(self) -> str:
-        return "SQLSnapshotDeltaIngestion()"
+        return "SQLWatermarkSnapshotDeltaIngestion()"
 
 
 class StreamingIngestion(IngestionMetadata):

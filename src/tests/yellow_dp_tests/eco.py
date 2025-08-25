@@ -12,10 +12,11 @@ from datasurface.md.repo import GitHubRepository
 from datasurface.platforms.yellow import YellowDataPlatform, YellowMilestoneStrategy, YellowPlatformServiceProvider
 from datasurface.md import CloudVendor, WorkspacePlatformConfig
 from datasurface.md import ValidationTree
-from datasurface.md.governance import Datastore, Dataset, SQLSnapshotIngestion, HostPortPair, CronTrigger, IngestionConsistencyType, \
-    ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency
+from datasurface.md.governance import (
+    Datastore, Dataset, SQLSnapshotIngestion, SQLWatermarkSnapshotDeltaIngestion, HostPortPair, CronTrigger, IngestionConsistencyType,
+    ConsumerRetentionRequirements, DataMilestoningStrategy, DataLatency)
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
-from datasurface.md.types import VarChar, Date
+from datasurface.md.types import VarChar, Date, Timestamp
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
 from datasurface.md import Workspace, DatasetSink, DatasetGroup, PostgresDatabase, DataPlatformManagedDataContainer
 from tests.nwdb.nwdb import addDSGPlatformMappingForWorkspace
@@ -154,13 +155,61 @@ def createEcosystem() -> Ecosystem:
                 )
             ]
         ),
+        Datastore(
+            "Store2",
+            documentation=PlainTextDocumentation("Test datastore"),
+            capture_metadata=SQLWatermarkSnapshotDeltaIngestion(
+                PostgresDatabase(
+                    "Test_DB",  # Model name for database
+                    hostPort=HostPortPair("localhost", 5432),  # Host and port for database
+                    locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                    databaseName="test_db"  # Database name
+                ),
+                "last_update_time",  # watermarkColumn
+                Timestamp(),  # watermarkDataType
+                CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
+                IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
+                Credential("postgres", CredentialType.USER_PASSWORD)  # Credential for platform to read from database
+                ),
+            datasets=[
+                Dataset(
+                    "people",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn(
+                                "id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
+                            DDLColumn(
+                                "firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "First Name")]),
+                            DDLColumn(
+                                "lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Last Name")]),
+                            DDLColumn(
+                                "dob", Date(), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Birth")]),
+                            DDLColumn(
+                                "employer", VarChar(100), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Employer")]),
+                            DDLColumn(
+                                "dod", Date(), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Death")]),
+                            DDLColumn(
+                                "last_update_time", Timestamp(), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.PUB, "Last Update Time")])
+                        ]
+                    )
+                )
+            ]
+        ),
         Workspace(
             "Consumer1",
             DataPlatformManagedDataContainer("Consumer1 container"),
             DatasetGroup(
                 "TestDSG",
                 sinks=[
-                    DatasetSink("Store1", "people")
+                    DatasetSink("Store1", "people"),
+                    DatasetSink("Store2", "people")
                 ],
                 platform_chooser=WorkspacePlatformConfig(
                     hist=ConsumerRetentionRequirements(

@@ -7,7 +7,8 @@ import os
 import time
 import functools
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Callable, cast
+from typing import List, Optional, Any, Callable, cast, Union
+import datetime
 from sqlalchemy.engine import Connection
 from sqlalchemy import text
 from datasurface.md import DataContainer, PostgresDatabase, SQLServerDatabase
@@ -769,6 +770,116 @@ class DatabaseOperations(ABC):
         """
         return [f'"{col}"' for col in columns]
 
+    # Watermark Operations
+    def format_watermark_value(self, watermark_value: Union[int, datetime.datetime, str]) -> str:
+        """Format watermark value for SQL based on its type.
+
+        Args:
+            watermark_value: Watermark value (integer, datetime, or string)
+
+        Returns:
+            Properly formatted SQL value
+        """
+        if isinstance(watermark_value, int):
+            return str(watermark_value)
+        elif isinstance(watermark_value, datetime.datetime):
+            # Format datetime for SQL - subclasses can override for database-specific formatting
+            return f"'{watermark_value.isoformat()}'"
+        elif isinstance(watermark_value, str):
+            # Assume it's already properly formatted (e.g., "'2024-01-01'" or "12345")
+            return watermark_value
+        else:
+            # Fallback to string representation
+            return str(watermark_value)
+
+    def get_watermark_records_lt(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        """Build a query to select records where watermark column < provided value with computed hashes.
+
+        Args:
+            source_table: Source table name
+            all_columns: List of all column names
+            pk_columns: List of primary key column names
+            watermark_column: Name of the watermark column
+            watermark_value: Value to compare watermark against (integer, datetime, or formatted string)
+
+        Returns:
+            SQL query string to select records with hashes
+        """
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_value = self.format_watermark_value(watermark_value)
+
+        # Build hash expressions
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {self.schema_projector.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {self.schema_projector.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE "{watermark_column}" < {formatted_value}
+        """
+
+    def get_watermark_records_range(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        low_watermark_value: Union[int, datetime.datetime, str],
+        high_watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        """Build a query to select records where watermark column >= low_value and < high_value with computed hashes.
+
+        Args:
+            source_table: Source table name
+            all_columns: List of all column names
+            pk_columns: List of primary key column names
+            watermark_column: Name of the watermark column
+            low_watermark_value: Lower bound value (integer, datetime, or formatted string)
+            high_watermark_value: Upper bound value (integer, datetime, or formatted string)
+
+        Returns:
+            SQL query string to select records with hashes
+        """
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_low = self.format_watermark_value(low_watermark_value)
+        formatted_high = self.format_watermark_value(high_watermark_value)
+
+        # Build hash expressions
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {self.schema_projector.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {self.schema_projector.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE "{watermark_column}" >= {formatted_low} AND "{watermark_column}" < {formatted_high}
+        """
+
+    def get_max_watermark_value(self, source_table: str, watermark_column: str) -> str:
+        """Build a query to get the maximum value from a watermark column.
+
+        Args:
+            source_table: Source table name
+            watermark_column: Name of the watermark column
+
+        Returns:
+            SQL query string to get the maximum watermark value
+        """
+        return f"""
+        SELECT MAX("{watermark_column}")
+        FROM {source_table}
+        """
+
     # High-level operations that use the primitives above
     def build_source_query_with_hashes(
         self,
@@ -1120,6 +1231,83 @@ class PostgresDatabaseOperations(DatabaseOperations):
         """PostgreSQL DROP TABLE with CASCADE."""
         return f'DROP TABLE IF EXISTS "{table_name}" CASCADE'
 
+    def format_watermark_value(self, watermark_value: Union[int, datetime.datetime, str]) -> str:
+        """PostgreSQL-specific watermark value formatting."""
+        if isinstance(watermark_value, int):
+            return str(watermark_value)
+        elif isinstance(watermark_value, datetime.datetime):
+            # PostgreSQL prefers ISO format with explicit timestamp casting
+            return f"TIMESTAMP '{watermark_value.isoformat()}'"
+        elif isinstance(watermark_value, str):
+            # Handle string timestamps - check if it looks like a timestamp and format appropriately
+            if '-' in watermark_value and ':' in watermark_value:
+                # Looks like a timestamp string, format it properly for PostgreSQL
+                return f"TIMESTAMP '{watermark_value}'"
+            else:
+                # Assume it's already properly formatted or is a simple value
+                return watermark_value
+        else:
+            return str(watermark_value)
+
+    def get_watermark_records_lt(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        """PostgreSQL-specific implementation for watermark < value query."""
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_value = self.format_watermark_value(watermark_value)
+
+        # Build hash expressions
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {self.schema_projector.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {self.schema_projector.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE "{watermark_column}" < {formatted_value}
+        ORDER BY "{watermark_column}"
+        """
+
+    def get_watermark_records_range(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        low_watermark_value: Union[int, datetime.datetime, str],
+        high_watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        """PostgreSQL-specific implementation for watermark range query."""
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_low = self.format_watermark_value(low_watermark_value)
+        formatted_high = self.format_watermark_value(high_watermark_value)
+
+        # Build hash expressions
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {self.schema_projector.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {self.schema_projector.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE "{watermark_column}" >= {formatted_low} AND "{watermark_column}" < {formatted_high}
+        ORDER BY "{watermark_column}"
+        """
+
+    def get_max_watermark_value(self, source_table: str, watermark_column: str) -> str:
+        """PostgreSQL-specific implementation to get the maximum watermark value."""
+        return f"""
+        SELECT MAX("{watermark_column}")
+        FROM {source_table}
+        """
+
 
 class SQLServerDatabaseOperations(DatabaseOperations):
     """SQL Server-specific database operations implementation."""
@@ -1386,6 +1574,78 @@ class SQLServerDatabaseOperations(DatabaseOperations):
     def get_drop_table_sql(self, table_name: str) -> str:
         """SQL Server DROP TABLE with object existence check."""
         return f'IF OBJECT_ID(\'{table_name}\', \'U\') IS NOT NULL DROP TABLE "{table_name}"'
+
+    def format_watermark_value(self, watermark_value: Union[int, datetime.datetime, str]) -> str:
+        """SQL Server-specific watermark value formatting."""
+        if isinstance(watermark_value, int):
+            return str(watermark_value)
+        elif isinstance(watermark_value, datetime.datetime):
+            # SQL Server prefers explicit DATETIME2 casting for precision
+            return f"CAST('{watermark_value.isoformat()}' AS DATETIME2)"
+        elif isinstance(watermark_value, str):
+            # If it's already a string, assume it's properly formatted
+            return watermark_value
+        else:
+            return str(watermark_value)
+
+    def get_watermark_records_lt(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        """SQL Server-specific implementation for watermark < value query."""
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_value = self.format_watermark_value(watermark_value)
+
+        # Build hash expressions
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {self.schema_projector.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {self.schema_projector.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE [{watermark_column}] < {formatted_value}
+        ORDER BY [{watermark_column}]
+        """
+
+    def get_watermark_records_range(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        low_watermark_value: Union[int, datetime.datetime, str],
+        high_watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        """SQL Server-specific implementation for watermark range query."""
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_low = self.format_watermark_value(low_watermark_value)
+        formatted_high = self.format_watermark_value(high_watermark_value)
+
+        # Build hash expressions
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {self.schema_projector.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {self.schema_projector.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE [{watermark_column}] >= {formatted_low} AND [{watermark_column}] < {formatted_high}
+        ORDER BY [{watermark_column}]
+        """
+
+    def get_max_watermark_value(self, source_table: str, watermark_column: str) -> str:
+        """SQL Server-specific implementation to get the maximum watermark value."""
+        return f"""
+        SELECT MAX([{watermark_column}])
+        FROM {source_table}
+        """
 
 
 class TimingDatabaseOperationsWrapper:
