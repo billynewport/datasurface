@@ -13,7 +13,7 @@ from datasurface.md import Ecosystem
 from datasurface.md.governance import DataMilestoningStrategy, WorkspacePlatformConfig
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
 from typing import cast
-from datasurface.platforms.yellow.merge_watermark import MergeWatermarkLive
+from datasurface.platforms.yellow.merge_watermark import MergeWatermarkLive, MergeWatermarkForensic
 from tests.test_MergeSnapshotLiveOnly import BaseMergeJobTest
 from datasurface.md.lint import ValidationTree
 
@@ -295,6 +295,117 @@ class TestWatermarkMergeJob(BaseWatermarkMergeJobTest, unittest.TestCase):
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    ORDER BY "id"
+                """))
+            return [row._asdict() for row in result.fetchall()]
+
+    def test_BatchState(self) -> None:
+        self.common_test_BatchState(self)
+
+    def test_first_batch_started(self) -> None:
+        self.common_test_first_batch_started(self)
+
+    def test_full_batch_lifecycle(self) -> None:
+        """Test the complete batch processing lifecycle"""
+        self.common_test_batch_lifecycle_steps(self)
+
+    def getStagingTableData(self) -> list:
+        """Get all data from the staging table"""
+        with self.merge_engine.begin() as conn:
+            try:
+                result = conn.execute(text(f"""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    ORDER BY "id"
+                """))
+            except Exception:
+                result = conn.execute(text(f"""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
+                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    ORDER BY "id"
+                """))
+            return [row._asdict() for row in result.fetchall()]
+
+    def test_reset_committed_batch_fails(self) -> None:
+        """Test that trying to reset a committed batch fails"""
+        # Step 1: Insert test data and run a complete batch to completion
+        test_data = [
+            {"id": "1", "firstName": "John", "lastName": "Doe", "dob": "1980-01-01",
+             "employer": "Company A", "dod": None, "last_update_time": "2025-01-01 00:00:00"},
+            {"id": "2", "firstName": "Jane", "lastName": "Smith", "dob": "1985-02-15",
+             "employer": "Company B", "dod": None, "last_update_time": "2025-01-01 00:00:00"}
+        ]
+        self.insertTestData(test_data)
+
+        # Run the job until completion (should commit the batch)
+        self.assertEqual(self.runJob(), JobStatus.DONE)
+        self.checkSpecificBatchStatus("Store2", 1, BatchStatus.COMMITTED, self)
+
+        # Step 2: Try to reset the committed batch - this should fail
+        assert self.eco is not None
+        assert self.dp is not None
+        result = self.dp.resetBatchState(self.eco, "Store2")
+
+        # Check that the reset failed with the expected error message
+        self.assertEqual(result, "ERROR: Batch is COMMITTED and cannot be reset")
+
+        # Verify batch status is still COMMITTED (unchanged)
+        self.checkSpecificBatchStatus("Store2", 1, BatchStatus.COMMITTED, self)
+
+    def test_reset_nonexistent_datastore_fails(self) -> None:
+        """Test that trying to reset a non-existent datastore fails"""
+        assert self.eco is not None
+        assert self.dp is not None
+
+        # Try to reset a datastore that doesn't exist
+        result = self.dp.resetBatchState(self.eco, "NonExistentStore")
+
+        # Check that the reset failed with the expected error message
+        self.assertEqual(result, "ERROR: Could not find datastore in ecosystem")
+
+
+class TestWatermarkMergeJobForensic(BaseWatermarkMergeJobTest, unittest.TestCase):
+    """Test the SnapshotMergeJob with a simple ecosystem (forensic)"""
+
+    def __init__(self, methodName: str = "runTest") -> None:
+        eco: Optional[Ecosystem] = BaseWatermarkMergeJobTest.loadEcosystem("src/tests/yellow_dp_tests")
+        assert eco is not None
+        dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("Test_DP"))
+        dp.milestoneStrategy = YellowMilestoneStrategy.SCD2
+
+        # Set the consumer to live-only mode
+        req: WorkspacePlatformConfig = cast(WorkspacePlatformConfig, eco.cache_getWorkspaceOrThrow("Consumer1").workspace.dsgs["TestDSG"].platformMD)
+        req.retention.milestoningStrategy = DataMilestoningStrategy.FORENSIC
+        tree: ValidationTree = eco.lintAndHydrateCaches()
+        self.assertFalse(tree.hasErrors())
+        print(tree.getErrorsAsStructuredData())
+        BaseWatermarkMergeJobTest.__init__(self, eco, dp.name, "Store2")
+        unittest.TestCase.__init__(self, methodName)
+
+    def setUp(self) -> None:
+        self.common_setup_job(MergeWatermarkForensic, self)
+
+    def tearDown(self) -> None:
+        self.baseTearDown()
+
+    def getMergeTableData(self) -> list:
+        """Override to only select live-only columns (no batch_in/batch_out)"""
+        with self.merge_engine.begin() as conn:
+            # Try both possible table names
+            try:
+                result = conn.execute(text(f"""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
+                           ds_surf_batch_in, ds_surf_batch_out, ds_surf_all_hash, ds_surf_key_hash
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    ORDER BY "id"
+                """))
+            except Exception:
+                result = conn.execute(text(f"""
+                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
+                           ds_surf_batch_in, ds_surf_batch_out, ds_surf_all_hash, ds_surf_key_hash
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
