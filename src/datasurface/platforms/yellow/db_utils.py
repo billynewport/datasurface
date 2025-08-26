@@ -27,7 +27,7 @@ def getDriverNameAndQueryForDataContainer(container: DataContainer) -> tuple[str
     elif isinstance(container, MySQLDatabase):
         return "mysql+pymysql", None
     elif isinstance(container, OracleDatabase):
-        return "oracle+cx_oracle", None
+        return "oracle+oracledb", None
     elif isinstance(container, SQLServerDatabase):
         return "mssql+pyodbc", "ODBC Driver 18 for SQL Server"
     elif isinstance(container, DB2Database):

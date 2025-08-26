@@ -226,21 +226,29 @@ class DataContainerNamingMapper:
     the name of model elements to concrete data container names which may have different standards for naming. Given, consumers
     should be able to use any producer data, this name mapping must succeed. This may require character substitution or even
     truncation of names possibly with an additional hash on the end of the name to ensure uniqueness"""
-    def __init__(self, maxLen: int = 255, caseSensitive: CaseSensitiveEnum = CaseSensitiveEnum.CASE_SENSITIVE, allowQuotes: Optional[str] = None) -> None:
+    def __init__(
+            self, maxLen: int = 255,
+            caseSensitive: CaseSensitiveEnum = CaseSensitiveEnum.CASE_SENSITIVE,
+            columnQuoteStyle: Optional[tuple[str, str]] = None,
+            tableViewIndexQuoteStyle: Optional[tuple[str, str]] = None) -> None:
         self.maxLen = maxLen
         self.caseSensitive = caseSensitive
-        self.allowQuotes = allowQuotes
+        self.columnQuoteStyle: Optional[tuple[str, str]] = columnQuoteStyle
+        self.tableViewIndexQuoteStyle: Optional[tuple[str, str]] = tableViewIndexQuoteStyle
 
     def formatIdentifier(self, s: str) -> str:
         if self.caseSensitive == CaseSensitiveEnum.CASE_INSENSITIVE:
             s = s.upper()
-        if self.allowQuotes is not None:
-            s = f'{self.allowQuotes}{s}{self.allowQuotes}'
+        if self.columnQuoteStyle is not None:
+            s = f'{self.columnQuoteStyle[0]}{s}{self.columnQuoteStyle[1]}'
         return s
 
-    def mapNoun(self, s: str) -> str:
-        """This maps a noun to a string which is a valid identifier for the data container"""
-        return self.formatIdentifier(self.truncateIdentifier(s, self.maxLen))
+    def formatTableViewIndexName(self, s: str) -> str:
+        """This generates names for tables, views, indexes. Not Column names."""
+        rc = self.truncateIdentifier(s, self.maxLen)
+        if self.tableViewIndexQuoteStyle is not None:
+            rc = f'{self.tableViewIndexQuoteStyle[0]}{rc}{self.tableViewIndexQuoteStyle[1]}'
+        return rc
 
     @staticmethod
     def truncateIdentifier(s: str, maxLen: int) -> str:
@@ -279,8 +287,8 @@ class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
     def __init__(
             self,
             identifierLengthLimit: int = 63, caseSensitive: CaseSensitiveEnum = CaseSensitiveEnum.CASE_SENSITIVE,
-            allowQuotes: Optional[str] = None) -> None:
-        super().__init__(maxLen=identifierLengthLimit, caseSensitive=caseSensitive, allowQuotes=allowQuotes)
+            allowQuotes: Optional[tuple[str, str]] = None) -> None:
+        super().__init__(maxLen=identifierLengthLimit, caseSensitive=caseSensitive, columnQuoteStyle=allowQuotes)
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, DefaultDataContainerNamingMapper)
@@ -874,7 +882,7 @@ class PostgresDatabase(HostPortSQLDatabase):
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         # Should be using quotes but not right now as many templlates
         # and code are using quotes.
-        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes="")
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes=("", ""))
 
 
 class MySQLDatabase(HostPortSQLDatabase):
@@ -914,6 +922,9 @@ class OracleDatabase(HostPortSQLDatabase):
     def __hash__(self) -> int:
         return hash(self.name)
 
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, caseSensitive=CaseSensitiveEnum.CASE_SENSITIVE, allowQuotes=("\"", "\""))
+
 
 class SQLServerDatabase(HostPortSQLDatabase):
     """This is a SQL Server database"""
@@ -932,6 +943,9 @@ class SQLServerDatabase(HostPortSQLDatabase):
 
     def __hash__(self) -> int:
         return hash(self.name)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, caseSensitive=CaseSensitiveEnum.CASE_SENSITIVE, allowQuotes=("[", "]"))
 
 
 class DB2Database(HostPortSQLDatabase):

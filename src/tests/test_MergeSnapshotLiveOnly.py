@@ -14,7 +14,7 @@ from datasurface.platforms.yellow.jobs import Job, JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
 from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase
 from datasurface.md import Datastore, SQLIngestion
-from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, WorkspacePlatformConfig
+from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, OracleDatabase, WorkspacePlatformConfig
 from datasurface.md import DataPlatform, HostPortSQLDatabase
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowDatasetUtilities
 from datasurface.md.lint import ValidationTree
@@ -183,6 +183,8 @@ class BaseMergeJobTest(ABC):
             mock_cred_store = MockCredentialStore("postgres", "postgres")
         elif isinstance(self.dp.psp.mergeStore, SQLServerDatabase):
             mock_cred_store = MockCredentialStore("sa", "pass@w0rd")
+        elif isinstance(self.dp.psp.mergeStore, OracleDatabase):
+            mock_cred_store = MockCredentialStore("system", "pass@w0rd")
         else:
             raise Exception(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
 
@@ -389,18 +391,34 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         self.insertTestData(test_data)
 
     def insertTestData(self, data: list[dict]) -> None:
+        from datetime import datetime
         with self.source_engine.begin() as conn:
             for row in data:
+                # Convert date strings to datetime objects for Oracle compatibility
+                processed_row = row.copy()
+                for key in ['dob', 'dod']:
+                    if key in processed_row and processed_row[key] is not None:
+                        if isinstance(processed_row[key], str):
+                            processed_row[key] = datetime.strptime(processed_row[key], '%Y-%m-%d').date()
+                
                 conn.execute(text("""
                     INSERT INTO people ("id", "firstName", "lastName", "dob", "employer", "dod")
                     VALUES (:id, :firstName, :lastName, :dob, :employer, :dod)
-                """), row)
+                """), processed_row)
 
     def updateTestData(self, id_val: str, updates: dict) -> None:
+        from datetime import datetime
         with self.source_engine.begin() as conn:
-            set_clause = ", ".join([f'"{k}" = :{k}' for k in updates.keys()])
+            # Convert date strings to datetime objects for Oracle compatibility
+            processed_updates = updates.copy()
+            for key in ['dob', 'dod']:
+                if key in processed_updates and processed_updates[key] is not None:
+                    if isinstance(processed_updates[key], str):
+                        processed_updates[key] = datetime.strptime(processed_updates[key], '%Y-%m-%d').date()
+            
+            set_clause = ", ".join([f'"{k}" = :{k}' for k in processed_updates.keys()])
             query = f'UPDATE people SET {set_clause} WHERE "id" = :id'
-            params = updates.copy()
+            params = processed_updates.copy()
             params['id'] = id_val
             conn.execute(text(query), params)
 

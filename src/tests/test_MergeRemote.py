@@ -27,11 +27,17 @@ skip_sqlserver = pytest.mark.skipif(
     not ENABLE_SQLSERVER_TESTS,
     reason="SQL Server tests disabled. Set ENABLE_SQLSERVER_TESTS=true to enable."
 )
+# Check if Oracle tests should be enabled
+ENABLE_ORACLE_TESTS = os.getenv("ENABLE_ORACLE_TESTS", "false").lower() == "true"
+skip_oracle = pytest.mark.skipif(
+    not ENABLE_ORACLE_TESTS,
+    reason="Oracle tests disabled. Set ENABLE_ORACLE_TESTS=true to enable."
+)
 
 
 class TestMergeRemoteLive(unittest.TestCase):
 
-    """In the ecosystem which is configured, Store1 is a postgres source and Store2 is a SQLServer source."""
+    """In the ecosystem which is configured, Store1 is a postgres source and Store2 is a SQLServer source. Store3 is an Oracle source."""
 
     def checkTestRecordsMatchExpected(self, test_data: list[dict[str, Any]], live_records: list[Any]) -> None:
         # Adapter test_data to a dict on key so we can find the record quickly.
@@ -104,6 +110,12 @@ class TestMergeRemoteLive(unittest.TestCase):
         live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSQLServer", storeName, SnapshotMergeJobRemoteLive)
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", storeName, SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSQLServer", storeName, SnapshotMergeJobRemoteForensic)
+        return live_utils, merge_utils, remote_merge_utils
+
+    def setup_live_and_merge_batch_runsOracle(self, storeName: str) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveOracle", storeName, SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicOracle", storeName, SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicOracle", storeName, SnapshotMergeJobRemoteForensic)
         return live_utils, merge_utils, remote_merge_utils
 
     def getBatchTestData(self) -> list[list[dict[str, Any]]]:
@@ -198,6 +210,13 @@ class TestMergeRemoteLive(unittest.TestCase):
     def test_5_batches_remote_forensic_one_by_one_SQLServer(self) -> None:
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSQLServer", "Store2", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
+
+    @skip_oracle
+    def test_5_batches_remote_forensic_one_by_one_Oracle(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicOracle", "Store3", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicOracle", "Store3", SnapshotMergeJobRemoteForensic)
 
         self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
 

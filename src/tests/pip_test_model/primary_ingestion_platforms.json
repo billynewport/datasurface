@@ -6,5 +6,9 @@
     {
         "storeName": "Store2",
         "dataPlatforms": ["YellowForensicSQLServer"]
+    },
+    {
+        "storeName": "Store3",
+        "dataPlatforms": ["YellowForensicOracle"]
     }
 ]

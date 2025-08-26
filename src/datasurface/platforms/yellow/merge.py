@@ -14,7 +14,7 @@ from datasurface.md.schema import DDLTable
 from sqlalchemy.types import Integer, String
 from sqlalchemy.engine.row import Row
 from typing import cast, List, Any, Optional, Callable
-from datasurface.md.governance import SQLIngestion, DataTransformerOutput
+from datasurface.md.governance import DataContainerNamingMapper, SQLIngestion, DataTransformerOutput
 from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, BatchStatus, BatchState
@@ -81,6 +81,7 @@ class Job(YellowDatasetUtilities):
         self.merge_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
             dp.psp.mergeStore, self.schemaProjector
         )
+        self.namingMapper: DataContainerNamingMapper = dp.psp.mergeStore.getNamingAdapter()
         assert self.store.cmd is not None
 
         # For DataTransformerOutput, data is already in merge database, no external source needed
@@ -352,7 +353,7 @@ class Job(YellowDatasetUtilities):
         if totalRecords is not None:
             update_parts.append(f"total_records = {totalRecords}")
 
-        update_sql = f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = \'{key}\' AND "batch_id" = {batchId}'
+        update_sql = f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE {self.namingMapper.formatIdentifier("key")} = \'{key}\' AND {self.namingMapper.formatIdentifier("batch_id")} = {batchId}'
         connection.execute(text(update_sql))
 
     @abstractmethod
@@ -372,9 +373,9 @@ class Job(YellowDatasetUtilities):
     def getMaxCommittedBatchId(self, connection: Connection, key: str) -> Optional[int]:
         """Get the max committed batch id for a given key"""
         result = connection.execute(text(f"""
-            SELECT MAX("batch_id")
+            SELECT MAX({self.namingMapper.formatIdentifier("batch_id")})
             FROM {self.getPhysBatchMetricsTableName()}
-            WHERE "key" = :key AND batch_status = :batch_status
+            WHERE {self.namingMapper.formatIdentifier("key")} = :key AND {self.namingMapper.formatIdentifier("batch_status")} = :batch_status
         """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
         row = result.fetchone()
         return row[0] if row else None
