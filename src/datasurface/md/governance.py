@@ -1158,9 +1158,14 @@ class SQLWatermarkSnapshotDeltaIngestion(SQLIngestion):
     watermarks are persisted in the BatchState.
     This type of ingestion allows inserts and updates to be captured only. Deletes are not captured.
 
-    select MAX({{wcol}}) as w from {{table}}
-    select * from {{table}} where {{wcol}} < {{watermark}}
-    select * from {{table}} where {{wcol}} >= {{low}} and {{wcol}} < {{high}}
+    It's also critical to remember that the records equal to the latest highwater mark are not ingested. They
+    will be ingested when records with a higher watermark are detected.
+
+    The source datasets must ALL have a watermark column which is a timestamp or integer.
+
+    Calculate high watermark: select MAX({{wcol}}) as w from {{table}}
+    Ingest initial snapshot: select * from {{table}} where {{wcol}} < {{watermark}}
+    Ingest delta: select * from {{table}} where {{wcol}} >= {{low}} and {{wcol}} < {{high}}
 
     @param watermarkColumn: This is the column name to use for the watermark
     @param watermarkDataType: This is the data type of the watermark column, it must be a FixedIntegerDataType subclass or Timestamp"""

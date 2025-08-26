@@ -452,7 +452,7 @@ class DatabaseOperations(ABC):
         UNION ALL
 
         -- Handle deletions: keys that existed at last batch but not at current batch
-        SELECT {', '.join([f'ps."{col}"' for col in all_columns])},
+        SELECT {', '.join([f'ps.' + self.get_quoted_columns([col])[0] for col in all_columns])},
             ps.{all_hash_column},
             ps.{key_hash_column},
             'D' as {iud_column}
@@ -497,12 +497,12 @@ class DatabaseOperations(ABC):
         else:  # SQL Server
             return f"""
             UPDATE m
-            SET {sp.BATCH_OUT_COLUMN_NAME} = s."remote_{sp.BATCH_OUT_COLUMN_NAME}"
+            SET {sp.BATCH_OUT_COLUMN_NAME} = s.[remote_{sp.BATCH_OUT_COLUMN_NAME}]
             FROM {merge_table} m
             INNER JOIN {staging_table} s ON m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                AND m.{sp.BATCH_IN_COLUMN_NAME} = s."remote_{sp.BATCH_IN_COLUMN_NAME}"
+                AND m.{sp.BATCH_IN_COLUMN_NAME} = s.[remote_{sp.BATCH_IN_COLUMN_NAME}]
             WHERE m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
-                AND s."remote_{sp.BATCH_OUT_COLUMN_NAME}" != {sp.LIVE_RECORD_ID}
+                AND s.[remote_{sp.BATCH_OUT_COLUMN_NAME}] != {sp.LIVE_RECORD_ID}
                 AND s.{sp.BATCH_ID_COLUMN_NAME} = {batch_id}
             """
 
@@ -1352,7 +1352,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
             # Complex subquery - use it directly
             source_clause = f"{source_table} AS source_data"
             source_select = f"""
-            SELECT {', '.join([f'"{col}"' for col in all_columns])},
+            SELECT {', '.join([f'[{col}]' for col in all_columns])},
                    {all_hash_column},
                    {key_hash_column}
             FROM source_data
@@ -1360,7 +1360,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         else:
             # Simple table name - add WHERE clause
             source_select = f"""
-            SELECT {', '.join([f'"{col}"' for col in all_columns])},
+            SELECT {', '.join([f'[{col}]' for col in all_columns])},
                    {all_hash_column},
                    {key_hash_column}
             FROM {source_table}
@@ -1376,12 +1376,12 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         ON target.{key_hash_column} = source_data.{key_hash_column}
         WHEN MATCHED AND target.{all_hash_column} != source_data.{all_hash_column} THEN
             UPDATE SET
-                {', '.join([f'"{col}" = source_data."{col}"' for col in all_columns])},
+                {', '.join([f'[{col}] = source_data.[{col}]' for col in all_columns])},
                 {batch_id_column} = {batch_id},
                 {all_hash_column} = source_data.{all_hash_column}
         WHEN NOT MATCHED THEN
             INSERT ({', '.join(quoted_columns)}, {batch_id_column}, {all_hash_column}, {key_hash_column})
-            VALUES ({', '.join([f'source_data."{col}"' for col in all_columns])}, {batch_id}, source_data.{all_hash_column}, source_data.{key_hash_column});
+            VALUES ({', '.join([f'source_data.[{col}]' for col in all_columns])}, {batch_id}, source_data.{all_hash_column}, source_data.{key_hash_column});
         """
         else:
             return f"""
@@ -1390,12 +1390,12 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         ON target.{key_hash_column} = source.{key_hash_column}
         WHEN MATCHED AND target.{all_hash_column} != source.{all_hash_column} THEN
             UPDATE SET
-                {', '.join([f'"{col}" = source."{col}"' for col in all_columns])},
+                {', '.join([f'[{col}] = source.[{col}]' for col in all_columns])},
                 {batch_id_column} = {batch_id},
                 {all_hash_column} = source.{all_hash_column}
         WHEN NOT MATCHED THEN
             INSERT ({', '.join(quoted_columns)}, {batch_id_column}, {all_hash_column}, {key_hash_column})
-            VALUES ({', '.join([f'source."{col}"' for col in all_columns])}, {batch_id}, source.{all_hash_column}, source.{key_hash_column});
+            VALUES ({', '.join([f'source.[{col}]' for col in all_columns])}, {batch_id}, source.{all_hash_column}, source.{key_hash_column});
         """
 
     def get_delete_missing_records_sql(
@@ -1455,7 +1455,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         merge_sql = f"""
         MERGE {target_table} AS target
         USING (
-            SELECT {', '.join([f'"{col}"' for col in all_columns])},
+            SELECT {', '.join([f'[{col}]' for col in all_columns])},
                    {all_hash_column},
                    {key_hash_column}
             FROM {source_table}
@@ -1466,7 +1466,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
             UPDATE SET {batch_out_column} = {batch_id - 1}
         WHEN NOT MATCHED THEN
             INSERT ({', '.join(quoted_columns)}, {all_hash_column}, {key_hash_column}, {batch_in_column}, {batch_out_column})
-            VALUES ({', '.join([f'source."{col}"' for col in all_columns])}, source.{all_hash_column}, source.{key_hash_column}, {batch_id}, {live_record_id})
+            VALUES ({', '.join([f'source.[{col}]' for col in all_columns])}, source.{all_hash_column}, source.{key_hash_column}, {batch_id}, {live_record_id})
         WHEN NOT MATCHED BY SOURCE AND target.{batch_out_column} = {live_record_id} THEN
             UPDATE SET {batch_out_column} = {batch_id - 1};
         """
@@ -1481,7 +1481,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
             {batch_out_column}
         )
         SELECT
-            {', '.join([f's."{col}"' for col in all_columns])},
+            {', '.join([f's.[{col}]' for col in all_columns])},
             s.{all_hash_column},
             s.{key_hash_column},
             {batch_id},
@@ -1573,7 +1573,11 @@ class SQLServerDatabaseOperations(DatabaseOperations):
 
     def get_drop_table_sql(self, table_name: str) -> str:
         """SQL Server DROP TABLE with object existence check."""
-        return f'IF OBJECT_ID(\'{table_name}\', \'U\') IS NOT NULL DROP TABLE "{table_name}"'
+        return f"IF OBJECT_ID('{table_name}', 'U') IS NOT NULL DROP TABLE [{table_name}]"
+
+    def get_quoted_columns(self, columns: List[str]) -> List[str]:
+        """Override to use bracket quoting for SQL Server identifiers."""
+        return [f'[{col}]' for col in columns]
 
     def format_watermark_value(self, watermark_value: Union[int, datetime.datetime, str]) -> str:
         """SQL Server-specific watermark value formatting."""
@@ -1673,6 +1677,7 @@ class TimingDatabaseOperationsWrapper:
         @functools.wraps(original_method)
         def timing_wrapper(*args, **kwargs):
             start_time = time.time()
+            result: Any = None
             try:
                 result = original_method(*args, **kwargs)
                 return result
