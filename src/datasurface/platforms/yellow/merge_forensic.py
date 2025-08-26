@@ -11,13 +11,14 @@ from sqlalchemy.engine import Engine
 from datasurface.md.schema import DDLTable
 from typing import cast, Optional
 from datasurface.platforms.yellow.yellow_dp import (
-    YellowDataPlatform, YellowSchemaProjector,
+    YellowDataPlatform,
     BatchStatus, BatchState
 )
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
 from datasurface.platforms.yellow.merge import Job, JobStatus
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from enum import Enum
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -86,8 +87,6 @@ class SnapshotMergeJobForensic(Job):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert job.schemaProjector is not None
-        sp: YellowSchemaProjector = job.schemaProjector
 
         with mergeEngine.begin() as connection:
             state: BatchState = job.getBatchState(mergeEngine, connection, key, batchId)
@@ -104,12 +103,12 @@ class SnapshotMergeJobForensic(Job):
                     mergeTableName,
                     stagingTableName,
                     allColumns,
-                    sp.KEY_HASH_COLUMN_NAME,
-                    sp.ALL_HASH_COLUMN_NAME,
-                    sp.BATCH_ID_COLUMN_NAME,
-                    sp.BATCH_IN_COLUMN_NAME,
-                    sp.BATCH_OUT_COLUMN_NAME,
-                    sp.LIVE_RECORD_ID,
+                    YellowSchemaConstants.KEY_HASH_COLUMN_NAME,
+                    YellowSchemaConstants.ALL_HASH_COLUMN_NAME,
+                    YellowSchemaConstants.BATCH_ID_COLUMN_NAME,
+                    YellowSchemaConstants.BATCH_IN_COLUMN_NAME,
+                    YellowSchemaConstants.BATCH_OUT_COLUMN_NAME,
+                    YellowSchemaConstants.LIVE_RECORD_ID,
                     batchId
                 )
 
@@ -146,7 +145,7 @@ class SnapshotMergeJobForensic(Job):
 
                 # Count total records processed from staging for this dataset
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 

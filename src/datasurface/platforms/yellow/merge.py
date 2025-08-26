@@ -26,8 +26,10 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger,
 )
 from sqlalchemy.engine.reflection import Inspector
-from datasurface.platforms.yellow.database_operations import DatabaseOperations, DatabaseOperationsFactory
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
+from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.platforms.yellow.db_utils import createInspector
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -154,13 +156,13 @@ class Job(YellowDatasetUtilities):
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE)
         t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
@@ -240,12 +242,12 @@ class Job(YellowDatasetUtilities):
                 # Delete all records for batch id in staging
                 # Use BATCH_ID_COLUMN_NAME from the schema projector
                 mergeConnection.execute(
-                    text(f"DELETE FROM {stagingTableName} WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} = :batch_id"), {"batch_id": batchId})
+                    text(f"DELETE FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = :batch_id"), {"batch_id": batchId})
             else:
                 minBatchToKeep: int = batchId - batchesToKeep
                 mergeConnection.execute(
                     text(f"DELETE FROM {stagingTableName} "
-                         f"  WHERE {self.schemaProjector.BATCH_ID_COLUMN_NAME} < :min_batch_to_keep"), {"min_batch_to_keep": minBatchToKeep})
+                         f"  WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} < :min_batch_to_keep"), {"min_batch_to_keep": minBatchToKeep})
 
     def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""
@@ -543,9 +545,9 @@ class Job(YellowDatasetUtilities):
 
         # Build insert statement with SQLAlchemy named parameters
         quoted_insert_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
-            f'"{self.schemaProjector.BATCH_ID_COLUMN_NAME}"',
-            f'"{self.schemaProjector.ALL_HASH_COLUMN_NAME}"',
-            f'"{self.schemaProjector.KEY_HASH_COLUMN_NAME}"'
+            f'"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}"'
         ]
         placeholders = ", ".join([f":{i}" for i in range(len(quoted_insert_columns))])
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"
@@ -581,8 +583,8 @@ class Job(YellowDatasetUtilities):
                     # Extract data columns using column mapping
                     dataValues = [row[column_map[col]] for col in allColumns]
                     # Extract hash values using column names
-                    allHash = row[column_map[self.schemaProjector.ALL_HASH_COLUMN_NAME]]
-                    keyHash = row[column_map[self.schemaProjector.KEY_HASH_COLUMN_NAME]]
+                    allHash = row[column_map[YellowSchemaConstants.ALL_HASH_COLUMN_NAME]]
+                    keyHash = row[column_map[YellowSchemaConstants.KEY_HASH_COLUMN_NAME]]
                     # Add batch metadata
                     insertValues = dataValues + [batchId, allHash, keyHash]
                     batchValues.append(insertValues)

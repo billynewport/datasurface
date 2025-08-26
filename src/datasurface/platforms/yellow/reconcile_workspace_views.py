@@ -12,7 +12,7 @@ from sqlalchemy.engine import Engine
 from datasurface.md import Ecosystem, DataPlatform, PlatformPipelineGraph, EcosystemPipelineGraph, PlatformServicesProvider
 from datasurface.md.sqlalchemyutils import createOrUpdateView
 from datasurface.md.credential import CredentialStore
-from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowSchemaProjector
+from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
 from datasurface.md.schema import DDLTable
 from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, createEngine
 from datasurface.platforms.yellow.db_utils import createInspector
@@ -20,6 +20,7 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
 )
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -112,7 +113,6 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
         return 1
 
     # Create schema projector to access constants and determine platform behavior
-    schema_projector = YellowSchemaProjector(eco, yellow_dp)
     is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.SCD2
 
     logger.info("Platform configuration determined",
@@ -269,7 +269,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
                             # 2. Create live view (only live records with WHERE clause)
                             live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
-                            live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
+                            live_where_clause = f"{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}"
 
                             with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
                                 live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
@@ -421,7 +421,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
                         # 2. Create live view (only live records with WHERE clause)
                         live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
-                        live_where_clause = f"{schema_projector.BATCH_OUT_COLUMN_NAME} = {schema_projector.LIVE_RECORD_ID}"
+                        live_where_clause = f"{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}"
 
                         with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
                             live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,

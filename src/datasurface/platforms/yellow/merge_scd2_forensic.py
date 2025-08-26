@@ -21,7 +21,7 @@ from datasurface.platforms.yellow.merge import Job
 from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md.types import VarChar
-
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -57,9 +57,9 @@ class MergeSCD2ForensicJob(Job):
         """
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
-        stagingDataset: Dataset = sp.computeSchema(dataset, sp.SCHEMA_TYPE_STAGING)
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
-        ddlSchema.add(DDLColumn(name=sp.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1)))
+        ddlSchema.add(DDLColumn(name=YellowSchemaConstants.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1)))
         t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
         return t
 
@@ -75,8 +75,6 @@ class MergeSCD2ForensicJob(Job):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
 
         with mergeEngine.begin() as connection:
             state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)
@@ -95,7 +93,7 @@ class MergeSCD2ForensicJob(Job):
 
                 # Count staged rows for metrics
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}")
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}")
                 )
                 total_records = count_result.fetchone()[0]
                 totalRecords += int(total_records) if total_records else 0
@@ -103,13 +101,13 @@ class MergeSCD2ForensicJob(Job):
                 # 1) Close deletions: D means key is gone -> set current live rows' batch_out to batchId - 1
                 close_deleted_sql = f"""
                 UPDATE {mergeTableName} m
-                SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
-                WHERE m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
+                SET {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                WHERE m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}
                 AND EXISTS (
                     SELECT 1 FROM {stagingTableName} s
-                    WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                    AND s.{sp.IUD_COLUMN_NAME} = 'D'
-                    AND s.{sp.KEY_HASH_COLUMN_NAME} = m.{sp.KEY_HASH_COLUMN_NAME}
+                    WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+                    AND s.{YellowSchemaConstants.IUD_COLUMN_NAME} = 'D'
+                    AND s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
                 )
                 """
                 logger.debug("Closing deleted live records", dataset_name=datasetToMergeName)
@@ -120,13 +118,13 @@ class MergeSCD2ForensicJob(Job):
                 # 2) Close changed records for 'U' when content differs
                 close_changed_sql = f"""
                 UPDATE {mergeTableName} m
-                SET {sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                SET {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
                 FROM {stagingTableName} s
-                WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                  AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
-                  AND s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                  AND s.{sp.IUD_COLUMN_NAME} = 'U'
-                  AND m.{sp.ALL_HASH_COLUMN_NAME} != s.{sp.ALL_HASH_COLUMN_NAME}
+                WHERE m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+                  AND m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}
+                  AND s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+                  AND s.{YellowSchemaConstants.IUD_COLUMN_NAME} = 'U'
+                  AND m.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME} != s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}
                 """
                 logger.debug("Closing changed live records", dataset_name=datasetToMergeName)
                 result_changed = connection.execute(text(close_changed_sql))
@@ -137,29 +135,29 @@ class MergeSCD2ForensicJob(Job):
                 insert_inserts_sql = f"""
                 INSERT INTO {mergeTableName} (
                     {', '.join(quoted_all_columns)},
-                    {sp.ALL_HASH_COLUMN_NAME},
-                    {sp.KEY_HASH_COLUMN_NAME},
-                    {sp.BATCH_IN_COLUMN_NAME},
-                    {sp.BATCH_OUT_COLUMN_NAME}
+                    {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+                    {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+                    {YellowSchemaConstants.BATCH_IN_COLUMN_NAME},
+                    {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}
                 )
                 SELECT
                     {', '.join([f's."{col}"' for col in allColumns])},
-                    s.{sp.ALL_HASH_COLUMN_NAME},
-                    s.{sp.KEY_HASH_COLUMN_NAME},
+                    s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+                    s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
                     {batchId},
-                    {sp.LIVE_RECORD_ID}
+                    {YellowSchemaConstants.LIVE_RECORD_ID}
                 FROM {stagingTableName} s
-                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                  AND s.{sp.IUD_COLUMN_NAME} IN ('I','U')
+                WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+                  AND s.{YellowSchemaConstants.IUD_COLUMN_NAME} IN ('I','U')
                   AND NOT EXISTS (
                       SELECT 1 FROM {mergeTableName} m
-                      WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                        AND m.{sp.BATCH_OUT_COLUMN_NAME} = {sp.LIVE_RECORD_ID}
+                      WHERE m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+                        AND m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}
                   )
                   AND NOT EXISTS (
                       SELECT 1 FROM {mergeTableName} m2
-                      WHERE m2.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                        AND m2.{sp.BATCH_IN_COLUMN_NAME} = {batchId}
+                      WHERE m2.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+                        AND m2.{YellowSchemaConstants.BATCH_IN_COLUMN_NAME} = {batchId}
                   )
                 """
                 logger.debug("Inserting new live records (I/U when no live exists)", dataset_name=datasetToMergeName)
@@ -170,29 +168,29 @@ class MergeSCD2ForensicJob(Job):
                 insert_updates_sql = f"""
                 INSERT INTO {mergeTableName} (
                     {', '.join(quoted_all_columns)},
-                    {sp.ALL_HASH_COLUMN_NAME},
-                    {sp.KEY_HASH_COLUMN_NAME},
-                    {sp.BATCH_IN_COLUMN_NAME},
-                    {sp.BATCH_OUT_COLUMN_NAME}
+                    {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+                    {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+                    {YellowSchemaConstants.BATCH_IN_COLUMN_NAME},
+                    {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}
                 )
                 SELECT
                     {', '.join([f's."{col}"' for col in allColumns])},
-                    s.{sp.ALL_HASH_COLUMN_NAME},
-                    s.{sp.KEY_HASH_COLUMN_NAME},
+                    s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+                    s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
                     {batchId},
-                    {sp.LIVE_RECORD_ID}
+                    {YellowSchemaConstants.LIVE_RECORD_ID}
                 FROM {stagingTableName} s
-                WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                  AND s.{sp.IUD_COLUMN_NAME} = 'U'
+                WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+                  AND s.{YellowSchemaConstants.IUD_COLUMN_NAME} = 'U'
                   AND EXISTS (
                       SELECT 1 FROM {mergeTableName} m
-                      WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                        AND m.{sp.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
+                      WHERE m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+                        AND m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {batchId - 1}
                   )
                   AND NOT EXISTS (
                       SELECT 1 FROM {mergeTableName} m2
-                      WHERE m2.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-                        AND m2.{sp.BATCH_IN_COLUMN_NAME} = {batchId}
+                      WHERE m2.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+                        AND m2.{YellowSchemaConstants.BATCH_IN_COLUMN_NAME} = {batchId}
                   )
                 """
                 logger.debug("Inserting new versions for changed records (U)", dataset_name=datasetToMergeName)

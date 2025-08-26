@@ -1,0 +1,359 @@
+"""
+// Copyright (c) William Newport
+// SPDX-License-Identifier: BUSL-1.1
+"""
+
+from typing import List, Optional, Any, Union
+import datetime
+from sqlalchemy.engine import Connection
+from sqlalchemy import text
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+
+
+class OracleDatabaseOperations(DatabaseOperations):
+    """Oracle-specific database operations implementation."""
+
+    def get_hash_expression(self, columns: List[str]) -> str:
+        if len(columns) == 1:
+            return f"LOWER(RAWTOHEX(STANDARD_HASH({columns[0]}, 'MD5')))"
+        else:
+            concat_op = self.get_string_concat_operator()
+            concatenated = f" {concat_op} ".join(columns)
+            return f"LOWER(RAWTOHEX(STANDARD_HASH({concatenated}, 'MD5')))"
+
+    def get_coalesce_expression(self, column: str, default_value: str = "''") -> str:
+        return f"COALESCE({column}, {default_value})"
+
+    def get_string_concat_operator(self) -> str:
+        return "||"
+
+    def get_current_timestamp_expression(self) -> str:
+        return "SYSTIMESTAMP"
+
+    def get_limit_offset_clause(self, limit: int, offset: int) -> str:
+        return f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+
+    def supports_merge_statement(self) -> bool:
+        return True
+
+    def get_upsert_sql(
+        self,
+        target_table: str,
+        source_table: str,
+        all_columns: List[str],
+        key_hash_column: str,
+        all_hash_column: str,
+        batch_id_column: str,
+        batch_id: int
+    ) -> str:
+        quoted_columns = self.get_quoted_columns(all_columns)
+
+        if source_table.strip().startswith('('):
+            source_clause = f"{source_table} src"
+            src_col_ref = "src"
+        else:
+            src_cols = ", ".join(self.get_quoted_columns(all_columns))
+            source_clause = (
+                f"(SELECT {src_cols}, {all_hash_column}, {key_hash_column} FROM {source_table} "
+                f"WHERE {batch_id_column} = {batch_id}) src"
+            )
+            src_col_ref = "src"
+
+        set_updates = ', '.join([f'"{col}" = {src_col_ref}."{col}"' for col in all_columns] + [
+            f'{batch_id_column} = {batch_id}',
+            f'{all_hash_column} = {src_col_ref}.{all_hash_column}'
+        ])
+
+        values_expr = ", ".join([f"{src_col_ref}.\"{col}\"" for col in all_columns])
+
+        return f"""
+        MERGE INTO {target_table} tgt
+        USING {source_clause}
+        ON (tgt.{key_hash_column} = {src_col_ref}.{key_hash_column})
+        WHEN MATCHED AND tgt.{all_hash_column} != {src_col_ref}.{all_hash_column} THEN
+            UPDATE SET {set_updates}
+        WHEN NOT MATCHED THEN
+            INSERT ({', '.join(quoted_columns)}, {batch_id_column}, {all_hash_column}, {key_hash_column})
+            VALUES ({values_expr}, {batch_id}, {src_col_ref}.{all_hash_column}, {src_col_ref}.{key_hash_column})
+        """
+
+    def get_delete_missing_records_sql(
+        self,
+        target_table: str,
+        source_table: str,
+        key_hash_column: str,
+        batch_id_column: str,
+        batch_id: int
+    ) -> str:
+        return f"""
+        DELETE FROM {target_table} m
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {source_table} s
+            WHERE s.{batch_id_column} = {batch_id}
+              AND s.{key_hash_column} = m.{key_hash_column}
+        )
+        """
+
+    def get_delete_marked_records_sql(
+        self,
+        target_table: str,
+        staging_table: str,
+        key_hash_column: str,
+        batch_id_column: str,
+        iud_column: str,
+        batch_id: int
+    ) -> str:
+        return f"""
+        DELETE FROM {target_table} m
+        WHERE EXISTS (
+            SELECT 1 FROM {staging_table} s
+            WHERE s.{batch_id_column} = {batch_id}
+              AND s.{iud_column} = 'D'
+              AND s.{key_hash_column} = m.{key_hash_column}
+        )
+        """
+
+    def get_forensic_merge_sql(
+        self,
+        target_table: str,
+        source_table: str,
+        all_columns: List[str],
+        key_hash_column: str,
+        all_hash_column: str,
+        batch_id_column: str,
+        batch_in_column: str,
+        batch_out_column: str,
+        live_record_id: int,
+        batch_id: int
+    ) -> List[str]:
+        quoted_columns = self.get_quoted_columns(all_columns)
+
+        close_changed_sql = f"""
+        UPDATE {target_table} m
+        SET {batch_out_column} = {batch_id - 1}
+        WHERE m.{batch_out_column} = {live_record_id}
+          AND EXISTS (
+              SELECT 1 FROM {source_table} s
+              WHERE s.{key_hash_column} = m.{key_hash_column}
+                AND s.{all_hash_column} != m.{all_hash_column}
+                AND s.{batch_id_column} = {batch_id}
+          )
+        """
+
+        close_deleted_sql = f"""
+        UPDATE {target_table} m
+        SET {batch_out_column} = {batch_id - 1}
+        WHERE m.{batch_out_column} = {live_record_id}
+          AND NOT EXISTS (
+              SELECT 1 FROM {source_table} s
+              WHERE s.{key_hash_column} = m.{key_hash_column}
+                AND s.{batch_id_column} = {batch_id}
+          )
+        """
+
+        insert_new_sql = f"""
+        INSERT INTO {target_table} (
+            {', '.join(quoted_columns)},
+            {all_hash_column},
+            {key_hash_column},
+            {batch_in_column},
+            {batch_out_column}
+        )
+        SELECT
+            {', '.join([f's."{col}"' for col in all_columns])},
+            s.{all_hash_column},
+            s.{key_hash_column},
+            {batch_id},
+            {live_record_id}
+        FROM {source_table} s
+        WHERE s.{batch_id_column} = {batch_id}
+          AND NOT EXISTS (
+              SELECT 1 FROM {target_table} m
+              WHERE m.{key_hash_column} = s.{key_hash_column}
+                AND m.{batch_out_column} = {live_record_id}
+          )
+        """
+
+        insert_changed_sql = f"""
+        INSERT INTO {target_table} (
+            {', '.join(quoted_columns)},
+            {all_hash_column},
+            {key_hash_column},
+            {batch_in_column},
+            {batch_out_column}
+        )
+        SELECT
+            {', '.join([f's."{col}"' for col in all_columns])},
+            s.{all_hash_column},
+            s.{key_hash_column},
+            {batch_id},
+            {live_record_id}
+        FROM {source_table} s
+        WHERE s.{batch_id_column} = {batch_id}
+          AND EXISTS (
+              SELECT 1 FROM {target_table} m
+              WHERE m.{key_hash_column} = s.{key_hash_column}
+                AND m.{batch_out_column} = {batch_id - 1}
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM {target_table} m2
+              WHERE m2.{key_hash_column} = s.{key_hash_column}
+                AND m2.{batch_in_column} = {batch_id}
+          )
+        """
+
+        return [close_changed_sql, close_deleted_sql, insert_new_sql, insert_changed_sql]
+
+    def check_constraint_exists(
+        self,
+        connection: Connection,
+        table_name: str,
+        constraint_type: str,
+        column_name: Optional[str] = None
+    ) -> bool:
+        type_map = {
+            'UNIQUE': 'U',
+            'PRIMARY KEY': 'P',
+            'FOREIGN KEY': 'R'
+        }
+        ora_type = type_map.get(constraint_type.upper(), constraint_type)
+        tbl = table_name.upper()
+        if column_name:
+            col = column_name.upper()
+            check_sql = f"""
+            SELECT COUNT(*) FROM USER_CONSTRAINTS uc
+            JOIN USER_CONS_COLUMNS ucc ON uc.CONSTRAINT_NAME = ucc.CONSTRAINT_NAME
+            WHERE uc.TABLE_NAME = '{tbl}'
+              AND uc.CONSTRAINT_TYPE = '{ora_type}'
+              AND ucc.COLUMN_NAME = '{col}'
+            """
+        else:
+            check_sql = f"""
+            SELECT COUNT(*) FROM USER_CONSTRAINTS
+            WHERE TABLE_NAME = '{tbl}' AND CONSTRAINT_TYPE = '{ora_type}'
+            """
+        result = connection.execute(text(check_sql))
+        return result.fetchone()[0] > 0
+
+    def check_index_exists(self, connection: Connection, table_name: str, index_name: str) -> bool:
+        tbl = table_name.upper()
+        idx = index_name.upper()
+        check_sql = f"""
+        SELECT COUNT(*) FROM USER_INDEXES
+        WHERE TABLE_NAME = '{tbl}' AND INDEX_NAME = '{idx}'
+        """
+        result = connection.execute(text(check_sql))
+        return result.fetchone()[0] > 0
+
+    def create_index_sql(self, index_name: str, table_name: str, columns: List[str], unique: bool = False) -> str:
+        unique_keyword = "UNIQUE " if unique else ""
+        quoted_columns = self.get_quoted_columns(columns)
+        return f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
+
+    def create_unique_constraint_sql(self, table_name: str, column_name: str, constraint_name: str) -> str:
+        return f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} UNIQUE ({column_name})"
+
+    def get_json_extract_expression(self, json_column: str, key: str) -> str:
+        return f"JSON_VALUE({json_column}, '$.{key}')"
+
+    def get_row_number_expression(self, partition_by: List[str], order_by: List[str]) -> str:
+        partition_clause = f"PARTITION BY {', '.join(partition_by)}" if partition_by else ""
+        order_clause = f"ORDER BY {', '.join(order_by)}" if order_by else ""
+        return f"ROW_NUMBER() OVER ({partition_clause} {order_clause})".strip()
+
+    def get_count_filter_expression(self, filter_condition: str) -> str:
+        return f"SUM(CASE WHEN {filter_condition} THEN 1 ELSE 0 END)"
+
+    def cast_to_text(self, column_expr: str) -> str:
+        return f"CAST({column_expr} AS VARCHAR2(4000))"
+
+    def get_datetime_type(self) -> str:
+        return "TIMESTAMP"
+
+    def get_update_from_syntax(self, target_table: str, source_table: str,
+                               target_alias: str = "m", source_alias: str = "s") -> str:
+        return f"UPDATE {target_table} {target_alias}"
+
+    def get_drop_table_sql(self, table_name: str) -> str:
+        return (
+            "BEGIN "
+            f"EXECUTE IMMEDIATE 'DROP TABLE \"{table_name}\" PURGE'; "
+            "EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;"
+        )
+
+    def format_watermark_value(self, watermark_value: Union[int, datetime.datetime, str]) -> str:
+        if isinstance(watermark_value, int):
+            return str(watermark_value)
+        elif isinstance(watermark_value, datetime.datetime):
+            ts = watermark_value.isoformat(sep=' ')
+            return f"TIMESTAMP '{ts}'"
+        elif isinstance(watermark_value, str):
+            if '-' in watermark_value and (':' in watermark_value or 'T' in watermark_value):
+                ts = watermark_value.replace('T', ' ')
+                return f"TIMESTAMP '{ts}'"
+            return watermark_value
+        else:
+            return str(watermark_value)
+
+    def get_watermark_records_lt(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_value = self.format_watermark_value(watermark_value)
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE "{watermark_column}" < {formatted_value}
+        ORDER BY "{watermark_column}"
+        """
+
+    def get_watermark_records_range(
+        self,
+        source_table: str,
+        all_columns: List[str],
+        pk_columns: List[str],
+        watermark_column: str,
+        low_watermark_value: Union[int, datetime.datetime, str],
+        high_watermark_value: Union[int, datetime.datetime, str]
+    ) -> str:
+        quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_low = self.format_watermark_value(low_watermark_value)
+        formatted_high = self.format_watermark_value(high_watermark_value)
+        all_columns_hash_expr = self.build_hash_expression_for_columns(all_columns)
+        key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
+        return f"""
+        SELECT {', '.join(quoted_columns)},
+            {all_columns_hash_expr} as {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+            {key_columns_hash_expr} as {YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+        FROM {source_table}
+        WHERE "{watermark_column}" >= {formatted_low} AND "{watermark_column}" < {formatted_high}
+        ORDER BY "{watermark_column}"
+        """
+
+    def get_max_watermark_value(self, source_table: str, watermark_column: str) -> str:
+        return f"""
+        SELECT MAX("{watermark_column}")
+        FROM {source_table}
+        """
+
+    def get_remote_forensic_update_closed_sql(self, merge_table: str, staging_table: str, sp: Any, batch_id: int) -> str:
+        return f"""
+        MERGE INTO {merge_table} m
+        USING {staging_table} s
+        ON (m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+            AND m.{YellowSchemaConstants.BATCH_IN_COLUMN_NAME} = s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}")
+        WHEN MATCHED THEN UPDATE SET m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"
+        WHERE m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}
+          AND s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}" != {YellowSchemaConstants.LIVE_RECORD_ID}
+          AND s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batch_id}
+        """

@@ -23,7 +23,7 @@ from datasurface.md.credential import CredentialStore, Credential
 from typing import cast
 from abc import ABC
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
-from datasurface.platforms.yellow.database_operations import DatabaseOperationsFactory
+from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.platforms.yellow.db_utils import createInspector
 
 

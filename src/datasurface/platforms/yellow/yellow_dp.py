@@ -35,7 +35,7 @@ from typing import List
 from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
 from sqlalchemy import text
 from datasurface.platforms.yellow.db_utils import createEngine, getDriverNameAndQueryForDataContainer, createInspector
-from datasurface.platforms.yellow.database_operations import DatabaseOperationsFactory
+from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.md.sqlalchemyutils import createOrUpdateTable, datasetToSQLAlchemyTable
 from datasurface.md import CronTrigger, ExternallyTriggered, StepTrigger, SQLMergeIngestion, CaptureMetaData
 from pydantic import BaseModel, Field
@@ -49,6 +49,7 @@ from datasurface.platforms.yellow.logging_utils import (
 )
 from datasurface.platforms.yellow.assembly import K8sResourceLimits, K8sUtils, Component, Assembly
 from datasurface.platforms.yellow.assembly import K8sAssemblyFactory
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -282,13 +283,13 @@ class YellowDatasetUtilities(JobUtilities):
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_STAGING)
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, self.schemaProjector.SCHEMA_TYPE_MERGE)
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE)
         t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
@@ -308,20 +309,19 @@ class YellowDatasetUtilities(JobUtilities):
     def createStagingTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
         """Create performance indexes for staging tables"""
         assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
 
         batchIdIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_id")
         keyHashIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_key_hash")
         batchKeyIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_key")
         indexes = [
             # Primary: batch filtering (used in every query)
-            (batchIdIndexName, [sp.BATCH_ID_COLUMN_NAME]),
+            (batchIdIndexName, [YellowSchemaConstants.BATCH_ID_COLUMN_NAME]),
 
             # Secondary: join performance
-            (keyHashIndexName, [sp.KEY_HASH_COLUMN_NAME]),
+            (keyHashIndexName, [YellowSchemaConstants.KEY_HASH_COLUMN_NAME]),
 
             # Composite: optimal for most queries that filter by batch AND join by key
-            (batchKeyIndexName, [sp.BATCH_ID_COLUMN_NAME, sp.KEY_HASH_COLUMN_NAME])
+            (batchKeyIndexName, [YellowSchemaConstants.BATCH_ID_COLUMN_NAME, YellowSchemaConstants.KEY_HASH_COLUMN_NAME])
         ]
 
         with mergeEngine.begin() as connection:
@@ -344,12 +344,11 @@ class YellowDatasetUtilities(JobUtilities):
     def createMergeTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
         """Create performance indexes for merge tables"""
         assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
 
         keyHashIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_key_hash")
         indexes = [
             # Critical: join performance (exists in all modes)
-            (keyHashIndexName, [sp.KEY_HASH_COLUMN_NAME])
+            (keyHashIndexName, [YellowSchemaConstants.KEY_HASH_COLUMN_NAME])
         ]
 
         # Add forensic-specific indexes for batch milestoned tables
@@ -360,23 +359,23 @@ class YellowDatasetUtilities(JobUtilities):
             batchRangeIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_batch_range")
             indexes.extend([
                 # Critical: live record filtering (batch_out = 2147483647)
-                (batchOutIndexName, [sp.BATCH_OUT_COLUMN_NAME]),
+                (batchOutIndexName, [YellowSchemaConstants.BATCH_OUT_COLUMN_NAME]),
 
                 # Composite: optimal for live record joins (most common pattern)
-                (liveRecordsIndexName, [sp.KEY_HASH_COLUMN_NAME, sp.BATCH_OUT_COLUMN_NAME]),
+                (liveRecordsIndexName, [YellowSchemaConstants.KEY_HASH_COLUMN_NAME, YellowSchemaConstants.BATCH_OUT_COLUMN_NAME]),
 
                 # For forensic queries: finding recently closed records
-                (batchInIndexName, [sp.BATCH_IN_COLUMN_NAME]),
+                (batchInIndexName, [YellowSchemaConstants.BATCH_IN_COLUMN_NAME]),
 
                 # For forensic history queries
-                (batchRangeIndexName, [sp.BATCH_IN_COLUMN_NAME, sp.BATCH_OUT_COLUMN_NAME])
+                (batchRangeIndexName, [YellowSchemaConstants.BATCH_IN_COLUMN_NAME, YellowSchemaConstants.BATCH_OUT_COLUMN_NAME])
             ])
         else:
             # For live-only mode, we can create an index on ds_surf_all_hash for change detection
             allHashIndexName: str = self.dp.psp.namingMapper.mapNoun(f"idx_{tableName}_all_hash")
             indexes.extend([
                 # For live-only mode: change detection performance
-                (allHashIndexName, [sp.ALL_HASH_COLUMN_NAME])
+                (allHashIndexName, [YellowSchemaConstants.ALL_HASH_COLUMN_NAME])
             ])
 
         with mergeEngine.begin() as connection:
@@ -2364,10 +2363,6 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         user, password = self.psp.credStore.getAsUserPassword(self.psp.mergeRW_Credential)
         engine = createEngine(self.psp.mergeStore, user, password)
 
-        # Create schema projector to access column name constants
-        schema_projector_base = self.createSchemaProjector(eco)
-        schema_projector = cast(YellowSchemaProjector, schema_projector_base)
-
         # Validate datastore exists before proceeding
         datastore_ce: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(storeName)
         if datastore_ce is None:
@@ -2500,7 +2495,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                                     # Delete staging records for this batch using the correct column name
                                     result = connection.execute(text(f'''
                                         DELETE FROM {staging_table_name}
-                                        WHERE {schema_projector.BATCH_ID_COLUMN_NAME} = :batch_id
+                                        WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = :batch_id
                                     '''), {"batch_id": current_batch_id})
 
                                     records_deleted = result.rowcount
@@ -2540,56 +2535,42 @@ class IUDValues(Enum):
 class YellowSchemaProjector(SchemaProjector):
     """This is a schema projector for the YellowDataPlatform. It projects the dataset schema to the original schema of the dataset."""
 
-    BATCH_ID_COLUMN_NAME: str = "ds_surf_batch_id"
-    ALL_HASH_COLUMN_NAME: str = "ds_surf_all_hash"
-    KEY_HASH_COLUMN_NAME: str = "ds_surf_key_hash"
-
-    BATCH_IN_COLUMN_NAME: str = "ds_surf_batch_in"
-    BATCH_OUT_COLUMN_NAME: str = "ds_surf_batch_out"
-    IUD_COLUMN_NAME: str = "ds_surf_iud"
-
-    # The batch out value for a live record
-    LIVE_RECORD_ID: int = 0x7FFFFFFF  # MaxInt32
-
-    SCHEMA_TYPE_MERGE: str = "MERGE"
-    SCHEMA_TYPE_STAGING: str = "STAGING"
-
     def __init__(self, eco: Ecosystem, dp: 'YellowDataPlatform'):
         super().__init__(eco, dp)
 
     def getSchemaTypes(self) -> set[str]:
-        return {self.SCHEMA_TYPE_MERGE, self.SCHEMA_TYPE_STAGING}
+        return {YellowSchemaConstants.SCHEMA_TYPE_MERGE, YellowSchemaConstants.SCHEMA_TYPE_STAGING}
 
     def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
         """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform."""
         assert isinstance(self.dp, YellowDataPlatform)
-        if schemaType == self.SCHEMA_TYPE_MERGE:
+        if schemaType == YellowSchemaConstants.SCHEMA_TYPE_MERGE:
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
             # Only add ds_surf_batch_id for live-only mode, not for forensic mode
             if self.dp.milestoneStrategy != YellowMilestoneStrategy.SCD2:
-                ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
-            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
-            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer()))
+            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-                ddlSchema.add(DDLColumn(name=self.BATCH_IN_COLUMN_NAME, data_type=Integer()))
-                ddlSchema.add(DDLColumn(name=self.BATCH_OUT_COLUMN_NAME, data_type=Integer()))
+                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_IN_COLUMN_NAME, data_type=Integer()))
+                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_OUT_COLUMN_NAME, data_type=Integer()))
                 # For forensic mode, modify the primary key to include batch_in
                 if ddlSchema.primaryKeyColumns:
                     # Create new primary key with original columns plus batch_in
-                    new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [self.BATCH_IN_COLUMN_NAME]
+                    new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [YellowSchemaConstants.BATCH_IN_COLUMN_NAME]
                     ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
             return pds
-        elif schemaType == self.SCHEMA_TYPE_STAGING:
+        elif schemaType == YellowSchemaConstants.SCHEMA_TYPE_STAGING:
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
-            ddlSchema.add(DDLColumn(name=self.BATCH_ID_COLUMN_NAME, data_type=Integer()))
-            ddlSchema.add(DDLColumn(name=self.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
-            ddlSchema.add(DDLColumn(name=self.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer()))
+            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
             # For staging tables, modify the primary key to include batch_id to allow same business keys across batches
             if ddlSchema.primaryKeyColumns:
                 # Create new primary key with original columns plus batch_id
-                new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [self.BATCH_ID_COLUMN_NAME]
+                new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [YellowSchemaConstants.BATCH_ID_COLUMN_NAME]
                 ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
             return pds
         else:

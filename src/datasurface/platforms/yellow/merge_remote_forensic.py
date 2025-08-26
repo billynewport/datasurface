@@ -26,6 +26,7 @@ from datasurface.platforms.yellow.jobs import Job
 from datasurface.platforms.yellow.merge_remote_live import (
     IS_SEED_BATCH_KEY, REMOTE_BATCH_ID_KEY
 )
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -60,18 +61,18 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
         # This already includes the batch_id, all_hash, and key_hash columns
-        stagingDataset: Dataset = sp.computeSchema(dataset, sp.SCHEMA_TYPE_STAGING)
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
 
         # Add remote batch columns to preserve original milestoning
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
-        ddlSchema.add(DDLColumn(name=f"remote_{sp.BATCH_IN_COLUMN_NAME}", data_type=Integer()))
-        ddlSchema.add(DDLColumn(name=f"remote_{sp.BATCH_OUT_COLUMN_NAME}", data_type=Integer()))
+        ddlSchema.add(DDLColumn(name=f"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}", data_type=Integer()))
+        ddlSchema.add(DDLColumn(name=f"remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}", data_type=Integer()))
 
         # For forensic staging tables, modify the primary key to include remote_batch_in
         # This allows multiple versions of the same record to exist in staging
         if ddlSchema.primaryKeyColumns:
             # Create new primary key with original columns plus remote_batch_in
-            new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [f"remote_{sp.BATCH_IN_COLUMN_NAME}"]
+            new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [f"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"]
             ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
 
         t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
@@ -303,12 +304,12 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         quoted_columns = job.merge_db_ops.get_quoted_columns(allColumns)
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
-            {sp.ALL_HASH_COLUMN_NAME},
-            {sp.KEY_HASH_COLUMN_NAME},
-            {sp.BATCH_IN_COLUMN_NAME} as remote_batch_in,
-            {sp.BATCH_OUT_COLUMN_NAME} as remote_batch_out
+            {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+            {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+            {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} as remote_batch_in,
+            {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} as remote_batch_out
         FROM {sourceTableName}
-        WHERE {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId}
+        WHERE {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId}
         """
 
         logger.debug("Executing mirror seed batch query", query=selectSql)
@@ -355,15 +356,15 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
-            {sp.ALL_HASH_COLUMN_NAME},
-            {sp.KEY_HASH_COLUMN_NAME},
-            {sp.BATCH_IN_COLUMN_NAME} as remote_batch_in,
-            {sp.BATCH_OUT_COLUMN_NAME} as remote_batch_out
+            {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+            {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+            {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} as remote_batch_in,
+            {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} as remote_batch_out
         FROM {sourceTableName}
-        WHERE ({sp.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
-               AND {sp.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
-           OR ({sp.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
-               AND {sp.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
+        WHERE ({YellowSchemaConstants.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
+               AND {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
+           OR ({YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
+               AND {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
         """
 
         logger.debug("Executing mirror incremental batch query", query=selectSql)
@@ -394,11 +395,11 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Build insert statement - includes remote batch_in/batch_out columns
         quoted_columns = job.merge_db_ops.get_quoted_columns(allColumns) + [
-            f'"{sp.BATCH_ID_COLUMN_NAME}"',
-            f'"{sp.ALL_HASH_COLUMN_NAME}"',
-            f'"{sp.KEY_HASH_COLUMN_NAME}"',
-            f'"remote_{sp.BATCH_IN_COLUMN_NAME}"',
-            f'"remote_{sp.BATCH_OUT_COLUMN_NAME}"'
+            f'"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}"',
+            f'"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"',
+            f'"remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"'
         ]
         placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
@@ -420,17 +421,17 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                         dataValues.append(row[column_map[col]])
 
                     # Extract calculated values using column names
-                    if sp.ALL_HASH_COLUMN_NAME not in column_map:
-                        raise ValueError(f"Expected hash column '{sp.ALL_HASH_COLUMN_NAME}' not found in query result")
-                    if sp.KEY_HASH_COLUMN_NAME not in column_map:
-                        raise ValueError(f"Expected key hash column '{sp.KEY_HASH_COLUMN_NAME}' not found in query result")
+                    if YellowSchemaConstants.ALL_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected hash column '{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}' not found in query result")
+                    if YellowSchemaConstants.KEY_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected key hash column '{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}' not found in query result")
                     if 'remote_batch_in' not in column_map:
                         raise ValueError("Expected 'remote_batch_in' column not found in query result")
                     if 'remote_batch_out' not in column_map:
                         raise ValueError("Expected 'remote_batch_out' column not found in query result")
 
-                    allHash = row[column_map[sp.ALL_HASH_COLUMN_NAME]]
-                    keyHash = row[column_map[sp.KEY_HASH_COLUMN_NAME]]
+                    allHash = row[column_map[YellowSchemaConstants.ALL_HASH_COLUMN_NAME]]
+                    keyHash = row[column_map[YellowSchemaConstants.KEY_HASH_COLUMN_NAME]]
                     remoteBatchIn = row[column_map['remote_batch_in']]
                     remoteBatchOut = row[column_map['remote_batch_out']]
                     # Add batch metadata
@@ -485,7 +486,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
                 # Get total count for processing
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {localBatchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {localBatchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
@@ -559,7 +560,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Get total count for batch processing
         count_result = connection.execute(text(f"""
         SELECT COUNT(*) FROM {stagingTableName}
-        WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
+        WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
         """))
         total_records = count_result.fetchone()[0]
 
@@ -569,22 +570,23 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             batch_insert_sql = f"""
             INSERT INTO {mergeTableName} (
                 {', '.join(quoted_all_columns)},
-                {sp.ALL_HASH_COLUMN_NAME},
-                {sp.KEY_HASH_COLUMN_NAME},
-                {sp.BATCH_IN_COLUMN_NAME},
-                {sp.BATCH_OUT_COLUMN_NAME}
+                {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+                {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+                {YellowSchemaConstants.BATCH_IN_COLUMN_NAME},
+                {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}
             )
             SELECT {', '.join([f's."{col}"' for col in allColumns])},
-                s.{sp.ALL_HASH_COLUMN_NAME},
-                s.{sp.KEY_HASH_COLUMN_NAME},
-                s."remote_{sp.BATCH_IN_COLUMN_NAME}",
+                s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+                s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+                s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}",
                 CASE
-                    WHEN s."remote_{sp.BATCH_OUT_COLUMN_NAME}" = {sp.LIVE_RECORD_ID} THEN {sp.LIVE_RECORD_ID}
-                    ELSE s."remote_{sp.BATCH_OUT_COLUMN_NAME}"
+                    WHEN s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}" = {YellowSchemaConstants.LIVE_RECORD_ID}
+                    THEN {YellowSchemaConstants.LIVE_RECORD_ID}
+                    ELSE s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"
                 END
             FROM {stagingTableName} s
-            WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-            ORDER BY s.{sp.KEY_HASH_COLUMN_NAME}
+            WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+            ORDER BY s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
             {job.merge_db_ops.get_limit_offset_clause(chunkSize, offset)}
             """
 
@@ -624,25 +626,26 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         insert_new_sql = f"""
         INSERT INTO {mergeTableName} (
             {', '.join(quoted_all_columns)},
-            {sp.ALL_HASH_COLUMN_NAME},
-            {sp.KEY_HASH_COLUMN_NAME},
-            {sp.BATCH_IN_COLUMN_NAME},
-            {sp.BATCH_OUT_COLUMN_NAME}
+            {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+            {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+            {YellowSchemaConstants.BATCH_IN_COLUMN_NAME},
+            {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}
         )
         SELECT {', '.join([f's."{col}"' for col in allColumns])},
-            s.{sp.ALL_HASH_COLUMN_NAME},
-            s.{sp.KEY_HASH_COLUMN_NAME},
-            s."remote_{sp.BATCH_IN_COLUMN_NAME}",
+            s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+            s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
+            s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}",
             CASE
-                WHEN s."remote_{sp.BATCH_OUT_COLUMN_NAME}" = {sp.LIVE_RECORD_ID} THEN {sp.LIVE_RECORD_ID}
-                ELSE s."remote_{sp.BATCH_OUT_COLUMN_NAME}"
+                WHEN s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}" = {YellowSchemaConstants.LIVE_RECORD_ID}
+                THEN {YellowSchemaConstants.LIVE_RECORD_ID}
+                ELSE s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"
             END
         FROM {stagingTableName} s
-        WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
+        WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
         AND NOT EXISTS (
             SELECT 1 FROM {mergeTableName} m
-            WHERE m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-            AND m.{sp.BATCH_IN_COLUMN_NAME} = s."remote_{sp.BATCH_IN_COLUMN_NAME}"
+            WHERE m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+            AND m.{YellowSchemaConstants.BATCH_IN_COLUMN_NAME} = s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"
         )
         """
 

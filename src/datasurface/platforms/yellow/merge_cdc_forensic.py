@@ -18,7 +18,7 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
 from datasurface.platforms.yellow.merge_scd2_forensic import MergeSCD2ForensicJob
-
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -165,9 +165,9 @@ class SnapshotMergeJobCDCForensic(MergeSCD2ForensicJob):
                         pkColumns,
                         tx_col,
                         iud_col,
-                        sp.ALL_HASH_COLUMN_NAME,
-                        sp.KEY_HASH_COLUMN_NAME,
-                        sp.BATCH_ID_COLUMN_NAME,
+                        YellowSchemaConstants.ALL_HASH_COLUMN_NAME,
+                        YellowSchemaConstants.KEY_HASH_COLUMN_NAME,
+                        YellowSchemaConstants.BATCH_ID_COLUMN_NAME,
                         batchId,
                         last_tx,
                         high_tx_global,

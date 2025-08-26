@@ -23,6 +23,8 @@ from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md import SQLMergeIngestion
 from datasurface.platforms.yellow.merge import NoopJobException
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -98,10 +100,10 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Add standard staging columns
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
-        stagingDataset: Dataset = sp.computeSchema(dataset, sp.SCHEMA_TYPE_STAGING)
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
         # Add IUD column for remote merge operations
-        ddlSchema.add(DDLColumn(name=sp.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1)))
+        ddlSchema.add(DDLColumn(name=YellowSchemaConstants.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1)))
 
         t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
         return t
@@ -219,11 +221,11 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         selectSql = self.merge_db_ops.get_remote_seed_batch_sql(
             sourceTableName,
             allColumns,
-            sp.ALL_HASH_COLUMN_NAME,
-            sp.KEY_HASH_COLUMN_NAME,
-            sp.BATCH_IN_COLUMN_NAME,
-            sp.BATCH_OUT_COLUMN_NAME,
-            sp.IUD_COLUMN_NAME,
+            YellowSchemaConstants.ALL_HASH_COLUMN_NAME,
+            YellowSchemaConstants.KEY_HASH_COLUMN_NAME,
+            YellowSchemaConstants.BATCH_IN_COLUMN_NAME,
+            YellowSchemaConstants.BATCH_OUT_COLUMN_NAME,
+            YellowSchemaConstants.IUD_COLUMN_NAME,
             currentRemoteBatchId
         )
 
@@ -266,11 +268,11 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         selectSql = self.merge_db_ops.get_remote_incremental_batch_sql(
             sourceTableName,
             allColumns,
-            sp.ALL_HASH_COLUMN_NAME,
-            sp.KEY_HASH_COLUMN_NAME,
-            sp.BATCH_IN_COLUMN_NAME,
-            sp.BATCH_OUT_COLUMN_NAME,
-            sp.IUD_COLUMN_NAME,
+            YellowSchemaConstants.ALL_HASH_COLUMN_NAME,
+            YellowSchemaConstants.KEY_HASH_COLUMN_NAME,
+            YellowSchemaConstants.BATCH_IN_COLUMN_NAME,
+            YellowSchemaConstants.BATCH_OUT_COLUMN_NAME,
+            YellowSchemaConstants.IUD_COLUMN_NAME,
             lastRemoteBatchId,
             currentRemoteBatchId
         )
@@ -301,10 +303,10 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
         # Build insert statement using database operations
         quoted_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
-            f'"{sp.BATCH_ID_COLUMN_NAME}"',
-            f'"{sp.ALL_HASH_COLUMN_NAME}"',
-            f'"{sp.KEY_HASH_COLUMN_NAME}"',
-            f'"{sp.IUD_COLUMN_NAME}"'
+            f'"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}"',
+            f'"{YellowSchemaConstants.IUD_COLUMN_NAME}"'
         ]
         placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
@@ -326,16 +328,16 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                         dataValues.append(row[column_map[col]])
 
                     # Extract calculated values using column names
-                    if sp.ALL_HASH_COLUMN_NAME not in column_map:
-                        raise ValueError(f"Expected hash column '{sp.ALL_HASH_COLUMN_NAME}' not found in query result")
-                    if sp.KEY_HASH_COLUMN_NAME not in column_map:
-                        raise ValueError(f"Expected key hash column '{sp.KEY_HASH_COLUMN_NAME}' not found in query result")
-                    if sp.IUD_COLUMN_NAME not in column_map:
-                        raise ValueError(f"Expected IUD column '{sp.IUD_COLUMN_NAME}' not found in query result")
+                    if YellowSchemaConstants.ALL_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected hash column '{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}' not found in query result")
+                    if YellowSchemaConstants.KEY_HASH_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected key hash column '{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}' not found in query result")
+                    if YellowSchemaConstants.IUD_COLUMN_NAME not in column_map:
+                        raise ValueError(f"Expected IUD column '{YellowSchemaConstants.IUD_COLUMN_NAME}' not found in query result")
 
-                    allHash = row[column_map[sp.ALL_HASH_COLUMN_NAME]]
-                    keyHash = row[column_map[sp.KEY_HASH_COLUMN_NAME]]
-                    iudValue = row[column_map[sp.IUD_COLUMN_NAME]]
+                    allHash = row[column_map[YellowSchemaConstants.ALL_HASH_COLUMN_NAME]]
+                    keyHash = row[column_map[YellowSchemaConstants.KEY_HASH_COLUMN_NAME]]
+                    iudValue = row[column_map[YellowSchemaConstants.IUD_COLUMN_NAME]]
                     # Add batch metadata
                     insertValues = dataValues + [batchId, allHash, keyHash, iudValue]
                     batchValues.append(insertValues)
@@ -378,7 +380,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
                 # Get total count for processing
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
@@ -446,7 +448,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Get total count for batch processing
         count_result = connection.execute(text(f"""
         SELECT COUNT(*) FROM {stagingTableName}
-        WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
+        WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
         """))
         total_records = count_result.fetchone()[0]
 
@@ -456,11 +458,13 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             quoted_all_columns = self.merge_db_ops.get_quoted_columns(allColumns)
             limit_clause = self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
             batch_insert_sql = f"""
-            INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {sp.BATCH_ID_COLUMN_NAME}, {sp.ALL_HASH_COLUMN_NAME}, {sp.KEY_HASH_COLUMN_NAME})
-            SELECT {', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{sp.ALL_HASH_COLUMN_NAME}, s.{sp.KEY_HASH_COLUMN_NAME}
+            INSERT INTO {mergeTableName} ({', '.join(quoted_all_columns)}, {YellowSchemaConstants.BATCH_ID_COLUMN_NAME},
+                                           {YellowSchemaConstants.ALL_HASH_COLUMN_NAME}, {YellowSchemaConstants.KEY_HASH_COLUMN_NAME})
+            SELECT {', '.join([f's."{col}"' for col in allColumns])}, {batchId}, s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
+               s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
             FROM {stagingTableName} s
-            WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId}
-            ORDER BY s.{sp.KEY_HASH_COLUMN_NAME}
+            WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+            ORDER BY s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
             {limit_clause}
             """
 
@@ -497,7 +501,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         """Process delete operations from staging table."""
         delete_sql = self.merge_db_ops.get_delete_marked_records_sql(
             mergeTableName, stagingTableName,
-            sp.KEY_HASH_COLUMN_NAME, sp.BATCH_ID_COLUMN_NAME, sp.IUD_COLUMN_NAME,
+            YellowSchemaConstants.KEY_HASH_COLUMN_NAME, YellowSchemaConstants.BATCH_ID_COLUMN_NAME, YellowSchemaConstants.IUD_COLUMN_NAME,
             batchId
         )
 
@@ -518,8 +522,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Get total count of I/U operations for processing
         count_result = connection.execute(text(f"""
         SELECT COUNT(*) FROM {stagingTableName}
-        WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
-        AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
+        WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+        AND {YellowSchemaConstants.IUD_COLUMN_NAME} IN ('I', 'U')
         """))
         total_operations = count_result.fetchone()[0]
 
@@ -529,9 +533,9 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             limit_clause = self.merge_db_ops.get_limit_offset_clause(chunkSize, offset)
             batch_source = f"""(
                 SELECT * FROM {stagingTableName}
-                WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId}
-                AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
-                ORDER BY {sp.KEY_HASH_COLUMN_NAME}
+                WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+                AND {YellowSchemaConstants.IUD_COLUMN_NAME} IN ('I', 'U')
+                ORDER BY {YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
                 {limit_clause}
             )"""
 
@@ -539,9 +543,9 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                 mergeTableName,
                 batch_source,
                 allColumns,
-                sp.KEY_HASH_COLUMN_NAME,
-                sp.ALL_HASH_COLUMN_NAME,
-                sp.BATCH_ID_COLUMN_NAME,
+                YellowSchemaConstants.KEY_HASH_COLUMN_NAME,
+                YellowSchemaConstants.ALL_HASH_COLUMN_NAME,
+                YellowSchemaConstants.BATCH_ID_COLUMN_NAME,
                 batchId
             )
 
@@ -554,28 +558,28 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
             # SQL Server - use JOINs to avoid subqueries in aggregates
             metrics_sql = f"""
             SELECT
-                SUM(CASE WHEN m.{sp.BATCH_ID_COLUMN_NAME} = {batchId} THEN 1 ELSE 0 END) as current_batch_count,
-                SUM(CASE WHEN m.{sp.BATCH_ID_COLUMN_NAME} != {batchId} THEN 1 ELSE 0 END) as updated_count
+                SUM(CASE WHEN m.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId} THEN 1 ELSE 0 END) as current_batch_count,
+                SUM(CASE WHEN m.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} != {batchId} THEN 1 ELSE 0 END) as updated_count
             FROM {mergeTableName} m
-            INNER JOIN {stagingTableName} s ON m.{sp.KEY_HASH_COLUMN_NAME} = s.{sp.KEY_HASH_COLUMN_NAME}
-            WHERE s.{sp.BATCH_ID_COLUMN_NAME} = {batchId} AND s.{sp.IUD_COLUMN_NAME} IN ('I', 'U')
+            INNER JOIN {stagingTableName} s ON m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+            WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId} AND s.{YellowSchemaConstants.IUD_COLUMN_NAME} IN ('I', 'U')
             """
         else:
             # PostgreSQL - can use FILTER clause with subqueries
-            current_batch_filter = f"{sp.BATCH_ID_COLUMN_NAME} = {batchId}"
+            current_batch_filter = f"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}"
             updated_filter = (
-                f"{sp.BATCH_ID_COLUMN_NAME} != {batchId} AND {sp.KEY_HASH_COLUMN_NAME} IN "
-                f"(SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} "
-                f"WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId} AND {sp.IUD_COLUMN_NAME} IN ('I', 'U'))"
+                f"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} != {batchId} AND {YellowSchemaConstants.KEY_HASH_COLUMN_NAME} IN "
+                f"(SELECT {YellowSchemaConstants.KEY_HASH_COLUMN_NAME} FROM {stagingTableName} "
+                f"WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId} AND {YellowSchemaConstants.IUD_COLUMN_NAME} IN ('I', 'U'))"
             )
             metrics_sql = f"""
             SELECT
                 {self.merge_db_ops.get_count_filter_expression(current_batch_filter)} as current_batch_count,
                 {self.merge_db_ops.get_count_filter_expression(updated_filter)} as updated_count
             FROM {mergeTableName}
-            WHERE {sp.KEY_HASH_COLUMN_NAME} IN (
-                SELECT {sp.KEY_HASH_COLUMN_NAME} FROM {stagingTableName}
-                WHERE {sp.BATCH_ID_COLUMN_NAME} = {batchId} AND {sp.IUD_COLUMN_NAME} IN ('I', 'U')
+            WHERE {YellowSchemaConstants.KEY_HASH_COLUMN_NAME} IN (
+                SELECT {YellowSchemaConstants.KEY_HASH_COLUMN_NAME} FROM {stagingTableName}
+                WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId} AND {YellowSchemaConstants.IUD_COLUMN_NAME} IN ('I', 'U')
             )
             """
 
