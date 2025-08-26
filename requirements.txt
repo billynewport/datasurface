@@ -26,3 +26,6 @@ pyodbc>=4.0.34
 
 # Spatial database support
 geoalchemy2==0.18.0
+
+# Snowflake
+snowflake-sqlalchemy==1.7.6

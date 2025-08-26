@@ -798,6 +798,61 @@ class HostPortSQLDatabase(SQLDatabase):
         self.hostPortPair.lint(tree.addSubTree(self.hostPortPair))
 
 
+class SnowFlakeDatabase(SQLDatabase):
+    """This is a Snowflake database
+
+    Connection model:
+    - Snowflake resolves endpoints from an account identifier (optionally region) over HTTPS (443), not host:port.
+    - Credentials are supplied separately via the platform `CredentialStore`.
+
+    Stored attributes:
+    - account: Snowflake account identifier (e.g., "xy12345" or "xy12345.us-east-1").
+    - region: Optional region component if you prefer to store separately (e.g., "us-east-1").
+    - warehouse: Optional default warehouse to use.
+    - role: Optional default role to use.
+    """
+    def __init__(
+            self,
+            name: str,
+            locations: set['LocationKey'],
+            databaseName: str,
+            account: str = "",
+            region: Optional[str] = None,
+            warehouse: Optional[str] = None,
+            role: Optional[str] = None) -> None:
+        super().__init__(name, locations, databaseName, identifierLengthLimit=128)
+        self.account: str = account
+        self.region: Optional[str] = region
+        self.warehouse: Optional[str] = warehouse
+        self.role: Optional[str] = role
+
+    def to_json(self) -> dict[str, Any]:
+        rc: dict[str, Any] = super().to_json()
+        rc.update({
+            "_type": self.__class__.__name__,
+            "account": self.account,
+            "region": self.region,
+            "warehouse": self.warehouse,
+            "role": self.role
+        })
+        return rc
+
+    def __eq__(self, other: object) -> bool:
+        if (isinstance(other, SnowFlakeDatabase)):
+            return super().__eq__(other) and \
+                self.account == other.account and \
+                self.region == other.region and \
+                self.warehouse == other.warehouse and \
+                self.role == other.role
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit)
+
+
 class PostgresDatabase(HostPortSQLDatabase):
     """This is a Postgres database"""
     def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:

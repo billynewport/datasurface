@@ -78,7 +78,16 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None)
         t = SQLInterval()
     elif isinstance(dataType.type, Variant):
         var: Variant = dataType.type
-        t = LargeBinary(var.maxSize)
+        # Use Snowflake VARIANT when targeting Snowflake
+        if engine is not None and hasattr(engine, 'dialect') and 'snowflake' in str(engine.dialect.name).lower():
+            try:
+                from snowflake.sqlalchemy import VARIANT as SF_VARIANT  # type: ignore
+                t = SF_VARIANT()
+            except Exception:
+                # Fallback if snowflake.sqlalchemy is not installed
+                t = LargeBinary(var.maxSize)
+        else:
+            t = LargeBinary(var.maxSize)
     elif isinstance(dataType.type, Char):
         ch: Char = dataType.type
         t = CHAR(ch.maxSize, ch.collationString)
@@ -93,9 +102,17 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None)
         t = VARCHAR(nvc.maxSize, nvc.collationString)
     elif isinstance(dataType.type, Geography):
         geo: Geography = dataType.type
-        # Use GeoAlchemy2 for spatial support (always available in DataSurface)
-        geometry_type = geo.geometryType.value if geo.geometryType else 'GEOMETRY'
-        t = GA2Geography(geometry_type=geometry_type, srid=geo.srs.srid)
+        # Prefer native spatial types on Snowflake, otherwise use GeoAlchemy2 Geography
+        if engine is not None and hasattr(engine, 'dialect') and 'snowflake' in str(engine.dialect.name).lower():
+            try:
+                from snowflake.sqlalchemy import GEOGRAPHY as SF_GEOGRAPHY  # type: ignore
+                t = SF_GEOGRAPHY()
+            except Exception:
+                # Fallback to generic VARCHAR if native type not available
+                t = VARCHAR(None)
+        else:
+            geometry_type = geo.geometryType.value if geo.geometryType else 'GEOMETRY'
+            t = GA2Geography(geometry_type=geometry_type, srid=geo.srs.srid)
     else:
         raise Exception(f"Unknown data type {dataType.name}: {type(dataType.type)}")
 
