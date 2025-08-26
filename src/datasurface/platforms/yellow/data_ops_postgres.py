@@ -9,10 +9,14 @@ from sqlalchemy.engine import Connection
 from sqlalchemy import text
 from datasurface.platforms.yellow.database_operations import DatabaseOperations
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.md import SchemaProjector, DataContainer
 
 
 class PostgresDatabaseOperations(DatabaseOperations):
     """PostgreSQL-specific database operations implementation."""
+
+    def __init__(self, schema_projector: SchemaProjector, data_container: DataContainer) -> None:
+        super().__init__(schema_projector, data_container)
 
     def get_hash_expression(self, columns: List[str]) -> str:
         if len(columns) == 1:
@@ -291,8 +295,8 @@ class PostgresDatabaseOperations(DatabaseOperations):
         key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
         return f"""
         SELECT {', '.join(quoted_columns)},
-            {all_columns_hash_expr} as {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-            {key_columns_hash_expr} as {YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+            {all_columns_hash_expr} as {self.nm.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+            {key_columns_hash_expr} as {self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
         FROM {source_table}
         WHERE "{watermark_column}" < {formatted_value}
         ORDER BY "{watermark_column}"
@@ -314,8 +318,8 @@ class PostgresDatabaseOperations(DatabaseOperations):
         key_columns_hash_expr = self.build_hash_expression_for_columns(pk_columns)
         return f"""
         SELECT {', '.join(quoted_columns)},
-            {all_columns_hash_expr} as {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-            {key_columns_hash_expr} as {YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+            {all_columns_hash_expr} as {self.nm.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+            {key_columns_hash_expr} as {self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
         FROM {source_table}
         WHERE "{watermark_column}" >= {formatted_low} AND "{watermark_column}" < {formatted_high}
         ORDER BY "{watermark_column}"
@@ -328,13 +332,15 @@ class PostgresDatabaseOperations(DatabaseOperations):
         """
 
     def get_remote_forensic_update_closed_sql(self, merge_table: str, staging_table: str, sp: Any, batch_id: int) -> str:
+        remote_batch_out_column = self.nm.fmtCol("remote_" + YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)
+        remote_batch_in_column = self.nm.fmtCol("remote_" + YellowSchemaConstants.BATCH_IN_COLUMN_NAME)
         return f"""
         UPDATE {merge_table} m
-        SET {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"
+        SET {self.nm.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} = s.{remote_batch_out_column}
         FROM {staging_table} s
-        WHERE m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
-            AND m.{YellowSchemaConstants.BATCH_IN_COLUMN_NAME} = s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"
-            AND m.{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}
-            AND s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}" != {YellowSchemaConstants.LIVE_RECORD_ID}
-            AND s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batch_id}
+        WHERE m.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)} = s.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
+            AND m.{self.nm.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} = s.{remote_batch_in_column}
+            AND m.{self.nm.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} = {YellowSchemaConstants.LIVE_RECORD_ID}
+            AND s.{remote_batch_out_column} != {YellowSchemaConstants.LIVE_RECORD_ID}
+            AND s.{self.nm.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batch_id}
         """

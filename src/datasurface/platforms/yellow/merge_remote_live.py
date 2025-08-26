@@ -59,10 +59,14 @@ class MergeRemoteJob(Job):
 
         with sourceEngine.connect() as sourceConn:
             # Get the highest committed batch ID
+            nm = self.remoteYDU.dp.psp.namingMapper
+            key_col = nm.fmtCol("key")
+            batch_id_col = nm.fmtCol("batch_id")
+            batch_status_col = nm.fmtCol("batch_status")
             result = sourceConn.execute(text(f"""
-                SELECT MAX(batch_id)
+                SELECT MAX({batch_id_col})
                 FROM {remoteMetricsTableName}
-                WHERE "key" = :key AND batch_status = '{BatchStatus.COMMITTED.value}'
+                WHERE {key_col} = :key AND {batch_status_col} = '{BatchStatus.COMMITTED.value}'
             """), {"key": key})
 
             row = result.fetchone()

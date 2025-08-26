@@ -131,9 +131,9 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             # Query batch metrics table for the highest completed batch
             try:
                 result = connection.execute(text(f"""
-                    SELECT MAX("batch_id")
+                    SELECT MAX({self.mrgNM.fmtCol("batch_id")})
                     FROM {self.getPhysBatchMetricsTableName()}
-                    WHERE "key" = :key AND batch_status = :batch_status
+                    WHERE {self.mrgNM.fmtCol("key")} = :key AND {self.mrgNM.fmtCol("batch_status")} = :batch_status
                 """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
                 lastCompletedBatch = result.fetchone()
                 lastCompletedBatch = lastCompletedBatch[0] if lastCompletedBatch and lastCompletedBatch[0] else None
@@ -242,8 +242,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Check if this batch already exists
         # Fetch batch state and batch status
         result = connection.execute(text(f"""
-            SELECT "batch_status", "state" FROM {job.getPhysBatchMetricsTableName()}
-            WHERE "key" = :key AND "batch_id" = :batch_id
+            SELECT {job.mrgNM.fmtCol("batch_status")}, {job.mrgNM.fmtCol("state")} FROM {job.getPhysBatchMetricsTableName()}
+            WHERE {job.mrgNM.fmtCol("key")} = :key AND {job.mrgNM.fmtCol("batch_id")} = :batch_id
         """), {"key": key, "batch_id": remoteBatchId})
         existing_batch = result.fetchone()
 
@@ -269,7 +269,9 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             # Insert a new batch record with the remote batch ID
             connection.execute(text(f"""
                 INSERT INTO {job.getPhysBatchMetricsTableName()}
-                ("key", "batch_id", "batch_start_time", "batch_status", "state")
+                (
+                    {job.mrgNM.fmtCol("key")}, {job.mrgNM.fmtCol("batch_id")}, {job.mrgNM.fmtCol("batch_start_time")},
+                    {job.mrgNM.fmtCol("batch_status")}, {job.mrgNM.fmtCol("state")})
                 VALUES (:key, :batch_id, {job.merge_db_ops.get_current_timestamp_expression()}, :batch_status, :state)
             """), {
                 "key": key,
@@ -301,15 +303,15 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Query for ALL records that existed as of the current remote batch ID
         # This includes both live and historical records to create a complete mirror
         # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = job.merge_db_ops.get_quoted_columns(allColumns)
+        quoted_columns = job.source_db_ops.get_quoted_columns(allColumns)
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
-            {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-            {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
-            {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} as remote_batch_in,
-            {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} as remote_batch_out
+            {job.srcNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+            {job.srcNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)},
+            {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} as remote_batch_in,
+            {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} as remote_batch_out
         FROM {sourceTableName}
-        WHERE {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId}
+        WHERE {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} <= {currentRemoteBatchId}
         """
 
         logger.debug("Executing mirror seed batch query", query=selectSql)
@@ -352,19 +354,19 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Get ALL new records since last batch - both new records and record closures
         # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = job.merge_db_ops.get_quoted_columns(allColumns)
+        quoted_columns = job.source_db_ops.get_quoted_columns(allColumns)
 
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
-            {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-            {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
-            {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} as remote_batch_in,
-            {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} as remote_batch_out
+            {job.srcNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+            {job.srcNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)},
+            {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} as remote_batch_in,
+            {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} as remote_batch_out
         FROM {sourceTableName}
-        WHERE ({YellowSchemaConstants.BATCH_IN_COLUMN_NAME} > {lastRemoteBatchId}
-               AND {YellowSchemaConstants.BATCH_IN_COLUMN_NAME} <= {currentRemoteBatchId})
-           OR ({YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} >= {lastRemoteBatchId}
-               AND {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} <= {currentRemoteBatchId})
+        WHERE ({job.srcNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} > {lastRemoteBatchId}
+               AND {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} <= {currentRemoteBatchId})
+           OR ({job.srcNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} >= {lastRemoteBatchId}
+               AND {job.srcNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} <= {currentRemoteBatchId})
         """
 
         logger.debug("Executing mirror incremental batch query", query=selectSql)
@@ -395,11 +397,11 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Build insert statement - includes remote batch_in/batch_out columns
         quoted_columns = job.merge_db_ops.get_quoted_columns(allColumns) + [
-            f'"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME}"',
-            f'"{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}"',
-            f'"{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}"',
-            f'"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"',
-            f'"remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"'
+            job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME),
+            job.mrgNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME),
+            job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME),
+            job.mrgNM.fmtCol(f'remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}'),
+            job.mrgNM.fmtCol(f'remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}')
         ]
         placeholders = ", ".join([f":{i}" for i in range(len(quoted_columns))])
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
@@ -486,7 +488,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
                 # Get total count for processing
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {localBatchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {localBatchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 
@@ -560,33 +562,35 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Get total count for batch processing
         count_result = connection.execute(text(f"""
         SELECT COUNT(*) FROM {stagingTableName}
-        WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+        WHERE {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batchId}
         """))
         total_records = count_result.fetchone()[0]
 
         inserted_count = 0
         # Process in batches for better memory usage
+        remote_batch_in_column_name = f'"remote_{job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)}"'
+        remote_batch_out_column_name = f'"remote_{job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)}"'
         for offset in range(0, total_records, chunkSize):
             batch_insert_sql = f"""
             INSERT INTO {mergeTableName} (
                 {', '.join(quoted_all_columns)},
-                {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-                {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
-                {YellowSchemaConstants.BATCH_IN_COLUMN_NAME},
-                {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}
+                {job.mrgNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+                {job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)},
+                {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)},
+                {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)}
             )
             SELECT {', '.join([f's."{col}"' for col in allColumns])},
                 s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
                 s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
-                s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}",
+                s.{remote_batch_in_column_name},
                 CASE
-                    WHEN s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}" = {YellowSchemaConstants.LIVE_RECORD_ID}
+                    WHEN s.{remote_batch_out_column_name} = {YellowSchemaConstants.LIVE_RECORD_ID}
                     THEN {YellowSchemaConstants.LIVE_RECORD_ID}
-                    ELSE s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"
+                    ELSE s.{remote_batch_out_column_name}
                 END
             FROM {stagingTableName} s
-            WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
-            ORDER BY s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
+            WHERE s.{job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batchId}
+            ORDER BY s.{job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
             {job.merge_db_ops.get_limit_offset_clause(chunkSize, offset)}
             """
 
@@ -623,29 +627,31 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
         # Step 2: Insert new records preserving remote milestoning
         logger.debug("Inserting new records preserving remote milestoning")
+        remote_batch_in_column_name = job.mrgNM.fmtCol(f'remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}')
+        remote_batch_out_column_name = job.mrgNM.fmtCol(f'remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}')
         insert_new_sql = f"""
         INSERT INTO {mergeTableName} (
             {', '.join(quoted_all_columns)},
-            {YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-            {YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
-            {YellowSchemaConstants.BATCH_IN_COLUMN_NAME},
-            {YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}
+            {job.mrgNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+            {job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)},
+            {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)},
+            {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)}
         )
         SELECT {', '.join([f's."{col}"' for col in allColumns])},
-            s.{YellowSchemaConstants.ALL_HASH_COLUMN_NAME},
-            s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME},
-            s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}",
+            s.{job.mrgNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
+            s.{job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)},
+            s.{remote_batch_in_column_name},
             CASE
-                WHEN s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}" = {YellowSchemaConstants.LIVE_RECORD_ID}
+                WHEN s.{remote_batch_out_column_name} = {YellowSchemaConstants.LIVE_RECORD_ID}
                 THEN {YellowSchemaConstants.LIVE_RECORD_ID}
-                ELSE s."remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}"
+                ELSE s.{remote_batch_out_column_name}
             END
         FROM {stagingTableName} s
-        WHERE s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}
+        WHERE s.{job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batchId}
         AND NOT EXISTS (
             SELECT 1 FROM {mergeTableName} m
-            WHERE m.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME} = s.{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}
-            AND m.{YellowSchemaConstants.BATCH_IN_COLUMN_NAME} = s."remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"
+            WHERE m.{job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)} = s.{job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
+            AND m.{job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} = s.{remote_batch_in_column_name}
         )
         """
 
@@ -671,8 +677,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         """
         # First check if a counter record exists
         result = connection.execute(text(f"""
-            SELECT "currentBatch" FROM {job.getPhysBatchCounterTableName()}
-            WHERE "key" = :key
+            SELECT {job.mrgNM.fmtCol("currentBatch")} FROM {job.getPhysBatchCounterTableName()}
+            WHERE {job.mrgNM.fmtCol("key")} = :key
         """), {"key": key})
         existing_row = result.fetchone()
 
@@ -680,14 +686,14 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             # Update existing counter to the remote batch ID
             connection.execute(text(f"""
                 UPDATE {job.getPhysBatchCounterTableName()}
-                SET "currentBatch" = :batch_id
-                WHERE "key" = :key
+                SET {job.mrgNM.fmtCol("currentBatch")} = :batch_id
+                WHERE {job.mrgNM.fmtCol("key")} = :key
             """), {"key": key, "batch_id": batchId})
             logger.debug("Updated batch counter", key=key, batch_id=batchId)
         else:
             # Insert new counter record with remote batch ID
             connection.execute(text(f"""
-                INSERT INTO {job.getPhysBatchCounterTableName()} ("key", "currentBatch")
+                INSERT INTO {job.getPhysBatchCounterTableName()} ({job.mrgNM.fmtCol("key")}, {job.mrgNM.fmtCol("currentBatch")})
                 VALUES (:key, :batch_id)
             """), {"key": key, "batch_id": batchId})
             logger.debug("Inserted new batch counter", key=key, batch_id=batchId)

@@ -8,11 +8,12 @@ from typing import List, Optional, Any, Union
 import datetime
 from sqlalchemy.engine import Connection
 from sqlalchemy import text
-from datasurface.md.governance import SchemaProjector
+from datasurface.md import SchemaProjector, DataContainerNamingMapper
 from datasurface.platforms.yellow.logging_utils import get_contextual_logger
 
 # Forward declaration to avoid circular imports
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.md import DataContainer
 
 logger = get_contextual_logger(__name__)
 
@@ -25,8 +26,10 @@ class DatabaseOperations(ABC):
     SQL Server, etc.) can provide their own implementations of these operations.
     """
 
-    def __init__(self, schema_projector: SchemaProjector) -> None:
+    def __init__(self, schema_projector: SchemaProjector, data_container: DataContainer) -> None:
         self.schema_projector: SchemaProjector = schema_projector
+        self.data_container: DataContainer = data_container
+        self.nm: DataContainerNamingMapper = data_container.getNamingAdapter()
 
     # Hash and String Functions
     @abstractmethod

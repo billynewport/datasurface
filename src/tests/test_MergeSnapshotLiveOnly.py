@@ -247,7 +247,8 @@ class BaseMergeJobTest(ABC):
     def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
         """Check the batch status for a given key"""
         with self.merge_engine.begin() as conn:
-            result = conn.execute(text(f'SELECT "currentBatch" FROM "{self.ydu.getPhysBatchCounterTableName()}" WHERE "key" = \'' + key + '\''))
+            nm = self.ydu.dp.psp.namingMapper
+            result = conn.execute(text(f'SELECT {nm.fmtCol("currentBatch")} FROM {self.ydu.getPhysBatchCounterTableName()} WHERE {nm.fmtCol("key")} = \'' + key + '\''))
             row = result.fetchone()
             current_batch = row[0] if row else 0
             tc.assertEqual(current_batch, expected_batch)
@@ -256,8 +257,13 @@ class BaseMergeJobTest(ABC):
         """Check the batch status for a given batch id"""
         with self.merge_engine.begin() as conn:
             # Get batch status
+            nm = self.ydu.dp.psp.namingMapper
+            batch_status_col = nm.fmtCol("batch_status")
+            table_name = self.ydu.getPhysBatchMetricsTableName()
+            key_col = nm.fmtCol("key")
+            batch_id_col = nm.fmtCol("batch_id")
             result = conn.execute(
-                text(f'SELECT "batch_status" FROM "{self.ydu.getPhysBatchMetricsTableName()}" WHERE "key" = \'' + key + '\' AND "batch_id" = ' + str(batch_id)))
+                text(f'SELECT {batch_status_col} FROM {table_name} WHERE {key_col} = \'{key}\' AND {batch_id_col} = {batch_id}'))
             row = result.fetchone()
             batch_status = row[0] if row else "None"
             tc.assertEqual(batch_status, expected_status.value)
@@ -431,18 +437,27 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
             # Check if this is a forensic platform (has batch milestoning)
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic table - no ds_surf_batch_id column
+                nm = self.ydu.dp.psp.namingMapper
+                all_hash_col = nm.fmtCol("ds_surf_all_hash")
+                key_hash_col = nm.fmtCol("ds_surf_key_hash")
+                batch_in_col = nm.fmtCol("ds_surf_batch_in")
+                batch_out_col = nm.fmtCol("ds_surf_batch_out")
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_all_hash, ds_surf_key_hash,
-                           ds_surf_batch_in, ds_surf_batch_out
+                           {all_hash_col}, {key_hash_col},
+                           {batch_in_col}, {batch_out_col}
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id", ds_surf_batch_in
+                    ORDER BY "id", {batch_in_col}
                 """))
             elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only table - has ds_surf_batch_id column
+                nm = self.ydu.dp.psp.namingMapper
+                batch_id_col = nm.fmtCol("ds_surf_batch_id")
+                all_hash_col = nm.fmtCol("ds_surf_all_hash")
+                key_hash_col = nm.fmtCol("ds_surf_key_hash")
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                           {batch_id_col}, {all_hash_col}, {key_hash_col}
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
@@ -456,22 +471,31 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         with self.merge_engine.begin() as conn:
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only schema: no batch_in/batch_out columns
+                nm = self.ydu.dp.psp.namingMapper
+                batch_id_col = nm.fmtCol("ds_surf_batch_id")
+                all_hash_col = nm.fmtCol("ds_surf_all_hash")
+                key_hash_col = nm.fmtCol("ds_surf_key_hash")
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
+                           {batch_id_col}, {all_hash_col}, {key_hash_col}
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
                     ORDER BY "id"
                 """))
             elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic schema: has batch_in/batch_out columns, filter for live records
                 # Note: ds_surf_batch_id is not included in forensic tables
+                nm = self.ydu.dp.psp.namingMapper
+                all_hash_col = nm.fmtCol("ds_surf_all_hash")
+                key_hash_col = nm.fmtCol("ds_surf_key_hash")
+                batch_in_col = nm.fmtCol("ds_surf_batch_in")
+                batch_out_col = nm.fmtCol("ds_surf_batch_out")
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
-                           ds_surf_all_hash, ds_surf_key_hash,
-                           ds_surf_batch_in, ds_surf_batch_out
+                           {all_hash_col}, {key_hash_col},
+                           {batch_in_col}, {batch_out_col}
                     FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    WHERE ds_surf_batch_out = 2147483647
-                    ORDER BY "id"
+                    WHERE {batch_out_col} = 2147483647
+                    ORDER BY "id", {batch_in_col}
                 """))
             else:
                 raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")

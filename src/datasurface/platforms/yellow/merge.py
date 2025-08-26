@@ -6,12 +6,10 @@
 from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint, HostPortSQLDatabase
 )
-from sqlalchemy import Table, MetaData, text
+from sqlalchemy import Table, text
 import sqlalchemy
 from sqlalchemy.engine import Engine, Connection
-from sqlalchemy.schema import Column
 from datasurface.md.schema import DDLTable
-from sqlalchemy.types import Integer, String
 from sqlalchemy.engine.row import Row
 from typing import cast, List, Any, Optional, Callable
 from datasurface.md.governance import DataContainerNamingMapper, SQLIngestion, DataTransformerOutput
@@ -20,7 +18,7 @@ from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, BatchStatus, BatchState
 )
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
-from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, JobStatus, STREAM_KEY_MAX_LENGTH
+from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, JobStatus
 from abc import abstractmethod
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger,
@@ -81,7 +79,6 @@ class Job(YellowDatasetUtilities):
         self.merge_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
             dp.psp.mergeStore, self.schemaProjector
         )
-        self.namingMapper: DataContainerNamingMapper = dp.psp.mergeStore.getNamingAdapter()
         assert self.store.cmd is not None
 
         # For DataTransformerOutput, data is already in merge database, no external source needed
@@ -96,30 +93,8 @@ class Job(YellowDatasetUtilities):
             )
         self.numReconcileDDLs: int = 0
 
-    def getBatchCounterTable(self) -> Table:
-        """This constructs the sqlalchemy table for the batch counter table"""
-        t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
-                         Column("key", String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
-                         Column("currentBatch", Integer()))
-        return t
-
-    def getBatchMetricsTable(self, engine: Optional[Engine] = None) -> Table:
-        """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
-        data store name and the dataset name."""
-        # Use database-specific datetime type from database operations
-        datetime_type = self.merge_db_ops.get_datetime_sqlalchemy_type()
-        t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
-                         Column("key", String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
-                         Column("batch_id", Integer(), primary_key=True),
-                         Column("batch_start_time", datetime_type),
-                         Column("batch_end_time", datetime_type, nullable=True),
-                         Column("batch_status", String(length=32)),
-                         Column("records_inserted", Integer(), nullable=True),
-                         Column("records_updated", Integer(), nullable=True),
-                         Column("records_deleted", Integer(), nullable=True),
-                         Column("total_records", Integer(), nullable=True),
-                         Column("state", String(length=2048), nullable=True))  # This needs to be large enough to hold a BatchState in JSON format.
-        return t
+        self.srcNM: DataContainerNamingMapper = self.store.cmd.dataContainer.getNamingAdapter()
+        self.mrgNM: DataContainerNamingMapper = self.dp.psp.mergeStore.getNamingAdapter()
 
     def createBatchCounterTable(self, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the batch counter table"""
@@ -243,12 +218,12 @@ class Job(YellowDatasetUtilities):
                 # Delete all records for batch id in staging
                 # Use BATCH_ID_COLUMN_NAME from the schema projector
                 mergeConnection.execute(
-                    text(f"DELETE FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = :batch_id"), {"batch_id": batchId})
+                    text(f"DELETE FROM {stagingTableName} WHERE {self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = :batch_id"), {"batch_id": batchId})
             else:
                 minBatchToKeep: int = batchId - batchesToKeep
                 mergeConnection.execute(
                     text(f"DELETE FROM {stagingTableName} "
-                         f"  WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} < :min_batch_to_keep"), {"min_batch_to_keep": minBatchToKeep})
+                         f"  WHERE {self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} < :min_batch_to_keep"), {"min_batch_to_keep": minBatchToKeep})
 
     def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""
@@ -312,48 +287,56 @@ class Job(YellowDatasetUtilities):
             recordsDeleted: Optional[int] = None, totalRecords: Optional[int] = None,
             state: Optional[BatchState] = None) -> None:
         """Update the batch status and metrics in a transaction"""
+        nm: DataContainerNamingMapper = self.mrgNM
         with mergeEngine.begin() as connection:
-            update_parts = ["batch_status = :batch_status"]
+            update_parts = [f"{nm.fmtCol('batch_status')} = :batch_status"]
             update_params = {"batch_status": status.value, "key": key, "batch_id": batchId}
 
             if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
-                update_parts.append(f"batch_end_time = {self.merge_db_ops.get_current_timestamp_expression()}")
+                update_parts.append(f"{nm.fmtCol('batch_end_time')} = {self.merge_db_ops.get_current_timestamp_expression()}")
             if recordsInserted is not None:
-                update_parts.append("records_inserted = :records_inserted")
+                update_parts.append(f"{nm.fmtCol('records_inserted')} = :records_inserted")
                 update_params["records_inserted"] = recordsInserted
             if recordsUpdated is not None:
-                update_parts.append("records_updated = :records_updated")
+                update_parts.append(f"{nm.fmtCol('records_updated')} = :records_updated")
                 update_params["records_updated"] = recordsUpdated
             if recordsDeleted is not None:
-                update_parts.append("records_deleted = :records_deleted")
+                update_parts.append(f"{nm.fmtCol('records_deleted')} = :records_deleted")
                 update_params["records_deleted"] = recordsDeleted
             if totalRecords is not None:
-                update_parts.append("total_records = :total_records")
+                update_parts.append(f"{nm.fmtCol('total_records')} = :total_records")
                 update_params["total_records"] = totalRecords
             if state is not None:
-                update_parts.append("state = :state")
+                update_parts.append(f"{nm.fmtCol('state')} = :state")
                 update_params["state"] = state.model_dump_json()
 
-            update_sql = f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE "key" = :key AND "batch_id" = :batch_id'
+            update_sql = (
+                f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} '
+                f'WHERE {nm.fmtCol("key")} = :key AND {nm.fmtCol("batch_id")} = :batch_id'
+            )
             connection.execute(text(update_sql), update_params)
 
     def markBatchMerged(self, connection: Connection, key: str, batchId: int, status: BatchStatus,
                         recordsInserted: Optional[int] = None, recordsUpdated: Optional[int] = None,
                         recordsDeleted: Optional[int] = None, totalRecords: Optional[int] = None) -> None:
         """Mark the batch as merged"""
-        update_parts = [f"batch_status = '{status.value}'"]
+        nm: DataContainerNamingMapper = self.mrgNM
+        update_parts = [f"{nm.fmtCol('batch_status')} = '{status.value}'"]
         if status in [BatchStatus.COMMITTED, BatchStatus.FAILED]:
-            update_parts.append(f"batch_end_time = {self.merge_db_ops.get_current_timestamp_expression()}")
+            update_parts.append(f"{nm.fmtCol('batch_end_time')} = {self.merge_db_ops.get_current_timestamp_expression()}")
         if recordsInserted is not None:
-            update_parts.append(f"records_inserted = {recordsInserted}")
+            update_parts.append(f"{nm.fmtCol('records_inserted')} = {recordsInserted}")
         if recordsUpdated is not None:
-            update_parts.append(f"records_updated = {recordsUpdated}")
+            update_parts.append(f"{nm.fmtCol('records_updated')} = {recordsUpdated}")
         if recordsDeleted is not None:
-            update_parts.append(f"records_deleted = {recordsDeleted}")
+            update_parts.append(f"{nm.fmtCol('records_deleted')} = {recordsDeleted}")
         if totalRecords is not None:
-            update_parts.append(f"total_records = {totalRecords}")
+            update_parts.append(f"{nm.fmtCol('total_records')} = {totalRecords}")
 
-        update_sql = f'UPDATE {self.getPhysBatchMetricsTableName()} SET {", ".join(update_parts)} WHERE {self.namingMapper.formatIdentifier("key")} = \'{key}\' AND {self.namingMapper.formatIdentifier("batch_id")} = {batchId}'
+        update_sql = (
+            f'UPDATE {self.getPhysBatchMetricsTableName()} SET '
+            f'{", ".join(update_parts)} WHERE {nm.fmtCol("key")} = \'{key}\' AND {nm.fmtCol("batch_id")} = {batchId}'
+        )
         connection.execute(text(update_sql))
 
     @abstractmethod
@@ -373,9 +356,9 @@ class Job(YellowDatasetUtilities):
     def getMaxCommittedBatchId(self, connection: Connection, key: str) -> Optional[int]:
         """Get the max committed batch id for a given key"""
         result = connection.execute(text(f"""
-            SELECT MAX({self.namingMapper.formatIdentifier("batch_id")})
+            SELECT MAX({self.mrgNM.fmtCol("batch_id")})
             FROM {self.getPhysBatchMetricsTableName()}
-            WHERE {self.namingMapper.formatIdentifier("key")} = :key AND {self.namingMapper.formatIdentifier("batch_status")} = :batch_status
+            WHERE {self.mrgNM.fmtCol("key")} = :key AND {self.mrgNM.fmtCol("batch_status")} = :batch_status
         """), {"key": key, "batch_status": BatchStatus.COMMITTED.value})
         row = result.fetchone()
         return row[0] if row else None
@@ -546,9 +529,9 @@ class Job(YellowDatasetUtilities):
 
         # Build insert statement with SQLAlchemy named parameters
         quoted_insert_columns = self.merge_db_ops.get_quoted_columns(allColumns) + [
-            f'"{YellowSchemaConstants.BATCH_ID_COLUMN_NAME}"',
-            f'"{YellowSchemaConstants.ALL_HASH_COLUMN_NAME}"',
-            f'"{YellowSchemaConstants.KEY_HASH_COLUMN_NAME}"'
+            self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME),
+            self.mrgNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME),
+            self.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)
         ]
         placeholders = ", ".join([f":{i}" for i in range(len(quoted_insert_columns))])
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_insert_columns)}) VALUES ({placeholders})"

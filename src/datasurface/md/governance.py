@@ -236,14 +236,15 @@ class DataContainerNamingMapper:
         self.columnQuoteStyle: Optional[tuple[str, str]] = columnQuoteStyle
         self.tableViewIndexQuoteStyle: Optional[tuple[str, str]] = tableViewIndexQuoteStyle
 
-    def formatIdentifier(self, s: str) -> str:
+    def fmtCol(self, s: str) -> str:
+        """This generates names for columns. This is the only method that should be used to generate column names."""
         if self.caseSensitive == CaseSensitiveEnum.CASE_INSENSITIVE:
             s = s.upper()
         if self.columnQuoteStyle is not None:
             s = f'{self.columnQuoteStyle[0]}{s}{self.columnQuoteStyle[1]}'
         return s
 
-    def formatTableViewIndexName(self, s: str) -> str:
+    def fmtTVI(self, s: str) -> str:
         """This generates names for tables, views, indexes. Not Column names."""
         rc = self.truncateIdentifier(s, self.maxLen)
         if self.tableViewIndexQuoteStyle is not None:
@@ -268,18 +269,18 @@ class DataContainerNamingMapper:
         """This maps the data set name to a physical table which may be then shared by views for each Workspace using
         that dataset for a data platform. This name should not be exposed for use by consumers. They should use the view
         instead."""
-        return self.formatIdentifier(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
+        return self.fmtCol(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
 
     @abstractmethod
     def mapRawDatasetView(self, dp: 'DataPlatform', w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This names the workspace view name for a dataset used in a DSG. This is the actual name used by
         consumers, the view, not the underlying table holding the data"""
-        return self.formatIdentifier(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
+        return self.fmtCol(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
 
     @abstractmethod
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
         """This maps the model attribute name in a schema to the physical attribute/column name allowed by a data container"""
-        return self.formatIdentifier(attributeName)
+        return self.fmtCol(attributeName)
 
 
 class DefaultDataContainerNamingMapper(DataContainerNamingMapper):
@@ -882,7 +883,7 @@ class PostgresDatabase(HostPortSQLDatabase):
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         # Should be using quotes but not right now as many templlates
         # and code are using quotes.
-        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes=("", ""))
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes=("\"", "\""))
 
 
 class MySQLDatabase(HostPortSQLDatabase):

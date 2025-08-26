@@ -101,13 +101,13 @@ class DatabaseOperationsFactory:
 
         # Create the appropriate database operations instance
         if isinstance(data_container, PostgresDatabase):
-            operations = PostgresDatabaseOperations(schema_projector)
+            operations = PostgresDatabaseOperations(schema_projector, data_container)
             prefix = "PG_"
         elif isinstance(data_container, SQLServerDatabase):
-            operations = SQLServerDatabaseOperations(schema_projector)
+            operations = SQLServerDatabaseOperations(schema_projector, data_container)
             prefix = "MSSQL_"
         elif isinstance(data_container, OracleDatabase):
-            operations = OracleDatabaseOperations(schema_projector)
+            operations = OracleDatabaseOperations(schema_projector, data_container)
             prefix = "ORA_"
         else:
             raise ValueError(f"Unsupported database type: {type(data_container)}. "

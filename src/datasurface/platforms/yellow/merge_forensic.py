@@ -103,11 +103,11 @@ class SnapshotMergeJobForensic(Job):
                     mergeTableName,
                     stagingTableName,
                     allColumns,
-                    YellowSchemaConstants.KEY_HASH_COLUMN_NAME,
-                    YellowSchemaConstants.ALL_HASH_COLUMN_NAME,
-                    YellowSchemaConstants.BATCH_ID_COLUMN_NAME,
-                    YellowSchemaConstants.BATCH_IN_COLUMN_NAME,
-                    YellowSchemaConstants.BATCH_OUT_COLUMN_NAME,
+                    job.mrgNM.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME),
+                    job.mrgNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME),
+                    job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME),
+                    job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME),
+                    job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME),
                     YellowSchemaConstants.LIVE_RECORD_ID,
                     batchId
                 )
@@ -145,7 +145,7 @@ class SnapshotMergeJobForensic(Job):
 
                 # Count total records processed from staging for this dataset
                 count_result = connection.execute(
-                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batchId}"))
+                    text(f"SELECT COUNT(*) FROM {stagingTableName} WHERE {job.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batchId}"))
                 total_records = count_result.fetchone()[0]
                 totalRecords += total_records
 

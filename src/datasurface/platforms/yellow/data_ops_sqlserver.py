@@ -9,10 +9,14 @@ from sqlalchemy.engine import Connection
 from sqlalchemy import text
 from datasurface.platforms.yellow.database_operations import DatabaseOperations
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.md import SchemaProjector, DataContainer
 
 
 class SQLServerDatabaseOperations(DatabaseOperations):
     """SQL Server-specific database operations implementation."""
+
+    def __init__(self, schema_projector: SchemaProjector, data_container: DataContainer) -> None:
+        super().__init__(schema_projector, data_container)
 
     def get_hash_expression(self, columns: List[str]) -> str:
         if len(columns) == 1:

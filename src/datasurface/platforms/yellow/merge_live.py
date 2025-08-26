@@ -266,7 +266,7 @@ class SnapshotMergeJobLiveOnly(Job):
                     """
 
                 # Create temporary staging table with operation column
-                temp_staging_table = nm.formatTableViewIndexName(f"temp_staging_{batchId}_{datasetToMergeName.replace('-', '_')}")
+                temp_staging_table = nm.fmtTVI(f"temp_staging_{batchId}_{datasetToMergeName.replace('-', '_')}")
                 create_temp_sql = f"""
                 CREATE TEMP TABLE {temp_staging_table} AS {staging_with_deletes_sql}
                 """

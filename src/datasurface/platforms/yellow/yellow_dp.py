@@ -110,22 +110,24 @@ class JobUtilities(ABC):
 
     def getPhysBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        return self.dp.psp.namingMapper.formatTableViewIndexName(self.dp.getTableForPlatform("batch_counter"))
+        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_counter"))
 
     def getPhysBatchMetricsTableName(self) -> str:
         """This returns the name of the batch metrics table"""
-        return self.dp.psp.namingMapper.formatTableViewIndexName(self.dp.getTableForPlatform("batch_metrics"))
+        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_metrics"))
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
+        from sqlalchemy.sql import quoted_name
         t: Table = Table(self.getPhysBatchCounterTableName(), MetaData(),
-                         Column("key", sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
-                         Column("currentBatch", sqlalchemy.Integer()))
+                         Column(quoted_name("key", quote=True), sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
+                         Column(quoted_name("currentBatch", quote=True), sqlalchemy.Integer()))
         return t
 
     def getBatchMetricsTable(self, engine: Optional[Engine] = None) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
+        from sqlalchemy.sql import quoted_name
         # Use database-specific datetime type - default to TIMESTAMP for compatibility
         if engine is not None and hasattr(engine, 'dialect') and 'mssql' in str(engine.dialect.name):
             from sqlalchemy.types import DATETIME
@@ -133,16 +135,16 @@ class JobUtilities(ABC):
         else:
             datetime_type = sqlalchemy.TIMESTAMP()
         t: Table = Table(self.getPhysBatchMetricsTableName(), MetaData(),
-                         Column("key", sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
-                         Column("batch_id", sqlalchemy.Integer(), primary_key=True),
-                         Column("batch_start_time", datetime_type),
-                         Column("batch_end_time", datetime_type, nullable=True),
-                         Column("batch_status", sqlalchemy.String(length=32)),
-                         Column("records_inserted", sqlalchemy.Integer(), nullable=True),
-                         Column("records_updated", sqlalchemy.Integer(), nullable=True),
-                         Column("records_deleted", sqlalchemy.Integer(), nullable=True),
-                         Column("total_records", sqlalchemy.Integer(), nullable=True),
-                         Column("state", sqlalchemy.String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
+                         Column(quoted_name("key", quote=True), sqlalchemy.String(length=STREAM_KEY_MAX_LENGTH), primary_key=True),
+                         Column(quoted_name("batch_id", quote=True), sqlalchemy.Integer(), primary_key=True),
+                         Column(quoted_name("batch_start_time", quote=True), datetime_type),
+                         Column(quoted_name("batch_end_time", quote=True), datetime_type, nullable=True),
+                         Column(quoted_name("batch_status", quote=True), sqlalchemy.String(length=32)),
+                         Column(quoted_name("records_inserted", quote=True), sqlalchemy.Integer(), nullable=True),
+                         Column(quoted_name("records_updated", quote=True), sqlalchemy.Integer(), nullable=True),
+                         Column(quoted_name("records_deleted", quote=True), sqlalchemy.Integer(), nullable=True),
+                         Column(quoted_name("total_records", quote=True), sqlalchemy.Integer(), nullable=True),
+                         Column(quoted_name("state", quote=True), sqlalchemy.String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
         return t
 
     def getSchemaHash(self, dataset: Dataset) -> str:
@@ -186,7 +188,7 @@ class JobUtilities(ABC):
         normal merge table notation. The dt prefix is ONLY used for the output tables for a DataTransformer when doing the ingestion
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
-        return self.dp.psp.namingMapper.formatTableViewIndexName(self.dp.getTableForPlatform(f"dt_{tableName}"))
+        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform(f"dt_{tableName}"))
 
 
 class K8sDataTransformerHint(PlatformDataTransformerHint):
@@ -300,19 +302,19 @@ class YellowDatasetUtilities(JobUtilities):
     def getPhysStagingTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the staging table name for a dataset"""
         tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.dp.psp.namingMapper.formatTableViewIndexName(self.dp.getTableForPlatform(tableName + "_staging"))
+        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform(tableName + "_staging"))
 
     def getPhysMergeTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
-        return self.dp.psp.namingMapper.formatTableViewIndexName(self.getRawMergeTableNameForDataset(self.store, dataset))
+        return self.dp.psp.namingMapper.fmtTVI(self.getRawMergeTableNameForDataset(self.store, dataset))
 
     def createStagingTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
         """Create performance indexes for staging tables"""
         assert self.schemaProjector is not None
 
-        batchIdIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_batch_id")
-        keyHashIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_key_hash")
-        batchKeyIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_batch_key")
+        batchIdIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_id")
+        keyHashIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
+        batchKeyIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_key")
         indexes = [
             # Primary: batch filtering (used in every query)
             (batchIdIndexName, [YellowSchemaConstants.BATCH_ID_COLUMN_NAME]),
@@ -345,7 +347,7 @@ class YellowDatasetUtilities(JobUtilities):
         """Create performance indexes for merge tables"""
         assert self.schemaProjector is not None
 
-        keyHashIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_key_hash")
+        keyHashIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
         indexes = [
             # Critical: join performance (exists in all modes)
             (keyHashIndexName, [YellowSchemaConstants.KEY_HASH_COLUMN_NAME])
@@ -353,10 +355,10 @@ class YellowDatasetUtilities(JobUtilities):
 
         # Add forensic-specific indexes for batch milestoned tables
         if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-            batchOutIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_batch_out")
-            liveRecordsIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_live_records")
-            batchInIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_batch_in")
-            batchRangeIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_batch_range")
+            batchOutIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_out")
+            liveRecordsIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_live_records")
+            batchInIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_in")
+            batchRangeIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_range")
             indexes.extend([
                 # Critical: live record filtering (batch_out = 2147483647)
                 (batchOutIndexName, [YellowSchemaConstants.BATCH_OUT_COLUMN_NAME]),
@@ -372,7 +374,7 @@ class YellowDatasetUtilities(JobUtilities):
             ])
         else:
             # For live-only mode, we can create an index on ds_surf_all_hash for change detection
-            allHashIndexName: str = self.dp.psp.namingMapper.formatTableViewIndexName(f"idx_{tableName}_all_hash")
+            allHashIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_all_hash")
             indexes.extend([
                 # For live-only mode: change detection performance
                 (allHashIndexName, [YellowSchemaConstants.ALL_HASH_COLUMN_NAME])
@@ -525,7 +527,7 @@ class YellowDatasetUtilities(JobUtilities):
         store_name = self._normalizeNameComponent(self.store.name)
         dataset_name = self._normalizeNameComponent(self.dataset.name)
 
-        return self.dp.psp.namingMapper.formatTableViewIndexName(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view")
+        return self.dp.psp.namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view")
 
     def getPhysWorkspaceFullViewName(self, workspace_name: str, dsg_name: str) -> str:
         """Generate a full workspace view name with _full suffix for forensic platforms"""
@@ -535,7 +537,7 @@ class YellowDatasetUtilities(JobUtilities):
         store_name = self._normalizeNameComponent(self.store.name)
         dataset_name = self._normalizeNameComponent(self.dataset.name)
 
-        return self.dp.psp.namingMapper.formatTableViewIndexName(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full")
+        return self.dp.psp.namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full")
 
     def getPhysWorkspaceLiveViewName(self, workspace_name: str, dsg_name: str) -> str:
         """Generate a live workspace view name with _live suffix for both platform types"""
@@ -545,7 +547,7 @@ class YellowDatasetUtilities(JobUtilities):
         store_name = self._normalizeNameComponent(self.store.name)
         dataset_name = self._normalizeNameComponent(self.dataset.name)
 
-        return self.dp.psp.namingMapper.formatTableViewIndexName(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live")
+        return self.dp.psp.namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live")
 
 
 class BatchStatus(Enum):
@@ -2049,7 +2051,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
     def getPhysFactoryDAGTableName(self) -> str:
         """This returns the name of the Factory DAG table"""
-        return self.namingMapper.formatTableViewIndexName(self.getTableForPSP("factory_dags"))
+        return self.namingMapper.fmtTVI(self.getTableForPSP("factory_dags"))
 
     def getFactoryDAGTable(self, engine: Optional[Engine] = None) -> Table:
         """This constructs the sqlalchemy table for Factory DAG configurations."""
@@ -2296,11 +2298,11 @@ class YellowDataPlatform(YellowGenericDataPlatform):
 
     def getPhysDAGTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        return self.psp.namingMapper.formatTableViewIndexName(self.getTableForPlatform("airflow_dsg"))
+        return self.psp.namingMapper.fmtTVI(self.getTableForPlatform("airflow_dsg"))
 
     def getPhysDataTransformerTableName(self) -> str:
         """This returns the name of the DataTransformer DAG table"""
-        return self.psp.namingMapper.formatTableViewIndexName(self.getTableForPlatform("airflow_datatransformer"))
+        return self.psp.namingMapper.fmtTVI(self.getTableForPlatform("airflow_datatransformer"))
 
     def getAirflowDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the

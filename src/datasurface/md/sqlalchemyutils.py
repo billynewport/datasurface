@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Sequence, TypeVar, Dict
 from datasurface.md.types import Boolean, SmallInt, Integer, BigInt, IEEE32, IEEE64, Decimal, Date, Timestamp, Interval, Variant, Char, NChar, \
     VarChar, NVarChar, Geography, GeometryType, SpatialReferenceSystem
 import sqlalchemy
-from sqlalchemy import MetaData, text
+from sqlalchemy import MetaData, text, quoted_name
 from sqlalchemy.inspection import inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.base import Connection
@@ -116,7 +116,7 @@ def ddlColumnToSQLAlchemyType(dataType: DDLColumn, engine: Optional[Any] = None)
     else:
         raise Exception(f"Unknown data type {dataType.name}: {type(dataType.type)}")
 
-    c: Column[Any] = Column(dataType.name, t, nullable=(dataType.nullable == NullableStatus.NULLABLE))
+    c: Column[Any] = Column(quoted_name(dataType.name, quote=True), t, nullable=(dataType.nullable == NullableStatus.NULLABLE))
     return c
 
 
@@ -155,7 +155,7 @@ def datasetToSQLAlchemyView(dataset: Dataset, viewName: str, underlyingTable: st
         table: DDLTable = dataset.originalSchema
         columnNames: List[str] = []
         for col in table.columns.values():
-            columnNames.append(col.name)
+            columnNames.append(quoted_name(col.name, quote=True))
 
         # Create the view SQL statement using CREATE OR REPLACE VIEW
         columnsClause: str = ", ".join(columnNames)
