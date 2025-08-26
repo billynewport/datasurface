@@ -115,8 +115,8 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
             batch_merge_column = 'ds_surf_batch_in'
 
         # Verify merge table is empty
-        merge_data = self.getMergeTableData()
-        tc.assertEqual(len(merge_data), 0)
+        live_data = self.getMergeTableData()
+        tc.assertEqual(len(live_data), 0)
 
         # Step 2: Have 5 rows, 4 older rows, 1 newer row. This should ingest the 4 older rows and not the newer row.
         print("Step 2: Inserting 4 older rows and running batch 2")
@@ -148,13 +148,13 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
 
         # Verify 4 rows are in merge table with batch_id = 2 (records with watermark < "2025-01-01 00:02:00")
         # Records 1,2,3,4 should be ingested, but NOT record 5 (which has watermark = "2025-01-01 00:02:00")
-        merge_data = self.getLiveRecords()
-        tc.assertEqual(len(merge_data), 4)
-        for row in merge_data:
+        live_data = self.getLiveRecords()
+        tc.assertEqual(len(live_data), 4)
+        for row in live_data:
             tc.assertEqual(row[batch_merge_column], 2)
 
         # Verify specific records are present
-        ingested_ids = {row['id'] for row in merge_data}
+        ingested_ids = {row['id'] for row in live_data}
         tc.assertEqual(ingested_ids, {'1', '2', '3', '4'})
 
         # Step 3: Update a #1 and add the #5, then run batch 3
@@ -167,14 +167,14 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         self.checkCurrentBatchIs(self.store.name, 3, tc)
 
         # We now have 5 lives but don't have the updated record 1 yet.
-        merge_data = self.getLiveRecords()
-        tc.assertEqual(len(merge_data), 5)
+        live_data = self.getLiveRecords()
+        tc.assertEqual(len(live_data), 5)
 
         # Check that record 5 was ingested in batch 3
-        self.common_verify_record_exists(merge_data, "5", {batch_merge_column: 3}, tc)
+        self.common_verify_record_exists(live_data, "5", {batch_merge_column: 3}, tc)
 
         # Record 1 should still have its original data from batch 2 (not updated yet)
-        self.common_verify_record_exists(merge_data, "1", {
+        self.common_verify_record_exists(live_data, "1", {
             batch_merge_column: 2,
             'firstName': 'John',  # Original name, not updated
             'employer': 'Company A'  # Original employer
@@ -189,16 +189,16 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         tc.assertEqual(self.runJob(), JobStatus.DONE)
         self.checkSpecificBatchStatus(self.store.name, 4, BatchStatus.COMMITTED, tc)
         self.checkCurrentBatchIs(self.store.name, 4, tc)
-        merge_data = self.getLiveRecords()
+        live_data = self.getLiveRecords()
         # Check that record 1 was updated in batch 4
-        self.common_verify_record_exists(merge_data, "1", {batch_merge_column: 4}, tc)
+        self.common_verify_record_exists(live_data, "1", {batch_merge_column: 4}, tc)
 
         # Verify updated record 1 is now ingested with batch_id = 4
         # Batch 4 should ingest records with watermark >= "2025-01-01 00:02:00" AND < "2025-01-01 00:03:00"
         # Wait, this is wrong. The updated record 1 has watermark "2025-01-01 00:03:00" which equals the high watermark
         # So it won't be ingested until there's a higher watermark. Let me add a new record first.
-        merge_data = self.getLiveRecords()
-        tc.assertEqual(len(merge_data), 5)  # Still 5 records, updated record 1 not ingested yet
+        live_data = self.getLiveRecords()
+        tc.assertEqual(len(live_data), 5)  # Still 5 records, updated record 1 not ingested yet
 
         # Step 5: Add a new record with higher watermark and run batch 5
         print("Step 5: Adding a new record with higher watermark and running batch 5")
@@ -211,21 +211,21 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
 
         # Now batch 5 should ingest records with watermark >= "2025-01-01 00:03:00" AND < "2025-01-01 00:04:00"
         # This includes the updated record 1 with watermark "2025-01-01 00:03:00"
-        merge_data = self.getLiveRecords()
-        tc.assertEqual(len(merge_data), 5)  # Now we have 5 live records total (5 previous)
+        live_data = self.getLiveRecords()
+        tc.assertEqual(len(live_data), 5)  # Now we have 5 live records total (5 previous)
 
         # Check that updated record 2 is now present with new data
-        self.common_verify_record_exists(merge_data, "2", {
+        self.common_verify_record_exists(live_data, "2", {
             batch_merge_column: 5,
             'lastName': 'Doe',  # Updated name
             'employer': 'Company B'  # Updated employer
         }, tc)
 
         # Record 6 should NOT be ingested yet because it has watermark "2025-01-01 00:04:00" which equals the high watermark
-        ingested_ids = {row['id'] for row in merge_data}
+        ingested_ids = {row['id'] for row in live_data}
         tc.assertNotIn('6', ingested_ids)
 
-        # Step 6: Add another record to trigger ingestion of record 6, then run batch 6
+        # Step 6: Add another record to trigger ingestion of record 6, then run batch 6, id 7 is not ingested
         print("Step 6: Adding another record to trigger ingestion of record 6")
         self.insertTestData([{"id": "7", "firstName": "David", "lastName": "Wilson", "dob": "1988-06-15",
                               "employer": "Company G", "dod": None, "last_update_time": "2025-01-01 00:06:00"}])
@@ -236,11 +236,11 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
 
         # Now batch 6 should ingest records with watermark >= "2025-01-01 00:04:00" AND < "2025-01-01 00:05:00"
         # This includes record 6 with watermark "2025-01-01 00:04:00"
-        merge_data = self.getLiveRecords()
-        tc.assertEqual(len(merge_data), 6)  # Now we have 6 records total
+        live_data = self.getLiveRecords()
+        tc.assertEqual(len(live_data), 6)  # Now we have 6 records total
 
         # Check that record 6 is now present
-        self.common_verify_record_exists(merge_data, "6", {batch_merge_column: 6}, tc)
+        self.common_verify_record_exists(live_data, "6", {batch_merge_column: 6}, tc)
 
         # Step 7: Run another batch with no changes
         print("Step 7: Running batch 7 with no changes")
@@ -249,10 +249,25 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         self.checkCurrentBatchIs(self.store.name, 7, tc)
 
         # Verify no changes occurred - all rows should keep their previous batch_ids
-        merge_data_after = self.getLiveRecords()
-        tc.assertEqual(len(merge_data_after), 6)
+        live_data_after = self.getLiveRecords()
+        tc.assertEqual(len(live_data_after), 6)
 
-        tc.assertEqual(self.job.numReconcileDDLs, 1)
+        if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
+            # Look at merge data
+            merge_data = self.getMergeTableData()
+            tc.assertEqual(len(merge_data), 8)
+            # Check there for id 1 and 2, there are 2 rows for each, all others should be 1 row
+            countMap: dict[str, int] = {}
+            for row in merge_data:
+                countMap[row["id"]] = countMap.get(row["id"], 0) + 1
+
+            tc.assertEqual(countMap["1"], 2)
+            tc.assertEqual(countMap["2"], 2)
+            tc.assertEqual(countMap["3"], 1)
+            tc.assertEqual(countMap["4"], 1)
+            tc.assertEqual(countMap["5"], 1)
+            tc.assertEqual(countMap["6"], 1)
+
         print("All batch lifecycle tests passed!")
 
 
@@ -279,26 +294,6 @@ class TestWatermarkMergeJob(BaseWatermarkMergeJobTest, unittest.TestCase):
 
     def tearDown(self) -> None:
         self.baseTearDown()
-
-    def getMergeTableData(self) -> list:
-        """Override to only select live-only columns (no batch_in/batch_out)"""
-        with self.merge_engine.begin() as conn:
-            # Try both possible table names
-            try:
-                result = conn.execute(text(f"""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
-            except Exception:
-                result = conn.execute(text(f"""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
-                           ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
-            return [row._asdict() for row in result.fetchall()]
 
     def test_BatchState(self) -> None:
         self.common_test_BatchState(self)
@@ -390,26 +385,6 @@ class TestWatermarkMergeJobForensic(BaseWatermarkMergeJobTest, unittest.TestCase
 
     def tearDown(self) -> None:
         self.baseTearDown()
-
-    def getMergeTableData(self) -> list:
-        """Override to only select live-only columns (no batch_in/batch_out)"""
-        with self.merge_engine.begin() as conn:
-            # Try both possible table names
-            try:
-                result = conn.execute(text(f"""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
-                           ds_surf_batch_in, ds_surf_batch_out, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
-            except Exception:
-                result = conn.execute(text(f"""
-                    SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
-                           ds_surf_batch_in, ds_surf_batch_out, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
-                    ORDER BY "id"
-                """))
-            return [row._asdict() for row in result.fetchall()]
 
     def test_BatchState(self) -> None:
         self.common_test_BatchState(self)
