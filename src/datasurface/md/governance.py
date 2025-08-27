@@ -967,6 +967,9 @@ class DB2Database(HostPortSQLDatabase):
     def __hash__(self) -> int:
         return hash(self.name)
 
+    def getNamingAdapter(self) -> DataContainerNamingMapper:
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes=("\"", "\""))
+
 
 class ObjectStorage(DataContainer):
     """Generic Object storage service. Flat file storage"""

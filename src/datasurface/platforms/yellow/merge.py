@@ -132,13 +132,13 @@ class Job(YellowDatasetUtilities):
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
         t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE)
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE, self.merge_db_ops)
         t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
@@ -218,12 +218,17 @@ class Job(YellowDatasetUtilities):
                 # Delete all records for batch id in staging
                 # Use BATCH_ID_COLUMN_NAME from the schema projector
                 mergeConnection.execute(
-                    text(f"DELETE FROM {stagingTableName} WHERE {self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = :batch_id"), {"batch_id": batchId})
+                    text((
+                        f"DELETE FROM {stagingTableName} "
+                        f"WHERE {self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = :batch_id"
+                    )), {"batch_id": batchId})
             else:
                 minBatchToKeep: int = batchId - batchesToKeep
                 mergeConnection.execute(
-                    text(f"DELETE FROM {stagingTableName} "
-                         f"  WHERE {self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} < :min_batch_to_keep"), {"min_batch_to_keep": minBatchToKeep})
+                    text((
+                        f"DELETE FROM {stagingTableName} "
+                        f"WHERE {self.mrgNM.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} < :min_batch_to_keep"
+                    )), {"min_batch_to_keep": minBatchToKeep})
 
     def startBatch(self, mergeEngine: Engine) -> int:
         """This starts a new batch. If the current batch is not committed, it will raise an exception. A existing batch must be restarted."""

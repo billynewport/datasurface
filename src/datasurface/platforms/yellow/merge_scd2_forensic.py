@@ -8,7 +8,7 @@ from datasurface.md import (
 )
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from datasurface.md.schema import DDLTable, DDLColumn
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus
 from typing import cast, List, Optional, Tuple
 from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, YellowSchemaProjector,
@@ -57,9 +57,9 @@ class MergeSCD2ForensicJob(Job):
         """
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
-        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
-        ddlSchema.add(DDLColumn(name=YellowSchemaConstants.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1)))
+        ddlSchema.add(DDLColumn(name=YellowSchemaConstants.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1), nullable=NullableStatus.NOT_NULLABLE))
         t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
         return t
 

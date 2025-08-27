@@ -45,6 +45,15 @@ class DatabaseOperations(ABC):
         pass
 
     @abstractmethod
+    def get_hash_column_width(self) -> int:
+        """Get the width of the hash column.
+
+        Returns:
+            Width of the hash column
+        """
+        pass
+
+    @abstractmethod
     def get_coalesce_expression(self, column: str, default_value: str = "''") -> str:
         """Generate database-specific COALESCE expression.
 

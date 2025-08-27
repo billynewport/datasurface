@@ -12,7 +12,7 @@ from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.platforms.yellow import db_utils
 from datasurface.platforms.yellow.jobs import Job, JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
-from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase
+from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase, DB2Database
 from datasurface.md import Datastore, SQLIngestion
 from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, OracleDatabase, WorkspacePlatformConfig
 from datasurface.md import DataPlatform, HostPortSQLDatabase
@@ -185,6 +185,8 @@ class BaseMergeJobTest(ABC):
             mock_cred_store = MockCredentialStore("sa", "pass@w0rd")
         elif isinstance(self.dp.psp.mergeStore, OracleDatabase):
             mock_cred_store = MockCredentialStore("system", "pass@w0rd")
+        elif isinstance(self.dp.psp.mergeStore, DB2Database):
+            mock_cred_store = MockCredentialStore("db2inst1", "pass@w0rd")
         else:
             raise Exception(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
 
@@ -406,7 +408,7 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
                     if key in processed_row and processed_row[key] is not None:
                         if isinstance(processed_row[key], str):
                             processed_row[key] = datetime.strptime(processed_row[key], '%Y-%m-%d').date()
-                
+
                 conn.execute(text("""
                     INSERT INTO people ("id", "firstName", "lastName", "dob", "employer", "dod")
                     VALUES (:id, :firstName, :lastName, :dob, :employer, :dod)
@@ -421,7 +423,7 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
                 if key in processed_updates and processed_updates[key] is not None:
                     if isinstance(processed_updates[key], str):
                         processed_updates[key] = datetime.strptime(processed_updates[key], '%Y-%m-%d').date()
-            
+
             set_clause = ", ".join([f'"{k}" = :{k}' for k in processed_updates.keys()])
             query = f'UPDATE people SET {set_clause} WHERE "id" = :id'
             params = processed_updates.copy()

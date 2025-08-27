@@ -12,22 +12,23 @@ from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from datasurface.md import SchemaProjector, DataContainer
 
 
-class OracleDatabaseOperations(DatabaseOperations):
-    """Oracle-specific database operations implementation."""
+class DB2DatabaseOperations(DatabaseOperations):
+    """DB2-specific database operations implementation."""
 
     def __init__(self, schema_projector: SchemaProjector, data_container: DataContainer) -> None:
         super().__init__(schema_projector, data_container)
 
     def get_hash_expression(self, columns: List[str]) -> str:
+        """DB2 uses HASH function for MD5-like hashing."""
         if len(columns) == 1:
-            return f"LOWER(RAWTOHEX(STANDARD_HASH({columns[0]}, 'MD5')))"
+            return f"HEX(HASH({columns[0]}, 1))"
         else:
             concat_op = self.get_string_concat_operator()
             concatenated = f" {concat_op} ".join(columns)
-            return f"LOWER(RAWTOHEX(STANDARD_HASH({concatenated}, 'MD5')))"
+            return f"HEX(HASH({concatenated}, 1))"
 
     def get_hash_column_width(self) -> int:
-        return 32
+        return 40
 
     def get_coalesce_expression(self, column: str, default_value: str = "''") -> str:
         return f"COALESCE({column}, {default_value})"
@@ -36,13 +37,13 @@ class OracleDatabaseOperations(DatabaseOperations):
         return "||"
 
     def get_current_timestamp_expression(self) -> str:
-        return "SYSTIMESTAMP"
+        return "CURRENT_TIMESTAMP"
 
     def get_limit_offset_clause(self, limit: int, offset: int) -> str:
-        return f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        return f"LIMIT {limit} OFFSET {offset}"
 
     def supports_merge_statement(self) -> bool:
-        return True
+        return True  # DB2 supports MERGE statements
 
     def get_upsert_sql(
         self,
@@ -57,13 +58,13 @@ class OracleDatabaseOperations(DatabaseOperations):
         quoted_columns = self.get_quoted_columns(all_columns)
 
         if source_table.strip().startswith('('):
-            source_clause = f"{source_table} src"
+            source_clause = f"{source_table} AS src"
             src_col_ref = "src"
         else:
             src_cols = ", ".join(self.get_quoted_columns(all_columns))
             source_clause = (
                 f"(SELECT {src_cols}, {self.nm.fmtCol(all_hash_column)}, {self.nm.fmtCol(key_hash_column)} FROM {source_table} "
-                f"WHERE {self.nm.fmtCol(batch_id_column)} = {batch_id}) src"
+                f"WHERE {self.nm.fmtCol(batch_id_column)} = {batch_id}) AS src"
             )
             src_col_ref = "src"
 
@@ -75,12 +76,11 @@ class OracleDatabaseOperations(DatabaseOperations):
         values_expr = ", ".join([f"{src_col_ref}.\"{col}\"" for col in all_columns])
 
         return f"""
-        MERGE INTO {target_table} tgt
+        MERGE INTO {target_table} AS tgt
         USING {source_clause}
         ON (tgt.{self.nm.fmtCol(key_hash_column)} = {src_col_ref}.{self.nm.fmtCol(key_hash_column)})
-        WHEN MATCHED THEN
+        WHEN MATCHED AND tgt.{self.nm.fmtCol(all_hash_column)} <> {src_col_ref}.{self.nm.fmtCol(all_hash_column)} THEN
             UPDATE SET {set_updates}
-            WHERE tgt.{self.nm.fmtCol(all_hash_column)} != {src_col_ref}.{self.nm.fmtCol(all_hash_column)}
         WHEN NOT MATCHED THEN
             INSERT ({', '.join(quoted_columns)}, {self.nm.fmtCol(batch_id_column)}, {self.nm.fmtCol(all_hash_column)}, {self.nm.fmtCol(key_hash_column)})
             VALUES ({values_expr}, {batch_id}, {src_col_ref}.{self.nm.fmtCol(all_hash_column)}, {src_col_ref}.{self.nm.fmtCol(key_hash_column)})
@@ -95,16 +95,15 @@ class OracleDatabaseOperations(DatabaseOperations):
         batch_id: int
     ) -> str:
         return f"""
-        DELETE FROM {target_table} m
-        WHERE NOT EXISTS (
-            SELECT 1 FROM {source_table} s
-            WHERE s.{batch_id_column} = {batch_id}
-              AND s.{key_hash_column} = m.{key_hash_column}
+        DELETE FROM {target_table}
+        WHERE {key_hash_column} NOT IN (
+            SELECT {key_hash_column} FROM {source_table}
+            WHERE {batch_id_column} = {batch_id}
         )
         """
 
     def get_quoted_columns(self, columns: List[str]) -> List[str]:
-        """Override to use double quotes for Oracle identifiers."""
+        """Override to use double quotes for DB2 identifiers."""
         return [f'"{col}"' for col in columns]
 
     def get_delete_marked_records_sql(
@@ -117,12 +116,12 @@ class OracleDatabaseOperations(DatabaseOperations):
         batch_id: int
     ) -> str:
         return f"""
-        DELETE FROM {target_table} m
+        DELETE FROM {target_table}
         WHERE EXISTS (
             SELECT 1 FROM {staging_table} s
             WHERE s.{self.nm.fmtCol(batch_id_column)} = {batch_id}
               AND s.{self.nm.fmtCol(iud_column)} = 'D'
-              AND s.{self.nm.fmtCol(key_hash_column)} = m.{self.nm.fmtCol(key_hash_column)}
+              AND s.{self.nm.fmtCol(key_hash_column)} = {target_table}.{self.nm.fmtCol(key_hash_column)}
         )
         """
 
@@ -142,24 +141,24 @@ class OracleDatabaseOperations(DatabaseOperations):
         quoted_columns = self.get_quoted_columns(all_columns)
 
         close_changed_sql = f"""
-        UPDATE {target_table} m
+        UPDATE {target_table}
         SET {batch_out_column} = {batch_id - 1}
-        WHERE m.{batch_out_column} = {live_record_id}
+        WHERE {batch_out_column} = {live_record_id}
           AND EXISTS (
               SELECT 1 FROM {source_table} s
-              WHERE s.{key_hash_column} = m.{key_hash_column}
-                AND s.{all_hash_column} != m.{all_hash_column}
+              WHERE s.{key_hash_column} = {target_table}.{key_hash_column}
+                AND s.{all_hash_column} <> {target_table}.{all_hash_column}
                 AND s.{batch_id_column} = {batch_id}
           )
         """
 
         close_deleted_sql = f"""
-        UPDATE {target_table} m
+        UPDATE {target_table}
         SET {batch_out_column} = {batch_id - 1}
-        WHERE m.{batch_out_column} = {live_record_id}
+        WHERE {batch_out_column} = {live_record_id}
           AND NOT EXISTS (
               SELECT 1 FROM {source_table} s
-              WHERE s.{key_hash_column} = m.{key_hash_column}
+              WHERE s.{key_hash_column} = {target_table}.{key_hash_column}
                 AND s.{batch_id_column} = {batch_id}
           )
         """
@@ -227,23 +226,24 @@ class OracleDatabaseOperations(DatabaseOperations):
         type_map = {
             'UNIQUE': 'U',
             'PRIMARY KEY': 'P',
-            'FOREIGN KEY': 'R'
+            'FOREIGN KEY': 'F'
         }
-        ora_type = type_map.get(constraint_type.upper(), constraint_type)
+        db2_type = type_map.get(constraint_type.upper(), constraint_type)
         tbl = table_name.upper()
+
         if column_name:
             col = column_name.upper()
             check_sql = f"""
-            SELECT COUNT(*) FROM USER_CONSTRAINTS uc
-            JOIN USER_CONS_COLUMNS ucc ON uc.CONSTRAINT_NAME = ucc.CONSTRAINT_NAME
-            WHERE uc.TABLE_NAME = '{tbl}'
-              AND uc.CONSTRAINT_TYPE = '{ora_type}'
-              AND ucc.COLUMN_NAME = '{col}'
+            SELECT COUNT(*) FROM SYSCAT.TABCONST tc
+            JOIN SYSCAT.KEYCOLUSE kc ON tc.CONSTNAME = kc.CONSTNAME
+            WHERE tc.TABNAME = '{tbl}'
+              AND tc.TYPE = '{db2_type}'
+              AND kc.COLNAME = '{col}'
             """
         else:
             check_sql = f"""
-            SELECT COUNT(*) FROM USER_CONSTRAINTS
-            WHERE TABLE_NAME = '{tbl}' AND CONSTRAINT_TYPE = '{ora_type}'
+            SELECT COUNT(*) FROM SYSCAT.TABCONST
+            WHERE TABNAME = '{tbl}' AND TYPE = '{db2_type}'
             """
         result = connection.execute(text(check_sql))
         return result.fetchone()[0] > 0
@@ -252,8 +252,8 @@ class OracleDatabaseOperations(DatabaseOperations):
         tbl = table_name.upper()
         idx = index_name.upper()
         check_sql = f"""
-        SELECT COUNT(*) FROM USER_INDEXES
-        WHERE TABLE_NAME = '{tbl}' AND INDEX_NAME = '{idx}'
+        SELECT COUNT(*) FROM SYSCAT.INDEXES
+        WHERE TABNAME = '{tbl}' AND INDNAME = '{idx}'
         """
         result = connection.execute(text(check_sql))
         return result.fetchone()[0] > 0
@@ -261,13 +261,7 @@ class OracleDatabaseOperations(DatabaseOperations):
     def create_index_sql(self, index_name: str, table_name: str, columns: List[str], unique: bool = False) -> str:
         unique_keyword = "UNIQUE " if unique else ""
         quoted_columns = self.get_quoted_columns(columns)
-        # Use PL/SQL block to ignore ORA-01408 (such column list already indexed)
-        create_stmt = f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
-        return (
-            "BEGIN "
-            f"EXECUTE IMMEDIATE '{create_stmt}'; "
-            "EXCEPTION WHEN OTHERS THEN IF SQLCODE = -1408 THEN NULL; ELSE RAISE; END IF; END;"
-        )
+        return f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
 
     def create_unique_constraint_sql(self, table_name: str, column_name: str, constraint_name: str) -> str:
         return f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} UNIQUE ({column_name})"
@@ -284,32 +278,28 @@ class OracleDatabaseOperations(DatabaseOperations):
         return f"SUM(CASE WHEN {filter_condition} THEN 1 ELSE 0 END)"
 
     def cast_to_text(self, column_expr: str) -> str:
-        return f"CAST({column_expr} AS VARCHAR2(4000))"
+        return f"CAST({column_expr} AS VARCHAR(4000))"
 
     def get_datetime_type(self) -> str:
         return "TIMESTAMP"
 
     def get_update_from_syntax(self, target_table: str, source_table: str,
                                target_alias: str = "m", source_alias: str = "s") -> str:
-        return f"UPDATE {target_table} {target_alias}"
+        return f"UPDATE {target_table} AS {target_alias}"
 
     def get_drop_table_sql(self, table_name: str) -> str:
-        return (
-            "BEGIN "
-            f"EXECUTE IMMEDIATE 'DROP TABLE {table_name} PURGE'; "
-            "EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;"
-        )
+        return f"DROP TABLE {table_name}"
 
     def format_watermark_value(self, watermark_value: Union[int, datetime.datetime, str]) -> str:
         if isinstance(watermark_value, int):
             return str(watermark_value)
         elif isinstance(watermark_value, datetime.datetime):
             ts = watermark_value.isoformat(sep=' ')
-            return f"TIMESTAMP '{ts}'"
+            return f"TIMESTAMP('{ts}')"
         elif isinstance(watermark_value, str):
             if '-' in watermark_value and (':' in watermark_value or 'T' in watermark_value):
                 ts = watermark_value.replace('T', ' ')
-                return f"TIMESTAMP '{ts}'"
+                return f"TIMESTAMP('{ts}')"
             return watermark_value
         else:
             return str(watermark_value)
@@ -367,29 +357,34 @@ class OracleDatabaseOperations(DatabaseOperations):
     def get_remote_forensic_update_closed_sql(self, merge_table: str, staging_table: str, sp: Any, batch_id: int) -> str:
         remote_batch_out_column = self.nm.fmtCol("remote_" + YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)
         remote_batch_in_column = self.nm.fmtCol("remote_" + YellowSchemaConstants.BATCH_IN_COLUMN_NAME)
+        # DB2 doesn't handle MERGE well with duplicate keys, use UPDATE with subquery instead
         return f"""
-        MERGE INTO {merge_table} m
-        USING {staging_table} s
-        ON (m.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)} = s.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
-            AND m.{self.nm.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} = s.{remote_batch_in_column})
-        WHEN MATCHED THEN UPDATE SET m.{self.nm.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} = s.{remote_batch_out_column}
-        WHERE m.{self.nm.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} = {YellowSchemaConstants.LIVE_RECORD_ID}
-          AND s.{remote_batch_out_column} != {YellowSchemaConstants.LIVE_RECORD_ID}
-          AND s.{self.nm.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batch_id}
+        UPDATE {merge_table}
+        SET {self.nm.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} = (
+            SELECT s.{remote_batch_out_column}
+            FROM {staging_table} s
+            WHERE {merge_table}.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)} = s.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
+                AND {merge_table}.{self.nm.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} = s.{remote_batch_in_column}
+                AND s.{self.nm.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batch_id}
+        )
+        WHERE EXISTS (
+            SELECT 1 FROM {staging_table} s
+            WHERE {merge_table}.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)} = s.{self.nm.fmtCol(YellowSchemaConstants.KEY_HASH_COLUMN_NAME)}
+                AND {merge_table}.{self.nm.fmtCol(YellowSchemaConstants.BATCH_IN_COLUMN_NAME)} = s.{remote_batch_in_column}
+                AND {merge_table}.{self.nm.fmtCol(YellowSchemaConstants.BATCH_OUT_COLUMN_NAME)} = {YellowSchemaConstants.LIVE_RECORD_ID}
+                AND s.{remote_batch_out_column} != {YellowSchemaConstants.LIVE_RECORD_ID}
+                AND s.{self.nm.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batch_id}
+        )
         """
 
     def check_unique_constraint_exists(self, connection: Connection, table_name: str, column_name: str) -> bool:
-        """Check if a unique constraint exists on the specified column using Oracle system views."""
-        # Oracle uses ALL_CONSTRAINTS and ALL_CONS_COLUMNS instead of INFORMATION_SCHEMA
+        """Check if a unique constraint exists on the specified column using DB2 system catalog."""
         check_sql = """
-        SELECT COUNT(*) FROM ALL_CONSTRAINTS ac
-        JOIN ALL_CONS_COLUMNS acc
-            ON ac.CONSTRAINT_NAME = acc.CONSTRAINT_NAME
-            AND ac.OWNER = acc.OWNER
-        WHERE UPPER(ac.TABLE_NAME) = UPPER(:table_name)
-            AND ac.CONSTRAINT_TYPE = 'U'
-            AND UPPER(acc.COLUMN_NAME) = UPPER(:column_name)
-            AND ac.OWNER = USER
+        SELECT COUNT(*) FROM SYSCAT.TABCONST tc
+        JOIN SYSCAT.KEYCOLUSE kc ON tc.CONSTNAME = kc.CONSTNAME
+        WHERE UPPER(tc.TABNAME) = UPPER(:table_name)
+            AND tc.TYPE = 'U'
+            AND UPPER(kc.COLNAME) = UPPER(:column_name)
         """
         result = connection.execute(text(check_sql), {"table_name": table_name, "column_name": column_name})
         return result.fetchone()[0] > 0

@@ -26,6 +26,9 @@ class PostgresDatabaseOperations(DatabaseOperations):
             concatenated = f" {concat_op} ".join(columns)
             return f"MD5({concatenated})"
 
+    def get_hash_column_width(self) -> int:
+        return 32
+
     def get_coalesce_expression(self, column: str, default_value: str = "''") -> str:
         return f"COALESCE({column}, {default_value})"
 

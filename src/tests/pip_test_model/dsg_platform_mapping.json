@@ -76,5 +76,83 @@
               "status": "PROVISIONED"
             }
           ]
-        }
+        },
+        {
+          "dsgName": "DSGLive",
+          "workspace": "OracleConsumerLive",
+          "assignments": [
+            {
+              "dataPlatform": "YellowLiveOracle",
+              "documentation": "Test DataPlatform",
+              "productionStatus": "PRODUCTION",
+              "deprecationsAllowed": "NEVER",
+              "status": "PROVISIONED"
+            }
+          ]
+        },
+        {
+            "dsgName": "DSGForensic",
+            "workspace": "OracleConsumerForensic",
+            "assignments": [
+              {
+                "dataPlatform": "YellowForensicOracle",
+                "documentation": "Test DataPlatform",
+                "productionStatus": "PRODUCTION",
+                "deprecationsAllowed": "NEVER",
+                "status": "PROVISIONED"
+              }
+            ]
+          },
+          {
+            "dsgName": "DSGForensic",
+            "workspace": "OracleConsumerRemoteForensic",
+            "assignments": [
+              {
+                "dataPlatform": "YellowRemoteForensicOracle",
+                "documentation": "Test DataPlatform",
+                "productionStatus": "PRODUCTION",
+                "deprecationsAllowed": "NEVER",
+                "status": "PROVISIONED"
+              }
+            ]
+          },
+          {
+            "dsgName": "DSGLive",
+            "workspace": "DB2ConsumerLive",
+            "assignments": [
+              {
+                "dataPlatform": "YellowLiveDB2",
+                "documentation": "Test DataPlatform",
+                "productionStatus": "PRODUCTION",
+                "deprecationsAllowed": "NEVER",
+                "status": "PROVISIONED"
+              }
+            ]
+          },
+          {
+              "dsgName": "DSGForensic",
+              "workspace": "DB2ConsumerForensic",
+              "assignments": [
+                {
+                  "dataPlatform": "YellowForensicDB2",
+                  "documentation": "Test DataPlatform",
+                  "productionStatus": "PRODUCTION",
+                  "deprecationsAllowed": "NEVER",
+                  "status": "PROVISIONED"
+                }
+              ]
+            },
+            {
+              "dsgName": "DSGForensic",
+              "workspace": "DB2ConsumerRemoteForensic",
+              "assignments": [
+                {
+                  "dataPlatform": "YellowRemoteForensicDB2",
+                  "documentation": "Test DataPlatform",
+                  "productionStatus": "PRODUCTION",
+                  "deprecationsAllowed": "NEVER",
+                  "status": "PROVISIONED"
+                }
+              ]
+            }
       ]

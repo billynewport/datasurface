@@ -152,6 +152,16 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
             "pool_pre_ping": True,
             "pool_recycle": 3600,
         })
+    elif isinstance(container, DB2Database):
+        engine_kwargs.update({
+            # DB2 optimizations
+            "pool_size": 8,
+            "max_overflow": 15,
+            "pool_pre_ping": True,
+            "pool_recycle": 3600,  # Recycle connections every hour
+            "pool_timeout": 10,  # Timeout for connection acquisition
+            "isolation_level": "CS",  # DB2 uses CS (Cursor Stability) instead of READ COMMITTED
+        })
     elif isinstance(container, SnowFlakeDatabase):
         # Reasonable defaults for Snowflake; connections are HTTPS-based
         engine_kwargs.update({

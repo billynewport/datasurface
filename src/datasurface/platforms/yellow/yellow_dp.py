@@ -20,7 +20,7 @@ from datasurface.md.credential import CredentialStore, CredentialType, Credentia
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, \
     DataMilestoningStrategy, HostPortSQLDatabase
 from datasurface.md import DataPlatformManagedDataContainer, PlatformServicesProvider
-from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
+from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyList
 from datasurface.md.types import Integer, VarChar
 from datasurface.md import StorageRequirement, DataPlatformKey, PrimaryIngestionPlatform
 import os
@@ -50,6 +50,7 @@ from datasurface.platforms.yellow.logging_utils import (
 from datasurface.platforms.yellow.assembly import K8sResourceLimits, K8sUtils, Component, Assembly
 from datasurface.platforms.yellow.assembly import K8sAssemblyFactory
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -144,7 +145,7 @@ class JobUtilities(ABC):
                          Column(quoted_name("records_updated", quote=True), sqlalchemy.Integer(), nullable=True),
                          Column(quoted_name("records_deleted", quote=True), sqlalchemy.Integer(), nullable=True),
                          Column(quoted_name("total_records", quote=True), sqlalchemy.Integer(), nullable=True),
-                         Column(quoted_name("state", quote=True), sqlalchemy.String(length=2048), nullable=True))  # This needs to be large enough to hold the state of the ingestion
+                         Column(quoted_name("state", quote=True), sqlalchemy.String(length=2048), nullable=True))
         return t
 
     def getSchemaHash(self, dataset: Dataset) -> str:
@@ -285,13 +286,13 @@ class YellowDatasetUtilities(JobUtilities):
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
+        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.db_ops)
         t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE)
+        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE, self.db_ops)
         t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
         return t
 
@@ -2314,6 +2315,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         return t
 
     def createSchemaProjector(self, eco: Ecosystem) -> SchemaProjector:
+        # Create a database operations object for the merge database
         return YellowSchemaProjector(eco, self)
 
     def lintWorkspace(self, eco: Ecosystem, tree: ValidationTree, ws: 'Workspace', dsgName: str):
@@ -2531,7 +2533,7 @@ class YellowSchemaProjector(SchemaProjector):
     def getSchemaTypes(self) -> set[str]:
         return {YellowSchemaConstants.SCHEMA_TYPE_MERGE, YellowSchemaConstants.SCHEMA_TYPE_STAGING}
 
-    def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
+    def computeSchema(self, dataset: 'Dataset', schemaType: str, db_ops: DatabaseOperations) -> 'Dataset':
         """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform."""
         assert isinstance(self.dp, YellowDataPlatform)
         if schemaType == YellowSchemaConstants.SCHEMA_TYPE_MERGE:
@@ -2539,12 +2541,16 @@ class YellowSchemaProjector(SchemaProjector):
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
             # Only add ds_surf_batch_id for live-only mode, not for forensic mode
             if self.dp.milestoneStrategy != YellowMilestoneStrategy.SCD2:
-                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer()))
-            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
-            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
+            ddlSchema.add(
+                DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
+                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
+            ddlSchema.add(
+                DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
+                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_IN_COLUMN_NAME, data_type=Integer()))
-                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_OUT_COLUMN_NAME, data_type=Integer()))
+                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_IN_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
+                ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_OUT_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
                 # For forensic mode, modify the primary key to include batch_in
                 if ddlSchema.primaryKeyColumns:
                     # Create new primary key with original columns plus batch_in
@@ -2554,9 +2560,13 @@ class YellowSchemaProjector(SchemaProjector):
         elif schemaType == YellowSchemaConstants.SCHEMA_TYPE_STAGING:
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
-            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer()))
-            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
-            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, data_type=VarChar(maxSize=32)))
+            ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
+            ddlSchema.add(
+                DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
+                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
+            ddlSchema.add(
+                DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
+                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
             # For staging tables, modify the primary key to include batch_id to allow same business keys across batches
             if ddlSchema.primaryKeyColumns:
                 # Create new primary key with original columns plus batch_id

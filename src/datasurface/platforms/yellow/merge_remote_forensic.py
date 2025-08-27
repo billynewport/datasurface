@@ -8,7 +8,7 @@ from datasurface.md import (
 )
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList
+from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList, NullableStatus
 from datasurface.md.types import Integer
 from typing import cast, List, Optional, Any
 from sqlalchemy import Table, MetaData
@@ -61,12 +61,12 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         assert self.schemaProjector is not None
         sp: YellowSchemaProjector = self.schemaProjector
         # This already includes the batch_id, all_hash, and key_hash columns
-        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
 
         # Add remote batch columns to preserve original milestoning
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
-        ddlSchema.add(DDLColumn(name=f"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}", data_type=Integer()))
-        ddlSchema.add(DDLColumn(name=f"remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}", data_type=Integer()))
+        ddlSchema.add(DDLColumn(name=f"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}", data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
+        ddlSchema.add(DDLColumn(name=f"remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}", data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
 
         # For forensic staging tables, modify the primary key to include remote_batch_in
         # This allows multiple versions of the same record to exist in staging

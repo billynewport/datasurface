@@ -19,7 +19,8 @@ httpx==0.28.1
 #apache-airflow-providers-cncf-kubernetes==10.6.0
 
 # Database drivers for multi-database support
-#ibm_db==3.2.6
+ibm_db>=3.2.6
+ibm-db-sa>=0.4.2
 oracledb>=1.4.0
 pymysql>=1.0.2
 pyodbc>=4.0.34
