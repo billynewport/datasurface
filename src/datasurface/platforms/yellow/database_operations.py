@@ -368,12 +368,12 @@ class DatabaseOperations(ABC):
         quoted_columns = self.get_quoted_columns(all_columns)
         return f"""
         SELECT {', '.join(quoted_columns)},
-            {all_hash_column},
-            {key_hash_column},
-            'I' as {iud_column}
+            {self.nm.fmtCol(all_hash_column)},
+            {self.nm.fmtCol(key_hash_column)},
+            'I' as {self.nm.fmtCol(iud_column)}
         FROM {source_table}
-        WHERE {batch_in_column} <= {current_remote_batch_id}
-        AND {batch_out_column} > {current_remote_batch_id}
+        WHERE {self.nm.fmtCol(batch_in_column)} <= {current_remote_batch_id}
+        AND {self.nm.fmtCol(batch_out_column)} > {current_remote_batch_id}
         """
 
     def get_remote_incremental_batch_sql(
@@ -405,65 +405,71 @@ class DatabaseOperations(ABC):
             SQL statement for incremental batch ingestion
         """
         quoted_columns = self.get_quoted_columns(all_columns)
+        formatted_all_hash = self.nm.fmtCol(all_hash_column)
+        formatted_key_hash = self.nm.fmtCol(key_hash_column)
+        formatted_batch_in = self.nm.fmtCol(batch_in_column)
+        formatted_batch_out = self.nm.fmtCol(batch_out_column)
+        formatted_iud = self.nm.fmtCol(iud_column)
+
         return f"""
         WITH changed_keys AS (
             -- Find all keys that had any changes between batches
-            SELECT DISTINCT {key_hash_column}
+            SELECT DISTINCT {formatted_key_hash}
             FROM {source_table}
-            WHERE ({batch_in_column} > {last_remote_batch_id}
-                   AND {batch_in_column} <= {current_remote_batch_id})
-               OR ({batch_out_column} >= {last_remote_batch_id}
-                   AND {batch_out_column} <= {current_remote_batch_id})
+            WHERE ({formatted_batch_in} > {last_remote_batch_id}
+                   AND {formatted_batch_in} <= {current_remote_batch_id})
+               OR ({formatted_batch_out} >= {last_remote_batch_id}
+                   AND {formatted_batch_out} <= {current_remote_batch_id})
         ),
         current_state AS (
             -- Get the current state of changed keys
             SELECT {', '.join(quoted_columns)},
-                {all_hash_column},
-                {key_hash_column},
-                {batch_in_column},
-                {batch_out_column}
+                {formatted_all_hash},
+                {formatted_key_hash},
+                {formatted_batch_in},
+                {formatted_batch_out}
             FROM {source_table} s
-            WHERE s.{key_hash_column} IN (SELECT {key_hash_column} FROM changed_keys)
-              AND s.{batch_in_column} <= {current_remote_batch_id}
-              AND s.{batch_out_column} > {current_remote_batch_id}
+            WHERE s.{formatted_key_hash} IN (SELECT {formatted_key_hash} FROM changed_keys)
+              AND s.{formatted_batch_in} <= {current_remote_batch_id}
+              AND s.{formatted_batch_out} > {current_remote_batch_id}
         ),
         previous_state AS (
             -- Get the previous state of changed keys
-            SELECT {key_hash_column},
-                {all_hash_column} as prev_all_hash
+            SELECT {formatted_key_hash},
+                {formatted_all_hash} as prev_all_hash
             FROM {source_table} s
-            WHERE s.{key_hash_column} IN (SELECT {key_hash_column} FROM changed_keys)
-              AND s.{batch_in_column} <= {last_remote_batch_id}
-              AND s.{batch_out_column} >= {last_remote_batch_id}
+            WHERE s.{formatted_key_hash} IN (SELECT {formatted_key_hash} FROM changed_keys)
+              AND s.{formatted_batch_in} <= {last_remote_batch_id}
+              AND s.{formatted_batch_out} >= {last_remote_batch_id}
         )
         SELECT {', '.join(quoted_columns)},
-            cs.{all_hash_column},
-            cs.{key_hash_column},
+            cs.{formatted_all_hash},
+            cs.{formatted_key_hash},
             CASE
-                WHEN ps.{key_hash_column} IS NULL THEN 'I'  -- New record
-                WHEN cs.{all_hash_column} != ps.prev_all_hash THEN 'U'  -- Updated record
+                WHEN ps.{formatted_key_hash} IS NULL THEN 'I'  -- New record
+                WHEN cs.{formatted_all_hash} != ps.prev_all_hash THEN 'U'  -- Updated record
                 ELSE 'U'  -- Default to update for safety
-            END as {iud_column}
+            END as {formatted_iud}
         FROM current_state cs
-        LEFT JOIN previous_state ps ON cs.{key_hash_column} = ps.{key_hash_column}
+        LEFT JOIN previous_state ps ON cs.{formatted_key_hash} = ps.{formatted_key_hash}
 
         UNION ALL
 
         -- Handle deletions: keys that existed at last batch but not at current batch
         SELECT {', '.join([f'ps.' + self.get_quoted_columns([col])[0] for col in all_columns])},
-            ps.{all_hash_column},
-            ps.{key_hash_column},
-            'D' as {iud_column}
+            ps.{formatted_all_hash},
+            ps.{formatted_key_hash},
+            'D' as {formatted_iud}
         FROM (
             SELECT {', '.join(quoted_columns)},
-                {all_hash_column},
-                {key_hash_column}
+                {formatted_all_hash},
+                {formatted_key_hash}
             FROM {source_table} s
-            WHERE s.{key_hash_column} IN (SELECT {key_hash_column} FROM changed_keys)
-              AND s.{batch_in_column} <= {last_remote_batch_id}
-              AND s.{batch_out_column} >= {last_remote_batch_id}
+            WHERE s.{formatted_key_hash} IN (SELECT {formatted_key_hash} FROM changed_keys)
+              AND s.{formatted_batch_in} <= {last_remote_batch_id}
+              AND s.{formatted_batch_out} >= {last_remote_batch_id}
         ) ps
-        WHERE ps.{key_hash_column} NOT IN (SELECT {key_hash_column} FROM current_state)
+        WHERE ps.{formatted_key_hash} NOT IN (SELECT {formatted_key_hash} FROM current_state)
         """
 
     # Remote Forensic Operations
@@ -891,3 +897,31 @@ class DatabaseOperations(ABC):
         all_params = [{str(i): val for i, val in enumerate(values)} for values in batch_values]
         connection.execute(text(insert_sql), all_params)
         return len(batch_values)
+
+    @abstractmethod
+    def check_unique_constraint_exists(self, connection: Connection, table_name: str, column_name: str) -> bool:
+        """Check if a unique constraint exists on the specified column.
+
+        Args:
+            connection: Database connection
+            table_name: Name of the table
+            column_name: Name of the column
+
+        Returns:
+            True if constraint exists, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def create_unique_constraint(self, connection: Connection, table_name: str, column_name: str) -> str:
+        """Create a unique constraint on the specified column.
+
+        Args:
+            connection: Database connection
+            table_name: Name of the table
+            column_name: Name of the column
+
+        Returns:
+            Name of the created constraint
+        """
+        pass

@@ -136,9 +136,9 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         DELETE m FROM {target_table} m
         WHERE EXISTS (
             SELECT 1 FROM {staging_table} s
-            WHERE s.{batch_id_column} = {batch_id}
-            AND s.{iud_column} = 'D'
-            AND s.{key_hash_column} = m.{key_hash_column}
+            WHERE s.[{batch_id_column}] = {batch_id}
+            AND s.[{iud_column}] = 'D'
+            AND s.[{key_hash_column}] = m.[{key_hash_column}]
         )
         """
 
@@ -229,19 +229,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         result = connection.execute(text(check_sql))
         return result.fetchone()[0] > 0
 
-    def check_index_exists(self, connection: Connection, table_name: str, index_name: str) -> bool:
-        check_sql = f"""
-        SELECT COUNT(*) FROM sys.indexes i
-        JOIN sys.objects o ON i.object_id = o.object_id
-        WHERE o.name = '{table_name}' AND i.name = '{index_name}'
-        """
-        result = connection.execute(text(check_sql))
-        return result.fetchone()[0] > 0
-
-    def create_index_sql(self, index_name: str, table_name: str, columns: List[str], unique: bool = False) -> str:
-        unique_keyword = "UNIQUE " if unique else ""
-        quoted_columns = self.get_quoted_columns(columns)
-        return f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
+    # Removed duplicate early implementations of check_index_exists/create_index_sql; canonical versions are defined later
 
     def create_unique_constraint_sql(self, table_name: str, column_name: str, constraint_name: str) -> str:
         return f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} UNIQUE ({column_name})"
@@ -368,3 +356,40 @@ class SQLServerDatabaseOperations(DatabaseOperations):
             AND s.[remote_{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME}] != {YellowSchemaConstants.LIVE_RECORD_ID}
             AND s.{YellowSchemaConstants.BATCH_ID_COLUMN_NAME} = {batch_id}
         """
+
+    def check_unique_constraint_exists(self, connection: Connection, table_name: str, column_name: str) -> bool:
+        """Check if a unique constraint exists on the specified column using SQL Server INFORMATION_SCHEMA."""
+        check_sql = """
+        SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+            ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+            AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+        WHERE tc.TABLE_NAME = :table_name
+            AND tc.CONSTRAINT_TYPE = 'UNIQUE'
+            AND kcu.COLUMN_NAME = :column_name
+        """
+        result = connection.execute(text(check_sql), {"table_name": table_name, "column_name": column_name})
+        return result.fetchone()[0] > 0
+
+    def create_unique_constraint(self, connection: Connection, table_name: str, column_name: str) -> str:
+        """Create a unique constraint on the specified column."""
+        constraint_name = f"{table_name}_{column_name}_unique"
+        create_constraint_sql = f"ALTER TABLE [{table_name}] ADD CONSTRAINT [{constraint_name}] UNIQUE ([{column_name}])"
+        connection.execute(text(create_constraint_sql))
+        return constraint_name
+
+    def check_index_exists(self, connection: Connection, table_name: str, index_name: str) -> bool:
+        """Check if an index exists on the specified table using SQL Server system views."""
+        check_sql = """
+        SELECT COUNT(*) FROM sys.indexes i
+        JOIN sys.tables t ON i.object_id = t.object_id
+        WHERE t.name = :table_name
+            AND i.name = :index_name
+        """
+        result = connection.execute(text(check_sql), {"table_name": table_name, "index_name": index_name})
+        return result.fetchone()[0] > 0
+
+    def create_index_sql(self, index_name: str, table_name: str, columns: List[str]) -> str:
+        """Generate SQL to create an index."""
+        formatted_columns = [f"[{col}]" for col in columns]
+        return f"CREATE INDEX [{index_name}] ON [{table_name}] ({', '.join(formatted_columns)})"

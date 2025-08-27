@@ -59,14 +59,14 @@ class OracleDatabaseOperations(DatabaseOperations):
         else:
             src_cols = ", ".join(self.get_quoted_columns(all_columns))
             source_clause = (
-                f"(SELECT {src_cols}, {all_hash_column}, {key_hash_column} FROM {source_table} "
-                f"WHERE {batch_id_column} = {batch_id}) src"
+                f"(SELECT {src_cols}, {self.nm.fmtCol(all_hash_column)}, {self.nm.fmtCol(key_hash_column)} FROM {source_table} "
+                f"WHERE {self.nm.fmtCol(batch_id_column)} = {batch_id}) src"
             )
             src_col_ref = "src"
 
-        set_updates = ', '.join([f'"{col}" = {src_col_ref}."{col}"' for col in all_columns] + [
-            f'{batch_id_column} = {batch_id}',
-            f'{all_hash_column} = {src_col_ref}.{all_hash_column}'
+        set_updates = ', '.join([f'tgt."{col}" = {src_col_ref}."{col}"' for col in all_columns] + [
+            f'tgt.{self.nm.fmtCol(batch_id_column)} = {batch_id}',
+            f'tgt.{self.nm.fmtCol(all_hash_column)} = {src_col_ref}.{self.nm.fmtCol(all_hash_column)}'
         ])
 
         values_expr = ", ".join([f"{src_col_ref}.\"{col}\"" for col in all_columns])
@@ -74,12 +74,13 @@ class OracleDatabaseOperations(DatabaseOperations):
         return f"""
         MERGE INTO {target_table} tgt
         USING {source_clause}
-        ON (tgt.{key_hash_column} = {src_col_ref}.{key_hash_column})
-        WHEN MATCHED AND tgt.{all_hash_column} != {src_col_ref}.{all_hash_column} THEN
+        ON (tgt.{self.nm.fmtCol(key_hash_column)} = {src_col_ref}.{self.nm.fmtCol(key_hash_column)})
+        WHEN MATCHED THEN
             UPDATE SET {set_updates}
+            WHERE tgt.{self.nm.fmtCol(all_hash_column)} != {src_col_ref}.{self.nm.fmtCol(all_hash_column)}
         WHEN NOT MATCHED THEN
-            INSERT ({', '.join(quoted_columns)}, {batch_id_column}, {all_hash_column}, {key_hash_column})
-            VALUES ({values_expr}, {batch_id}, {src_col_ref}.{all_hash_column}, {src_col_ref}.{key_hash_column})
+            INSERT ({', '.join(quoted_columns)}, {self.nm.fmtCol(batch_id_column)}, {self.nm.fmtCol(all_hash_column)}, {self.nm.fmtCol(key_hash_column)})
+            VALUES ({values_expr}, {batch_id}, {src_col_ref}.{self.nm.fmtCol(all_hash_column)}, {src_col_ref}.{self.nm.fmtCol(key_hash_column)})
         """
 
     def get_delete_missing_records_sql(
@@ -116,9 +117,9 @@ class OracleDatabaseOperations(DatabaseOperations):
         DELETE FROM {target_table} m
         WHERE EXISTS (
             SELECT 1 FROM {staging_table} s
-            WHERE s.{batch_id_column} = {batch_id}
-              AND s.{iud_column} = 'D'
-              AND s.{key_hash_column} = m.{key_hash_column}
+            WHERE s.{self.nm.fmtCol(batch_id_column)} = {batch_id}
+              AND s.{self.nm.fmtCol(iud_column)} = 'D'
+              AND s.{self.nm.fmtCol(key_hash_column)} = m.{self.nm.fmtCol(key_hash_column)}
         )
         """
 
@@ -257,7 +258,13 @@ class OracleDatabaseOperations(DatabaseOperations):
     def create_index_sql(self, index_name: str, table_name: str, columns: List[str], unique: bool = False) -> str:
         unique_keyword = "UNIQUE " if unique else ""
         quoted_columns = self.get_quoted_columns(columns)
-        return f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
+        # Use PL/SQL block to ignore ORA-01408 (such column list already indexed)
+        create_stmt = f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
+        return (
+            "BEGIN "
+            f"EXECUTE IMMEDIATE '{create_stmt}'; "
+            "EXCEPTION WHEN OTHERS THEN IF SQLCODE = -1408 THEN NULL; ELSE RAISE; END IF; END;"
+        )
 
     def create_unique_constraint_sql(self, table_name: str, column_name: str, constraint_name: str) -> str:
         return f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} UNIQUE ({column_name})"
@@ -367,3 +374,29 @@ class OracleDatabaseOperations(DatabaseOperations):
           AND s.{remote_batch_out_column} != {YellowSchemaConstants.LIVE_RECORD_ID}
           AND s.{self.nm.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batch_id}
         """
+
+    def check_unique_constraint_exists(self, connection: Connection, table_name: str, column_name: str) -> bool:
+        """Check if a unique constraint exists on the specified column using Oracle system views."""
+        # Oracle uses ALL_CONSTRAINTS and ALL_CONS_COLUMNS instead of INFORMATION_SCHEMA
+        check_sql = """
+        SELECT COUNT(*) FROM ALL_CONSTRAINTS ac
+        JOIN ALL_CONS_COLUMNS acc
+            ON ac.CONSTRAINT_NAME = acc.CONSTRAINT_NAME
+            AND ac.OWNER = acc.OWNER
+        WHERE UPPER(ac.TABLE_NAME) = UPPER(:table_name)
+            AND ac.CONSTRAINT_TYPE = 'U'
+            AND UPPER(acc.COLUMN_NAME) = UPPER(:column_name)
+            AND ac.OWNER = USER
+        """
+        result = connection.execute(text(check_sql), {"table_name": table_name, "column_name": column_name})
+        return result.fetchone()[0] > 0
+
+    def create_unique_constraint(self, connection: Connection, table_name: str, column_name: str) -> str:
+        """Create a unique constraint on the specified column."""
+        constraint_name = f"{table_name}_{column_name}_unique"
+        # Use the naming mapper to format table and column names
+        formatted_table = self.nm.fmtTVI(table_name)
+        formatted_column = self.nm.fmtCol(column_name)
+        create_constraint_sql = f"ALTER TABLE {formatted_table} ADD CONSTRAINT {constraint_name} UNIQUE ({formatted_column})"
+        connection.execute(text(create_constraint_sql))
+        return constraint_name

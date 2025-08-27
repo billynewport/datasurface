@@ -107,9 +107,9 @@ class PostgresDatabaseOperations(DatabaseOperations):
         DELETE FROM {target_table} m
         WHERE EXISTS (
             SELECT 1 FROM {staging_table} s
-            WHERE s.{batch_id_column} = {batch_id}
-            AND s.{iud_column} = 'D'
-            AND s.{key_hash_column} = m.{key_hash_column}
+            WHERE s.{self.nm.fmtCol(batch_id_column)} = {batch_id}
+            AND s.{self.nm.fmtCol(iud_column)} = 'D'
+            AND s.{self.nm.fmtCol(key_hash_column)} = m.{self.nm.fmtCol(key_hash_column)}
         )
         """
 
@@ -228,18 +228,7 @@ class PostgresDatabaseOperations(DatabaseOperations):
         result = connection.execute(text(check_sql))
         return result.fetchone()[0] > 0
 
-    def check_index_exists(self, connection: Connection, table_name: str, index_name: str) -> bool:
-        check_sql = f"""
-        SELECT COUNT(*) FROM pg_indexes
-        WHERE tablename = '{table_name}' AND indexname = '{index_name}'
-        """
-        result = connection.execute(text(check_sql))
-        return result.fetchone()[0] > 0
-
-    def create_index_sql(self, index_name: str, table_name: str, columns: List[str], unique: bool = False) -> str:
-        unique_keyword = "UNIQUE " if unique else ""
-        quoted_columns = self.get_quoted_columns(columns)
-        return f"CREATE {unique_keyword}INDEX {index_name} ON {table_name} ({', '.join(quoted_columns)})"
+    # Removed duplicate early implementations of check_index_exists/create_index_sql; canonical versions are defined later
 
     def create_unique_constraint_sql(self, table_name: str, column_name: str, constraint_name: str) -> str:
         return f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} UNIQUE ({column_name})"
@@ -344,3 +333,44 @@ class PostgresDatabaseOperations(DatabaseOperations):
             AND s.{remote_batch_out_column} != {YellowSchemaConstants.LIVE_RECORD_ID}
             AND s.{self.nm.fmtCol(YellowSchemaConstants.BATCH_ID_COLUMN_NAME)} = {batch_id}
         """
+
+    def check_unique_constraint_exists(self, connection: Connection, table_name: str, column_name: str) -> bool:
+        """Check if a unique constraint exists on the specified column using PostgreSQL INFORMATION_SCHEMA."""
+        check_sql = """
+        SELECT COUNT(*) FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+            ON tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema = kcu.table_schema
+        WHERE tc.table_name = :table_name
+            AND tc.constraint_type = 'UNIQUE'
+            AND kcu.column_name = :column_name
+        """
+        result = connection.execute(text(check_sql), {"table_name": table_name, "column_name": column_name})
+        return result.fetchone()[0] > 0
+
+    def create_unique_constraint(self, connection: Connection, table_name: str, column_name: str) -> str:
+        """Create a unique constraint on the specified column."""
+        constraint_name = f"{table_name}_{column_name}_unique"
+        # Use the naming mapper to format table and column names
+        formatted_table = self.nm.fmtTVI(table_name)
+        formatted_column = self.nm.fmtCol(column_name)
+        create_constraint_sql = f"ALTER TABLE {formatted_table} ADD CONSTRAINT {constraint_name} UNIQUE ({formatted_column})"
+        connection.execute(text(create_constraint_sql))
+        return constraint_name
+
+    def check_index_exists(self, connection: Connection, table_name: str, index_name: str) -> bool:
+        """Check if an index exists on the specified table using PostgreSQL system views."""
+        check_sql = """
+        SELECT COUNT(*) FROM pg_indexes
+        WHERE tablename = :table_name
+            AND indexname = :index_name
+            AND schemaname = 'public'
+        """
+        result = connection.execute(text(check_sql), {"table_name": table_name, "index_name": index_name})
+        return result.fetchone()[0] > 0
+
+    def create_index_sql(self, index_name: str, table_name: str, columns: List[str]) -> str:
+        """Generate SQL to create an index."""
+        formatted_table = self.nm.fmtTVI(table_name)
+        formatted_columns = [self.nm.fmtCol(col) for col in columns]
+        return f"CREATE INDEX {index_name} ON {formatted_table} ({', '.join(formatted_columns)})"

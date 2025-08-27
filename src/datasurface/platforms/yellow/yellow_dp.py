@@ -401,28 +401,16 @@ class YellowDatasetUtilities(JobUtilities):
     def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
         """Ensure that a unique constraint exists on the specified column"""
         with mergeEngine.begin() as connection:
-            # Check if the constraint already exists
-            check_sql = f"""
-            SELECT COUNT(*) FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.table_name = '{tableName}'
-                AND tc.constraint_type = 'UNIQUE'
-                AND kcu.column_name = '{columnName}'
-            """
-            result = connection.execute(sqlalchemy.text(check_sql))
-            constraint_exists = result.fetchone()[0] > 0
+            # Use database-specific constraint checking
+            constraint_exists = self.db_ops.check_unique_constraint_exists(connection, tableName, columnName)
 
             if not constraint_exists:
-                # Create the unique constraint
-                constraint_name = f"{tableName}_{columnName}_unique"
-                create_constraint_sql = f"ALTER TABLE {tableName} ADD CONSTRAINT {constraint_name} UNIQUE ({columnName})"
+                # Create the unique constraint using database-specific method
+                constraint_name = self.db_ops.create_unique_constraint(connection, tableName, columnName)
                 logger.debug("Creating unique constraint",
                              constraint_name=constraint_name,
                              table_name=tableName,
                              column_name=columnName)
-                connection.execute(sqlalchemy.text(create_constraint_sql))
                 logger.info("Successfully created unique constraint",
                             constraint_name=constraint_name,
                             table_name=tableName,

@@ -20,6 +20,7 @@ from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMil
 from typing import Any, Optional, Type
 from datetime import datetime
 from datasurface.platforms.yellow.jobs import Job
+from datetime import date
 
 # Check if SQL Server tests should be enabled
 ENABLE_SQLSERVER_TESTS = os.getenv("ENABLE_SQLSERVER_TESTS", "false").lower() == "true"
@@ -49,9 +50,22 @@ class TestMergeRemoteLive(unittest.TestCase):
             test_record: dict[str, Any] = test_data_dict[id]
             for key, value in test_record.items():
                 if key in ['dob', 'dod'] and value is not None:
-                    # Convert string date to date object for comparison
-                    expected_date = datetime.strptime(value, '%Y-%m-%d').date()
-                    self.assertEqual(record[key], expected_date, f"Record {record} does not match test data {test_record}")
+                    # Handle both string dates and date objects in test data
+                    if isinstance(value, str):
+                        expected_date = datetime.strptime(value, '%Y-%m-%d').date()
+                    elif isinstance(value, datetime):
+                        expected_date = value.date()
+                    else:
+                        expected_date = value  # Already a date object
+
+                    # Handle database record value - Oracle returns datetime objects for DATE columns
+                    actual_value = record[key]
+                    if isinstance(actual_value, datetime):
+                        actual_date = actual_value.date()
+                    else:
+                        actual_date = actual_value  # Already a date object
+
+                    self.assertEqual(actual_date, expected_date, f"Record {record} does not match test data {test_record}")
                 else:
                     self.assertEqual(record[key], value, f"Record {record} does not match test data {test_record}")
 
@@ -75,6 +89,12 @@ class TestMergeRemoteLive(unittest.TestCase):
             for key in primary_record.keys():
                 primary_value = primary_record[key]
                 remote_value = remote_record[key]
+                if key in ['dob', 'dod'] and remote_value is not None:
+                    # Make sure any datetime is converted to a date object for comparison
+                    if isinstance(remote_value, datetime):
+                        remote_value = remote_value.date()
+                    if isinstance(primary_value, datetime):
+                        primary_value = primary_value.date()
 
                 self.assertEqual(
                     remote_value,
@@ -121,22 +141,22 @@ class TestMergeRemoteLive(unittest.TestCase):
     def getBatchTestData(self) -> list[list[dict[str, Any]]]:
         batch_test_data: list[list[dict[str, Any]]] = [
             [  # Batch 1
-                {"id": "id1", "firstName": "billy", "lastName": "newport", "dob": "1980-01-01", "employer": "Company A", "dod": None}
+                {"id": "id1", "firstName": "billy", "lastName": "newport", "dob": date.fromisoformat("1980-01-01"), "employer": "Company A", "dod": None}
             ],
             [  # Batch 2
-                {"id": "id1", "firstName": "billy", "lastName": "newport", "dob": "1980-01-01", "employer": "Company A", "dod": None},
-                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": "1985-02-15", "employer": "Company B", "dod": None}
+                {"id": "id1", "firstName": "billy", "lastName": "newport", "dob": date.fromisoformat("1980-01-01"), "employer": "Company A", "dod": None},
+                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": date.fromisoformat("1985-02-15"), "employer": "Company B", "dod": None}
             ],
             [  # Batch 3
-                {"id": "id1", "firstName": "william", "lastName": "newport", "dob": "1980-01-01", "employer": "Company A", "dod": None},
-                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": "1985-02-15", "employer": "Company B", "dod": None}
+                {"id": "id1", "firstName": "william", "lastName": "newport", "dob": date.fromisoformat("1980-01-01"), "employer": "Company A", "dod": None},
+                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": date.fromisoformat("1985-02-15"), "employer": "Company B", "dod": None}
             ],
             [  # Batch 4
-                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": "1985-02-15", "employer": "Company B", "dod": None}
+                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": date.fromisoformat("1985-02-15"), "employer": "Company B", "dod": None}
             ],
             [  # Batch 5
-                {"id": "id1", "firstName": "billy", "lastName": "newport", "dob": "1980-01-01", "employer": "Company A", "dod": None},
-                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": "1985-02-15", "employer": "Company B", "dod": None}
+                {"id": "id1", "firstName": "billy", "lastName": "newport", "dob": date.fromisoformat("1980-01-01"), "employer": "Company A", "dod": None},
+                {"id": "id2", "firstName": "laura", "lastName": "diaz", "dob": date.fromisoformat("1985-02-15"), "employer": "Company B", "dod": None}
             ]
         ]
         return batch_test_data
@@ -233,6 +253,18 @@ class TestMergeRemoteLive(unittest.TestCase):
     def test_5_batches_remote_live_one_by_one_SQLServer(self) -> None:
         live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSQLServer", "Store2", SnapshotMergeJobRemoteLive)
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
+
+        self.assertEqual(live_utils.job.numReconcileDDLs, 1)
+        self.assertEqual(merge_utils.job.numReconcileDDLs, 1)
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
+    @skip_oracle
+    def test_5_batches_remote_live_one_by_one_Oracle(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveOracle", "Store3", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicOracle", "Store3", SnapshotMergeJobForensic)
 
         self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
 
@@ -481,7 +513,7 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         # Batch 1: seed a single record
         seed_data: list[dict[str, Any]] = [
-            {"id": "id1", "firstName": "a", "lastName": "b", "dob": "2000-01-01", "employer": "X", "dod": None}
+            {"id": "id1", "firstName": "a", "lastName": "b", "dob": date.fromisoformat("2000-01-01"), "employer": "X", "dod": None}
         ]
         merge_utils.common_clear_and_insert_data(seed_data, self)
         self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
@@ -502,7 +534,7 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         # Batch 1: insert id1
         merge_utils.common_clear_and_insert_data([
-            {"id": "id1", "firstName": "a", "lastName": "b", "dob": "2000-01-01", "employer": "X", "dod": None}
+            {"id": "id1", "firstName": "a", "lastName": "b", "dob": date.fromisoformat("2000-01-01"), "employer": "X", "dod": None}
         ], self)
         self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
         self.assertEqual(live_utils.runJob(), JobStatus.DONE)
@@ -516,7 +548,7 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         # Batch 3: re-insert id1 with new employer
         merge_utils.common_clear_and_insert_data([
-            {"id": "id1", "firstName": "aa", "lastName": "bb", "dob": "2000-01-01", "employer": "Y", "dod": None}
+            {"id": "id1", "firstName": "aa", "lastName": "bb", "dob": date.fromisoformat("2000-01-01"), "employer": "Y", "dod": None}
         ], self)
         self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
         self.assertEqual(live_utils.runJob(), JobStatus.DONE)
@@ -532,7 +564,7 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         # Batch 1: insert id1
         merge_utils.common_clear_and_insert_data([
-            {"id": "id1", "firstName": "a", "lastName": "b", "dob": "2000-01-01", "employer": "X", "dod": None}
+            {"id": "id1", "firstName": "a", "lastName": "b", "dob": date.fromisoformat("2000-01-01"), "employer": "X", "dod": None}
         ], self)
         self.assertEqual(merge_utils.runJob(), JobStatus.DONE)
 
