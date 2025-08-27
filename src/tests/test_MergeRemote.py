@@ -293,6 +293,16 @@ class TestMergeRemoteLive(unittest.TestCase):
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
 
+    @skip_oracle
+    def test_5_batches_remote_live_b3_then_one_by_one_Oracle(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveOracle", "Store3", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicOracle", "Store3", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
     def test_5_batches_remote_forensic_b3_then_one_by_one(self) -> None:
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", "Store1", SnapshotMergeJobRemoteForensic)
@@ -306,6 +316,16 @@ class TestMergeRemoteLive(unittest.TestCase):
     def test_5_batches_remote_forensic_b3_then_one_by_one_SQLServer(self) -> None:
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSQLServer", "Store2", SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSQLServer", "Store2", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
+
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_oracle
+    def test_5_batches_remote_forensic_b3_then_one_by_one_Oracle(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicOracle", "Store3", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicOracle", "Store3", SnapshotMergeJobRemoteForensic)
 
         self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
 
@@ -420,6 +440,26 @@ class TestMergeRemoteLive(unittest.TestCase):
     @skip_sqlserver
     def test_5_batches_remote_forensic_b3_then_two_SQLServer(self) -> None:
         live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSQLServer("Store2")
+
+        self.generic_test_5_batches_remote_live_b3_then_two(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_oracle
+    def test_5_batches_remote_live_b3_then_two_Oracle(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsOracle("Store3")
+
+        self.generic_test_5_batches_remote_live_b3_then_two(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_oracle
+    def test_5_batches_remote_forensic_b3_then_two_Oracle(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsOracle("Store3")
 
         self.generic_test_5_batches_remote_live_b3_then_two(remote_merge_utils, merge_utils)
 
