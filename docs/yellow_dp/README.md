@@ -1,6 +1,6 @@
 # YellowDataPlatform: A Modern, Kubernetes-Native Data Platform
 
-*How DataSurface's initial data platform revolutionizes enterprise data ingestion with PostgreSQL, Airflow, and intelligent orchestration*
+*How DataSurface's initial data platform revolutionizes enterprise data ingestion with SQL Databases, Airflow, and intelligent orchestration*
 
 ## Introduction: The Enterprise Data Pipeline Problem
 
@@ -48,7 +48,7 @@ YellowDataPlatform serves as DataSurface's initial implementation - a production
 YellowDataPlatform embodies a **"start simple, scale smart"** philosophy tailored for small to medium enterprises:
 
 - **SQL-First Architecture**: Betting on SQL's 40+ year proven track record rather than complex distributed systems
-- **PostgreSQL as Foundation**: Leveraging PostgreSQL's proven reliability and surprising scalability for most enterprise workloads
+- **SQL Databases as Foundation**: Leveraging SQL Databases' proven reliability and surprising scalability for most enterprise workloads
 - **Kubernetes-Native**: Built for modern cloud environments while maintaining operational simplicity
 - **Pragmatic Scaling**: Easy to start with, transparent evolution path as organizations grow
 
@@ -66,15 +66,16 @@ YellowDataPlatform consists of four primary technical components:
 
 #### 2. **Apache Airflow Job Scheduling**
 - Leverages Airflow's dynamic DAG generation for flexible ingestion stream management
-- PostgreSQL-backed DAG configuration stored in `platform_airflow_dsg` table
+- SQL Database-backed DAG configuration stored in `platform_airflow_dsg` table
 - Kubernetes Pod Operators for executing DataSurface jobs
 - Standard Airflow scheduling and monitoring capabilities
 
-#### 3. **PostgreSQL Data Storage**
+#### 3. **SQL Database Data Storage**
 - **Staging Tables**: Raw ingested data with batch metadata
 - **Merge Tables**: Clean, queryable data for consumers
 - **Workspace Views**: Consumer-specific data access with proper permissions
 - High-performance indexing for both staging and merge operations
+- Supports PostgreSQL, SQLServer, Oracle, DB2
 
 #### 4. **Kafka Connect Integration**
 - Seamless ingestion from SQL databases
@@ -311,15 +312,16 @@ This approach provides:
 
 ## Performance and Scalability Considerations
 
-### PostgreSQL as the Foundation
+### SQL Databases as the Foundation
 
-YellowDataPlatform's choice of PostgreSQL as the primary storage engine is deliberate and strategic:
+YellowDataPlatform's choice of SQL Databases as the primary storage engine is deliberate and strategic:
 
 **Scalability Reality Check:**
-- Modern PostgreSQL instances can scale to **32 vCores with 128GB RAM**
-- AWS RDS supports instances up to **192 vCores with 768GB RAM**
+- Modern SQL Databases instances can scale to large hardware footprints
+- AWS RDS supports instances up to 192 vCores with 768GB RAM
 - **The fastest distributed database is a single-node database large enough for the workload**
 - Distribution has costs; single-node systems outperform distributed systems up to a significant threshold
+- The fastest distributed database is a single-node database large enough for the workload
 
 **Performance Optimizations:**
 ```sql
@@ -457,7 +459,7 @@ YellowDataPlatform represents a paradigm shift for small to medium enterprise da
 
 ## How to start up DataSurface with the YellowDataPlatform
 
-We are testing this now on MacBook with Docker Desktop and it's local kubernetes cluster. We are also testing on a Dell Ubuntu 24 with kubernetes installed. The easiest way to get this running is the follow the instructions in the HOWTO: Setup YellowDataPlatform Kubernetes Environment.
+We are also testing on a Dell Ubuntu 24 with kubernetes installed. The easiest way to get this running is the follow the instructions in the HOWTO: Setup YellowDataPlatform Kubernetes Environment.
 
 We currently ask the agentic AI in cursor to follow the instructions in the HOWTO and it takes maybe 5 minutes to get a working environment on a Mac. We are specifically designing HOWTOs that are easy for the AI to follow.
 
