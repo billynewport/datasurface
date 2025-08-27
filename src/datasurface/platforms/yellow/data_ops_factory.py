@@ -10,7 +10,8 @@ from datasurface.platforms.yellow.data_ops_postgres import PostgresDatabaseOpera
 from datasurface.platforms.yellow.data_ops_sqlserver import SQLServerDatabaseOperations
 from datasurface.platforms.yellow.data_ops_oracle import OracleDatabaseOperations
 from datasurface.platforms.yellow.data_ops_db2 import DB2DatabaseOperations
-from datasurface.md import DataContainer, PostgresDatabase, SQLServerDatabase, OracleDatabase, DB2Database
+from datasurface.platforms.yellow.data_ops_snowflake import SnowflakeDatabaseOperations
+from datasurface.md import DataContainer, PostgresDatabase, SQLServerDatabase, OracleDatabase, DB2Database, SnowFlakeDatabase
 import os
 import time
 import functools
@@ -113,9 +114,12 @@ class DatabaseOperationsFactory:
         elif isinstance(data_container, DB2Database):
             operations = DB2DatabaseOperations(schema_projector, data_container)
             prefix = "DB2_"
+        elif isinstance(data_container, SnowFlakeDatabase):
+            operations = SnowflakeDatabaseOperations(schema_projector, data_container)
+            prefix = "SNOWFLAKE_"
         else:
             raise ValueError(f"Unsupported database type: {type(data_container)}. "
-                             f"Supported types: PostgresDatabase, SQLServerDatabase, OracleDatabase, DB2Database")
+                             f"Supported types: PostgresDatabase, SQLServerDatabase, OracleDatabase, DB2Database, SnowFlakeDatabase")
 
         # Check if timing is enabled via environment variable
         enable_timing = os.getenv('ENABLE_DATABASE_TIMING', '').lower() in ('true', '1', 'yes', 'on')

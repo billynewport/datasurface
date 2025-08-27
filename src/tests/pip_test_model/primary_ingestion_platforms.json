@@ -14,5 +14,9 @@
     {
         "storeName": "Store4",
         "dataPlatforms": ["YellowForensicDB2"]
+    },
+    {
+        "storeName": "Store5",
+        "dataPlatforms": ["YellowForensicSnowflake"]
     }
 ]

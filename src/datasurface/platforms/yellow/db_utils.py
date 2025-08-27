@@ -87,6 +87,8 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
             query_params["warehouse"] = container.warehouse
         if container.role:
             query_params["role"] = container.role
+        if container.schema:
+            query_params["schema"] = container.schema
         url_params = {
             "drivername": driverName,
             "username": userName,

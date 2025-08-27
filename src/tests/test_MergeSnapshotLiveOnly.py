@@ -25,6 +25,8 @@ from abc import ABC
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.platforms.yellow.db_utils import createInspector
+import os
+from datasurface.md import SnowFlakeDatabase
 
 
 class BaseMergeJobTest(ABC):
@@ -187,6 +189,16 @@ class BaseMergeJobTest(ABC):
             mock_cred_store = MockCredentialStore("system", "pass@w0rd")
         elif isinstance(self.dp.psp.mergeStore, DB2Database):
             mock_cred_store = MockCredentialStore("db2inst1", "pass@w0rd")
+        elif isinstance(self.dp.psp.mergeStore, SnowFlakeDatabase):
+            # Read password from environment variable, SNOWFLAKE_PASSWORD
+            password = os.getenv("SNOWFLAKE_PASSWORD")
+            if password is None:
+                raise Exception("SNOWFLAKE_PASSWORD environment variable is not set")
+            # Read username from environment variable, SNOWFLAKE_USERNAME
+            username = os.getenv("SNOWFLAKE_USERNAME")
+            if username is None:
+                raise Exception("SNOWFLAKE_USERNAME environment variable is not set")
+            mock_cred_store = MockCredentialStore(username, password)
         else:
             raise Exception(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
 
@@ -211,7 +223,8 @@ class BaseMergeJobTest(ABC):
         assert self.store.cmd.credential is not None
         username, password = self.dp.psp.credStore.getAsUserPassword(self.store.cmd.credential)
         assert self.store.cmd.dataContainer is not None
-        assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
+        # Allow Snowflake containers in addition to host/port SQL databases
+        assert isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase))
         self.source_engine = db_utils.createEngine(self.store.cmd.dataContainer, username, password)
 
         # Create merge engine using the actual merge store configuration
@@ -250,7 +263,8 @@ class BaseMergeJobTest(ABC):
         """Check the batch status for a given key"""
         with self.merge_engine.begin() as conn:
             nm = self.ydu.dp.psp.namingMapper
-            result = conn.execute(text(f'SELECT {nm.fmtCol("currentBatch")} FROM {self.ydu.getPhysBatchCounterTableName()} WHERE {nm.fmtCol("key")} = \'' + key + '\''))
+            result = conn.execute(
+                text(f'SELECT {nm.fmtCol("currentBatch")} FROM {self.ydu.getPhysBatchCounterTableName()} WHERE {nm.fmtCol("key")} = \'' + key + '\''))
             row = result.fetchone()
             current_batch = row[0] if row else 0
             tc.assertEqual(current_batch, expected_batch)

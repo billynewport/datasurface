@@ -18,7 +18,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape, Template
 from datasurface.md.credential import CredentialStore, CredentialType, CredentialTypeNotSupportedProblem, CredentialNotAvailableException, \
     CredentialNotAvailableProblem
 from datasurface.md import SchemaProjector, DataContainerNamingMapper, Dataset, DataPlatformChooser, WorkspacePlatformConfig, \
-    DataMilestoningStrategy, HostPortSQLDatabase
+    DataMilestoningStrategy, SQLDatabase, HostPortSQLDatabase
 from datasurface.md import DataPlatformManagedDataContainer, PlatformServicesProvider
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyList
 from datasurface.md.types import Integer, VarChar
@@ -791,8 +791,6 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
             context: dict[str, Any] = {
                 "ingest_nodes": ingest_nodes,
-                "database_host": self.dp.psp.mergeStore.hostPortPair.hostName,
-                "database_port": self.dp.psp.mergeStore.hostPortPair.port,
                 "database_name": self.dp.psp.mergeStore.databaseName,
                 "database_user": pg_user,
                 "database_password": pg_password,
@@ -800,6 +798,11 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                 "kafka_api_secret": kafka_api_secret,  # Placeholder
                 # Add default_connector_config if defined in KPSGraphHandler
             }
+            if isinstance(self.dp.psp.mergeStore, HostPortSQLDatabase):
+                context["database_host"] = self.dp.psp.mergeStore.hostPortPair.hostName
+                context["database_port"] = self.dp.psp.mergeStore.hostPortPair.port
+            else:
+                raise ValueError(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
 
             # Render the template once with the full context
             with log_operation_timing(logger, "terraform_code_generation", platform_name=platform.name):
@@ -1095,9 +1098,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                     "merge_db_driver": merge_db_driver,
-                    "merge_db_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
                     "merge_db_database": self.dp.psp.mergeStore.databaseName,
-                    "merge_db_port": self.dp.psp.mergeStore.hostPortPair.port,
                     "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
                     "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
                     "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
@@ -1111,6 +1112,11 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "pv_storage_class": self.dp.psp.pv_storage_class,
                 }
             )
+            if isinstance(self.dp.psp.mergeStore, HostPortSQLDatabase):
+                common_context["merge_db_hostname"] = self.dp.psp.mergeStore.hostPortPair.hostName
+                common_context["merge_db_port"] = self.dp.psp.mergeStore.hostPortPair.port
+            else:
+                raise ValueError(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
             if merge_db_query:
                 common_context["merge_db_query"] = merge_db_query
 
@@ -1287,9 +1293,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                     "merge_db_driver": merge_db_driver,
-                    "merge_db_hostname": self.dp.psp.mergeStore.hostPortPair.hostName,
                     "merge_db_database": self.dp.psp.mergeStore.databaseName,
-                    "merge_db_port": self.dp.psp.mergeStore.hostPortPair.port,
                     "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
                     "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
                     "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
@@ -1303,6 +1307,11 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "pv_storage_class": self.dp.psp.pv_storage_class,
                 }
             )
+            if isinstance(self.dp.psp.mergeStore, HostPortSQLDatabase):
+                common_context["merge_db_hostname"] = self.dp.psp.mergeStore.hostPortPair.hostName
+                common_context["merge_db_port"] = self.dp.psp.mergeStore.hostPortPair.port
+            else:
+                raise ValueError(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
             if merge_db_query:
                 common_context["merge_db_query"] = merge_db_query
 
@@ -1744,7 +1753,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
     def __init__(self, name: str, locs: set[LocationKey], doc: Documentation,
                  gitCredential: Credential,
                  connectCredentials: Credential,
-                 merge_datacontainer: HostPortSQLDatabase,
+                 merge_datacontainer: SQLDatabase,
                  mergeRW_Credential: Credential,
                  yp_assembly: K8sAssemblyFactory,
                  kafkaConnectName: str = "kafka-connect",
@@ -1773,11 +1782,10 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         self.connectCredentials: Credential = connectCredentials
         self.kafkaConnectName: str = kafkaConnectName
         self.kafkaClusterName: str = kafkaClusterName
-        self.merge_datacontainer: HostPortSQLDatabase = merge_datacontainer
         self.airflowName: str = airflowName
         self.datasurfaceDockerImage: str = datasurfaceDockerImage
         self.pv_storage_class: str = pv_storage_class
-        self.mergeStore: HostPortSQLDatabase = merge_datacontainer
+        self.mergeStore: SQLDatabase = merge_datacontainer
         self.namingMapper: DataContainerNamingMapper = self.mergeStore.getNamingAdapter()
         self.image_pull_policy: K8sImagePullPolicy = image_pull_policy
         self.kafkaConnectCluster = KafkaConnectCluster(
@@ -1822,7 +1830,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                 "connectCredentials": self.connectCredentials.to_json(),
                 "kafkaConnectName": self.kafkaConnectName,
                 "kafkaClusterName": self.kafkaClusterName,
-                "merge_datacontainer": self.merge_datacontainer.to_json(),
+                "mergeStore": self.mergeStore.to_json(),
                 "airflowName": self.airflowName,
                 "datasurfaceDockerImage": self.datasurfaceDockerImage,
                 "pv_storage_class": self.pv_storage_class,
@@ -1929,9 +1937,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                         "ecosystem_name": eco.name,  # Original ecosystem name
                         "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                         "merge_db_driver": merge_db_driver,
-                        "merge_db_hostname": self.mergeStore.hostPortPair.hostName,
                         "merge_db_database": self.mergeStore.databaseName,
-                        "merge_db_port": self.mergeStore.hostPortPair.port,
                         "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),
                         "git_credential_secret_name": K8sUtils.to_k8s_name(self.gitCredential.name),
                         "git_credential_name": self.gitCredential.name,  # Original credential name for job parameter
@@ -1947,6 +1953,11 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                         # Git cache configuration variables
                         "pv_storage_class": self.pv_storage_class
                     })
+                if isinstance(self.mergeStore, HostPortSQLDatabase):
+                    common_context["merge_db_hostname"] = self.mergeStore.hostPortPair.hostName
+                    common_context["merge_db_port"] = self.mergeStore.hostPortPair.port
+                else:
+                    raise ValueError(f"Unsupported merge store type: {type(self.mergeStore)}")
                 if merge_db_query:
                     common_context["merge_db_query"] = merge_db_query
 
@@ -2109,9 +2120,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                     "merge_db_driver": merge_db_driver,
-                    "merge_db_hostname": self.mergeStore.hostPortPair.hostName,
                     "merge_db_database": self.mergeStore.databaseName,
-                    "merge_db_port": self.mergeStore.hostPortPair.port,
                     "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),
                     "airflow_name": K8sUtils.to_k8s_name(self.airflowName),
                     "airflow_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),  # Airflow uses postgres creds
@@ -2132,6 +2141,11 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     "phys_factory_table_name": self.getPhysFactoryDAGTableName(),  # Factory DAG configuration table
                     "image_pull_policy": self.image_pull_policy.value
                 })
+            if isinstance(self.mergeStore, HostPortSQLDatabase):
+                context["merge_db_hostname"] = self.mergeStore.hostPortPair.hostName
+                context["merge_db_port"] = self.mergeStore.hostPortPair.port
+            else:
+                raise ValueError(f"Unsupported merge store type: {type(self.mergeStore)}")
             if merge_db_query:
                 context["merge_db_query"] = merge_db_query
 

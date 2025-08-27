@@ -724,6 +724,9 @@ class SQLDatabase(DataContainer):
     def getNamingAdapter(self) -> DataContainerNamingMapper:
         return DefaultDataContainerNamingMapper(self.identifierLengthLimit)
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 class HostPortPair(UserDSLObject):
     """This represents a host and port pair"""
@@ -828,11 +831,13 @@ class SnowFlakeDatabase(SQLDatabase):
             account: str = "",
             region: Optional[str] = None,
             warehouse: Optional[str] = None,
+            schema: Optional[str] = None,
             role: Optional[str] = None) -> None:
-        super().__init__(name, locations, databaseName, identifierLengthLimit=128)
+        super().__init__(name, locations, databaseName, identifierLengthLimit=255)
         self.account: str = account
         self.region: Optional[str] = region
         self.warehouse: Optional[str] = warehouse
+        self.schema: Optional[str] = schema
         self.role: Optional[str] = role
 
     def to_json(self) -> dict[str, Any]:
@@ -842,7 +847,8 @@ class SnowFlakeDatabase(SQLDatabase):
             "account": self.account,
             "region": self.region,
             "warehouse": self.warehouse,
-            "role": self.role
+            "role": self.role,
+            "schema": self.schema
         })
         return rc
 
@@ -852,14 +858,15 @@ class SnowFlakeDatabase(SQLDatabase):
                 self.account == other.account and \
                 self.region == other.region and \
                 self.warehouse == other.warehouse and \
-                self.role == other.role
+                self.role == other.role and \
+                self.schema == other.schema
         return False
 
     def __hash__(self) -> int:
         return hash(self.name)
 
     def getNamingAdapter(self) -> DataContainerNamingMapper:
-        return DefaultDataContainerNamingMapper(self.identifierLengthLimit)
+        return DefaultDataContainerNamingMapper(self.identifierLengthLimit, allowQuotes=("\"", "\""))
 
 
 class PostgresDatabase(HostPortSQLDatabase):

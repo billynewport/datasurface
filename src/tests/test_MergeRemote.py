@@ -40,6 +40,12 @@ skip_db2 = pytest.mark.skipif(
     not ENABLE_DB2_TESTS,
     reason="DB2 tests disabled. Set ENABLE_DB2_TESTS=true to enable."
 )
+# Check if Snowflake tests should be enabled
+ENABLE_SNOWFLAKE_TESTS = os.getenv("ENABLE_SNOWFLAKE_TESTS", "false").lower() == "true"
+skip_snowflake = pytest.mark.skipif(
+    not ENABLE_SNOWFLAKE_TESTS,
+    reason="Snowflake tests disabled. Set ENABLE_SNOWFLAKE_TESTS=true to enable."
+)
 
 
 class TestMergeRemoteLive(unittest.TestCase):
@@ -148,6 +154,12 @@ class TestMergeRemoteLive(unittest.TestCase):
         live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveDB2", storeName, SnapshotMergeJobRemoteLive)
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicDB2", storeName, SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicDB2", storeName, SnapshotMergeJobRemoteForensic)
+        return live_utils, merge_utils, remote_merge_utils
+
+    def setup_live_and_merge_batch_runsSnowflake(self, storeName: str) -> tuple[BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest, BaseSnapshotMergeJobTest]:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSnowflake", storeName, SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSnowflake", storeName, SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSnowflake", storeName, SnapshotMergeJobRemoteForensic)
         return live_utils, merge_utils, remote_merge_utils
 
     def getBatchTestData(self) -> list[list[dict[str, Any]]]:
@@ -259,6 +271,13 @@ class TestMergeRemoteLive(unittest.TestCase):
 
         self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
 
+    @skip_snowflake
+    def test_5_batches_remote_forensic_one_by_one_Snowflake(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSnowflake", "Store5", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSnowflake", "Store5", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_one_by_one(remote_merge_utils, merge_utils)
+
     def test_5_batches_remote_live_one_by_one(self) -> None:
         live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLive", "Store1", SnapshotMergeJobRemoteLive)
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
@@ -296,6 +315,18 @@ class TestMergeRemoteLive(unittest.TestCase):
     def test_5_batches_remote_live_one_by_one_DB2(self) -> None:
         live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveDB2", "Store4", SnapshotMergeJobRemoteLive)
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicDB2", "Store4", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
+
+        self.assertEqual(live_utils.job.numReconcileDDLs, 1)
+        self.assertEqual(merge_utils.job.numReconcileDDLs, 1)
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
+    @skip_snowflake
+    def test_5_batches_remote_live_one_by_one_Snowflake(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSnowflake", "Store5", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSnowflake", "Store5", SnapshotMergeJobForensic)
 
         self.generic_test_5_batches_one_by_one(live_utils, merge_utils)
 
@@ -344,6 +375,16 @@ class TestMergeRemoteLive(unittest.TestCase):
         live_utils.baseTearDown()
         merge_utils.baseTearDown()
 
+    @skip_snowflake
+    def test_5_batches_remote_live_b3_then_one_by_one_Snowflake(self) -> None:
+        live_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowLiveSnowflake", "Store5", SnapshotMergeJobRemoteLive)
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSnowflake", "Store5", SnapshotMergeJobForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+
     def test_5_batches_remote_forensic_b3_then_one_by_one(self) -> None:
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensic", "Store1", SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensic", "Store1", SnapshotMergeJobRemoteForensic)
@@ -377,6 +418,16 @@ class TestMergeRemoteLive(unittest.TestCase):
     def test_5_batches_remote_forensic_b3_then_one_by_one_DB2(self) -> None:
         merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicDB2", "Store4", SnapshotMergeJobForensic)
         remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicDB2", "Store4", SnapshotMergeJobRemoteForensic)
+
+        self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
+
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_snowflake
+    def test_5_batches_remote_forensic_b3_then_one_by_one_Snowflake(self) -> None:
+        merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowForensicSnowflake", "Store5", SnapshotMergeJobForensic)
+        remote_merge_utils: BaseSnapshotMergeJobTest = self.setup_stream_test("YellowRemoteForensicSnowflake", "Store5", SnapshotMergeJobRemoteForensic)
 
         self.generic_test_5_batches_remote_live_b3_then_one_by_one(remote_merge_utils, merge_utils)
 
@@ -538,6 +589,26 @@ class TestMergeRemoteLive(unittest.TestCase):
         merge_utils.baseTearDown()
         remote_merge_utils.baseTearDown()
 
+    @skip_snowflake
+    def test_5_batches_remote_live_b3_then_two_Snowflake(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSnowflake("Store5")
+
+        self.generic_test_5_batches_remote_live_b3_then_two(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_snowflake
+    def test_5_batches_remote_forensic_b3_then_two_Snowflake(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSnowflake("Store5")
+
+        self.generic_test_5_batches_remote_live_b3_then_two(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
     def generic_test_5_batches_remote_live_b5(self, test_utils: BaseSnapshotMergeJobTest, pip_utils: BaseSnapshotMergeJobTest) -> None:
         pip_utils.common_clear_and_insert_data([], self)
 
@@ -612,6 +683,66 @@ class TestMergeRemoteLive(unittest.TestCase):
     @skip_sqlserver
     def test_5_batches_remote_forensic_b5_SQLServer(self) -> None:
         live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSQLServer("Store2")
+
+        self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_oracle
+    def test_5_batches_remote_live_b5_Oracle(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsOracle("Store3")
+
+        self.generic_test_5_batches_remote_live_b5(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_oracle
+    def test_5_batches_remote_forensic_b5_Oracle(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsOracle("Store3")
+
+        self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_db2
+    def test_5_batches_remote_live_b5_DB2(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsDB2("Store4")
+
+        self.generic_test_5_batches_remote_live_b5(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_db2
+    def test_5_batches_remote_forensic_b5_DB2(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsDB2("Store4")
+
+        self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_snowflake
+    def test_5_batches_remote_live_b5_Snowflake(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSnowflake("Store5")
+
+        self.generic_test_5_batches_remote_live_b5(live_utils, merge_utils)
+
+        live_utils.baseTearDown()
+        merge_utils.baseTearDown()
+        remote_merge_utils.baseTearDown()
+
+    @skip_snowflake
+    def test_5_batches_remote_forensic_b5_Snowflake(self) -> None:
+        live_utils, merge_utils, remote_merge_utils = self.setup_live_and_merge_batch_runsSnowflake("Store5")
 
         self.generic_test_5_batches_remote_live_b5(remote_merge_utils, merge_utils)
 

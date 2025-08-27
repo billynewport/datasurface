@@ -11,7 +11,7 @@ from datasurface.md.repo import GitHubRepository
 from datasurface.platforms.yellow import YellowDataPlatform, YellowMilestoneStrategy, YellowPlatformServiceProvider
 from datasurface.md import CloudVendor
 from datasurface.md import ValidationTree
-from datasurface.md.governance import HostPortPair
+from datasurface.md.governance import HostPortPair, SnowFlakeDatabase
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus, PrimaryKeyStatus
 from datasurface.md.types import VarChar, Date
 from datasurface.md.policy import SimpleDC, SimpleDCTypes
@@ -162,6 +162,49 @@ def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
                 CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
                 IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
                 Credential("system", CredentialType.USER_PASSWORD),  # Credential for platform to read from database
+                ),
+            datasets=[
+                Dataset(
+                    "people",
+                    schema=DDLTable(
+                        columns=[
+                            DDLColumn(
+                                "id", VarChar(20), nullable=NullableStatus.NOT_NULLABLE, primary_key=PrimaryKeyStatus.PK,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Unique Identifier")]),
+                            DDLColumn(
+                                "firstName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "First Name")]),
+                            DDLColumn(
+                                "lastName", VarChar(100), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Last Name")]),
+                            DDLColumn(
+                                "dob", Date(), nullable=NullableStatus.NOT_NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Birth")]),
+                            DDLColumn(
+                                "employer", VarChar(100), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Employer")]),
+                            DDLColumn(
+                                "dod", Date(), nullable=NullableStatus.NULLABLE,
+                                classifications=[SimpleDC(SimpleDCTypes.CPI, "Date of Death")])
+                        ]
+                    )
+                )
+            ]
+        ),
+        Datastore(
+            "Store5",
+            documentation=PlainTextDocumentation("Test datastore"),
+            capture_metadata=SQLSnapshotIngestion(
+                SnowFlakeDatabase(
+                    name="Snowflake_Test_DB",  # Model name for database
+                    locations={LocationKey("MyCorp:USA/NY_1")},  # Locations for database
+                    databaseName="SNOWFLAKE_LEARNING_DB",  # Database name
+                    account="HORSEQD-GQC71098",
+                    schema="PUBLIC"
+                ),
+                CronTrigger("Test_DB Every 10 mins", "0,10,20,30,40,50 * * * *"),  # Cron trigger for ingestion
+                IngestionConsistencyType.MULTI_DATASET,  # Ingestion consistency type
+                Credential("sf_cred", CredentialType.USER_PASSWORD),  # Credential for platform to read from database
                 ),
             datasets=[
                 Dataset(
@@ -394,6 +437,57 @@ def defineTablesAndWorkspaces(eco: Ecosystem, gz: GovernanceZone, t: Team):
                     )
                 )
             )
+        ),
+        Workspace(
+            "SnowflakeConsumerLive",
+            DataPlatformManagedDataContainer("SnowflakeConsumerLive container"),
+            DatasetGroup(
+                "DSGLive",
+                sinks=[
+                    DatasetSink("Store5", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.LIVE_ONLY,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
+        ),
+        Workspace(
+            "SnowflakeConsumerForensic",
+            DataPlatformManagedDataContainer("SnowflakeConsumerForensic container"),
+            DatasetGroup(
+                "DSGForensic",
+                sinks=[
+                    DatasetSink("Store5", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.FORENSIC,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
+        ),
+        Workspace(
+            "SnowflakeConsumerRemoteForensic",
+            DataPlatformManagedDataContainer("SnowflakeConsumerRemoteForensic container"),
+            DatasetGroup(
+                "DSGForensic",
+                sinks=[
+                    DatasetSink("Store5", "people")
+                ],
+                platform_chooser=WorkspacePlatformConfig(
+                    hist=ConsumerRetentionRequirements(
+                        r=DataMilestoningStrategy.FORENSIC,
+                        latency=DataLatency.MINUTES,
+                        regulator=None
+                    )
+                )
+            )
         )
     )
 
@@ -425,6 +519,13 @@ def createEcosystem() -> Ecosystem:
         hostPort=HostPortPair("db2", 50000),
         locations={LocationKey("MyCorp:USA/NY_1")},
         databaseName="TESTDB"
+    )
+    merge_snowflake_datacontainer: SnowFlakeDatabase = SnowFlakeDatabase(
+        "MergeDB",
+        locations={LocationKey("MyCorp:USA/NY_1")},
+        databaseName="SNOWFLAKE_LEARNING_DB",
+        account="HORSEQD-GQC71098",
+        schema="PUBLIC"
     )
 
     gitcache: GitCacheConfig = GitCacheConfig(
@@ -497,6 +598,24 @@ def createEcosystem() -> Ecosystem:
     )
     yp_assmDB2: YellowExternalSingleDatabaseAssembly = YellowExternalSingleDatabaseAssembly(
         name="Test_DP_DB2",
+        namespace=f"{KUB_NAME_SPACE}",
+        git_cache_config=gitcache,
+        afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
+        afWebserverResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("1G"),
+            limits_memory=StorageRequirement("2G"),
+            requested_cpu=1.0,
+            limits_cpu=2.0
+        ),
+        afSchedulerResourceLimits=K8sResourceLimits(
+            requested_memory=StorageRequirement("4G"),
+            limits_memory=StorageRequirement("4G"),
+            requested_cpu=4.0,
+            limits_cpu=4.0
+        )
+    )
+    yp_assmSnowflake: YellowExternalSingleDatabaseAssembly = YellowExternalSingleDatabaseAssembly(
+        name="Test_DP_Snowflake",
         namespace=f"{KUB_NAME_SPACE}",
         git_cache_config=gitcache,
         afHostPortPair=HostPortPair(f"airflow-service.{KUB_NAME_SPACE}.svc.cluster.local", 8080),
@@ -625,11 +744,39 @@ def createEcosystem() -> Ecosystem:
                 )
         ]
     )
+    pspSnowflake: YellowPlatformServiceProvider = YellowPlatformServiceProvider(
+        "Test_DP_Snowflake",
+        {LocationKey("MyCorp:USA/NY_1")},
+        PlainTextDocumentation("Test"),
+        yp_assembly=yp_assmSnowflake,
+        gitCredential=Credential("git", CredentialType.API_TOKEN),
+        connectCredentials=Credential("connect", CredentialType.API_TOKEN),
+        mergeRW_Credential=Credential("system", CredentialType.USER_PASSWORD),
+        merge_datacontainer=merge_snowflake_datacontainer,
+        pv_storage_class="longhorn",
+        dataPlatforms=[
+            YellowDataPlatform(
+                name="YellowLiveSnowflake",
+                doc=PlainTextDocumentation("Live Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD1
+                ),
+            YellowDataPlatform(
+                "YellowForensicSnowflake",
+                doc=PlainTextDocumentation("Forensic Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD2
+                ),
+            YellowDataPlatform(
+                "YellowRemoteForensicSnowflake",
+                doc=PlainTextDocumentation("Forensic remote Yellow DataPlatform"),
+                milestoneStrategy=YellowMilestoneStrategy.SCD2
+                )
+        ]
+    )
 
     ecosys: Ecosystem = Ecosystem(
         name="WorldWideImporters",
         repo=GitHubRepository("billynewport/mvpmodel", "main"),
-        platform_services_providers=[psp, pspSQLServer, pspOracle, pspDB2],
+        platform_services_providers=[psp, pspSQLServer, pspOracle, pspDB2, pspSnowflake],
         governance_zone_declarations=[
             GovernanceZoneDeclaration("USA", GitHubRepository("billynewport/repo", "USAmain"))
         ],

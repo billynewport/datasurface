@@ -4,7 +4,7 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint, HostPortSQLDatabase
+    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint, HostPortSQLDatabase, SnowFlakeDatabase
 )
 from sqlalchemy import Table, text
 import sqlalchemy
@@ -87,7 +87,7 @@ class Job(YellowDatasetUtilities):
             self.source_db_ops: DatabaseOperations = self.merge_db_ops
         else:
             assert self.store.cmd.dataContainer is not None
-            assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
+            assert isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase))
             self.source_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
                 self.store.cmd.dataContainer, self.schemaProjector
             )
@@ -430,7 +430,7 @@ class Job(YellowDatasetUtilities):
             # Now, get an Engine for the source database
             sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
             assert self.store.cmd.dataContainer is not None
-            assert isinstance(self.store.cmd.dataContainer, HostPortSQLDatabase)
+            assert isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase))
             sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
             assert cmd.singleOrMultiDatasetIngestion is not None
             ingestionType = cmd.singleOrMultiDatasetIngestion
