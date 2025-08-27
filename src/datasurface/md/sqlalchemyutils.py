@@ -497,9 +497,10 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
         logger.info(f"⏱️  createOnly is True, skipping schema fingerprint check for {table.name}")
         return True
 
-    # PERFORMANCE OPTIMIZATION: Use fast schema fingerprint for SQL Server before expensive schema autoload
+    # PERFORMANCE OPTIMIZATION: Use fast schema fingerprint for SQL Server and Snowflake before expensive schema autoload
     dialect_name = str(engine.dialect.name).lower()
     is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
+    is_snowflake = 'snowflake' in dialect_name
 
     if is_mssql:
         # Create comprehensive but fast schema fingerprint
@@ -509,6 +510,56 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
                 SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = '{table.name}'
+                ORDER BY ORDINAL_POSITION
+            """))
+            existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]
+
+        # Generate expected schema fingerprint from table definition
+        expected_schema = []
+        for column in table.columns:
+            col_name = column.name
+            col_type = str(column.type).lower()
+
+            # Extract type details for comparison
+            if hasattr(column.type, 'length') and getattr(column.type, 'length', None):
+                max_length = getattr(column.type, 'length', None)
+            else:
+                max_length = None
+
+            nullable = column.nullable
+            expected_schema.append((col_name, col_type, max_length, None, None, nullable))
+
+        fingerprint_time = time.time() - fingerprint_start
+        logger.info(f"⏱️  Schema fingerprint check took {fingerprint_time:.3f}s for {table.name}")
+
+        # Compare schemas (simplified comparison for key differences)
+        schemas_match = (len(existing_schema) == len(expected_schema))
+        if schemas_match:
+            for i, (existing_col, expected_col) in enumerate(zip(existing_schema, expected_schema)):
+                # Compare: name, type, length (key properties that affect compatibility)
+                if (existing_col[0].lower() != expected_col[0].lower() or
+                        existing_col[2] != expected_col[2]):  # different name or length
+                    schemas_match = False
+                    break
+
+        if schemas_match:
+            total_time = time.time() - start_time
+            logger.info(f"⏱️  TOTAL createOrUpdateTable took {total_time:.3f}s for {table.name} (schema fingerprint matches, skipped full schema check)")
+            return False  # No changes needed
+        else:
+            logger.info("⏱️  Schema fingerprint mismatch detected, proceeding with full schema validation")
+            logger.info(f"⏱️  Existing: {existing_schema}")
+            logger.info(f"⏱️  Expected: {expected_schema}")
+
+    elif is_snowflake:
+        # Create comprehensive but fast schema fingerprint for Snowflake
+        fingerprint_start = time.time()
+        with engine.connect() as conn:
+            # Snowflake stores table names in uppercase by default
+            result = conn.execute(text(f"""
+                SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = UPPER('{table.name}')
                 ORDER BY ORDINAL_POSITION
             """))
             existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]

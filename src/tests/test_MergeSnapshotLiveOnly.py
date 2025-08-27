@@ -251,13 +251,19 @@ class BaseMergeJobTest(ABC):
 
                 for table_name in tables_to_drop:
                     drop_sql = self.db_ops.get_drop_table_sql(table_name)
-                    try:
-                        conn.execute(text(drop_sql))
-                    except Exception:
-                        pass  # Table might not exist
+                    # If it exists then just delete all the rows otherwise create the table
+                    if inspector.has_table(table_name):
+                        conn.execute(text(f"DELETE FROM {table_name}"))
+                    else:
+                        try:
+                            conn.execute(text(drop_sql))
+                        except Exception:
+                            pass  # Table might not exist
 
-            self.job.createBatchCounterTable(self.merge_engine, inspector)
-            self.job.createBatchMetricsTable(self.merge_engine, inspector)
+            if not inspector.has_table(self.ydu.getPhysBatchCounterTableName()):
+                self.job.createBatchCounterTable(self.merge_engine, inspector)
+            if not inspector.has_table(self.ydu.getPhysBatchMetricsTableName()):
+                self.job.createBatchMetricsTable(self.merge_engine, inspector)
 
     def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
         """Check the batch status for a given key"""
