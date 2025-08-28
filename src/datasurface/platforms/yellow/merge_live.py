@@ -162,8 +162,8 @@ class SnapshotMergeJobLiveOnly(Job):
 
                 metrics_result = connection.execute(text(metrics_sql))
                 metrics_row = metrics_result.fetchone()
-                dataset_inserted = metrics_row[0] if metrics_row[0] else 0
-                dataset_updated = metrics_row[1] if metrics_row[1] else 0
+                dataset_inserted = metrics_row[0] if metrics_row[0] is not None else 0
+                dataset_updated = metrics_row[1] if metrics_row[1] is not None else 0
 
                 total_inserted += dataset_inserted
                 total_updated += dataset_updated
@@ -195,7 +195,8 @@ class SnapshotMergeJobLiveOnly(Job):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert job.schemaProjector is not None
+        if job.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
 
         with mergeEngine.begin() as connection:
             state: BatchState = job.getBatchState(mergeEngine, connection, key, batchId)
@@ -310,8 +311,8 @@ class SnapshotMergeJobLiveOnly(Job):
 
                 metrics_result = connection.execute(text(metrics_sql))
                 metrics_row = metrics_result.fetchone()
-                dataset_inserted = metrics_row[0] if metrics_row[0] else 0
-                dataset_updated = metrics_row[1] if metrics_row[1] else 0
+                dataset_inserted = metrics_row[0] if metrics_row[0] is not None else 0
+                dataset_updated = metrics_row[1] if metrics_row[1] is not None else 0
 
                 # For deletions, only count/apply in SNAPSHOT mode
                 if mode == SnapshotDeltaMode.SNAPSHOT:

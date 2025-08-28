@@ -50,7 +50,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
         self.setup_test_database()
 
         try:
-            with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
+            with patch('datasurface.platforms.yellow.db_utils.createEngine', new=mock_create_engine):
                 # Generate the bootstrap artifacts for ring level 0
                 eco: Ecosystem = generatePlatformBootstrap(0, "src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
                 # Generate the bootstrap artifacts for ring level 1
@@ -88,7 +88,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
         self.setup_test_database()
 
         try:
-            with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
+            with patch('datasurface.platforms.yellow.db_utils.createEngine', new=mock_create_engine):
                 # This should populate database configurations for the dynamic DAG factory
                 eco: Ecosystem = handleModelMerge("src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base/graph_output", "Test_DP")
 
@@ -142,7 +142,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
         temp_dir = tempfile.mkdtemp()
         print(f"\n=== MVP Model Test Output Directory: {temp_dir} ===")
 
-        with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
+        with patch('datasurface.platforms.yellow.db_utils.createEngine', new=mock_create_engine):
             try:
                 # Test 1: Generate bootstrap artifacts for both platforms
                 print("\n--- Generating Bootstrap Artifacts ---")
@@ -224,7 +224,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
 
         try:
             # Patch the symbol used by yellow_dp after import to ensure all DB connections hit test_merge_db
-            with patch('datasurface.platforms.yellow.yellow_dp.createEngine', new=mock_create_engine):
+            with patch('datasurface.platforms.yellow.db_utils.createEngine', new=mock_create_engine):
                 # First run ring 0 and ring 1 bootstrap to create necessary database tables
                 print("=== Running Ring 0 Bootstrap ===")
                 generatePlatformBootstrap(0, "src/tests/yellow_dp_tests/mvp_model", temp_dir, "Test_DP")

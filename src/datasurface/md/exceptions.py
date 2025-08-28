@@ -58,3 +58,9 @@ class StoragePolicyFromDifferentZone(DataSurfaceException):
     """This means the storage policy is from a different governance zone"""
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
+
+
+class UnknownObjectTypeException(DataSurfaceException):
+    """This means the object type is unknown/not expected"""
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)

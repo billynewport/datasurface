@@ -58,7 +58,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         # Create a modified dataset with additional columns for staging
 
         # Add standard staging columns
-        assert self.schemaProjector is not None
+        if self.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         sp: YellowSchemaProjector = self.schemaProjector
         # This already includes the batch_id, all_hash, and key_hash columns
         stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
@@ -84,7 +85,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         This method uses the remote batch ID as the local batch ID end-to-end. If the latest
         remote batch is already committed locally, it exits early.
         """
-        assert self.schemaProjector is not None
+        if self.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         # Determine the remote batch to process
         remoteBatchId: int = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
 
@@ -192,7 +194,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     pkColumns = [col.name for col in schema.columns.values()]
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
-                assert self.schemaProjector is not None
+                if self.schemaProjector is None:
+                    raise ValueError("Schema projector must be initialized")
                 sp: YellowSchemaProjector = self.schemaProjector
 
                 if isSeedBatch:
@@ -464,7 +467,8 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert job.schemaProjector is not None
+        if job.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         sp: YellowSchemaProjector = job.schemaProjector
 
         # The batchId passed in should already be the remote batch ID

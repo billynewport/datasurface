@@ -29,6 +29,7 @@ from datasurface.platforms.yellow.database_operations import DatabaseOperations
 from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.platforms.yellow.db_utils import createInspector
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.md.exceptions import UnknownObjectTypeException
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -76,19 +77,23 @@ class Job(YellowDatasetUtilities):
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
         # Initialize database operations based on merge store type
-        assert self.schemaProjector is not None, "Schema projector must be initialized"
+        if self.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         self.merge_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
             dp.psp.mergeStore, self.schemaProjector
         )
-        assert self.store.cmd is not None
+        if self.store.cmd is None:
+            raise ValueError("Store command is required")
 
         # For DataTransformerOutput, data is already in merge database, no external source needed
         if isinstance(self.store.cmd, DataTransformerOutput):
             # Use merge database as source for DataTransformer outputs
             self.source_db_ops: DatabaseOperations = self.merge_db_ops
         else:
-            assert self.store.cmd.dataContainer is not None
-            assert isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase))
+            if self.store.cmd.dataContainer is None:
+                raise ValueError("Store command data container is required")
+            if not isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase)):
+                raise TypeError(f"Unsupported data container type: {type(self.store.cmd.dataContainer)}")
             self.source_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
                 self.store.cmd.dataContainer, self.schemaProjector
             )
@@ -128,6 +133,13 @@ class Job(YellowDatasetUtilities):
                 logger.info(f"Parameter override for {key}", value=value, key=key, store_name=self.store.name, dataset_name=self.dataset.name)
             else:
                 logger.info(f"Parameter override for {key}", value=value, key=key, store_name=self.store.name)
+        return value
+
+    def getPositiveNonZeroIngestionHint(self, key: str, default: int) -> int:
+        """This returns a non-zero value for an ingestion hint"""
+        value: int = self.getIngestionOverrideValue(key, default)
+        if value <= 0:
+            raise ValueError(f"Value must be greater than 0, got {value}")
         return value
 
     def createBatchMetricsTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
@@ -187,7 +199,8 @@ class Job(YellowDatasetUtilities):
 
     def createSingleBatch(self, store: Datastore, connection: Connection) -> int:
         """This creates a single-dataset batch and returns the batch id. The transaction is managed by the caller."""
-        assert self.dataset is not None
+        if self.dataset is None:
+            raise ValueError("Dataset is required for single-dataset batch creation")
         key: str = self.getIngestionStreamKey()
         # Create schema hashes for the dataset
         schema_versions = {self.dataset.name: self.getSchemaHash(self.dataset)}
@@ -241,9 +254,11 @@ class Job(YellowDatasetUtilities):
         newBatchId: int
         with mergeEngine.begin() as connection:
             # Create a new batch
-            assert self.store.cmd is not None
+            if self.store.cmd is None:
+                raise ValueError("Store command is required")
             if self.store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET:
-                assert self.dataset is not None
+                if self.dataset is None:
+                    raise ValueError("Dataset is required for single-dataset ingestion")
                 newBatchId = self.createSingleBatch(self.store, connection)
             else:
                 newBatchId = self.createMultiBatch(self.store, connection)
@@ -406,7 +421,7 @@ class Job(YellowDatasetUtilities):
         with mergeEngine.begin() as connection:
             currentStatus = self.checkBatchStatus(connection, key, batchId)
 
-        chunkSize: int = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
+        chunkSize: int = self.getPositiveNonZeroIngestionHint(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
 
         if currentStatus == BatchStatus.INGESTED.value:
             # Merge the staging in to the merge tables.
@@ -430,17 +445,21 @@ class Job(YellowDatasetUtilities):
         elif isinstance(self.store.cmd, SQLIngestion):
             # First, get a connection to the source database
             cmd: SQLIngestion = cast(SQLIngestion, self.store.cmd)
-            assert cmd.credential is not None
+            if cmd.credential is None:
+                raise ValueError("SQL ingestion credential is required")
 
             # Now, get an Engine for the source database
             sourceUser, sourcePassword = self.credStore.getAsUserPassword(cmd.credential)
-            assert self.store.cmd.dataContainer is not None
-            assert isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase))
+            if self.store.cmd.dataContainer is None:
+                raise ValueError("Store command data container is required")
+            if not isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase)):
+                raise TypeError(f"Unsupported data container type: {type(self.store.cmd.dataContainer)}")
             sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
-            assert cmd.singleOrMultiDatasetIngestion is not None
+            if cmd.singleOrMultiDatasetIngestion is None:
+                raise ValueError("Ingestion consistency type is required")
             ingestionType = cmd.singleOrMultiDatasetIngestion
         else:
-            raise Exception(f"Unknown store command type: {type(self.store.cmd)}")
+            raise UnknownObjectTypeException(f"Unknown store command type: {type(self.store.cmd)}")
 
         # Check current batch status to determine what to do
         if ingestionType == IngestionConsistencyType.SINGLE_DATASET:
@@ -491,7 +510,7 @@ class Job(YellowDatasetUtilities):
                 tableName: str = self.store.cmd.tableForDataset[dataset.name]
             return tableName
         else:
-            raise Exception(f"Unknown store command type: {type(self.store.cmd)}")
+            raise UnknownObjectTypeException(f"Unknown store command type: {type(self.store.cmd)}")
 
     def baseIngestSingleDataset(
             self, state: BatchState, sourceConn: Connection, mergeEngine: Engine, key: str, batchId: int,

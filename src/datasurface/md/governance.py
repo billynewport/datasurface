@@ -38,6 +38,7 @@ import re
 import json
 from datasurface.md.documentation import PlainTextDocumentation
 import logging
+from datasurface.md.exceptions import UnknownArgumentException, UnknownObjectTypeException
 
 # Standard Python logger - works everywhere
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def handleUnsupportedObjectsToJson(obj: object) -> str:
         return obj.name
     elif isinstance(obj, DataType):
         return str(obj.to_json())
-    raise Exception(f"Unsupported object {obj} in to_json")
+    raise UnknownObjectTypeException(f"Unsupported object {obj} in to_json")
 
 
 class PolicyMandatedRule(Enum):
@@ -108,7 +109,7 @@ class StoragePolicy(Policy['DataContainer']):
 
     def setGovernanceZone(self, gz: 'GovernanceZone') -> None:
         if gz.key is None:
-            raise Exception("GovernanceZone key not set")
+            raise ObjectDoesntExistException("GovernanceZone key not set")
         self.key = StoragePolicyKey(gz.key, self.name)
 
     def isCompatible(self, obj: 'DataContainer') -> bool:
@@ -333,7 +334,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
             if storage_policies is not None:
                 for policy in storage_policies:
                     if self.policies.get(policy.name) is not None:
-                        raise Exception(f"Duplicate policy {policy.name}")
+                        raise ObjectAlreadyExistsException(f"Duplicate policy {policy.name}")
                     self.policies[policy.name] = policy
             if documentation is not None:
                 self.documentation = documentation
@@ -353,7 +354,7 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
             elif (isinstance(arg, StoragePolicy)):
                 p: StoragePolicy = arg
                 if self.policies.get(p.name) is not None:
-                    raise Exception(f"Duplicate policy {p.name}")
+                    raise ObjectAlreadyExistsException(f"Duplicate policy {p.name}")
                 self.policies[p.name] = p
             elif (isinstance(arg, DeprecationInfo)):
                 self.deprecationStatus = arg
@@ -361,9 +362,10 @@ class Dataset(ANSI_SQL_NamedObject, Documentable, JSONable):
                 if (self.dataClassificationOverride is None):
                     self.dataClassificationOverride = list()
                 self.dataClassificationOverride.append(arg)
+            elif (isinstance(arg, Documentation)):
+                self.documentation = arg
             else:
-                d: Documentation = arg
-                self.documentation = d
+                raise UnknownArgumentException(f"Invalid argument type {type(arg)}")
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Dataset):
@@ -555,7 +557,7 @@ class DataContainer(Documentable, JSONable):
             if (isinstance(arg, set)):
                 for loc in arg:
                     if (loc in self.locations):
-                        raise Exception(f"Duplicate Location {loc}")
+                        raise ObjectAlreadyExistsException(f"Duplicate Location {loc}")
                     self.locations.add(loc)
             else:
                 self.documentation = arg
@@ -683,7 +685,10 @@ class StorageRequirement(UserDSLObject):
             "K": 1024,
             "B": 1,
         }
-        size, unit = re.match(r"^(\d+)([GTPMKB])$", self.spec.upper()).groups()
+        match = re.match(r"^(\d+)([GTPMKB])$", self.spec.upper())
+        if match is None:
+            raise ValueError(f"Invalid storage requirement '{self.spec}'. Format should be <number><unit> where unit is one of: G,T,P,M,K,B (case insensitive)")
+        size, unit = match.groups()
         # Convert the size to a number
         size = int(size)
         # Convert the unit to a number
@@ -2168,7 +2173,7 @@ class Ecosystem(GitControlledObject, JSONable):
 
     def cache_addTeam(self, td: 'TeamDeclaration', t: 'Team'):
         if td.key is None:
-            raise Exception("{td} key is None")
+            raise ObjectDoesntExistException("{td} key is None")
         globalTeamName: str = td.key.gzName + "/" + t.name
         if (self.teamCache.get(globalTeamName) is not None):
             raise ObjectAlreadyExistsException(f"Duplicate Team {globalTeamName}")
@@ -2906,7 +2911,7 @@ class GovernanceZone(GitControlledObject, JSONable):
             elif (isinstance(arg, StoragePolicy)):
                 sp: StoragePolicy = arg
                 if self.storagePolicies.get(sp.name) is not None:
-                    raise Exception(f"Duplicate Storage Policy {sp.name}")
+                    raise ObjectAlreadyExistsException(f"Duplicate Storage Policy {sp.name}")
                 self.storagePolicies[sp.name] = sp
             elif (type(arg) is TeamDeclaration):
                 t: TeamDeclaration = arg
@@ -4417,14 +4422,14 @@ class PlatformPipelineGraph(InternalLintableObject):
             else:  # MULTI_DATASET
                 self.findExistingOrCreateStep(IngestionMultiNode(self.platform, storeName, store.cmd.stepTrigger, pip))
         else:
-            raise Exception(f"Store {storeName} cmd is None")
+            raise ObjectDoesntExistException(f"Store {storeName} cmd is None")
 
     def createIngestionStepForDataStore(self, store: Datastore, exportStep: ExportNode) -> IngestionNode:
         # Create a step for a single or multi dataset ingestion
         pip: Optional[PrimaryIngestionPlatform] = self.eco.getPrimaryIngestionPlatformsForDatastore(exportStep.storeName)
         ingestionStep: Optional[IngestionNode] = None
         if store.cmd is None:
-            raise Exception(f"Store {store.name} cmd is None")
+            raise ObjectDoesntExistException(f"Store {store.name} cmd is None")
         if (store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET):
             ingestionStep = IngestionSingleNode(exportStep.platform, exportStep.storeName, exportStep.datasetName, store.cmd.stepTrigger, pip)
         else:  # MULTI_DATASET
@@ -4806,7 +4811,7 @@ def defaultPipelineNodeFileName(node: PipelineNode) -> str:
         return f"{node.__class__.__name__}_{node.name}_{node.workspace.name}"
     elif (isinstance(node, DataTransformerNode)):
         return f"{node.__class__.__name__}_{node.workspace.name}_{node.name}"
-    raise Exception(f"Unknown node type {node}")
+    raise UnknownObjectTypeException(f"Unknown node type {node}")
 
 
 class FileBasedFragmentManager(IaCFragmentManager):
@@ -4942,7 +4947,7 @@ class IaCDataPlatformRenderer(DataPlatformGraphHandler, PlatformPipelineGraphLin
             elif isinstance(node, DataTransformerNode):
                 fragments.addFragment(node, self.renderDataTransformer(node))
             else:
-                raise Exception(f"Unknown node type {node.__class__.__name__}")
+                raise UnknownObjectTypeException(f"Unknown node type {node.__class__.__name__}")
         fragments.postRender()
         return fragments
 

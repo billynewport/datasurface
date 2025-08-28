@@ -39,8 +39,10 @@ class MergeRemoteJob(Job):
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
                  store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
-        assert store.cmd is not None
-        assert isinstance(store.cmd, SQLMergeIngestion)
+        if store.cmd is None:
+            raise ValueError("Store command is required")
+        if not isinstance(store.cmd, SQLMergeIngestion):
+            raise TypeError(f"Expected SQLMergeIngestion, got {type(store.cmd)}")
         self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, store.cmd.dataPlatform)
         self.remoteYDU: YellowDatasetUtilities
         if datasetName is not None:
@@ -102,7 +104,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
         # Create a modified dataset with IUD column for staging
         # Add standard staging columns
-        assert self.schemaProjector is not None
+        if self.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         sp: YellowSchemaProjector = self.schemaProjector
         stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
@@ -149,9 +152,11 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         totalRecords = 0
         currentRemoteBatchId: Optional[int] = None
 
-        # Get current remote batch ID if not already determined
+        # Get current remote batch ID if not already determined, if this changes it doesn't matter
+        # We will still seed with this batch and catch up later
         if currentRemoteBatchId is None:
-            assert self.schemaProjector is not None
+            if self.schemaProjector is None:
+                raise ValueError("Schema projector must be initialized")
             currentRemoteBatchId = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
             logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
 
@@ -177,7 +182,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
                     pkColumns = [col.name for col in schema.columns.values()]
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
-                assert self.schemaProjector is not None
+                if self.schemaProjector is None:
+                    raise ValueError("Schema projector must be initialized")
                 sp: YellowSchemaProjector = self.schemaProjector
 
                 if SeedBatch:
@@ -316,7 +322,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         insertSql = f"INSERT INTO {stagingTableName} ({', '.join(quoted_columns)}) VALUES ({placeholders})"
 
         recordsInserted = 0
-        chunkSize: int = self.getIngestionOverrideValue(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
+        chunkSize: int = self.getPositiveNonZeroIngestionHint(self.CHUNK_SIZE_KEY, self.CHUNK_SIZE_DEFAULT)
 
         with mergeEngine.begin() as mergeConn:
             for i in range(0, len(rows), chunkSize):
@@ -364,7 +370,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        assert self.schemaProjector is not None
+        if self.schemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         sp: YellowSchemaProjector = self.schemaProjector
 
         with mergeEngine.begin() as connection:
@@ -598,8 +605,8 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
         metrics_result = connection.execute(text(metrics_sql))
         metrics_row = metrics_result.fetchone()
-        inserted_count = metrics_row[0] if metrics_row[0] else 0
-        updated_count = metrics_row[1] if metrics_row[1] else 0
+        inserted_count = metrics_row[0] if metrics_row[0] is not None else 0
+        updated_count = metrics_row[1] if metrics_row[1] is not None else 0
 
         total_inserted += inserted_count
         total_updated += updated_count

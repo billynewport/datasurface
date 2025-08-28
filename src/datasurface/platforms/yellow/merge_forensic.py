@@ -99,7 +99,7 @@ class SnapshotMergeJobForensic(Job):
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
                 allColumns: list[str] = [col.name for col in schema.columns.values()]
                 # Database-specific forensic merge operations
-                forensic_merge_statements = job.merge_db_ops.get_forensic_merge_sql(
+                forensic_merge_statements: list[str] = job.merge_db_ops.get_forensic_merge_sql(
                     mergeTableName,
                     stagingTableName,
                     allColumns,
@@ -111,6 +111,8 @@ class SnapshotMergeJobForensic(Job):
                     YellowSchemaConstants.LIVE_RECORD_ID,
                     batchId
                 )
+                if len(forensic_merge_statements) != 4:
+                    raise ValueError(f"Expected 4 forensic merge statements, got {len(forensic_merge_statements)}")
 
                 logger.debug("Executing database-specific forensic merge for dataset", dataset_name=datasetToMergeName)
 
