@@ -676,3 +676,56 @@ class YellowTwinPostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
             self.afDB,
             self.afDBStorageNeeds,
             self.afHostPortPair)
+
+
+class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
+    """
+    This creates a Datasurface assembly with a postgres based Airflow and a supported merge database. Airflow only
+    supports postgres databases.
+    """
+    def __init__(self, name: str, namespace: str, git_cache_config: GitCacheConfig,
+                 afDBcred: Credential,
+                 afDB: PostgresDatabase,
+                 afDBStorageNeeds: StorageRequirement,
+                 afHostPortPair: HostPortPair) -> None:
+        super().__init__(name, namespace, git_cache_config)
+        self.afDBcred: Credential = afDBcred
+        self.afDB: PostgresDatabase = afDB
+        self.afDBStorageNeeds: StorageRequirement = afDBStorageNeeds
+        self.afHostPortPair: HostPortPair = afHostPortPair
+
+    def createYellowAssemblyTwinDatabase(
+            self,
+            name: str,
+            mergeRWCred: Credential,
+            afDBcred: Credential,
+            afDB: PostgresDatabase,
+            afDBStorageNeeds: StorageRequirement,
+            afHostPortPair: HostPortPair) -> Assembly:
+        """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
+        reasons."""
+        assembly: Assembly = Assembly(
+            name, self.namespace,
+            components=[
+                NamespaceComponent("ns", self.namespace),
+                LoggingComponent(self.name, self.namespace),
+                NetworkPolicyComponent(self.name, self.namespace),
+                PVCComponent(
+                    self.git_cache_config.pvc_name, self.namespace,
+                    self.git_cache_config.storage_size, self.git_cache_config.storageClass,
+                    self.git_cache_config.access_mode),
+                PostgresComponent("pg-airflow", self.namespace, afDBcred, afDB, afDBStorageNeeds),
+                Airflow281Component("airflow", self.namespace, afDBcred, afDB, [mergeRWCred])  # Airflow needs the merge store database credentials for DAGs
+            ]
+        )
+        return assembly
+
+    def createAssembly(self, mergeRW_Credential: Credential, mergeDB: HostPortSQLDatabase) -> Assembly:
+        """This creates the assembly for the kubernetes yaml file."""
+        return self.createYellowAssemblyTwinDatabase(
+            self.name,
+            mergeRW_Credential,
+            self.afDBcred,
+            self.afDB,
+            self.afDBStorageNeeds,
+            self.afHostPortPair)
