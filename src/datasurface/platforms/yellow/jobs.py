@@ -54,8 +54,10 @@ The state of the ingestion has the following keys:
 When the last dataset is ingested, the state is set to MERGING and all datasets are merged in a single tx.
 
 This job is designed to be run by Airflow as a KubernetesPodOperator. It returns:
-- Exit code 0: "KEEP_WORKING" - The batch is still in progress, reschedule the job
-- Exit code 1: "DONE" - The batch is committed or failed, stop rescheduling
+- Exit code 0: "DONE or KEEP_WORKING" - The batch is still in progress, reschedule the job
+- Exit code -1: "ERROR" - The batch is committed or failed, stop rescheduling
+The job outputs the DATASURFACE_RESULT_CODE value in the output. The job exit code is usually 0 regardless except for ERROR when it should be -1. A task checks
+the logs for this value to determine the next task to run.
 """
 
 

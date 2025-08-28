@@ -88,7 +88,8 @@ This job is designed to be run by Airflow as a KubernetesPodOperator. It returns
 
 
 class JobStatus(Enum):
-    """This is the status of a job"""
+    """This is the status of a job. This is reported by printing the DATASURFACE_RESULT_CODE value in the output. The job
+    exit code is usually 0 regardless except for ERROR when it should be -1."""
     KEEP_WORKING = 1  # The job is still in progress, put on queue and continue ASAP
     DONE = 0  # The job is complete, wait for trigger to run batch again
     ERROR = -1  # The job failed, stop the job and don't run again
