@@ -4,13 +4,23 @@
 """
 
 from setuptools import setup, find_packages
+import platform
 
 
 with open('README.md', 'r', encoding='utf-8') as f:
     long_description = f.read()
 
 with open('requirements.txt') as f:
-    requirements = f.read().splitlines()
+    all_requirements = f.read().splitlines()
+
+# Filter out problematic packages on ARM64
+requirements = []
+for req in all_requirements:
+    if req.strip() and not req.strip().startswith('#'):
+        # Skip IBM DB packages on ARM64 (aarch64)
+        if platform.machine() == 'aarch64' and ('ibm_db' in req or 'ibm-db-sa' in req):
+            continue
+        requirements.append(req)
 
 setup(
     name='datasurface',

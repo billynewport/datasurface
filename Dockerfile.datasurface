@@ -32,8 +32,15 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with platform-specific handling
+RUN if [ "$(uname -m)" = "aarch64" ]; then \
+        # ARM64: Skip problematic packages
+        grep -v "^ibm_db" requirements.txt | grep -v "^ibm-db-sa" > requirements-filtered.txt && \
+        pip install --no-cache-dir -r requirements-filtered.txt; \
+    else \
+        # AMD64: Install all packages
+        pip install --no-cache-dir -r requirements.txt; \
+    fi
 
 # Copy the DataSurface source code and setup files
 COPY src/ /app/src/
