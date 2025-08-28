@@ -24,7 +24,7 @@ for req in all_requirements:
 
 setup(
     name='datasurface',
-    version='0.0.54',
+    version='0.0.55',
     license='BSL_v1.1',
     description='Automate the governance, management and movement of data within your enterprise',
     long_description=long_description,

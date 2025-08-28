@@ -520,7 +520,7 @@ def load_platform_configurations(config: dict):
         
         # Read from the platform-specific airflow_dsg table
         table_name = config['phys_dag_table_name']
-        with engine.connect() as connection:
+        with engine.begin() as connection:
             result = connection.execute(text(f"""
                 SELECT stream_key, config_json 
                 FROM {table_name}
@@ -1013,7 +1013,7 @@ def load_datatransformer_configurations(config: dict):
         
         # Read from the platform-specific airflow_datatransformer table
         table_name = config['phys_datatransformer_table_name']
-        with engine.connect() as connection:
+        with engine.begin() as connection:
             result = connection.execute(text(f"""
                 SELECT workspace_name, config_json 
                 FROM {table_name}
@@ -1209,7 +1209,7 @@ def create_factory_dags_from_database(**context):
         
         # Read factory DAG configurations - table created/populated by handleModelMerge
         factory_table_name = '{{ phys_factory_table_name }}'
-        with engine.connect() as connection:
+        with engine.begin() as connection:
             result = connection.execute(text(f"""
                 SELECT platform_name, factory_type, config_json 
                 FROM {factory_table_name}

@@ -216,10 +216,10 @@ class NetworkPolicyComponent(Component):
         return yaml
 
 
-class Airflow281Component(Component):
+class Airflow2XComponent(Component):
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: HostPortSQLDatabase,
                  dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
-                 schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "apache/airflow:2.11.0") -> None:
+                 schedulerResourceLimits: Optional[K8sResourceLimits] = None, airflow_image: str = "datasurface/airflow:2.11.0") -> None:
         super().__init__(name, namespace)
         self.dbCred: Credential = dbCred
         self.db: HostPortSQLDatabase = db
@@ -240,7 +240,7 @@ class Airflow281Component(Component):
 
     def render(self, env: Environment, templateContext: dict[str, Any]) -> str:
         yaml: str = ""
-        airflow_template: Template = env.get_template('airflow281/psp_airflow.yaml.j2')
+        airflow_template: Template = env.get_template('airflow2X/psp_airflow.yaml.j2')
         ctxt: dict[str, Any] = templateContext.copy()
         driverName, query = getDriverNameAndQueryForDataContainer(self.db)
 
@@ -430,7 +430,12 @@ class K8sAssemblyFactory(UserDSLObject, Generic[DB]):
 
     @abstractmethod
     def lint(self, eco: Ecosystem, tree: ValidationTree):
-        pass
+        self.git_cache_config.lint(tree.addSubTree(self.git_cache_config))
+        if not K8sUtils.isLegalKubernetesNamespaceName(self.namespace):
+            tree.addProblem(
+                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
+                ProblemSeverity.ERROR
+            )
 
     @abstractmethod
     def createYAMLContext(self, eco: Ecosystem) -> dict[str, Any]:
@@ -474,7 +479,7 @@ class YellowSinglePostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase])
         self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
-        self.git_cache_config.lint(tree.addSubTree(self.git_cache_config))
+        super().lint(eco, tree)
         self.dbStorageNeeds.lint(tree.addSubTree(self.dbStorageNeeds))
         if self.dbResourceLimits:
             self.dbResourceLimits.lint(tree.addSubTree(self.dbResourceLimits))
@@ -482,11 +487,6 @@ class YellowSinglePostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase])
             self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
         if self.afSchedulerResourceLimits:
             self.afSchedulerResourceLimits.lint(tree.addSubTree(self.afSchedulerResourceLimits))
-        if not K8sUtils.isLegalKubernetesNamespaceName(self.namespace):
-            tree.addProblem(
-                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
-                ProblemSeverity.ERROR
-            )
 
     def createYAMLContext(self, eco: Ecosystem) -> dict[str, Any]:
         rc: dict[str, Any] = super().createYAMLContext(eco)
@@ -522,8 +522,8 @@ class YellowSinglePostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase])
         assembly.components.append(PostgresComponent("pg", self.namespace, dbRWCred, db, dbStorageNeeds, dbResourceLimits))
         # Airflow uses the same database as the merge store
         assembly.components.append(
-            Airflow281Component("airflow", self.namespace, dbRWCred, db, [],
-                                webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
+            Airflow2XComponent("airflow", self.namespace, dbRWCred, db, [],
+                               webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
         return assembly
 
     def createAssembly(self, mergeRW_Credential: Credential, mergeDB: PostgresDatabase) -> Assembly:
@@ -563,20 +563,14 @@ class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabas
         self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
 
     def lint(self, eco: Ecosystem, tree: ValidationTree):
-        self.git_cache_config.lint(tree.addSubTree(self.git_cache_config))
+        super().lint(eco, tree)
         if self.afWebserverResourceLimits:
             self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
         if self.afSchedulerResourceLimits:
             self.afSchedulerResourceLimits.lint(tree.addSubTree(self.afSchedulerResourceLimits))
-        if not K8sUtils.isLegalKubernetesNamespaceName(self.namespace):
-            tree.addProblem(
-                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
-                ProblemSeverity.ERROR
-            )
 
     def createYAMLContext(self, eco: Ecosystem) -> dict[str, Any]:
         rc: dict[str, Any] = super().createYAMLContext(eco)
-        rc.update(self.git_cache_config.mergeToYAMLContext(eco))
         return rc
 
     def createYellowAssemblySingleDatabase(
@@ -604,8 +598,8 @@ class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabas
         assembly.components.append(NetworkPolicyComponent(self.name, self.namespace))
         # Airflow uses the same database as the merge store
         assembly.components.append(
-            Airflow281Component("airflow", self.namespace, dbRWCred, db, [],
-                                webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
+            Airflow2XComponent("airflow", self.namespace, dbRWCred, db, [],
+                               webserverResourceLimits=afWebserverResourceLimits, schedulerResourceLimits=afSchedulerResourceLimits))
         return assembly
 
     def createAssembly(self, mergeRW_Credential: Credential, mergeDB: HostPortSQLDatabase) -> Assembly:
@@ -639,6 +633,10 @@ class YellowTwinPostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
         self.afDBStorageNeeds: StorageRequirement = afDBStorageNeeds
         self.afHostPortPair: HostPortPair = afHostPortPair
 
+    def createYAMLContext(self, eco: Ecosystem) -> dict[str, Any]:
+        rc: dict[str, Any] = super().createYAMLContext(eco)
+        return rc
+
     def createYellowAssemblyTwinDatabase(
             self,
             name: str,
@@ -664,7 +662,7 @@ class YellowTwinPostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
                     self.git_cache_config.access_mode),
                 PostgresComponent("pg-merge", self.namespace, pgCred, mergeDBD, mergeDBStorageNeeds),
                 PostgresComponent("pg-airflow", self.namespace, afDBcred, afDB, afDBStorageNeeds),
-                Airflow281Component("airflow", self.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
+                Airflow2XComponent("airflow", self.namespace, afDBcred, afDB, [pgCred])  # Airflow needs the merge store database credentials for DAGs
             ]
         )
         return assembly
@@ -681,6 +679,18 @@ class YellowTwinPostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
             self.afDB,
             self.afDBStorageNeeds,
             self.afHostPortPair)
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        super().lint(eco, tree)
+        self.afDB.lint(eco, tree.addSubTree(self.afDB))
+        self.afHostPortPair.lint(tree.addSubTree(self.afHostPortPair))
+        if not K8sUtils.isLegalKubernetesNamespaceName(self.namespace):
+            tree.addProblem(
+                f"Kubernetes namespace '{self.namespace}' is not a valid RFC 1123 label (must match ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$)",
+                ProblemSeverity.ERROR
+            )
+        self.mergeDBStorageNeeds.lint(tree.addSubTree(self.mergeDBStorageNeeds))
+        self.afDBStorageNeeds.lint(tree.addSubTree(self.afDBStorageNeeds))
 
 
 class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
@@ -716,7 +726,7 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
                     self.git_cache_config.pvc_name, self.namespace,
                     self.git_cache_config.storage_size, self.git_cache_config.storageClass,
                     self.git_cache_config.access_mode),
-                Airflow281Component(
+                Airflow2XComponent(
                     "airflow", self.namespace, self.afDBcred, self.afDB, [mergeRWCred], webserverResourceLimits=self.afWebserverResourceLimits,
                     schedulerResourceLimits=self.afSchedulerResourceLimits
                     )  # Airflow needs the merge store database credentials for DAGs
@@ -724,9 +734,19 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
         )
         return assembly
 
+    def createYAMLContext(self, eco: Ecosystem) -> dict[str, Any]:
+        rc: dict[str, Any] = super().createYAMLContext(eco)
+        return rc
+
     def createAssembly(self, mergeRW_Credential: Credential, mergeDB: HostPortSQLDatabase) -> Assembly:
         """This creates the assembly for the kubernetes yaml file."""
         return self.createYellowAssemblyTwinDatabase(
             self.name,
             mergeRW_Credential
         )
+
+    def lint(self, eco: Ecosystem, tree: ValidationTree):
+        super().lint(eco, tree)
+        self.afDB.lint(eco, tree.addSubTree(self.afDB))
+        self.afWebserverResourceLimits.lint(tree.addSubTree(self.afWebserverResourceLimits))
+        self.afSchedulerResourceLimits.lint(tree.addSubTree(self.afSchedulerResourceLimits))

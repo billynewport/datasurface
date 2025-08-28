@@ -96,6 +96,27 @@ git clone https://github.com/billynewport/yellow_starter.git
 cd yellow_starter
 ```
 
+### Step 1.5: Build and Push Custom Airflow Image (REQUIRED)
+
+**CRITICAL**: The YellowDataPlatform uses a custom Airflow image with database drivers. This image must be built and pushed before deployment.
+
+```bash
+# Build and push multiplatform custom Airflow image
+cd /path/to/datasurface
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f src/datasurface/platforms/yellow/docker/Docker.airflow_with_drivers \
+  -t datasurface/airflow:2.11.0 \
+  --push .
+
+# Pull on remote machine (both caches required)
+ssh user@remote-host "sudo crictl pull datasurface/airflow:2.11.0 && docker pull datasurface/airflow:2.11.0"
+```
+
+**Why This Is Required:**
+- The generated Kubernetes YAML references `datasurface/airflow:2.11.0`
+- This custom image includes PostgreSQL, MSSQL, Oracle, and DB2 drivers
+- Without this step, Airflow pods will fail with "exec format error"
+
 ### Step 2: Configure the Ecosystem Model and Detect Database Configuration
 
 ```bash
@@ -402,11 +423,15 @@ sudo kubectl create secret generic git \
 - **Airflow Web UI**: `admin/admin123` (created after deployment)
 - **GitHub Token**: Replace `your-github-token` with your actual GitHub Personal Access Token
 
-### Step 2: Create Required Databases and Run Ring 1 Initialization
+### Step 2: Create Required Databases and Deploy Infrastructure
 
-**IMPORTANT**: Create databases and run Ring 1 initialization BEFORE deploying Airflow infrastructure to avoid connection conflicts.
+**IMPORTANT**: The deployment order has been updated based on real-world testing. Infrastructure must be deployed BEFORE Ring 1 initialization because Ring 1 jobs require PVCs that are created by the infrastructure deployment.
 
-Ring 1 initialization creates the database schemas required for the platform operations.
+**Updated Deployment Order:**
+1. Create and initialize databases
+2. Deploy Kubernetes infrastructure (creates required PVCs)
+3. Run Ring 1 initialization (requires PVCs to exist)
+4. Initialize Airflow and deploy DAGs
 
 ```bash
 # Source environment variables
@@ -486,7 +511,10 @@ sleep 10
 
 # Note: Remove --rm flag to allow background execution and monitoring
 
-# Apply Ring 1 initialization job (creates platform database schemas)
+# Deploy Kubernetes infrastructure FIRST (creates required PVCs)
+sudo kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
+
+# Now apply Ring 1 initialization job (requires PVCs created above)
 sudo kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
 
 # Wait for Ring 1 initialization to complete
@@ -496,13 +524,12 @@ sudo kubectl wait --for=condition=complete job/test-dp-ring1-init -n "$NAMESPACE
 ./utils.sh status
 ```
 
-### Step 3: Deploy Kubernetes Infrastructure
+### Step 3: Verify Infrastructure and Initialize Airflow
 
-**Now that databases are created and Ring 1 initialization is complete, deploy the Airflow infrastructure:**
+**Now that infrastructure is deployed and Ring 1 initialization is complete:**
 
 ```bash
-# Apply the Kubernetes configuration
-sudo kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
+# Verify infrastructure is running
 
 # Verify database connectivity using utility script
 ./utils.sh db-test
@@ -656,9 +683,16 @@ sudo kubectl logs <pod-name> -n "$NAMESPACE"
 
 **Access Airflow UI:**
 ```bash
-# Set up port forwarding (runs in foreground)
+# Check if port 8080 is already in use
+sudo netstat -tlnp | grep :8080
+
+# If port is in use, kill existing process or use different port
 ./utils.sh port-forward
+# Or manually with different port:
+# sudo kubectl port-forward svc/airflow-webserver-service 8081:8080 -n "$NAMESPACE" --address=0.0.0.0
+
 # Then open http://localhost:8080 (admin/admin123)
+# Or http://remote-host:8081 if using different port
 ```
 
 ### Container Issues
@@ -666,6 +700,29 @@ sudo kubectl logs <pod-name> -n "$NAMESPACE"
 # Rebuild container if needed
 docker build -f Dockerfile.datasurface -t datasurface/datasurface:latest .
 docker push datasurface/datasurface:latest
+```
+
+### Template Path Issues
+
+**Symptoms:**
+```
+jinja2.exceptions.TemplateNotFound: airflow281/infrastructure_dag.py.j2
+```
+
+**Cause:** Template paths in the codebase may reference old directory names.
+
+**Solution:**
+```bash
+# Check for old template references
+grep -r "airflow281" src/datasurface/platforms/yellow/
+
+# Update any references from airflow281/ to airflow2X/
+# Example fix in yellow_dp.py:
+# OLD: env.get_template('airflow281/infrastructure_dag.py.j2')  
+# NEW: env.get_template('airflow2X/infrastructure_dag.py.j2')
+
+# Rebuild and push the datasurface image after fixing
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.datasurface -t datasurface/datasurface:latest --push .
 ```
 
 ### Model Validation
@@ -957,23 +1014,76 @@ sudo kubectl run data-simulator-continuous --rm -i --restart=Never \
 - Monitor staging and merge tables for new data
 - Verify both live and forensic processing modes work correctly
 
-## Critical Deployment Order
+## Critical Deployment Order (UPDATED)
 
-**⚠️ IMPORTANT**: Follow this exact order to avoid database connection conflicts:
+**⚠️ IMPORTANT**: Follow this exact order to avoid issues:
 
 1. **Phase 1: Bootstrap Artifact Generation (Ring 0)**
    - Clone repository and configure environment
+   - **BUILD AND PUSH CUSTOM AIRFLOW IMAGE** (new requirement)
    - Generate bootstrap artifacts using Docker
 
 2. **Phase 2: Kubernetes Infrastructure Setup (Ring 1)**
    - Create namespace and secrets
-   - **DROP and CREATE fresh databases FIRST** (before deploying Airflow)
-   - Run Ring 1 initialization job
-   - **THEN deploy Airflow infrastructure**
+   - **DROP and CREATE fresh databases FIRST**
+   - **DEPLOY Kubernetes infrastructure** (creates PVCs needed for Ring 1)
+   - **THEN run Ring 1 initialization job** (requires PVCs to exist)
    - Initialize Airflow database and create admin user
    - Deploy DAGs and run model merge/reconcile jobs
 
-**❌ Common Mistake**: Deploying Airflow infrastructure before databases are ready causes connection conflicts and deployment failures.
+**Key Changes**: 
+- Custom Airflow image must be built and pushed before deployment
+- Infrastructure deployment must happen BEFORE Ring 1 initialization because Ring 1 jobs require PVCs that are created by the infrastructure deployment
+
+## Deployment Success Verification
+
+**✅ Infrastructure Verification:**
+```bash
+# All pods should be Running or Completed
+kubectl get pods -n "$NAMESPACE"
+
+# Expected pods:
+# - airflow-scheduler-* (1/1 Running)
+# - airflow-webserver-* (1/1 Running) 
+# - data-simulator (1/1 Running)
+# - test-dp-ring1-init-* (0/1 Completed)
+# - test-dp-model-merge-job-* (0/1 Completed)
+# - test-dp-reconcile-views-job-* (0/1 Completed)
+# - yellowlive-store1-job-* (may be ContainerCreating/Running)
+# - yellowforensic-store1-job-* (may be ContainerCreating/Running)
+```
+
+**✅ DAG Verification:**
+```bash
+# Should show 9 DAGs total
+kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- airflow dags list
+
+# Expected DAGs:
+# - test-dp_infrastructure (paused)
+# - yellowlive_factory_dag, yellowforensic_factory_dag
+# - yellowlive_datatransformer_factory, yellowforensic_datatransformer_factory (paused)
+# - yellowlive__Store1_ingestion, yellowforensic__Store1_ingestion
+# - yellowlive__MaskedStoreGenerator_datatransformer, yellowforensic__MaskedStoreGenerator_datatransformer
+```
+
+**✅ Data Verification:**
+```bash
+# Source tables should exist with data
+kubectl run db-verify --rm -i --restart=Never \
+  --image=postgres:16 --env="PGPASSWORD=$PG_PASSWORD" -n "$NAMESPACE" \
+  -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d customer_db \
+  -c "SELECT 'customers' as table_name, COUNT(*) FROM customers UNION ALL SELECT 'addresses', COUNT(*) FROM addresses;"
+
+# Should show non-zero counts for both tables
+```
+
+**✅ Access Verification:**
+```bash
+# Airflow UI should be accessible
+# URL: http://remote-host:8080 (or :8081 if port conflict)
+# Username: admin
+# Password: admin123
+```
 
 ## Success Criteria
 

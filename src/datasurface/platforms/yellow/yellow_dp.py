@@ -2151,7 +2151,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
             # PSP level DAG to create factory dags for each dataplatform which in turn
             # create ingestion and transformer DAGs for that dataplatform.
-            dag_template: Template = env.get_template('airflow281/infrastructure_dag.py.j2')
+            dag_template: Template = env.get_template('airflow2X/infrastructure_dag.py.j2')
             rendered_infrastructure_dag: str = dag_template.render(context)
 
             #  This now really generates database records for the dataplatforms, ingestion streams and datatransformers

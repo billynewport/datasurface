@@ -1,0 +1,46 @@
+FROM apache/airflow:2.11.0-python3.12
+ARG TARGETARCH
+USER root
+
+# This is to build datasurface/airflow
+# This is a standard Airflow 2.11.0 image with database drivers added.
+
+
+ENV ACCEPT_EULA=Y
+
+# Install system dependencies, unixODBC, and Microsoft ODBC Driver 18 for SQL Server
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    gnupg \
+    ca-certificates \
+    apt-transport-https \
+    libpq-dev \
+    unixodbc \
+    unixodbc-dev \
+    build-essential \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update && apt-get install -y msodbcsql18 \
+    && rm -rf /var/lib/apt/lists/* /usr/share/keyrings/microsoft-prod.gpg
+
+USER airflow
+
+# Use Airflow constraints for reliable provider installs
+ENV AIRFLOW_VERSION=2.11.0
+ENV PYTHON_MAJOR_MINOR=3.12
+
+RUN pip install --no-cache-dir \
+  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_MAJOR_MINOR}.txt" \
+  apache-airflow-providers-odbc \
+  apache-airflow-providers-microsoft-mssql \
+  apache-airflow-providers-oracle \
+  pyodbc \
+  oracledb
+
+# DB2: only on amd64 (no ARM client)
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      pip install --no-cache-dir \
+        --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_MAJOR_MINOR}.txt" \
+        ibm-db ibm-db-sa; \
+    fi
