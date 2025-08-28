@@ -23,7 +23,6 @@ from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
 )
 import os
-from datasurface.platforms.yellow.job_factory import calculateCorrectJob
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -162,6 +161,8 @@ def main():
                 logger.error("Unknown dataset", dataset_name=args.dataset_name)
                 return -1  # ERROR
 
+        # Import here to avoid circular import
+        from datasurface.platforms.yellow.job_factory import calculateCorrectJob
         job: Optional[Job] = calculateCorrectJob(eco, dp, store, args.dataset_name)
         if job is None:
             logger.error("Failed to calculate correct job", operation=args.operation)

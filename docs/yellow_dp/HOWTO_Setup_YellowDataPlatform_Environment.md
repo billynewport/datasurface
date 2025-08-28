@@ -391,20 +391,9 @@ sudo kubectl create secret generic git \
 - **Airflow Web UI**: `admin/admin123` (created after deployment)
 - **GitHub Token**: Replace `your-github-token` with your actual GitHub Personal Access Token
 
-### Step 2: Deploy Kubernetes Infrastructure
+### Step 2: Create Required Databases and Run Ring 1 Initialization
 
-```bash
-# Apply the Kubernetes configuration
-sudo kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
-
-# Verify database connectivity using utility script
-./utils.sh db-test
-
-# Check deployment status
-./utils.sh status
-```
-
-### Step 3: Run Ring 1 Initialization
+**IMPORTANT**: Create databases and run Ring 1 initialization BEFORE deploying Airflow infrastructure to avoid connection conflicts.
 
 Ring 1 initialization creates the database schemas required for the platform operations.
 
@@ -412,28 +401,49 @@ Ring 1 initialization creates the database schemas required for the platform ope
 # Source environment variables
 source .env
 
-# Create required databases manually (required before Ring 1 initialization)
+# Drop and recreate databases (ensures clean state)
 if [ "$EXTERNAL_DB" = "true" ]; then
-    echo "=== Creating Databases on External PostgreSQL ==="
+    echo "=== Dropping and Creating Databases on External PostgreSQL ==="
     
-    # Create databases on external PostgreSQL
-    sudo kubectl run db-setup --rm -i --restart=Never \
+    # First, terminate any existing connections and drop databases
+    sudo kubectl run db-drop --rm -i --restart=Never \
       --image=postgres:16 \
       --env="PGPASSWORD=$PG_PASSWORD" \
       -n "$NAMESPACE" \
       -- bash -c "
-        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE airflow_db;' || echo 'airflow_db may already exist'
-        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE customer_db;' || echo 'customer_db may already exist'  
-        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE $MERGE_DB_NAME;' || echo '$MERGE_DB_NAME may already exist'
+        # Terminate connections to databases
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('airflow_db', 'customer_db', '$MERGE_DB_NAME') AND pid <> pg_backend_pid();\" || echo 'No connections to terminate'
+        # Drop databases
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'DROP DATABASE IF EXISTS airflow_db;'
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'DROP DATABASE IF EXISTS customer_db;'  
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'DROP DATABASE IF EXISTS $MERGE_DB_NAME;'
+      "
+    
+    # Create fresh databases
+    sudo kubectl run db-create --rm -i --restart=Never \
+      --image=postgres:16 \
+      --env="PGPASSWORD=$PG_PASSWORD" \
+      -n "$NAMESPACE" \
+      -- bash -c "
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE airflow_db;'
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE customer_db;'  
+        psql -h '$PG_HOST' -p '$PG_PORT' -U '$PG_USER' -c 'CREATE DATABASE $MERGE_DB_NAME;'
       "
 else
-    echo "=== Creating Databases on Internal PostgreSQL ==="
+    echo "=== Dropping and Creating Databases on Internal PostgreSQL ==="
     
-    # Create databases on internal PostgreSQL
+    # Drop and create databases on internal PostgreSQL
     sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "
-        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE airflow_db;' || echo 'airflow_db may already exist'
-        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE customer_db;' || echo 'customer_db may already exist'
-        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE $MERGE_DB_NAME;' || echo '$MERGE_DB_NAME may already exist'
+        # Terminate connections
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('airflow_db', 'customer_db', '$MERGE_DB_NAME') AND pid <> pg_backend_pid();\" || echo 'No connections to terminate'
+        # Drop databases
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'DROP DATABASE IF EXISTS airflow_db;'
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'DROP DATABASE IF EXISTS customer_db;'
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'DROP DATABASE IF EXISTS $MERGE_DB_NAME;'
+        # Create fresh databases
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE airflow_db;'
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE customer_db;'
+        PGPASSWORD='$PG_PASSWORD' psql -U '$PG_USER' -h localhost -c 'CREATE DATABASE $MERGE_DB_NAME;'
     "
 fi
 
@@ -442,7 +452,7 @@ fi
 
 # Create source tables and initial test data using the data simulator
 # This creates the customers and addresses tables with initial data and simulates some changes and leaves it running continuously.
-sudo kubectl run data-simulator --rm -i --restart=Never \
+sudo kubectl run data-simulator --restart=Never \
   --image=datasurface/datasurface:latest \
   --env="POSTGRES_USER=$PG_USER" \
   --env="POSTGRES_PASSWORD=$PG_PASSWORD" \
@@ -460,8 +470,10 @@ sudo kubectl run data-simulator --rm -i --restart=Never \
 # Wait a moment for the data simulator to start creating tables, then continue
 echo "Data simulator started in background. Continuing with setup..."
 echo "Note: The data simulator will run continuously for days, simulating ongoing data changes."
-echo "You can monitor it with: ./utils.sh logs | grep data-simulator"
+echo "You can monitor it with: sudo kubectl logs data-simulator -n \$NAMESPACE -f"
 sleep 10
+
+# Note: Remove --rm flag to allow background execution and monitoring
 
 # Apply Ring 1 initialization job (creates platform database schemas)
 sudo kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
@@ -470,6 +482,21 @@ sudo kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
 sudo kubectl wait --for=condition=complete job/test-dp-ring1-init -n "$NAMESPACE" --timeout=300s
 
 # Check status
+./utils.sh status
+```
+
+### Step 3: Deploy Kubernetes Infrastructure
+
+**Now that databases are created and Ring 1 initialization is complete, deploy the Airflow infrastructure:**
+
+```bash
+# Apply the Kubernetes configuration
+sudo kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
+
+# Verify database connectivity using utility script
+./utils.sh db-test
+
+# Check deployment status
 ./utils.sh status
 ```
 
@@ -735,6 +762,27 @@ sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U pos
 
 ### Common Issues and Solutions
 
+**Issue: Database connection conflicts during deployment**
+```bash
+# Symptoms: 
+# - "database is being accessed by other users" when trying to drop databases
+# - Airflow pods fail to start after database operations
+# - Data simulator fails with "database does not exist" errors
+
+# Cause: Airflow infrastructure deployed before databases are properly initialized
+# Solution: Follow correct deployment order:
+# 1. Create namespace and secrets
+# 2. DROP existing databases and CREATE fresh ones (Step 2 now includes this)
+# 3. Run Ring 1 initialization 
+# 4. THEN deploy Airflow infrastructure
+# 5. Initialize Airflow and create admin user
+# 6. Deploy DAGs and jobs
+
+# If you encounter this issue, stop Airflow deployments first:
+sudo kubectl delete deployment airflow-scheduler airflow-webserver -n "$NAMESPACE"
+# Wait for pods to terminate, then follow the updated Step 2 which drops and recreates databases
+```
+
 **Issue: Ingestion stream DAGs not appearing in Airflow UI**
 ```bash
 # Cause: Factory DAGs haven't run yet or model merge job failed
@@ -742,6 +790,32 @@ sudo kubectl exec deployment/pg-postgres -n "$NAMESPACE" -- bash -c "psql -U pos
 sudo kubectl get jobs -n "$NAMESPACE"
 sudo kubectl logs job/test-dp-model-merge-job -n "$NAMESPACE"
 sudo kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
+```
+
+**Issue: Data simulator fails to create tables**
+```bash
+# Symptoms:
+# - Data simulator shows "relation 'customers' does not exist" errors
+# - Tables not created in customer_db database
+# - Pod exits with "Too many consecutive failures"
+
+# Cause: Data simulator may exit before tables are fully created
+# Solution: Run data simulator with limited changes to create tables first:
+sudo kubectl run data-simulator-create --rm -i --restart=Never \
+  --image=datasurface/datasurface:latest \
+  --env="POSTGRES_USER=$PG_USER" \
+  --env="POSTGRES_PASSWORD=$PG_PASSWORD" \
+  -n "$NAMESPACE" \
+  -- python src/tests/data_change_simulator.py \
+  --host "$PG_HOST" --port "$PG_PORT" --database customer_db \
+  --user "$PG_USER" --password "$PG_PASSWORD" \
+  --create-tables --max-changes 100 --verbose
+
+# Verify tables were created:
+sudo kubectl run db-tables --rm -i --restart=Never \
+  --image=postgres:16 --env="PGPASSWORD=$PG_PASSWORD" -n "$NAMESPACE" \
+  -- psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d customer_db \
+  -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
 ```
 
 **Issue: Ring 1 initialization job fails**
@@ -837,6 +911,24 @@ sudo kubectl run data-simulator-continuous --rm -i --restart=Never \
 - Watch the Airflow DAGs process the simulated changes
 - Monitor staging and merge tables for new data
 - Verify both live and forensic processing modes work correctly
+
+## Critical Deployment Order
+
+**⚠️ IMPORTANT**: Follow this exact order to avoid database connection conflicts:
+
+1. **Phase 1: Bootstrap Artifact Generation (Ring 0)**
+   - Clone repository and configure environment
+   - Generate bootstrap artifacts using Docker
+
+2. **Phase 2: Kubernetes Infrastructure Setup (Ring 1)**
+   - Create namespace and secrets
+   - **DROP and CREATE fresh databases FIRST** (before deploying Airflow)
+   - Run Ring 1 initialization job
+   - **THEN deploy Airflow infrastructure**
+   - Initialize Airflow database and create admin user
+   - Deploy DAGs and run model merge/reconcile jobs
+
+**❌ Common Mistake**: Deploying Airflow infrastructure before databases are ready causes connection conflicts and deployment failures.
 
 ## Success Criteria
 

@@ -4,7 +4,8 @@
 """
 
 from datasurface.md import (
-    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint, HostPortSQLDatabase, SnowFlakeDatabase
+    Datastore, Ecosystem, CredentialStore, Dataset, IngestionConsistencyType, PlatformRuntimeHint, HostPortSQLDatabase, SnowFlakeDatabase,
+    DataPlatformManagedDataContainer
 )
 from sqlalchemy import Table, text
 import sqlalchemy
@@ -93,7 +94,11 @@ class Job(YellowDatasetUtilities):
             )
         self.numReconcileDDLs: int = 0
 
-        self.srcNM: DataContainerNamingMapper = self.store.cmd.dataContainer.getNamingAdapter()
+        self.srcNM: DataContainerNamingMapper
+        if isinstance(self.store.cmd.dataContainer, DataPlatformManagedDataContainer):
+            self.srcNM = self.dp.psp.mergeStore.getNamingAdapter()
+        else:
+            self.srcNM = self.store.cmd.dataContainer.getNamingAdapter()
         self.mrgNM: DataContainerNamingMapper = self.dp.psp.mergeStore.getNamingAdapter()
 
     def createBatchCounterTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
