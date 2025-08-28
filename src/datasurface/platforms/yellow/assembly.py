@@ -619,6 +619,11 @@ class YellowExternalSingleDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabas
 
 
 class YellowTwinPostgresDatabaseAssembly(K8sAssemblyFactory[PostgresDatabase]):
+    """
+    This provisions both an airflow and a seperate merge postgres databases within the kubernetes namespace.
+    By default, both databases will use a longhorn storage volume each. This won't be high performance, we recommend
+    using a high performance storage class. If maximum performance is required, dont use this, provide 2
+    managed databases."""
     def __init__(self, name: str, namespace: str, git_cache_config: GitCacheConfig,
                  nfs_server_node: str,
                  mergeDBStorageNeeds: StorageRequirement,
@@ -682,26 +687,23 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
     """
     This creates a Datasurface assembly with a postgres based Airflow and a supported merge database. Airflow only
     supports postgres databases.
+    It relies on an external postgres database for airflow. It's provisioned externally.
     """
     def __init__(self, name: str, namespace: str, git_cache_config: GitCacheConfig,
                  afDBcred: Credential,
                  afDB: PostgresDatabase,
-                 afDBStorageNeeds: StorageRequirement,
-                 afHostPortPair: HostPortPair) -> None:
+                 afWebserverResourceLimits: K8sResourceLimits,
+                 afSchedulerResourceLimits: K8sResourceLimits) -> None:
         super().__init__(name, namespace, git_cache_config)
         self.afDBcred: Credential = afDBcred
         self.afDB: PostgresDatabase = afDB
-        self.afDBStorageNeeds: StorageRequirement = afDBStorageNeeds
-        self.afHostPortPair: HostPortPair = afHostPortPair
+        self.afWebserverResourceLimits: K8sResourceLimits = afWebserverResourceLimits
+        self.afSchedulerResourceLimits: K8sResourceLimits = afSchedulerResourceLimits
 
     def createYellowAssemblyTwinDatabase(
             self,
             name: str,
-            mergeRWCred: Credential,
-            afDBcred: Credential,
-            afDB: PostgresDatabase,
-            afDBStorageNeeds: StorageRequirement,
-            afHostPortPair: HostPortPair) -> Assembly:
+            mergeRWCred: Credential) -> Assembly:
         """This creates an assembly for a YellowDataPlatform where the merge engine and the airflow use seperate databases for performance
         reasons."""
         assembly: Assembly = Assembly(
@@ -714,8 +716,10 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
                     self.git_cache_config.pvc_name, self.namespace,
                     self.git_cache_config.storage_size, self.git_cache_config.storageClass,
                     self.git_cache_config.access_mode),
-                PostgresComponent("pg-airflow", self.namespace, afDBcred, afDB, afDBStorageNeeds),
-                Airflow281Component("airflow", self.namespace, afDBcred, afDB, [mergeRWCred])  # Airflow needs the merge store database credentials for DAGs
+                Airflow281Component(
+                    "airflow", self.namespace, self.afDBcred, self.afDB, [mergeRWCred], webserverResourceLimits=self.afWebserverResourceLimits,
+                    schedulerResourceLimits=self.afSchedulerResourceLimits
+                    )  # Airflow needs the merge store database credentials for DAGs
             ]
         )
         return assembly
@@ -724,8 +728,5 @@ class YellowTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
         """This creates the assembly for the kubernetes yaml file."""
         return self.createYellowAssemblyTwinDatabase(
             self.name,
-            mergeRW_Credential,
-            self.afDBcred,
-            self.afDB,
-            self.afDBStorageNeeds,
-            self.afHostPortPair)
+            mergeRW_Credential
+        )
