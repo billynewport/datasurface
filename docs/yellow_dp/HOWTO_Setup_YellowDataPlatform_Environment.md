@@ -152,7 +152,11 @@ cat dsg_platform_mapping.json
 To avoid shell escaping issues and improve reliability, create these utility scripts in your `yellow_starter` directory:
 
 **Create Environment Setup Script (`setup_env.sh`):**
+
+To avoid shell escaping issues with complex Python code execution, create the script locally and copy it to the remote machine:
+
 ```bash
+# Create the environment setup script locally
 cat > setup_env.sh << 'EOF'
 #!/bin/bash
 
@@ -242,6 +246,13 @@ echo "To use in future sessions: source .env"
 EOF
 
 chmod +x setup_env.sh
+
+# For remote deployments, copy the script and execute:
+# scp setup_env.sh user@remote-host:~/yellow_starter/
+# ssh user@remote-host "cd yellow_starter && chmod +x setup_env.sh && ./setup_env.sh"
+
+# For local deployments, execute directly:
+# ./setup_env.sh
 ```
 
 **Create Utility Script (`utils.sh`):**
@@ -800,16 +811,50 @@ sudo kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
 # - Pod exits with "Too many consecutive failures"
 
 # Cause: Data simulator may exit before tables are fully created
-# Solution: Run data simulator with limited changes to create tables first:
-sudo kubectl run data-simulator-create --rm -i --restart=Never \
-  --image=datasurface/datasurface:latest \
+# Solution: Create a cleanup and restart script to avoid shell escaping issues
+
+# Create cleanup script locally
+cat > cleanup_and_restart_simulator.sh << 'EOF'
+#!/bin/bash
+
+# Load environment
+cd yellow_starter
+source .env
+
+# Clean up existing data simulator pod
+echo "Cleaning up existing data simulator pod..."
+sudo kubectl delete pod data-simulator -n "$NAMESPACE" --ignore-not-found=true
+
+# Wait a moment for cleanup
+sleep 5
+
+# Start new data simulator with limited changes first to ensure table creation
+echo "Starting data simulator with limited changes to create tables..."
+sudo kubectl run data-simulator --restart=Never --image=datasurface/datasurface:latest \
   --env="POSTGRES_USER=$PG_USER" \
   --env="POSTGRES_PASSWORD=$PG_PASSWORD" \
   -n "$NAMESPACE" \
   -- python src/tests/data_change_simulator.py \
-  --host "$PG_HOST" --port "$PG_PORT" --database customer_db \
-  --user "$PG_USER" --password "$PG_PASSWORD" \
-  --create-tables --max-changes 100 --verbose
+  --host "$PG_HOST" \
+  --port "$PG_PORT" \
+  --database customer_db \
+  --user "$PG_USER" \
+  --password "$PG_PASSWORD" \
+  --create-tables \
+  --max-changes 100 \
+  --verbose
+
+echo "Data simulator started with table creation!"
+EOF
+
+chmod +x cleanup_and_restart_simulator.sh
+
+# For remote deployments, copy the script and execute:
+# scp cleanup_and_restart_simulator.sh user@remote-host:~/
+# ssh user@remote-host "chmod +x cleanup_and_restart_simulator.sh && ./cleanup_and_restart_simulator.sh"
+
+# For local deployments, execute directly:
+./cleanup_and_restart_simulator.sh
 
 # Verify tables were created:
 sudo kubectl run db-tables --rm -i --restart=Never \
