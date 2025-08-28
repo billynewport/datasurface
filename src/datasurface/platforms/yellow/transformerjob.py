@@ -198,11 +198,12 @@ class DataTransformerJob(JobUtilities):
             outputDatastore: Datastore = w.dataTransformer.outputDatastore
 
             # Create or update the output tables
-            for dataset in outputDatastore.datasets.values():
-                store: Datastore = self.eco.cache_getDatastoreOrThrow(outputDatastore.name).datastore
-                t: Table = datasetToSQLAlchemyTable(
-                    dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData(), systemMergeEngine)
-                createOrUpdateTable(systemMergeEngine, inspector, t)
+            with systemMergeEngine.begin() as connection:
+                for dataset in outputDatastore.datasets.values():
+                    store: Datastore = self.eco.cache_getDatastoreOrThrow(outputDatastore.name).datastore
+                    t: Table = datasetToSQLAlchemyTable(
+                        dataset, self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(store, dataset), sqlalchemy.MetaData(), systemMergeEngine)
+                    createOrUpdateTable(connection, inspector, t)
 
             # Reset an open batch if one exists.
             with log_operation_timing(logger, "batch_creation_or_reset"):

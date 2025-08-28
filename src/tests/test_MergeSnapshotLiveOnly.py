@@ -233,9 +233,9 @@ class BaseMergeJobTest(ABC):
         self.createSourceTable()
         self.createMergeDatabase()
         inspector = createInspector(self.merge_engine)
-        if self.job is not None:
-            # Drop the meta tables so we can start fresh using database operations
-            with self.merge_engine.begin() as conn:
+        with self.merge_engine.begin() as mergeConnection:
+            if self.job is not None:
+                # Drop the meta tables so we can start fresh using database operations
                 if self.db_ops is None:
                     raise Exception("Database operations not initialized - this is a critical system error")
 
@@ -253,17 +253,17 @@ class BaseMergeJobTest(ABC):
                     drop_sql = self.db_ops.get_drop_table_sql(table_name)
                     # If it exists then just delete all the rows otherwise create the table
                     if inspector.has_table(table_name):
-                        conn.execute(text(f"DELETE FROM {table_name}"))
+                        mergeConnection.execute(text(f"DELETE FROM {table_name}"))
                     else:
                         try:
-                            conn.execute(text(drop_sql))
+                            mergeConnection.execute(text(drop_sql))
                         except Exception:
                             pass  # Table might not exist
 
-            if not inspector.has_table(self.ydu.getPhysBatchCounterTableName()):
-                self.job.createBatchCounterTable(self.merge_engine, inspector)
-            if not inspector.has_table(self.ydu.getPhysBatchMetricsTableName()):
-                self.job.createBatchMetricsTable(self.merge_engine, inspector)
+                if not inspector.has_table(self.ydu.getPhysBatchCounterTableName()):
+                    self.job.createBatchCounterTable(mergeConnection, inspector)
+                if not inspector.has_table(self.ydu.getPhysBatchMetricsTableName()):
+                    self.job.createBatchMetricsTable(mergeConnection, inspector)
 
     def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
         """Check the batch status for a given key"""
@@ -297,7 +297,8 @@ class BaseMergeJobTest(ABC):
 
         # Ensure staging table exists before calling startBatch
         assert self.store is not None
-        self.ydu.reconcileStagingTableSchemas(self.merge_engine, createInspector(self.merge_engine), self.store)
+        with self.merge_engine.begin() as mergeConnection:
+            self.ydu.reconcileStagingTableSchemas(mergeConnection, createInspector(self.merge_engine), self.store)
 
         self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
         self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.STARTED, tc)

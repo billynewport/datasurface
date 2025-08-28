@@ -136,27 +136,28 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
     merge_tables_failed = 0
 
     inspector = createInspector(engine)
-    for store_name in sorted(stores_to_process):
-        try:
-            logger.info("Processing merge tables for store", store_name=store_name)
-            store_entry = eco.cache_getDatastoreOrThrow(store_name)
-            store = store_entry.datastore
+    with engine.begin() as connection:
+        for store_name in sorted(stores_to_process):
+            try:
+                logger.info("Processing merge tables for store", store_name=store_name)
+                store_entry = eco.cache_getDatastoreOrThrow(store_name)
+                store = store_entry.datastore
 
-            # Create a YellowDatasetUtilities instance for this store
-            utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store)
+                # Create a YellowDatasetUtilities instance for this store
+                utils = YellowDatasetUtilities(eco, cred_store, yellow_dp, store)
 
-            # Create/update all merge tables for this store
-            with log_operation_timing(logger, "reconcile_merge_tables", store_name=store_name):
-                utils.reconcileMergeTableSchemas(engine, inspector, store)
+                # Create/update all merge tables for this store
+                with log_operation_timing(logger, "reconcile_merge_tables", store_name=store_name):
+                    utils.reconcileMergeTableSchemas(connection, inspector, store)
 
-            logger.info("Successfully processed merge tables for store",
-                        store_name=store_name,
-                        dataset_count=len(store.datasets))
-            merge_tables_processed += 1
+                logger.info("Successfully processed merge tables for store",
+                            store_name=store_name,
+                            dataset_count=len(store.datasets))
+                merge_tables_processed += 1
 
-        except Exception as e:
-            logger.error("Error processing merge tables for store", store_name=store_name, error=str(e))
-            merge_tables_failed += 1
+            except Exception as e:
+                logger.error("Error processing merge tables for store", store_name=store_name, error=str(e))
+                merge_tables_failed += 1
 
     logger.info("Merge table processing summary",
                 stores_processed=merge_tables_processed,
@@ -248,64 +249,65 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                     try:
                         view_changes = []
 
-                        if is_forensic_platform:
-                            # For forensic platforms: create both _view_full and _live views
+                        with engine.begin() as connection:
+                            if is_forensic_platform:
+                                # For forensic platforms: create both _view_full and _live views
 
-                            # 1. Create full view (all historical records)
-                            full_view_name = utils.getPhysWorkspaceFullViewName(workspace.name, dataset_group.name)
+                                # 1. Create full view (all historical records)
+                                full_view_name = utils.getPhysWorkspaceFullViewName(workspace.name, dataset_group.name)
 
-                            with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
-                                full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
+                                with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
+                                    full_was_changed = createOrUpdateView(connection, inspector, utils.dataset, full_view_name, merge_table_name)
 
-                            if full_was_changed:
-                                if check_merge_table_exists(engine, full_view_name):
-                                    views_updated += 1
-                                    view_changes.append(f"Updated full view: {full_view_name}")
+                                if full_was_changed:
+                                    if check_merge_table_exists(engine, full_view_name):
+                                        views_updated += 1
+                                        view_changes.append(f"Updated full view: {full_view_name}")
+                                    else:
+                                        views_created += 1
+                                        view_changes.append(f"Created full view: {full_view_name}")
                                 else:
-                                    views_created += 1
-                                    view_changes.append(f"Created full view: {full_view_name}")
-                            else:
-                                view_changes.append(f"Full view already up to date: {full_view_name}")
+                                    view_changes.append(f"Full view already up to date: {full_view_name}")
 
-                            # 2. Create live view (only live records with WHERE clause)
-                            live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
-                            live_where_clause = f"{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}"
+                                # 2. Create live view (only live records with WHERE clause)
+                                live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
+                                live_where_clause = f"{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}"
 
-                            with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
-                                live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
-                                                                      merge_table_name, live_where_clause)
+                                with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                                    live_was_changed = createOrUpdateView(connection, inspector, utils.dataset, live_view_name,
+                                                                          merge_table_name, live_where_clause)
 
-                            if live_was_changed:
-                                if check_merge_table_exists(engine, live_view_name):
-                                    views_updated += 1
-                                    view_changes.append(f"Updated live view: {live_view_name}")
+                                if live_was_changed:
+                                    if check_merge_table_exists(engine, live_view_name):
+                                        views_updated += 1
+                                        view_changes.append(f"Updated live view: {live_view_name}")
+                                    else:
+                                        views_created += 1
+                                        view_changes.append(f"Created live view: {live_view_name}")
                                 else:
-                                    views_created += 1
-                                    view_changes.append(f"Created live view: {live_view_name}")
+                                    view_changes.append(f"Live view already up to date: {live_view_name}")
+
                             else:
-                                view_changes.append(f"Live view already up to date: {live_view_name}")
+                                # For live-only platforms: create only _live view (no filtering needed)
+                                live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
 
-                        else:
-                            # For live-only platforms: create only _live view (no filtering needed)
-                            live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
+                                with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                                    live_was_changed = createOrUpdateView(connection, inspector, utils.dataset, live_view_name,
+                                                                          merge_table_name, None)
 
-                            with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
-                                live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
-                                                                      merge_table_name, None)
-
-                            if live_was_changed:
-                                if check_merge_table_exists(engine, live_view_name):
-                                    views_updated += 1
-                                    view_changes.append(f"Updated live view: {live_view_name}")
+                                if live_was_changed:
+                                    if check_merge_table_exists(engine, live_view_name):
+                                        views_updated += 1
+                                        view_changes.append(f"Updated live view: {live_view_name}")
+                                    else:
+                                        views_created += 1
+                                        view_changes.append(f"Created live view: {live_view_name}")
                                 else:
-                                    views_created += 1
-                                    view_changes.append(f"Created live view: {live_view_name}")
-                            else:
-                                view_changes.append(f"Live view already up to date: {live_view_name}")
+                                    view_changes.append(f"Live view already up to date: {live_view_name}")
 
-                        # Log all view changes for this dataset
-                        for change in view_changes:
-                            logger.info("View operation completed", operation=change)
+                            # Log all view changes for this dataset
+                            for change in view_changes:
+                                logger.info("View operation completed", operation=change)
 
                     except Exception as e:
                         logger.error("Error creating/updating views for dataset",
@@ -400,64 +402,65 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
                 try:
                     view_changes = []
 
-                    if is_forensic_platform:
-                        # For forensic platforms: create both _view_full and _live views
+                    with engine.begin() as connection:
+                        if is_forensic_platform:
+                            # For forensic platforms: create both _view_full and _live views
 
-                        # 1. Create full view (all historical records)
-                        full_view_name = utils.getPhysWorkspaceFullViewName(workspace.name, dataset_group.name)
+                            # 1. Create full view (all historical records)
+                            full_view_name = utils.getPhysWorkspaceFullViewName(workspace.name, dataset_group.name)
 
-                        with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
-                            full_was_changed = createOrUpdateView(engine, utils.dataset, full_view_name, merge_table_name)
+                            with log_operation_timing(logger, "create_full_view", view_name=full_view_name):
+                                full_was_changed = createOrUpdateView(connection, inspector, utils.dataset, full_view_name, merge_table_name)
 
-                        if full_was_changed:
-                            if check_merge_table_exists(engine, full_view_name):
-                                views_updated += 1
-                                view_changes.append(f"Updated full view: {full_view_name}")
+                            if full_was_changed:
+                                if check_merge_table_exists(engine, full_view_name):
+                                    views_updated += 1
+                                    view_changes.append(f"Updated full view: {full_view_name}")
+                                else:
+                                    views_created += 1
+                                    view_changes.append(f"Created full view: {full_view_name}")
                             else:
-                                views_created += 1
-                                view_changes.append(f"Created full view: {full_view_name}")
-                        else:
-                            view_changes.append(f"Full view already up to date: {full_view_name}")
+                                view_changes.append(f"Full view already up to date: {full_view_name}")
 
-                        # 2. Create live view (only live records with WHERE clause)
-                        live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
-                        live_where_clause = f"{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}"
+                            # 2. Create live view (only live records with WHERE clause)
+                            live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
+                            live_where_clause = f"{YellowSchemaConstants.BATCH_OUT_COLUMN_NAME} = {YellowSchemaConstants.LIVE_RECORD_ID}"
 
-                        with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
-                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
-                                                                  merge_table_name, live_where_clause)
+                            with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                                live_was_changed = createOrUpdateView(connection, inspector, utils.dataset, live_view_name,
+                                                                      merge_table_name, live_where_clause)
 
-                        if live_was_changed:
-                            if check_merge_table_exists(engine, live_view_name):
-                                views_updated += 1
-                                view_changes.append(f"Updated live view: {live_view_name}")
+                            if live_was_changed:
+                                if check_merge_table_exists(engine, live_view_name):
+                                    views_updated += 1
+                                    view_changes.append(f"Updated live view: {live_view_name}")
+                                else:
+                                    views_created += 1
+                                    view_changes.append(f"Created live view: {live_view_name}")
                             else:
-                                views_created += 1
-                                view_changes.append(f"Created live view: {live_view_name}")
+                                view_changes.append(f"Live view already up to date: {live_view_name}")
+
                         else:
-                            view_changes.append(f"Live view already up to date: {live_view_name}")
+                            # For live-only platforms: create only _live view (no filtering needed)
+                            live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
 
-                    else:
-                        # For live-only platforms: create only _live view (no filtering needed)
-                        live_view_name = utils.getPhysWorkspaceLiveViewName(workspace.name, dataset_group.name)
+                            with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
+                                live_was_changed = createOrUpdateView(connection, inspector, utils.dataset, live_view_name,
+                                                                      merge_table_name, None)
 
-                        with log_operation_timing(logger, "create_live_view", view_name=live_view_name):
-                            live_was_changed = createOrUpdateView(engine, utils.dataset, live_view_name,
-                                                                  merge_table_name, None)
-
-                        if live_was_changed:
-                            if check_merge_table_exists(engine, live_view_name):
-                                views_updated += 1
-                                view_changes.append(f"Updated live view: {live_view_name}")
+                            if live_was_changed:
+                                if check_merge_table_exists(engine, live_view_name):
+                                    views_updated += 1
+                                    view_changes.append(f"Updated live view: {live_view_name}")
+                                else:
+                                    views_created += 1
+                                    view_changes.append(f"Created live view: {live_view_name}")
                             else:
-                                views_created += 1
-                                view_changes.append(f"Created live view: {live_view_name}")
-                        else:
-                            view_changes.append(f"Live view already up to date: {live_view_name}")
+                                view_changes.append(f"Live view already up to date: {live_view_name}")
 
-                    # Log all view changes for this dataset
-                    for change in view_changes:
-                        logger.info("View operation completed for unassigned workspace", operation=change)
+                        # Log all view changes for this dataset
+                        for change in view_changes:
+                            logger.info("View operation completed for unassigned workspace", operation=change)
 
                 except Exception as e:
                     logger.error("Error creating/updating views for dataset in unassigned workspace",

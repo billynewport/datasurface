@@ -96,10 +96,10 @@ class Job(YellowDatasetUtilities):
         self.srcNM: DataContainerNamingMapper = self.store.cmd.dataContainer.getNamingAdapter()
         self.mrgNM: DataContainerNamingMapper = self.dp.psp.mergeStore.getNamingAdapter()
 
-    def createBatchCounterTable(self, mergeEngine: Engine, inspector: Inspector) -> None:
+    def createBatchCounterTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
         """This creates the batch counter table"""
         t: Table = self.getBatchCounterTable()
-        createOrUpdateTable(mergeEngine, inspector, t, createOnly=True)
+        createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
 
     CHUNK_SIZE_KEY: str = "chunkSize"
     CHUNK_SIZE_DEFAULT: int = 50000
@@ -125,10 +125,10 @@ class Job(YellowDatasetUtilities):
                 logger.info(f"Parameter override for {key}", value=value, key=key, store_name=self.store.name)
         return value
 
-    def createBatchMetricsTable(self, mergeEngine: Engine, inspector: Inspector) -> None:
+    def createBatchMetricsTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
         """This creates the batch metrics table"""
-        t: Table = self.getBatchMetricsTable(mergeEngine)
-        createOrUpdateTable(mergeEngine, inspector, t, createOnly=True)
+        t: Table = self.getBatchMetricsTable(mergeConnection)
+        createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
         """This returns the staging schema for a dataset"""
@@ -449,28 +449,28 @@ class Job(YellowDatasetUtilities):
         # Create batch counter and metrics tables if they don't exist
         inspector = createInspector(mergeEngine)
 
-        self.createBatchCounterTable(mergeEngine, inspector)
-        self.createBatchMetricsTable(mergeEngine, inspector)
-        # Make sure the staging and merge tables exist and have the current schema for each dataset
-        # WE only want to do this if the schema hash for the schemas we care about are different than the schema hash in the previous batch
-        with mergeEngine.begin() as connection:
+        with mergeEngine.begin() as mergeConnection:
+            self.createBatchCounterTable(mergeConnection, inspector)
+            self.createBatchMetricsTable(mergeConnection, inspector)
+            # Make sure the staging and merge tables exist and have the current schema for each dataset
+            # WE only want to do this if the schema hash for the schemas we care about are different than the schema hash in the previous batch
             # Need to get the max committed batch id if any
-            maxCommittedBatchId: Optional[int] = self.getMaxCommittedBatchId(connection, key)
+            maxCommittedBatchId: Optional[int] = self.getMaxCommittedBatchId(mergeConnection, key)
             if maxCommittedBatchId is None:
                 currentState: BatchState = BatchState(all_datasets=list(self.store.datasets.keys()))
             else:
-                currentState: BatchState = self.getBatchState(mergeEngine, connection, key, maxCommittedBatchId)
-        reconcileNeeded: bool = False
-        for dataset in self.store.datasets.values():
-            if dataset.name not in currentState.schema_versions or currentState.schema_versions[dataset.name] != ydu.getSchemaHash(dataset):
-                reconcileNeeded = True
-                break
-        if reconcileNeeded:
-            logger.info("Reconciling staging and merge tables", key=key)
-            self.numReconcileDDLs += 1
-            self.reconcileStagingTableSchemas(mergeEngine, inspector, self.store)
-            self.reconcileMergeTableSchemas(mergeEngine, inspector, self.store)
-            logger.info("Reconciling staging and merge tables completed", key=key)
+                currentState: BatchState = self.getBatchState(mergeEngine, mergeConnection, key, maxCommittedBatchId)
+            reconcileNeeded: bool = False
+            for dataset in self.store.datasets.values():
+                if dataset.name not in currentState.schema_versions or currentState.schema_versions[dataset.name] != ydu.getSchemaHash(dataset):
+                    reconcileNeeded = True
+                    break
+            if reconcileNeeded:
+                logger.info("Reconciling staging and merge tables", key=key)
+                self.numReconcileDDLs += 1
+                self.reconcileStagingTableSchemas(mergeConnection, inspector, self.store)
+                self.reconcileMergeTableSchemas(mergeConnection, inspector, self.store)
+                logger.info("Reconciling staging and merge tables completed", key=key)
 
         currentStatus = self.executeBatch(sourceEngine, mergeEngine, key)
         return currentStatus

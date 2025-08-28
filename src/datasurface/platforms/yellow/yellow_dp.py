@@ -32,7 +32,7 @@ from enum import Enum
 import json
 import sqlalchemy
 from typing import List
-from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine
+from sqlalchemy import Table, Column, TIMESTAMP, MetaData, Engine, Connection
 from sqlalchemy import text
 from datasurface.platforms.yellow.db_utils import createEngine, getDriverNameAndQueryForDataContainer, createInspector
 from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
@@ -125,12 +125,12 @@ class JobUtilities(ABC):
                          Column(quoted_name("currentBatch", quote=True), sqlalchemy.Integer()))
         return t
 
-    def getBatchMetricsTable(self, engine: Optional[Engine] = None) -> Table:
+    def getBatchMetricsTable(self, mergeConnection: Optional[Connection] = None) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
         data store name and the dataset name."""
         from sqlalchemy.sql import quoted_name
         # Use database-specific datetime type - default to TIMESTAMP for compatibility
-        if engine is not None and hasattr(engine, 'dialect') and 'mssql' in str(engine.dialect.name):
+        if mergeConnection is not None and hasattr(mergeConnection, 'dialect') and 'mssql' in str(mergeConnection.dialect.name):
             from sqlalchemy.types import DATETIME
             datetime_type = DATETIME()
         else:
@@ -284,16 +284,16 @@ class YellowDatasetUtilities(JobUtilities):
         # If its too long then truncate it with mangling
         return DataContainerNamingMapper.truncateIdentifier(key, STREAM_KEY_MAX_LENGTH)
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the staging schema for a dataset"""
         stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.db_ops)
-        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), mergeConnection)
         return t
 
-    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the merge schema for a dataset"""
         mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE, self.db_ops)
-        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), mergeConnection)
         return t
 
     def getBaseTableNameForDataset(self, dataset: Dataset) -> str:
@@ -309,7 +309,7 @@ class YellowDatasetUtilities(JobUtilities):
         """This returns the merge table name for a dataset"""
         return self.dp.psp.namingMapper.fmtTVI(self.getRawMergeTableNameForDataset(self.store, dataset))
 
-    def createStagingTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
+    def createStagingTableIndexes(self, mergeConnection: Connection, tableName: str) -> None:
         """Create performance indexes for staging tables"""
         assert self.schemaProjector is not None
 
@@ -327,24 +327,23 @@ class YellowDatasetUtilities(JobUtilities):
             (batchKeyIndexName, [YellowSchemaConstants.BATCH_ID_COLUMN_NAME, YellowSchemaConstants.KEY_HASH_COLUMN_NAME])
         ]
 
-        with mergeEngine.begin() as connection:
-            for index_name, columns in indexes:
-                # Check if index already exists using database operations
-                index_exists = self.db_ops.check_index_exists(connection, tableName, index_name)
+        for index_name, columns in indexes:
+            # Check if index already exists using database operations
+            index_exists = self.db_ops.check_index_exists(mergeConnection, tableName, index_name)
 
-                if not index_exists:
-                    try:
-                        with log_operation_timing(logger, "create_staging_index", index_name=index_name):
-                            index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
-                            connection.execute(sqlalchemy.text(index_sql))
-                        logger.info("Created staging index successfully", index_name=index_name, table_name=tableName)
-                    except Exception as e:
-                        logger.error("Failed to create staging index",
-                                     index_name=index_name,
-                                     table_name=tableName,
-                                     error=str(e))
+            if not index_exists:
+                try:
+                    with log_operation_timing(logger, "create_staging_index", index_name=index_name):
+                        index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
+                        mergeConnection.execute(sqlalchemy.text(index_sql))
+                    logger.info("Created staging index successfully", index_name=index_name, table_name=tableName)
+                except Exception as e:
+                    logger.error("Failed to create staging index",
+                                 index_name=index_name,
+                                 table_name=tableName,
+                                 error=str(e))
 
-    def createMergeTableIndexes(self, mergeEngine: Engine, tableName: str) -> None:
+    def createMergeTableIndexes(self, mergeConnection: Connection, tableName: str) -> None:
         """Create performance indexes for merge tables"""
         assert self.schemaProjector is not None
 
@@ -381,53 +380,52 @@ class YellowDatasetUtilities(JobUtilities):
                 (allHashIndexName, [YellowSchemaConstants.ALL_HASH_COLUMN_NAME])
             ])
 
-        with mergeEngine.begin() as connection:
-            for index_name, columns in indexes:
-                # Check if index already exists
-                # Check if index already exists using database operations
-                index_exists = self.db_ops.check_index_exists(connection, tableName, index_name)
+        for index_name, columns in indexes:
+            # Check if index already exists
+            # Check if index already exists using database operations
+            index_exists = self.db_ops.check_index_exists(mergeConnection, tableName, index_name)
 
-                if not index_exists:
-                    try:
-                        with log_operation_timing(logger, "create_merge_index", index_name=index_name):
-                            index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
-                            connection.execute(sqlalchemy.text(index_sql))
-                        logger.info("Created merge index successfully", index_name=index_name, table_name=tableName)
-                    except Exception as e:
-                        logger.error("Failed to create merge index",
-                                     index_name=index_name,
-                                     table_name=tableName,
-                                     error=str(e))
+            if not index_exists:
+                try:
+                    with log_operation_timing(logger, "create_merge_index", index_name=index_name):
+                        index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
+                        mergeConnection.execute(sqlalchemy.text(index_sql))
+                    logger.info("Created merge index successfully", index_name=index_name, table_name=tableName)
+                except Exception as e:
+                    logger.error("Failed to create merge index",
+                                 index_name=index_name,
+                                 table_name=tableName,
+                                 error=str(e))
 
-    def ensureUniqueConstraintExists(self, mergeEngine: Engine, tableName: str, columnName: str) -> None:
+    def ensureUniqueConstraintExists(self, mergeConnection: Connection, tableName: str, columnName: str) -> None:
         """Ensure that a unique constraint exists on the specified column"""
-        with mergeEngine.begin() as connection:
-            # Use database-specific constraint checking
-            constraint_exists = self.db_ops.check_unique_constraint_exists(connection, tableName, columnName)
+        # Use database-specific constraint checking
+        constraint_exists = self.db_ops.check_unique_constraint_exists(mergeConnection, tableName, columnName)
 
-            if not constraint_exists:
-                # Create the unique constraint using database-specific method
-                constraint_name = self.db_ops.create_unique_constraint(connection, tableName, columnName)
-                logger.debug("Creating unique constraint",
-                             constraint_name=constraint_name,
-                             table_name=tableName,
-                             column_name=columnName)
-                logger.info("Successfully created unique constraint",
-                            constraint_name=constraint_name,
-                            table_name=tableName,
-                            column_name=columnName)
+        if not constraint_exists:
+            # Create the unique constraint using database-specific method
+            constraint_name = self.db_ops.create_unique_constraint(mergeConnection, tableName, columnName)
+            logger.debug("Creating unique constraint",
+                         constraint_name=constraint_name,
+                         table_name=tableName,
+                         column_name=columnName)
+            logger.info("Successfully created unique constraint",
+                        constraint_name=constraint_name,
+                        table_name=tableName,
+                        column_name=columnName)
 
-    def _createOrUpdateTableWithPrimaryKeyHandling(self, mergeEngine: Engine, inspector: Inspector, table: Table, tableName: str, tableType: str) -> None:
+    def _createOrUpdateTableWithPrimaryKeyHandling(self, mergeConnection: Connection, inspector: Inspector,
+                                                   table: Table, tableName: str, tableType: str) -> None:
         """Common method to create or update a table, handling primary key changes by modifying constraints"""
 
         if not inspector.has_table(tableName):
             # Table doesn't exist, create it
-            table.create(mergeEngine)
+            table.create(mergeConnection)
             logger.info(f"Created {tableType} table", table_name=tableName)
             return
 
         # Table exists, check if primary key needs to be updated
-        current_table = Table(tableName, MetaData(), autoload_with=mergeEngine)
+        current_table = Table(tableName, MetaData(), autoload_with=mergeConnection)
 
         # Get current primary key columns
         current_pk_columns = []
@@ -449,60 +447,59 @@ class YellowDatasetUtilities(JobUtilities):
                         desired_pk=desired_pk_columns)
 
             # Modify primary key constraint without dropping table
-            with mergeEngine.begin() as connection:
-                # Get the primary key constraint name
-                pk_constraints = inspector.get_pk_constraint(tableName)
-                pk_name = pk_constraints.get('name', f"{tableName}_pkey")
+            # Get the primary key constraint name
+            pk_constraints = inspector.get_pk_constraint(tableName)
+            pk_name = pk_constraints.get('name', f"{tableName}_pkey")
 
-                # Drop the existing primary key constraint
-                connection.execute(sqlalchemy.text(f"ALTER TABLE {tableName} DROP CONSTRAINT {pk_name}"))
-                logger.info("Dropped primary key constraint", table_name=tableName, constraint_name=pk_name)
+            # Drop the existing primary key constraint
+            mergeConnection.execute(sqlalchemy.text(f"ALTER TABLE {tableName} DROP CONSTRAINT {pk_name}"))
+            logger.info("Dropped primary key constraint", table_name=tableName, constraint_name=pk_name)
 
-                # Add the new primary key constraint
-                pk_columns_str = ", ".join(desired_pk_columns)
-                connection.execute(sqlalchemy.text(f"ALTER TABLE {tableName} ADD PRIMARY KEY ({pk_columns_str})"))
-                logger.info("Added new primary key constraint", table_name=tableName, pk_columns=desired_pk_columns)
+            # Add the new primary key constraint
+            pk_columns_str = ", ".join(desired_pk_columns)
+            mergeConnection.execute(sqlalchemy.text(f"ALTER TABLE {tableName} ADD PRIMARY KEY ({pk_columns_str})"))
+            logger.info("Added new primary key constraint", table_name=tableName, pk_columns=desired_pk_columns)
         else:
             # Primary key is the same, use normal update
-            createOrUpdateTable(mergeEngine, inspector, table)
+            createOrUpdateTable(mergeConnection, inspector, table)
 
-    def createOrUpdateForensicTable(self, mergeEngine: Engine, inspector: Inspector, mergeTable: Table, tableName: str) -> None:
+    def createOrUpdateForensicTable(self, mergeConnection: Connection, inspector: Inspector, mergeTable: Table, tableName: str) -> None:
         """Create or update a forensic table, handling primary key changes by modifying constraints"""
-        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, inspector, mergeTable, tableName, "forensic")
+        self._createOrUpdateTableWithPrimaryKeyHandling(mergeConnection, inspector, mergeTable, tableName, "forensic")
 
-    def createOrUpdateStagingTable(self, mergeEngine: Engine, inspector: Inspector, stagingTable: Table, tableName: str) -> None:
+    def createOrUpdateStagingTable(self, mergeConnection: Connection, inspector: Inspector, stagingTable: Table, tableName: str) -> None:
         """Create or update a staging table, handling primary key changes by modifying constraints"""
-        self._createOrUpdateTableWithPrimaryKeyHandling(mergeEngine, inspector, stagingTable, tableName, "staging")
+        self._createOrUpdateTableWithPrimaryKeyHandling(mergeConnection, inspector, stagingTable, tableName, "staging")
 
-    def reconcileStagingTableSchemas(self, mergeEngine: Engine, inspector: Inspector, store: Datastore) -> None:
+    def reconcileStagingTableSchemas(self, mergeConnection: Connection, inspector: Inspector, store: Datastore) -> None:
         """This will make sure the staging table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = self.getPhysStagingTableNameForDataset(dataset)
-            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName, mergeEngine)
+            stagingTable: Table = self.getStagingSchemaForDataset(dataset, tableName, mergeConnection)
             # Handle primary key changes for staging tables
-            self.createOrUpdateStagingTable(mergeEngine, inspector, stagingTable, tableName)
+            self.createOrUpdateStagingTable(mergeConnection, inspector, stagingTable, tableName)
             # Create performance indexes for staging table
-            self.createStagingTableIndexes(mergeEngine, tableName)
+            self.createStagingTableIndexes(mergeConnection, tableName)
 
-    def reconcileMergeTableSchemas(self, mergeEngine: Engine, inspector: Inspector, store: Datastore) -> None:
+    def reconcileMergeTableSchemas(self, mergeConnection: Connection, inspector: Inspector, store: Datastore) -> None:
         """This will make sure the merge table exists and has the current schema for each dataset"""
         for dataset in store.datasets.values():
             # Map the dataset name if necessary
             tableName: str = self.getPhysMergeTableNameForDataset(dataset)
-            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName, mergeEngine)
+            mergeTable: Table = self.getMergeSchemaForDataset(dataset, tableName, mergeConnection)
 
             # For forensic mode, we need to handle primary key changes
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-                self.createOrUpdateForensicTable(mergeEngine, inspector, mergeTable, tableName)
+                self.createOrUpdateForensicTable(mergeConnection, inspector, mergeTable, tableName)
             else:
-                createOrUpdateTable(mergeEngine, inspector, mergeTable)
+                createOrUpdateTable(mergeConnection, inspector, mergeTable)
                 # Only add unique constraint on key_hash for live-only mode
                 # In forensic mode, multiple records can have the same key_hash (different versions)
-                self.ensureUniqueConstraintExists(mergeEngine, tableName, "ds_surf_key_hash")
+                self.ensureUniqueConstraintExists(mergeConnection, tableName, "ds_surf_key_hash")
 
             # Create performance indexes for merge table
-            self.createMergeTableIndexes(mergeEngine, tableName)
+            self.createMergeTableIndexes(mergeConnection, tableName)
 
     def _normalizeNameComponent(self, name: str) -> str:
         """Normalize a name component for view naming consistency"""
@@ -2185,7 +2182,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             mergeUser, mergePassword = self.credStore.getAsUserPassword(self.mergeRW_Credential)
             mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
             inspector = createInspector(mergeEngine)
-            createOrUpdateTable(mergeEngine, inspector, self.getFactoryDAGTable())
+            with mergeEngine.begin() as mergeConnection:
+                createOrUpdateTable(mergeConnection, inspector, self.getFactoryDAGTable())
 
             ydp: DataPlatform
             for ydp in self.dataPlatforms.values():
@@ -2215,8 +2213,9 @@ class YellowDataPlatform(YellowGenericDataPlatform):
 
     def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the tables for the data platform in the merge engine during bootstrapping."""
-        createOrUpdateTable(mergeEngine, inspector, self.getAirflowDAGTable())
-        createOrUpdateTable(mergeEngine, inspector, self.getDataTransformerDAGTable())
+        with mergeEngine.begin() as mergeConnection:
+            createOrUpdateTable(mergeConnection, inspector, self.getAirflowDAGTable())
+            createOrUpdateTable(mergeConnection, inspector, self.getDataTransformerDAGTable())
 
     def getEffectiveCMDForDatastore(self, eco: Ecosystem, store: Datastore) -> CaptureMetaData:
         """If there is a pip for the datastore then construct a new SQLMergeIngestion and return it. Otherwise return the current cmd."""

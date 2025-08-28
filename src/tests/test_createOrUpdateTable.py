@@ -131,7 +131,8 @@ class TestCreateOrUpdateTable:
             test_table.drop(test_db)
 
         # Call the function
-        wasChanged = createOrUpdateTable(test_db, createInspector(test_db), test_table)
+        with test_db.begin() as connection:
+            wasChanged = createOrUpdateTable(connection, createInspector(test_db), test_table)
 
         # Verify table was created
         inspector = inspect(test_db)  # type: ignore[attr-defined]
@@ -179,7 +180,8 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateTable(test_db, createInspector(test_db), updated_table)
+            with test_db.begin() as connection:
+                wasChanged = createOrUpdateTable(connection, createInspector(test_db), updated_table)
 
         # Verify new columns were added
         current_table = Table('test_add_columns', MetaData(), autoload_with=test_db)
@@ -227,7 +229,8 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateTable(test_db, createInspector(test_db), updated_table)
+            with test_db.begin() as connection:
+                wasChanged = createOrUpdateTable(connection, createInspector(test_db), updated_table)
 
         # Verify column type was altered
         # Note: Exact type verification depends on database dialect
@@ -276,7 +279,8 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateTable(test_db, createInspector(test_db), updated_table)
+            with test_db.begin() as connection:
+                wasChanged = createOrUpdateTable(connection, createInspector(test_db), updated_table)
 
         # Verify changes were made
         current_table = Table('test_combined_changes', MetaData(), autoload_with=test_db)
@@ -330,7 +334,8 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateTable(test_db, createInspector(test_db), identical_table)
+            with test_db.begin() as connection:
+                wasChanged = createOrUpdateTable(connection, createInspector(test_db), identical_table)
 
         # Verify no schema change logs were emitted (timing logs are OK, but no "Added columns" or "Altered columns")
         all_log_calls = [str(call) for call in mock_info.call_args_list]
@@ -369,7 +374,8 @@ class TestCreateOrUpdateTable:
         )
 
         # Call the function
-        wasChanged = createOrUpdateTable(test_db, createInspector(test_db), updated_table)
+        with test_db.begin() as connection:
+            wasChanged = createOrUpdateTable(connection, createInspector(test_db), updated_table)
 
         # Verify columns were added
         current_table = Table('test_nullable', MetaData(), autoload_with=test_db)
@@ -395,7 +401,8 @@ class TestCreateOrUpdateTable:
 
         # This should raise an exception
         with pytest.raises(Exception):
-            createOrUpdateTable(test_db, createInspector(test_db), invalid_table)
+            with test_db.begin() as connection:
+                createOrUpdateTable(connection, createInspector(test_db), invalid_table)
 
     def test_multiple_column_alterations_are_batched(self, test_db: Engine) -> None:
         """Test that multiple column type changes are batched into a single ALTER TABLE statement."""
@@ -430,7 +437,8 @@ class TestCreateOrUpdateTable:
 
         # Call the function
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateTable(test_db, createInspector(test_db), updated_table)
+            with test_db.begin() as connection:
+                wasChanged = createOrUpdateTable(connection, createInspector(test_db), updated_table)
 
         # Verify logger.info was called with message indicating all columns were altered
         assert mock_info.called

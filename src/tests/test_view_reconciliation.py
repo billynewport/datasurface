@@ -94,7 +94,8 @@ class TestCreateOrUpdateView:
 
         # Create the view
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateView(test_db, dataset, "test_new_view", "test_underlying_table")
+            with test_db.begin() as connection:
+                wasChanged = createOrUpdateView(connection, inspector, dataset, "test_new_view", "test_underlying_table")
 
         # Verify view was created
         assert wasChanged is True
@@ -135,59 +136,58 @@ class TestCreateOrUpdateView:
         inspector = inspect(test_db)  # type: ignore[attr-defined]
         with test_db.begin() as conn:
             conn.execute(text("DROP VIEW IF EXISTS test_update_view"))
-        if inspector.has_table('test_update_table'):  # type: ignore[attr-defined]
-            underlying_table.drop(test_db)
+            if inspector.has_table('test_update_table'):  # type: ignore[attr-defined]
+                underlying_table.drop(conn)
 
-        # Create the underlying table
-        underlying_table.create(test_db)
+            # Create the underlying table
+            underlying_table.create(conn)
 
-        # Create initial dataset (only id and name)
-        initial_columns = [
-            DDLColumn("id", DSInteger(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
-            DDLColumn("name", VarChar(50), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK)
-        ]
-        initial_table = DDLTable(*initial_columns)
-        initial_dataset = Dataset("initial_dataset", initial_table)
+            # Create initial dataset (only id and name)
+            initial_columns = [
+                DDLColumn("id", DSInteger(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                DDLColumn("name", VarChar(50), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK)
+            ]
+            initial_table = DDLTable(*initial_columns)
+            initial_dataset = Dataset("initial_dataset", initial_table)
 
-        # Create initial view
-        wasChanged = createOrUpdateView(test_db, initial_dataset, "test_update_view", "test_update_table")
-        assert wasChanged is True
+            # Create initial view
+            wasChanged = createOrUpdateView(conn, inspector, initial_dataset, "test_update_view", "test_update_table")
+            assert wasChanged is True
 
-        # Verify initial view structure
-        with test_db.connect() as conn:
+            # Verify initial view structure
             result = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'test_update_view' ORDER BY ordinal_position"))
             columns = [row[0] for row in result.fetchall()]
             assert columns == ['id', 'name']
 
-        # Create updated dataset (adds description)
-        updated_columns = [
-            DDLColumn("id", DSInteger(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
-            DDLColumn("name", VarChar(50), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK),
-            DDLColumn("description", VarChar(100), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK)
-        ]
-        updated_table = DDLTable(*updated_columns)
-        updated_dataset = Dataset("updated_dataset", updated_table)
+            # Create updated dataset (adds description)
+            updated_columns = [
+                DDLColumn("id", DSInteger(), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK),
+                DDLColumn("name", VarChar(50), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK),
+                DDLColumn("description", VarChar(100), NullableStatus.NULLABLE, PrimaryKeyStatus.NOT_PK)
+            ]
+            updated_table = DDLTable(*updated_columns)
+            updated_dataset = Dataset("updated_dataset", updated_table)
 
-        # Update the view
-        with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged = createOrUpdateView(test_db, updated_dataset, "test_update_view", "test_update_table")
+            # Update the view
+            with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
+                # Create fresh inspector to see the view that was just created
+                fresh_inspector = inspect(conn)  # type: ignore[attr-defined]
+                wasChanged = createOrUpdateView(conn, fresh_inspector, updated_dataset, "test_update_view", "test_update_table")
 
-        # Verify view was updated
-        assert wasChanged is True
+            # Verify view was updated
+            assert wasChanged is True
 
-        # Verify updated view structure
-        with test_db.connect() as conn:
+            # Verify updated view structure
             result = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'test_update_view' ORDER BY ordinal_position"))
             columns = [row[0] for row in result.fetchall()]
             assert columns == ['id', 'name', 'description']
 
-        # Verify log message
-        mock_info.assert_any_call("Updated view %s to match current schema", "test_update_view")
+            # Verify log message
+            mock_info.assert_any_call("Updated view %s to match current schema", "test_update_view")
 
-        # Clean up
-        with test_db.begin() as conn:
+            # Clean up
             conn.execute(text("DROP VIEW test_update_view"))
-        underlying_table.drop(test_db)
+            underlying_table.drop(conn)
 
     def test_no_changes_needed(self, test_db: Engine) -> None:
         """Test that no changes are made when view already matches schema."""
@@ -220,12 +220,16 @@ class TestCreateOrUpdateView:
         dataset = Dataset("test_dataset", table)
 
         # Create the view first time
-        wasChanged1 = createOrUpdateView(test_db, dataset, "test_no_change_view", "test_no_change_table")
+        with test_db.begin() as connection:
+            inspector1 = inspect(connection)  # type: ignore[attr-defined]
+            wasChanged1 = createOrUpdateView(connection, inspector1, dataset, "test_no_change_view", "test_no_change_table")
         assert wasChanged1 is True
 
         # Try to create/update the view again with same schema
         with patch('datasurface.md.sqlalchemyutils.logger.info') as mock_info:
-            wasChanged2 = createOrUpdateView(test_db, dataset, "test_no_change_view", "test_no_change_table")
+            with test_db.begin() as connection:
+                inspector2 = inspect(connection)  # type: ignore[attr-defined]
+                wasChanged2 = createOrUpdateView(connection, inspector2, dataset, "test_no_change_view", "test_no_change_table")
 
         # Verify no changes were needed and appropriate log was emitted
         assert wasChanged2 is False

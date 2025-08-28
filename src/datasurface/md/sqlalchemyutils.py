@@ -468,7 +468,7 @@ def _extract_decimal_params(type_str: str) -> tuple[int, int]:
         return -1, -1  # Invalid format
 
 
-def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, createOnly: bool = False) -> bool:
+def createOrUpdateTable(connection: Connection, inspector: Inspector, table: Table, createOnly: bool = False) -> bool:
     """Create the table if it doesn't exist; otherwise add/alter columns per dialect.
 
     Returns True if created or altered, False if no changes were needed.
@@ -486,7 +486,7 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
 
     if not table_exists:
         create_start = time.time()
-        table.create(engine)
+        table.create(connection)
         create_time = time.time() - create_start
         total_time = time.time() - start_time
         logger.info(f"⏱️  table.create() took {create_time:.3f}s for {table.name}")
@@ -498,21 +498,20 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
         return True
 
     # PERFORMANCE OPTIMIZATION: Use fast schema fingerprint for SQL Server and Snowflake before expensive schema autoload
-    dialect_name = str(engine.dialect.name).lower()
+    dialect_name = str(connection.dialect.name).lower()
     is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
     is_snowflake = 'snowflake' in dialect_name
 
     if is_mssql:
         # Create comprehensive but fast schema fingerprint
         fingerprint_start = time.time()
-        with engine.connect() as conn:
-            result = conn.execute(text(f"""
+        result = connection.execute(text(f"""
                 SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = '{table.name}'
                 ORDER BY ORDINAL_POSITION
             """))
-            existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]
+        existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]
 
         # Generate expected schema fingerprint from table definition
         expected_schema = []
@@ -554,15 +553,14 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
     elif is_snowflake:
         # Create comprehensive but fast schema fingerprint for Snowflake
         fingerprint_start = time.time()
-        with engine.connect() as conn:
-            # Snowflake stores table names in uppercase by default
-            result = conn.execute(text(f"""
+        # Snowflake stores table names in uppercase by default
+        result = connection.execute(text(f"""
                 SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = UPPER('{table.name}')
                 ORDER BY ORDINAL_POSITION
             """))
-            existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]
+        existing_schema = [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in result]
 
         # Generate expected schema fingerprint from table definition
         expected_schema = []
@@ -603,12 +601,12 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
 
     # Time the schema loading
     schema_start = time.time()
-    currentSchema: Table = Table(table.name, MetaData(), autoload_with=engine)
+    currentSchema: Table = Table(table.name, MetaData(), autoload_with=connection)
     schema_time = time.time() - schema_start
     logger.info(f"⏱️  Schema autoload took {schema_time:.3f}s for {table.name}")
 
     # Determine dialect
-    dialect_name = str(engine.dialect.name).lower()
+    dialect_name = str(connection.dialect.name).lower()
     is_postgres = 'postgres' in dialect_name
     is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
 
@@ -632,37 +630,36 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
     if not newColumns and not columnsToAlter:
         return False
 
-    with engine.begin() as connection:
-        # Add new columns
-        for column in newColumns:
-            column_type = str(column.type)  # type: ignore[attr-defined]
-            if is_postgres:
-                add_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"
-            elif is_mssql:
-                add_sql = f"ALTER TABLE {table.name} ADD {column.name} {column_type}"
-            else:
-                # Fallback to ANSI-ish syntax without COLUMN keyword
-                add_sql = f"ALTER TABLE {table.name} ADD {column.name} {column_type}"
-            if column.nullable is False:
-                add_sql += " NOT NULL"
-            connection.execute(text(add_sql))
+    # Add new columns
+    for column in newColumns:
+        column_type = str(column.type)  # type: ignore[attr-defined]
+        if is_postgres:
+            add_sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}"
+        elif is_mssql:
+            add_sql = f"ALTER TABLE {table.name} ADD {column.name} {column_type}"
+        else:
+            # Fallback to ANSI-ish syntax without COLUMN keyword
+            add_sql = f"ALTER TABLE {table.name} ADD {column.name} {column_type}"
+        if column.nullable is False:
+            add_sql += " NOT NULL"
+        connection.execute(text(add_sql))
 
-        # Alter existing columns' types when necessary
-        if columnsToAlter:
-            if is_postgres:
-                alter_parts = [f"ALTER COLUMN {c.name} TYPE {str(c.type)}" for c in columnsToAlter]  # type: ignore[attr-defined]
-                alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
+    # Alter existing columns' types when necessary
+    if columnsToAlter:
+        if is_postgres:
+            alter_parts = [f"ALTER COLUMN {c.name} TYPE {str(c.type)}" for c in columnsToAlter]  # type: ignore[attr-defined]
+            alter_sql = f"ALTER TABLE {table.name} " + ", ".join(alter_parts)
+            connection.execute(text(alter_sql))
+        elif is_mssql:
+            # SQL Server requires separate ALTERs and uses no TYPE keyword
+            for c in columnsToAlter:
+                alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {c.name} {str(c.type)}"  # type: ignore[attr-defined]
                 connection.execute(text(alter_sql))
-            elif is_mssql:
-                # SQL Server requires separate ALTERs and uses no TYPE keyword
-                for c in columnsToAlter:
-                    alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {c.name} {str(c.type)}"  # type: ignore[attr-defined]
-                    connection.execute(text(alter_sql))
-            else:
-                # Best-effort generic path: attempt separate ALTERs
-                for c in columnsToAlter:
-                    alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {c.name} {str(c.type)}"  # type: ignore[attr-defined]
-                    connection.execute(text(alter_sql))
+        else:
+            # Best-effort generic path: attempt separate ALTERs
+            for c in columnsToAlter:
+                alter_sql = f"ALTER TABLE {table.name} ALTER COLUMN {c.name} {str(c.type)}"  # type: ignore[attr-defined]
+                connection.execute(text(alter_sql))
 
     if newColumns:
         logger.info("Added columns to table %s: %s", table.name, [col.name for col in newColumns])  # type: ignore[attr-defined]
@@ -674,14 +671,14 @@ def createOrUpdateTable(engine: Engine, inspector: Inspector, table: Table, crea
     return True
 
 
-def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyingTable: str, where_clause: Optional[str] = None) -> bool:
+def createOrUpdateView(connection: Connection, inspector: Inspector, dataset: Dataset,
+                       viewName: str, underlyingTable: str, where_clause: Optional[str] = None) -> bool:
     """Create or update a view to match the dataset schema across databases.
 
     For PostgreSQL: uses CREATE OR REPLACE VIEW and pg_get_viewdef for comparison.
     For SQL Server: uses CREATE OR ALTER VIEW and sys.sql_modules for comparison.
     """
-    inspector = inspect(engine)  # type: ignore[attr-defined]
-    dialect_name = str(engine.dialect.name).lower()
+    dialect_name = str(connection.dialect.name).lower()
     is_postgres = 'postgres' in dialect_name
     is_mssql = 'mssql' in dialect_name or 'sqlserver' in dialect_name
 
@@ -709,58 +706,53 @@ def createOrUpdateView(engine: Engine, dataset: Dataset, viewName: str, underlyi
     if exists:  # type: ignore[attr-defined]
         # View exists; compare current definition to decide if update is needed
         try:
-            with engine.connect() as connection:
-                if is_postgres:
-                    result = connection.execute(text(f"SELECT pg_get_viewdef('{viewName}', true) as view_def"))
-                    currentViewDef = result.fetchone()[0]
-                elif is_mssql:
-                    # Prefer sys.sql_modules for full definition
-                    result = connection.execute(
-                        text(
-                            "SELECT sm.definition FROM sys.sql_modules sm "
-                            "JOIN sys.views v ON sm.object_id = v.object_id "
-                            "WHERE v.name = :vname"
-                        ),
-                        {"vname": viewName},
-                    )
-                    row = result.fetchone()
-                    currentViewDef = row[0] if row else None
-                else:
-                    currentViewDef = None
+            if is_postgres:
+                result = connection.execute(text(f"SELECT pg_get_viewdef('{viewName}', true) as view_def"))
+                currentViewDef = result.fetchone()[0]
+            elif is_mssql:
+                # Prefer sys.sql_modules for full definition
+                result = connection.execute(
+                    text(
+                        "SELECT sm.definition FROM sys.sql_modules sm "
+                        "JOIN sys.views v ON sm.object_id = v.object_id "
+                        "WHERE v.name = :vname"
+                    ),
+                    {"vname": viewName},
+                )
+                row = result.fetchone()
+                currentViewDef = row[0] if row else None
+            else:
+                currentViewDef = None
 
-                if currentViewDef is None:
-                    # If we cannot retrieve definition, update defensively
-                    with engine.begin() as connection2:
-                        connection2.execute(text(newViewSql))
-                    logger.info("Updated view %s to match current schema", viewName)
-                    return True
-
-                # Normalize SELECT parts and compare
-                normalizedCurrent = ' '.join(str(currentViewDef).replace('\n', ' ').replace(';', '').split()).upper().strip()
-                selectStart = newViewSql.upper().find('SELECT')
-                if selectStart != -1:
-                    normalizedNewSelect = ' '.join(newViewSql[selectStart:].replace('\n', ' ').split()).upper().strip()
-                else:
-                    normalizedNewSelect = ' '.join(newViewSql.replace('\n', ' ').split()).upper().strip()
-
-                if normalizedCurrent == normalizedNewSelect:
-                    logger.info("View %s already matches current schema", viewName)
-                    return False
-
-                with engine.begin() as connection2:
-                    connection2.execute(text(newViewSql))
+            if currentViewDef is None:
+                # If we cannot retrieve definition, update defensively
+                connection.execute(text(newViewSql))
                 logger.info("Updated view %s to match current schema", viewName)
                 return True
+
+            # Normalize SELECT parts and compare
+            normalizedCurrent = ' '.join(str(currentViewDef).replace('\n', ' ').replace(';', '').split()).upper().strip()
+            selectStart = newViewSql.upper().find('SELECT')
+            if selectStart != -1:
+                normalizedNewSelect = ' '.join(newViewSql[selectStart:].replace('\n', ' ').split()).upper().strip()
+            else:
+                normalizedNewSelect = ' '.join(newViewSql.replace('\n', ' ').split()).upper().strip()
+
+            if normalizedCurrent == normalizedNewSelect:
+                logger.info("View %s already matches current schema", viewName)
+                return False
+
+            connection.execute(text(newViewSql))
+            logger.info("Updated view %s to match current schema", viewName)
+            return True
         except Exception as e:
             logger.warning("Could not compare view definitions for %s, updating anyway: %s", viewName, e)
-            with engine.begin() as connection2:
-                connection2.execute(text(newViewSql))
+            connection.execute(text(newViewSql))
             logger.info("Updated view %s to match current schema", viewName)
             return True
 
     # View doesn't exist; create it
-    with engine.begin() as connection:
-        connection.execute(text(newViewSql))
+    connection.execute(text(newViewSql))
     logger.info("Created view %s with current schema", viewName)
     return True
 
@@ -778,14 +770,15 @@ def reconcileViewSchemas(engine: Engine, store: Datastore, viewNameMapper, under
         dict[str, bool]: Dictionary mapping view names to whether they were changed (True) or not (False)
     """
     changedViews: dict[str, bool] = {}
+    with engine.begin() as connection:
+        inspector = inspect(connection)  # type: ignore[attr-defined]
+        for dataset in store.datasets.values():
+            # Map the dataset to view name and underlying table name
+            viewName: str = viewNameMapper(dataset)
+            underlyingTable: str = underlyingTableMapper(dataset)
 
-    for dataset in store.datasets.values():
-        # Map the dataset to view name and underlying table name
-        viewName: str = viewNameMapper(dataset)
-        underlyingTable: str = underlyingTableMapper(dataset)
-
-        # Create or update the view
-        wasChanged: bool = createOrUpdateView(engine, dataset, viewName, underlyingTable)
-        changedViews[viewName] = wasChanged
+            # Create or update the view
+            wasChanged: bool = createOrUpdateView(connection, inspector, dataset, viewName, underlyingTable)
+            changedViews[viewName] = wasChanged
 
     return changedViews
