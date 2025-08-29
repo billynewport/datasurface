@@ -497,7 +497,6 @@ class ANSI_SQL_NamedObject(UserDSLObject):
         """The name of the object"""
         if not is_valid_sql_identifier(self.name):
             raise NameMustBeANSISQLIdentifierException(self.name)
-        UserDSLObject.__init__(self, filename, linenumber)
 
     def __eq__(self, other: object) -> bool:
         return UserDSLObject.__eq__(self, other) and isinstance(other, ANSI_SQL_NamedObject) and self.name == other.name
