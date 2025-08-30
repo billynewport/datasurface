@@ -38,6 +38,38 @@ The setup uses a two-ring approach:
 - **Ring 0**: Generate bootstrap artifacts (runs in Docker container)
 - **Ring 1**: Deploy to Kubernetes with full infrastructure (requires secrets and K8s cluster)
 
+## AI Assistant Best Practices
+
+When following this HOWTO as an AI assistant, use these best practices to avoid common issues:
+
+**Script Creation:**
+
+- **Always use Method 1** (create locally, copy remotely) for complex scripts
+- **Never attempt** to create complex heredoc scripts directly via SSH commands
+- **Use `/tmp` for temporary files** on the local machine before copying
+- **Test script creation locally** before attempting remote deployment
+
+**Shell Command Execution:**
+
+- **Avoid complex nested quoting** in SSH commands
+- **Break complex operations** into multiple simple commands
+- **Use intermediate files** instead of inline complex code
+- **Verify each step** before proceeding to the next
+
+**Error Handling:**
+
+- **Check command exit codes** and handle failures gracefully
+- **Provide clear error messages** when operations fail
+- **Suggest alternative approaches** when primary methods fail
+- **Document encountered issues** for future reference
+
+**Remote Operations:**
+
+- **Use `scp` for file transfers** instead of trying to create files remotely
+- **Source environment files** explicitly in each SSH session
+- **Use absolute paths** when possible to avoid directory confusion
+- **Verify file permissions** after copying scripts
+
 ## Prerequisites
 
 This setup requires **Docker** to be installed and running on your system. The environment variable detection and configuration parsing uses the `datasurface/datasurface:latest` Docker image to ensure consistent Python dependencies and module availability.
@@ -174,11 +206,13 @@ To avoid shell escaping issues and improve reliability, create these utility scr
 
 **Create Environment Setup Script (`setup_env.sh`):**
 
+**Method 1: Create Script Locally and Copy (Recommended for Remote Deployments)**
+
 To avoid shell escaping issues with complex Python code execution, create the script locally and copy it to the remote machine:
 
 ```bash
-# Create the environment setup script locally
-cat > setup_env.sh << 'EOF'
+# Create the environment setup script locally in /tmp
+cat > /tmp/setup_env.sh << 'EOF'
 #!/bin/bash
 
 # YellowDataPlatform Environment Setup Script
@@ -266,15 +300,132 @@ echo "Environment variables saved to .env file"
 echo "To use in future sessions: source .env"
 EOF
 
-chmod +x setup_env.sh
+chmod +x /tmp/setup_env.sh
 
 # For remote deployments, copy the script and execute:
-# scp setup_env.sh user@remote-host:~/yellow_starter/
-# ssh user@remote-host "cd yellow_starter && chmod +x setup_env.sh && ./setup_env.sh"
+scp /tmp/setup_env.sh user@remote-host:~/yellow_starter/
+ssh user@remote-host "cd yellow_starter && chmod +x setup_env.sh && ./setup_env.sh"
 
-# For local deployments, execute directly:
-# ./setup_env.sh
+# For local deployments, copy and execute:
+cp /tmp/setup_env.sh ./setup_env.sh
+chmod +x setup_env.sh
+./setup_env.sh
 ```
+
+**Method 2: Direct Creation on Target Machine (Alternative)**
+
+If you prefer to create the script directly on the target machine, use this approach to avoid shell escaping issues:
+
+```bash
+# Create script using tee to avoid heredoc escaping issues
+tee setup_env.sh > /dev/null << 'SCRIPT_EOF'
+#!/bin/bash
+
+# YellowDataPlatform Environment Setup Script
+echo "=== YellowDataPlatform Environment Setup ==="
+
+# Set basic variables (customize these as needed)
+export PG_PASSWORD="password"
+export PG_USER="postgres"
+export NAMESPACE="ns-yellow-starter"
+export MERGE_DB_NAME="datasurface_merge"
+
+# Detect database configuration from eco.py
+if grep -q "YellowExternalSingleDatabaseAssembly" eco.py; then
+    echo "=== External PostgreSQL Database Configuration Detected ==="
+    
+    # Create Python script to extract database configuration
+    cat > extract_db_config.py << 'PYTHON_EOF'
+import sys
+sys.path.append('.')
+import eco
+
+ecosystem = eco.createEcosystem()
+psp = None
+for p in ecosystem.platformServicesProviders:
+    if hasattr(p, 'mergeStore'):
+        psp = p
+        break
+
+if psp and hasattr(psp.mergeStore, 'hostPortPair'):
+    print(f"PG_HOST={psp.mergeStore.hostPortPair.hostName}")
+    print(f"PG_PORT={psp.mergeStore.hostPortPair.port}")
+else:
+    print("PG_HOST=localhost")
+    print("PG_PORT=5432")
+print("EXTERNAL_DB=true")
+PYTHON_EOF
+    
+    # Extract database configuration using Python script
+    eval $(docker run --rm -v "$(pwd):/workspace" -w /workspace datasurface/datasurface:latest python3 extract_db_config.py)
+    rm extract_db_config.py
+    
+else
+    echo "=== Internal PostgreSQL Database Configuration Detected ==="
+    PG_HOST="pg-data.$NAMESPACE.svc.cluster.local"
+    PG_PORT="5432"
+    EXTERNAL_DB=false
+fi
+
+# Export all variables
+export PG_HOST PG_PORT PG_USER PG_PASSWORD EXTERNAL_DB NAMESPACE MERGE_DB_NAME
+
+echo "Environment Variables Set:"
+echo "  PG_HOST=$PG_HOST"
+echo "  PG_PORT=$PG_PORT"
+echo "  PG_USER=$PG_USER"
+echo "  NAMESPACE=$NAMESPACE"
+echo "  MERGE_DB_NAME=$MERGE_DB_NAME"
+echo "  EXTERNAL_DB=$EXTERNAL_DB"
+
+# Save to env file for sourcing
+cat > .env << 'ENV_EOF'
+export PG_HOST="$PG_HOST"
+export PG_PORT="$PG_PORT"
+export PG_USER="$PG_USER"
+export PG_PASSWORD="$PG_PASSWORD"
+export NAMESPACE="$NAMESPACE"
+export MERGE_DB_NAME="$MERGE_DB_NAME"
+export EXTERNAL_DB="$EXTERNAL_DB"
+ENV_EOF
+
+# Use envsubst to replace variables in .env file
+envsubst < .env > .env.tmp && mv .env.tmp .env
+
+echo "Environment variables saved to .env file"
+echo "To use in future sessions: source .env"
+SCRIPT_EOF
+
+chmod +x setup_env.sh
+./setup_env.sh
+```
+
+**Troubleshooting Script Creation Issues:**
+
+If you encounter shell escaping problems when creating scripts remotely:
+
+1. **Use the local creation method** (Method 1) - create the script locally and copy it
+2. **Avoid complex heredocs in SSH commands** - they often fail due to shell escaping
+3. **Use intermediate files** - create Python scripts separately to avoid nested quoting
+4. **Test locally first** - always test script creation on your local machine before remote execution
+
+**Common Shell Escaping Issues and Solutions:**
+
+- **Problem**: `zsh: event not found: /bin/bash` when using heredocs in SSH
+  - **Solution**: Use single quotes around EOF delimiter: `<< 'EOF'` instead of `<< EOF`
+  - **Better**: Create script locally and copy with `scp`
+
+- **Problem**: Complex Python code with nested quotes fails in SSH commands
+  - **Solution**: Create separate Python files instead of inline Python code
+  - **Better**: Use the intermediate file approach in Method 2
+
+- **Problem**: Variable substitution issues in nested heredocs
+  - **Solution**: Use `envsubst` command to handle variable substitution safely
+  - **Better**: Create template files and use `envsubst` to populate them
+
+- **Problem**: Permission denied when creating scripts via SSH
+  - **Solution**: Create in `/tmp` first, then copy to target location
+  - **Better**: Use `scp` to copy pre-created scripts
 
 **Create Utility Script (`utils.sh`):**
 ```bash

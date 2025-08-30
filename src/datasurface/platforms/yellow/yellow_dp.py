@@ -2181,7 +2181,6 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             # Copy the assembly artifacts to the rc dictionary after prefixing all keys with the platform name
             for key, value in assm_artifacts.items():
                 rc[f"{self.to_python_name(self.name)}_{key}"] = value
-            rc.update(assm_artifacts)
             return rc
         elif ringLevel == 1:
             # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
