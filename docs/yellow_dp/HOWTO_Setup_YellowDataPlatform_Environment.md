@@ -300,6 +300,7 @@ echo "Environment variables saved to .env file"
 echo "To use in future sessions: source .env"
 EOF
 
+
 chmod +x /tmp/setup_env.sh
 
 # For remote deployments, copy the script and execute:
