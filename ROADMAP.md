@@ -14,9 +14,9 @@ We're building a REST API to the datasurface models. This is being packaged as a
 
 The way this would be used is as a sidekick container in a Kubernetes job for example. The sidekick or init container runs with a copy of the model checked out of the repository. Then it runs on a localhost and the job can query the model easily. If the job is written in python then it can be consumed directly.
 
-## Phase 3: YellowDataPlatform Batch/Streaming Support using Kubernetes, Airflow, SQL Databases, Kafka Connect/Confluent (Started March 2025, 99% complete as of Aug 2025)
+## Phase 3: YellowDataPlatform Batch/Streaming Support using Kubernetes/AWS EKS, Airflow, SQL Databases, Kafka Connect/Confluent (Started March 2025, 99% complete as of Aug 2025)
 
-This is a powerful DataPlatform that uses a Postgres/SQLServer/Oracle/DB2 instance to store staging data and merge tables. It will support direct SQL ingestion as well as Kafka connect to import data from a variety of sources and support live and milestoned data. This is the YellowDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This uses Airflow as a job scheduler. It uses Kafka Connect/Confluence to ingest data from a variety of sources. It is designed around kubnernetes for the container orchestration.
+This is a powerful DataPlatform that uses a Postgres/SQLServer/Oracle/DB2/Aurora instance to store staging data and merge tables. It will support direct SQL ingestion and support live and milestoned data. This is the YellowDataPlatform and is used to flesh out DataSurface during its development. This should be easy to port to Athena/Azure and Snowflake. Providing a cloud native version which runs on columnar storage databases also. This uses Airflow as a job scheduler. It is designed around kubnernetes for the container orchestration and runs on a private kubernetes cluster or AWS EKS.
 
 You can read about it [here in the design docs](docs/yellow_dp/README.md).
 
@@ -47,5 +47,3 @@ Once the YellowDataPlatform is working then we can start to look at other DataPl
 * Azure SQL
 
   This will use their Schema registry and their Blob storage for storage. It will use their Data Factory for job scheduling.
-
-* Kubernetes as well as Docker Swarm

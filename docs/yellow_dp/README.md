@@ -63,10 +63,10 @@ YellowDataPlatform consists of four primary technical components:
 - Automatic scaling and resource management
 - Service discovery and networking
 - Persistent volume management for data storage
+- Runs on private kubernetes or AWS EKS.
 
 #### 2. **Apache Airflow Job Scheduling**
 - Leverages Airflow's dynamic DAG generation for flexible ingestion stream management
-- SQL Database-backed DAG configuration stored in `platform_airflow_dsg` table
 - Kubernetes Pod Operators for executing DataSurface jobs
 - Standard Airflow scheduling and monitoring capabilities
 
@@ -75,7 +75,7 @@ YellowDataPlatform consists of four primary technical components:
 - **Merge Tables**: Clean, queryable data for consumers
 - **Workspace Views**: Consumer-specific data access with proper permissions
 - High-performance indexing for both staging and merge operations
-- Supports PostgreSQL, SQLServer, Oracle, DB2
+- Supports Postgres, AWS Aurora, SQLServer, Oracle, DB2
 
 #### 4. **Kafka Connect Integration**
 - Seamless ingestion from SQL databases
@@ -174,44 +174,17 @@ CREATE TABLE staging_customers (
 Merge tables contain the final, queryable data. YellowDataPlatform supports two merge strategies:
 
 #### **Live-Only Merge** (Default)
-- Single current record per entity
-- High-performance upserts using PostgreSQL's `INSERT...ON CONFLICT`
-- Automatic deletion of records no longer in source
-
-```sql
--- Live-only merge operation (simplified)
-INSERT INTO merge_customers 
-SELECT *, batch_id, key_hash, all_hash 
-FROM staging_customers 
-WHERE batch_id = $1
-ON CONFLICT (key_hash) 
-DO UPDATE SET 
-    name = EXCLUDED.name,
-    email = EXCLUDED.email,
-    all_hash = EXCLUDED.all_hash
-WHERE merge_customers.all_hash != EXCLUDED.all_hash;
-```
+SCD Type 1 capability, keeps the latest live records from the source systems.
 
 #### **Forensic/Milestoned Merge**
+SCD Type 2 capability, keeps the historical records from the source systems. All versions of the source records are kept in the system. This is a linked list of records for each record key. Each linked list entry has the version of the record and when it was created, updated, deleted and if necessary reinserted.
 - Complete historical record preservation
-- `batch_in` and `batch_out` columns track record lifecycles
 - Point-in-time querying capabilities
 - Compliance and audit trail support
 
 ### 4. **Workspace Views: The Consumer Interface**
 
 Consumers never directly access staging or merge tables. Instead, YellowDataPlatform creates workspace-specific views:
-
-```sql
--- Example workspace view
-CREATE VIEW workspace_analytics_customers AS
-SELECT customer_id, name, email, ds_surf_batch_id
-FROM merge_customers
-WHERE ds_surf_batch_out = -1;  -- Only current records
-
--- Grant permissions only to workspace users
-GRANT SELECT ON workspace_analytics_customers TO analytics_team;
-```
 
 This approach provides:
 - **Security isolation**: Each workspace sees only authorized data
@@ -225,84 +198,7 @@ YellowDataPlatform leverages Airflow's dynamic DAG generation capabilities to ma
 
 ## Kubernetes Deployment Architecture
 
-YellowDataPlatform is designed as a cloud-native application with sophisticated Kubernetes orchestration:
-
-### Infrastructure Components
-
-```yaml
-# Core services deployed via generated kubernetes_services.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: yellow-platform
-
----
-# PostgreSQL with persistent storage
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-spec:
-  template:
-    spec:
-      containers:
-      - name: postgres
-        image: postgres:15
-        env:
-        - name: POSTGRES_DB
-          value: "yellowplatform"
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql/data
-
----
-# Airflow Scheduler with DAG sync
-apiVersion: apps/v1  
-kind: Deployment
-metadata:
-  name: airflow-scheduler
-spec:
-  template:
-    spec:
-      containers:
-      - name: airflow-scheduler
-        image: apache/airflow:2.8.1
-        command: ["airflow", "scheduler"]
-        volumeMounts:
-        - name: git-repo
-          mountPath: /opt/datasurface/model
-```
-
-### Job Execution Model
-
-Each data processing job runs as a Kubernetes Job:
-
-```yaml
-# Generated for each ingestion stream
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: platform-model-merge-job
-spec:
-  template:
-    spec:
-      containers:
-      - name: model-merge-handler
-        image: datasurface/datasurface:latest
-        command: ["/bin/bash"]
-        args:
-        - -c
-        - |
-          # Clone model repository
-          git clone {{ git_repo_url }} /workspace/model
-          cd /workspace/model && git checkout {{ git_repo_branch }}
-          
-          # Execute merge job
-          python -m datasurface.cmd.platform executeJob \
-            --model /workspace/model \
-            --platform {{ platform_name }} \
-            --store {{ store_name }}
-```
+YellowDataPlatform is designed as a private or cloud-native application with sophisticated Kubernetes orchestration:
 
 This approach provides:
 - **Resource Isolation**: Each job gets dedicated compute resources
@@ -352,19 +248,6 @@ CREATE INDEX idx_merge_batch_id ON merge_table(ds_surf_batch_id);
 YellowDataPlatform includes sophisticated schema management:
 
 ### Automatic Schema Evolution
-```python
-def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cmd: SQLSnapshotIngestion) -> None:
-    """Ensure staging tables match current source schemas"""
-    for dataset in store.datasets.values():
-        tableName = self.getStagingTableNameForDataset(dataset)
-        stagingTable = self.getStagingSchemaForDataset(dataset, tableName)
-        
-        # Automatically alter table to match current schema
-        createOrUpdateTable(mergeEngine, stagingTable)
-        
-        # Maintain performance indexes
-        self.createStagingTableIndexes(mergeEngine, tableName)
-```
 
 ### Change Detection and Validation
 - **Hash-based change detection** prevents unnecessary processing
@@ -377,13 +260,8 @@ def reconcileStagingTableSchemas(self, mergeEngine: Engine, store: Datastore, cm
 YellowDataPlatform implements enterprise-grade security:
 
 ### Credential Management
-```python
-# Kubernetes-native credential storage
-class KubernetesEnvVarsCredentialStore(CredentialStore):
-    def getAsUserPassword(self, credential: Credential) -> tuple[str, str]:
-        # Secure credential retrieval from Kubernetes secrets
-        return self._readFromSecret(credential.name)
-```
+
+Datasurface uses the native secrets credential management stores such as AWS Secrets Manager or Kubernetes secrets.
 
 ### Access Control
 - **Workspace isolation**: Views provide data boundary enforcement
@@ -400,7 +278,7 @@ DataSurface's governance zones can constrain:
 
 ## The Future: Columnar Evolution Path
 
-While PostgreSQL provides an excellent foundation, YellowDataPlatform's architecture anticipates evolution:
+While SQL Databases provide an excellent foundation, YellowDataPlatform's architecture anticipates evolution:
 
 ### Current SQL-First Strategy
 ```mermaid
@@ -413,30 +291,10 @@ graph LR
     AZ --> |Transparent Migration| C
 ```
 
-### Planned Evolution
-1. **Portable SQL Layer**: Common abstraction across SQL engines
-2. **Columnar Platform Implementations**: Snowflake, Athena, Azure SQL variants
-3. **Transparent Consumer Migration**: Zero consumer code changes
-4. **Performance Optimization**: Automatic platform selection based on workload
-
 This approach ensures:
 - **Future-proofing**: Technology evolution without consumer disruption
 - **Cost optimization**: Right-sized platforms for specific workloads  
 - **Performance benefits**: Latest columnar storage advantages automatically
-
-## MVP Achievement
-
-YellowDataPlatform achieved its first **MVP milestone in July 2025** with complete end-to-end operational infrastructure:
-
-### Supported Capabilities
-- ✅ **Complete data flow** through ingestion and merge processing
-- ✅ **Dual processing modes** (live/forensic)
-- ✅ **Change simulation and testing** capabilities
-- ✅ **Comprehensive error recovery** including `resetBatchState` method
-- ✅ **Command line operational management** tools
-- ✅ **Kubernetes infrastructure** with proper RBAC
-- ✅ **Schema evolution support** with data integrity protection
-- ✅ **Airflow-based job orchestration** and monitoring
 
 ## Why YellowDataPlatform Matters
 
@@ -459,9 +317,11 @@ YellowDataPlatform represents a paradigm shift for small to medium enterprise da
 
 ## How to start up DataSurface with the YellowDataPlatform
 
-We are also testing on a Dell Ubuntu 24 with kubernetes installed. The easiest way to get this running is the follow the instructions in the HOWTO: Setup YellowDataPlatform Kubernetes Environment.
+We are testing on an Ubuntu environmentwith kubernetes 1.3.3 installed. The easiest way to get this running is the follow the instructions in the HOWTO: Setup YellowDataPlatform Kubernetes Environment.
 
-We currently ask the agentic AI in cursor to follow the instructions in the HOWTO and it takes maybe 5 minutes to get a working environment on a Mac. We are specifically designing HOWTOs that are easy for the AI to follow.
+It also runs on an AWK environment. Bringup is documented in [the AWS bring up document](HOWTO_AWS_SetupYellow.md)
+
+We currently ask the agentic AI in cursor to follow the instructions in the HOWTO and it takes maybe 5 minutes to get a working environment. We are specifically designing HOWTOs that are easy for the AI to follow.
 
 [HOWTO: Setup YellowDataPlatform Kubernetes Environment](HOWTO_Setup_YellowDataPlatform_Environment.md)
 
