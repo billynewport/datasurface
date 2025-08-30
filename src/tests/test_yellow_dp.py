@@ -195,7 +195,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
         assert eco is not None
         yp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("YellowLive"))
         assert yp is not None
-        dc: DataContainer = yp.psp.mergeStore
+        dc: DataContainer = yp.getPSP().mergeStore
         assert dc is not None
         self.assertEqual(yp.getPhysDataTransformerTableName(), "yellowlive_airflow_datatransformer")
         self.assertEqual(yp.getPhysDAGTableName(), "yellowlive_airflow_dsg")
@@ -326,7 +326,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
                 assert platform_name is not None  # Type narrowing for mypy
                 found_dp = eco.getDataPlatformOrThrow(platform_name)
                 assert isinstance(found_dp, YellowDataPlatform)
-                expected_namespace = found_dp.psp.yp_assm.namespace
+                expected_namespace = found_dp.getPSP().yp_assm.namespace
                 self.assertIn(f"**Namespace:** {expected_namespace}", secrets_content)
                 self.assertIn(f"--namespace {expected_namespace}", secrets_content)
 

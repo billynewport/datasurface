@@ -21,6 +21,7 @@ from datasurface.platforms.yellow.logging_utils import (
     log_operation_timing
 )
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from enum import Enum
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -52,21 +53,30 @@ def check_merge_table_has_required_columns(engine: Engine, merge_table_name: str
         return False, required_columns
 
 
-def reconcile_workspace_view_schemas(eco: Ecosystem, psp_name: str, cred_store: CredentialStore) -> int:
+class ReconcileOutcome(Enum):
+    SUCCESS = 0
+    FAILURE = 1
+    PARTIAL_SUCCESS = 0
+
+
+def reconcile_workspace_view_schemas(eco: Ecosystem, psp_name: str, cred_store: CredentialStore) -> ReconcileOutcome:
     # Find the specified data platform
     psp: Optional[PlatformServicesProvider] = None
     for psp_item in eco.platformServicesProviders:
         if psp_item.name == psp_name:
             psp = psp_item
             break
+    if psp is None:
+        logger.error("Platform services provider not found", psp_name=psp_name)
+        return ReconcileOutcome.FAILURE
     for dataplatform in psp.dataPlatforms.values():
-        rc: int = reconcile_workspace_view_schemas_for_dp(eco, psp_name, cred_store, dataplatform)
-        if rc != 0:
+        rc: ReconcileOutcome = reconcile_workspace_view_schemas_for_dp(eco, psp_name, cred_store, dataplatform)
+        if rc != ReconcileOutcome.SUCCESS:
             return rc
-    return 0
+    return ReconcileOutcome.SUCCESS
 
 
-def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_store: CredentialStore, dataplatform: DataPlatform) -> int:
+def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_store: CredentialStore, dataplatform: DataPlatform) -> ReconcileOutcome:
     """
     Reconcile workspace view schemas for the specified data platform.
 
@@ -77,7 +87,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
     if not isinstance(dataplatform, YellowDataPlatform):
         logger.error("Data platform is not a YellowDataPlatform", platform_name=dataplatform.name, platform_type=type(dataplatform).__name__)
-        return 1
+        return ReconcileOutcome.FAILURE
 
     yellow_dp: YellowDataPlatform = dataplatform
 
@@ -94,7 +104,7 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
 
     if pipeline_graph is None:
         logger.error("No pipeline graph found for platform", platform_name=dataplatform.name)
-        return 1
+        return ReconcileOutcome.FAILURE
 
     logger.debug(
         "Found pipeline graph for platform",
@@ -105,12 +115,12 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
     # Get database connection using the comprehensive createEngine method
     try:
         with log_operation_timing(logger, "database_connection_setup"):
-            db_user, db_password = cred_store.getAsUserPassword(yellow_dp.psp.mergeRW_Credential)
-            engine = createEngine(yellow_dp.psp.mergeStore, db_user, db_password)
+            db_user, db_password = cred_store.getAsUserPassword(yellow_dp.getPSP().mergeRW_Credential)
+            engine = createEngine(yellow_dp.getPSP().mergeStore, db_user, db_password)
         logger.info("Connected to merge store database")
     except Exception as e:
         logger.error("Failed to connect to database", error=str(e))
-        return 1
+        return ReconcileOutcome.FAILURE
 
     # Create schema projector to access constants and determine platform behavior
     is_forensic_platform = yellow_dp.milestoneStrategy == YellowMilestoneStrategy.SCD2
@@ -483,13 +493,13 @@ def reconcile_workspace_view_schemas_for_dp(eco: Ecosystem, psp_name: str, cred_
             "Some views could not be created/updated",
             failed_count=views_failed,
             exit_code=1)
-        return 1
+        return ReconcileOutcome.FAILURE
     else:
         logger.info("All views successfully processed", exit_code=0)
-        return 0
+        return ReconcileOutcome.SUCCESS
 
 
-def main():
+def main() -> ReconcileOutcome:
     """Main entry point for the command-line utility"""
     parser = argparse.ArgumentParser(
         description="Reconcile workspace view schemas for YellowDataPlatform",
@@ -587,7 +597,7 @@ Examples:
             )
         else:
             logger.error(f"Error: Unsupported credential store type: {args.credential_store}")
-            return 1
+            return ReconcileOutcome.FAILURE
 
         # Load the ecosystem model from git repository
         from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
@@ -615,11 +625,11 @@ Examples:
 
         if validation_tree and validation_tree.hasErrors():
             logger.error("Ecosystem model has errors", validation_errors=validation_tree.getErrorsAsStructuredData())
-            return 1
+            return ReconcileOutcome.FAILURE
 
         if eco is None:
             logger.error("Failed to load ecosystem")
-            return 1
+            return ReconcileOutcome.FAILURE
 
         # Reconcile workspace view schemas
         logger.info(f"Reconciling workspace view schemas for platform: {args.psp}")
@@ -629,8 +639,8 @@ Examples:
         logger.error(f"Error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return 1
+        return ReconcileOutcome.FAILURE
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main().value)

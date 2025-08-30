@@ -7,7 +7,7 @@ from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset
 )
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, Connection
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus
 from typing import cast, List, Optional, Tuple
 from datasurface.platforms.yellow.yellow_dp import (
@@ -22,6 +22,7 @@ from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md.types import VarChar
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -49,18 +50,18 @@ class MergeSCD2ForensicJob(Job):
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """Return staging schema adding the IUD column used by this merge job.
 
         Base staging already includes ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash.
         We add a single-character IUD column for operation labeling.
         """
-        assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
-        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
+        assert self.mergeSchemaProjector is not None
+        sp: YellowSchemaProjector = self.mergeSchemaProjector
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
         ddlSchema.add(DDLColumn(name=YellowSchemaConstants.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1), nullable=NullableStatus.NOT_NULLABLE))
-        t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
+        t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), mergeConnection)
         return t
 
     def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> Tuple[int, int, int]:
@@ -223,5 +224,6 @@ class MergeSCD2ForensicJob(Job):
         return total_inserted, total_updated, total_deleted
 
     # Subclasses MUST implement the ingestion and produce IUD-labeled staging data
-    def ingestNextBatchToStaging(self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int) -> Tuple[int, int, int]:
+    def ingestNextBatchToStaging(self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int,
+                                 source_dp_ops: DatabaseOperations) -> Tuple[int, int, int]:
         raise NotImplementedError("Subclasses must implement ingestion that populates IUD-labeled staging rows")

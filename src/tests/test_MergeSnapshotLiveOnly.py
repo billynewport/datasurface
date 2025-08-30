@@ -14,8 +14,8 @@ from datasurface.platforms.yellow.jobs import Job, JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
 from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase, DB2Database
 from datasurface.md import Datastore, SQLIngestion
-from datasurface.md.governance import DatastoreCacheEntry, DataMilestoningStrategy, OracleDatabase, WorkspacePlatformConfig
-from datasurface.md import DataPlatform, HostPortSQLDatabase
+from datasurface.md.governance import DatastoreCacheEntry, OracleDatabase, WorkspacePlatformConfig
+from datasurface.md import DataPlatform, CaptureMetaData
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy, YellowDatasetUtilities
 from datasurface.md.lint import ValidationTree
 from datasurface.md.model_loader import loadEcosystemFromEcoModule
@@ -26,7 +26,7 @@ from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.platforms.yellow.db_utils import createInspector
 import os
-from datasurface.md import SnowFlakeDatabase
+from datasurface.md import SnowFlakeDatabase, DataMilestoningStrategy
 
 
 class BaseMergeJobTest(ABC):
@@ -60,6 +60,36 @@ class BaseMergeJobTest(ABC):
         # Initialize database operations for test cleanup
         self.db_ops = None
 
+    def getJob(self) -> Job:
+        if self.job is None:
+            raise ValueError("job is not set")
+        return self.job
+
+    def getSourceEngine(self) -> Engine:
+        if self.source_engine is None:
+            raise ValueError("source_engine is not set")
+        return self.source_engine
+
+    def getMergeEngine(self) -> Engine:
+        if self.merge_engine is None:
+            raise ValueError("merge_engine is not set")
+        return self.merge_engine
+
+    def getDP(self) -> YellowDataPlatform:
+        if self.dp is None:
+            raise ValueError("dp is not set")
+        return self.dp
+
+    def getYDU(self) -> YellowDatasetUtilities:
+        if self.ydu is None:
+            raise ValueError("ydu is not set")
+        return self.ydu
+
+    def getStore(self) -> Datastore:
+        if self.store is None:
+            raise ValueError("store is not set")
+        return self.store
+
     @staticmethod
     def loadEcosystem(path: str) -> Optional[Ecosystem]:
         eco: Optional[Ecosystem] = None
@@ -82,15 +112,13 @@ class BaseMergeJobTest(ABC):
 
         self.overrideJobConnections()
         self.overrideCredentialStore()
-        assert self.dp is not None
-        assert self.store is not None
         # Create YellowDatasetUtilities after credential store override to ensure it uses the mock
-        self.ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.dp.psp.credStore, self.dp, self.store)
+        self.ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.getDP().getPSP().credStore, self.getDP(), self.getStore())
 
         # Initialize database operations for test utilities
-        if self.ydu.schemaProjector is not None:
+        if self.getYDU().mergeSchemaProjector is not None:
             self.db_ops = DatabaseOperationsFactory.create_database_operations(
-                self.dp.psp.mergeStore, self.ydu.schemaProjector
+                self.getDP().getPSP().mergeStore, self.getYDU().mergeSchemaProjector
             )
 
         self.setupDatabases()
@@ -103,7 +131,7 @@ class BaseMergeJobTest(ABC):
                     raise Exception("Database operations not initialized - this is a critical system error")
 
                 # Use database operations for cleanup
-                for dataset in self.store.datasets.values():
+                for dataset in self.getStore().datasets.values():
                     drop_sql = self.db_ops.get_drop_table_sql(dataset.name)
                     try:
                         conn.execute(text(drop_sql))
@@ -121,7 +149,7 @@ class BaseMergeJobTest(ABC):
                     self.ydu.getPhysBatchCounterTableName(),
                     self.ydu.getPhysBatchMetricsTableName()
                 ]
-                for dataset in self.store.datasets.values():
+                for dataset in self.getStore().datasets.values():
                     tables_to_drop.append(self.ydu.getPhysMergeTableNameForDataset(dataset))
                     tables_to_drop.append(self.ydu.getPhysStagingTableNameForDataset(dataset))
 
@@ -140,7 +168,7 @@ class BaseMergeJobTest(ABC):
             if not hasattr(self, '_original_cred_store'):
                 self._original_cred_store = None
             if self._original_cred_store is not None:
-                self.dp.psp.credStore = self._original_cred_store
+                self.dp.getPSP().credStore = self._original_cred_store
 
         # Clear the current test instance reference
         if BaseSnapshotMergeJobTest._current_test_instance == self:
@@ -181,15 +209,15 @@ class BaseMergeJobTest(ABC):
             def lintCredential(self, cred: Credential, tree) -> None:
                 pass
 
-        if isinstance(self.dp.psp.mergeStore, PostgresDatabase):
+        if isinstance(self.getDP().getPSP().mergeStore, PostgresDatabase):
             mock_cred_store = MockCredentialStore("postgres", "postgres")
-        elif isinstance(self.dp.psp.mergeStore, SQLServerDatabase):
+        elif isinstance(self.getDP().getPSP().mergeStore, SQLServerDatabase):
             mock_cred_store = MockCredentialStore("sa", "pass@w0rd")
-        elif isinstance(self.dp.psp.mergeStore, OracleDatabase):
+        elif isinstance(self.getDP().getPSP().mergeStore, OracleDatabase):
             mock_cred_store = MockCredentialStore("system", "pass@w0rd")
-        elif isinstance(self.dp.psp.mergeStore, DB2Database):
+        elif isinstance(self.getDP().getPSP().mergeStore, DB2Database):
             mock_cred_store = MockCredentialStore("db2inst1", "pass@w0rd")
-        elif isinstance(self.dp.psp.mergeStore, SnowFlakeDatabase):
+        elif isinstance(self.getDP().getPSP().mergeStore, SnowFlakeDatabase):
             # Read password from environment variable, SNOWFLAKE_PASSWORD
             password = os.getenv("SNOWFLAKE_PASSWORD")
             if password is None:
@@ -200,36 +228,34 @@ class BaseMergeJobTest(ABC):
                 raise Exception("SNOWFLAKE_USERNAME environment variable is not set")
             mock_cred_store = MockCredentialStore(username, password)
         else:
-            raise Exception(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
+            raise Exception(f"Unsupported merge store type: {type(self.getDP().getPSP().mergeStore)}")
 
         if self.job is not None:
             self.job.credStore = mock_cred_store  # type: ignore[attr-defined]
 
         # Also mock the data platform's credential store for resetBatchState method
-        assert self.dp is not None
 
         # Store original credential store before overriding
-        if hasattr(self.dp.psp, 'credStore'):
-            self._original_cred_store = self.dp.psp.credStore
+        if hasattr(self.getDP().getPSP(), 'credStore'):
+            self._original_cred_store = self.getDP().getPSP().credStore
         else:
             self._original_cred_store = None
 
-        self.dp.psp.credStore = mock_cred_store  # type: ignore[attr-defined]
+        self.getDP().getPSP().credStore = mock_cred_store  # type: ignore[attr-defined]
 
     def setupDatabases(self) -> None:
 
         # Create source engine based on merge store type for consistency
-        assert isinstance(self.store.cmd, SQLIngestion)
-        assert self.store.cmd.credential is not None
-        username, password = self.dp.psp.credStore.getAsUserPassword(self.store.cmd.credential)
-        assert self.store.cmd.dataContainer is not None
+        cmd: CaptureMetaData = self.getStore().getCMD()
+        if not isinstance(cmd, SQLIngestion):
+            raise ValueError("Store command is not an SQLIngestion")
+        username, password = self.getDP().getPSP().credStore.getAsUserPassword(cmd.getCredential())
         # Allow Snowflake containers in addition to host/port SQL databases
-        assert isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase))
-        self.source_engine = db_utils.createEngine(self.store.cmd.dataContainer, username, password)
+        self.source_engine = db_utils.createEngine(self.getStore().getCMD().getDataContainer(), username, password)
 
         # Create merge engine using the actual merge store configuration
-        username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-        self.merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
+        username, password = self.getDP().getPSP().credStore.getAsUserPassword(self.getDP().getPSP().mergeRW_Credential)
+        self.merge_engine = db_utils.createEngine(self.getDP().getPSP().mergeStore, username, password)
         self.createSourceTable()
         self.createMergeDatabase()
         inspector = createInspector(self.merge_engine)
@@ -245,7 +271,7 @@ class BaseMergeJobTest(ABC):
                     self.ydu.getPhysBatchMetricsTableName()
                 ]
                 # Add staging and merge tables for all datasets
-                for dataset in self.store.datasets.values():
+                for dataset in self.getStore().datasets.values():
                     tables_to_drop.append(self.ydu.getPhysMergeTableNameForDataset(dataset))
                     tables_to_drop.append(self.ydu.getPhysStagingTableNameForDataset(dataset))
 
@@ -267,8 +293,8 @@ class BaseMergeJobTest(ABC):
 
     def checkCurrentBatchIs(self, key: str, expected_batch: int, tc: unittest.TestCase) -> None:
         """Check the batch status for a given key"""
-        with self.merge_engine.begin() as conn:
-            nm = self.ydu.dp.psp.namingMapper
+        with self.getMergeEngine().begin() as conn:
+            nm = self.ydu.dp.getPSP().namingMapper
             result = conn.execute(
                 text(f'SELECT {nm.fmtCol("currentBatch")} FROM {self.ydu.getPhysBatchCounterTableName()} WHERE {nm.fmtCol("key")} = \'' + key + '\''))
             row = result.fetchone()
@@ -277,9 +303,9 @@ class BaseMergeJobTest(ABC):
 
     def checkSpecificBatchStatus(self, key: str, batch_id: int, expected_status: BatchStatus, tc: unittest.TestCase) -> None:
         """Check the batch status for a given batch id"""
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             # Get batch status
-            nm = self.ydu.dp.psp.namingMapper
+            nm = self.ydu.dp.getPSP().namingMapper
             batch_status_col = nm.fmtCol("batch_status")
             table_name = self.ydu.getPhysBatchMetricsTableName()
             key_col = nm.fmtCol("key")
@@ -292,20 +318,16 @@ class BaseMergeJobTest(ABC):
 
     def common_test_first_batch_started(self, tc: unittest.TestCase) -> None:
         """Test that the first batch is started"""
-        assert self.job is not None
-        assert self.merge_engine is not None
-
         # Ensure staging table exists before calling startBatch
-        assert self.store is not None
-        with self.merge_engine.begin() as mergeConnection:
-            self.ydu.reconcileStagingTableSchemas(mergeConnection, createInspector(self.merge_engine), self.store)
+        with self.getMergeEngine().begin() as mergeConnection:
+            self.ydu.reconcileStagingTableSchemas(mergeConnection, createInspector(self.getMergeEngine()), self.getStore())
 
-        self.job.startBatch(self.merge_engine)  # type: ignore[attr-defined]
-        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.STARTED, tc)
+        self.getJob().startBatch(self.getMergeEngine())  # type: ignore[attr-defined]
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.STARTED, tc)
 
     def common_test_BatchState(self, tc: unittest.TestCase) -> None:
         """Test the BatchState class"""
-        state = BatchState(all_datasets=[self.store.datasets["people"].name])
+        state = BatchState(all_datasets=[self.getStore().datasets["people"].name])
         tc.assertEqual(state.all_datasets, ["people"])
         tc.assertEqual(state.current_dataset_index, 0)
         tc.assertEqual(state.current_offset, 0)
@@ -318,17 +340,14 @@ class BaseMergeJobTest(ABC):
 
     def createSourceTable(self) -> None:
         metadata = MetaData()
-        if self.store is None:
-            raise Exception("Store not set")
-        assert self.source_engine is not None
-        for dataset in self.store.datasets.values():
+        for dataset in self.getStore().datasets.values():
             datasetToSQLAlchemyTable(dataset, dataset.name, metadata, self.source_engine)
-        metadata.create_all(self.source_engine)
+        metadata.create_all(self.getSourceEngine())
 
     def createMergeDatabase(self) -> None:
-        username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-        merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
-        databaseName = self.dp.psp.mergeStore.databaseName
+        username, password = self.getDP().getPSP().credStore.getAsUserPassword(self.getDP().getPSP().mergeRW_Credential)
+        merge_engine = db_utils.createEngine(self.getDP().getPSP().mergeStore, username, password)
+        databaseName = self.getDP().getPSP().mergeStore.databaseName
         with merge_engine.begin() as conn:
             conn.execute(text("COMMIT"))
             try:
@@ -341,16 +360,16 @@ class BaseMergeJobTest(ABC):
 
         if not hasattr(self, 'merge_engine'):
             # Use the same connection logic as setupDatabases
-            username, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-            self.merge_engine = db_utils.createEngine(self.dp.psp.mergeStore, username, password)
+            username, password = self.getDP().getPSP().credStore.getAsUserPassword(self.getDP().getPSP().mergeRW_Credential)
+            self.merge_engine = db_utils.createEngine(self.getDP().getPSP().mergeStore, username, password)
 
             # Initialize database operations if not already available
-            if self.db_ops is None and hasattr(self, 'ydu') and self.ydu.schemaProjector is not None:
+            if self.db_ops is None and hasattr(self, 'ydu') and self.ydu.mergeSchemaProjector is not None:
                 self.db_ops = DatabaseOperationsFactory.create_database_operations(
-                    self.dp.psp.mergeStore, self.ydu.schemaProjector
+                    self.getDP().getPSP().mergeStore, self.ydu.mergeSchemaProjector
                 )
 
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             if self.db_ops is None:
                 raise Exception("Database operations not initialized - this is a critical system error")
 
@@ -369,12 +388,9 @@ class BaseMergeJobTest(ABC):
     def common_setup_job(self, job_class, tc: unittest.TestCase) -> None:
         """Common job setup pattern"""
         # Call the base class setUp to initialize eco, dp, store, etc.
-        assert self.eco is not None
-        assert self.dp is not None
-        assert self.store is not None
         self.job = job_class(
             self.eco,
-            self.dp.getCredentialStore(),
+            self.getDP().getCredentialStore(),
             self.dp,
             self.store
         )
@@ -414,14 +430,14 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
 
     def common_clear_and_insert_data(self, test_data: list, tc: unittest.TestCase) -> None:
         """Common pattern to clear source and insert new test data"""
-        with self.source_engine.begin() as conn:
-            for dataset in self.store.datasets.values():
+        with self.getSourceEngine().begin() as conn:
+            for dataset in self.getStore().datasets.values():
                 conn.execute(text(f'DELETE FROM {dataset.name}'))
         self.insertTestData(test_data)
 
     def insertTestData(self, data: list[dict]) -> None:
         from datetime import datetime
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             for row in data:
                 # Convert date strings to datetime objects for Oracle compatibility
                 processed_row = row.copy()
@@ -437,7 +453,7 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
 
     def updateTestData(self, id_val: str, updates: dict) -> None:
         from datetime import datetime
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             # Convert date strings to datetime objects for Oracle compatibility
             processed_updates = updates.copy()
             for key in ['dob', 'dod']:
@@ -452,15 +468,15 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
             conn.execute(text(query), params)
 
     def deleteTestData(self, id_val: str) -> None:
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             conn.execute(text('DELETE FROM people WHERE "id" = :id'), {"id": id_val})
 
     def getMergeTableData(self) -> list:
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             # Check if this is a forensic platform (has batch milestoning)
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
+            if self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic table - no ds_surf_batch_id column
-                nm = self.ydu.dp.psp.namingMapper
+                nm = self.ydu.dp.getPSP().namingMapper
                 all_hash_col = nm.fmtCol("ds_surf_all_hash")
                 key_hash_col = nm.fmtCol("ds_surf_key_hash")
                 batch_in_col = nm.fmtCol("ds_surf_batch_in")
@@ -469,45 +485,45 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            {all_hash_col}, {key_hash_col},
                            {batch_in_col}, {batch_out_col}
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id", {batch_in_col}
                 """))
-            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
+            elif self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only table - has ds_surf_batch_id column
-                nm = self.ydu.dp.psp.namingMapper
+                nm = self.ydu.dp.getPSP().namingMapper
                 batch_id_col = nm.fmtCol("ds_surf_batch_id")
                 all_hash_col = nm.fmtCol("ds_surf_all_hash")
                 key_hash_col = nm.fmtCol("ds_surf_key_hash")
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            {batch_id_col}, {all_hash_col}, {key_hash_col}
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             else:
-                raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")
+                raise Exception(f"Unsupported milestone strategy: {self.getDP().milestoneStrategy}")
             return [row._asdict() for row in result.fetchall()]
 
     def getLiveRecords(self) -> list:
         from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 
-        with self.merge_engine.begin() as conn:
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
+        with self.getMergeEngine().begin() as conn:
+            if self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only schema: no batch_in/batch_out columns
-                nm = self.ydu.dp.psp.namingMapper
+                nm = self.ydu.dp.getPSP().namingMapper
                 batch_id_col = nm.fmtCol("ds_surf_batch_id")
                 all_hash_col = nm.fmtCol("ds_surf_all_hash")
                 key_hash_col = nm.fmtCol("ds_surf_key_hash")
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            {batch_id_col}, {all_hash_col}, {key_hash_col}
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
-            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
+            elif self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic schema: has batch_in/batch_out columns, filter for live records
                 # Note: ds_surf_batch_id is not included in forensic tables
-                nm = self.ydu.dp.psp.namingMapper
+                nm = self.ydu.dp.getPSP().namingMapper
                 all_hash_col = nm.fmtCol("ds_surf_all_hash")
                 key_hash_col = nm.fmtCol("ds_surf_key_hash")
                 batch_in_col = nm.fmtCol("ds_surf_batch_in")
@@ -516,12 +532,12 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            {all_hash_col}, {key_hash_col},
                            {batch_in_col}, {batch_out_col}
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     WHERE {batch_out_col} = 2147483647
                     ORDER BY "id", {batch_in_col}
                 """))
             else:
-                raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")
+                raise Exception(f"Unsupported milestone strategy: {self.getDP().milestoneStrategy}")
 
             return [row._asdict() for row in result.fetchall()]
 
@@ -530,8 +546,8 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         # Step 1: Run batch 1 with empty source table
         print("Step 1: Running batch 1 with empty source table")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 1, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 1, tc)
 
         # Verify merge table is empty
         merge_data = self.getMergeTableData()
@@ -549,16 +565,16 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         self.insertTestData(test_data)
 
         # Debug: Verify data was inserted
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             result = conn.execute(text('SELECT COUNT(*) FROM people'))
             count = result.fetchone()[0]
             print(f"DEBUG: After insert, people table has {count} rows")
             tc.assertEqual(count, 5)
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 2, tc)
-        self.checkSpecificBatchStatus(self.store.name, 2, BatchStatus.COMMITTED, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 2, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 2, BatchStatus.COMMITTED, tc)
 
         # Verify all 5 rows are in merge table with batch_id = 2
         merge_data = self.getMergeTableData()
@@ -572,8 +588,8 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         self.deleteTestData("3")
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 3, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 3, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 3, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 3, tc)
 
         # Verify updated row has new batch_id and new data
         merge_data = self.getMergeTableData()
@@ -594,8 +610,8 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         self.insertTestData([{"id": "3", "firstName": "Bob", "lastName": "Johnson", "dob": "1975-03-20", "employer": "Company C", "dod": None}])
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 4, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 4, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 4, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 4, tc)
 
         # Verify re-inserted row is present with batch_id = 4
         merge_data = self.getMergeTableData()
@@ -605,8 +621,8 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
         # Step 5: Run another batch with no changes
         print("Step 5: Running batch 5 with no changes")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 5, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 5, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 5, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 5, tc)
 
         # Verify no changes occurred - unchanged rows should keep their previous batch_ids
         merge_data_after = self.getMergeTableData()
@@ -621,7 +637,7 @@ class BaseSnapshotMergeJobTest(BaseMergeJobTest):
             else:
                 tc.assertEqual(row['ds_surf_batch_id'], 2)  # Original batch 2, unchanged
 
-        tc.assertEqual(self.job.numReconcileDDLs, 1)
+        tc.assertEqual(self.getJob().numReconcileDDLs, 1)
         print("All batch lifecycle tests passed!")
 
 
@@ -648,20 +664,20 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
 
     def getMergeTableData(self) -> list:
         """Override to only select live-only columns (no batch_in/batch_out)"""
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             # Try both possible table names
             try:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
                 result = conn.execute(text("""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -678,19 +694,19 @@ class TestSnapshotMergeJob(BaseSnapshotMergeJobTest, unittest.TestCase):
 
     def getStagingTableData(self) -> list:
         """Get all data from the staging table"""
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             try:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]

@@ -105,17 +105,21 @@ class JobUtilities(ABC):
         self.eco: Ecosystem = eco
         self.dp: YellowDataPlatform = dp
         self.credStore: CredentialStore = credStore
-        self.schemaProjector: Optional[YellowSchemaProjector] = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
+        self.mergeSchemaProjector: YellowSchemaProjector = cast(YellowSchemaProjector, self.dp.createSchemaProjector(eco))
 
         # Set logging context for this job
         set_context(platform=dp.name)
 
     def getPhysBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
+        if self.dp.psp is None:
+            raise ValueError("psp must be set before getting batch counter table name")
         return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_counter"))
 
     def getPhysBatchMetricsTableName(self) -> str:
         """This returns the name of the batch metrics table"""
+        if self.dp.psp is None:
+            raise ValueError("psp must be set before getting batch metrics table name")
         return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_metrics"))
 
     def getBatchCounterTable(self) -> Table:
@@ -190,6 +194,8 @@ class JobUtilities(ABC):
         normal merge table notation. The dt prefix is ONLY used for the output tables for a DataTransformer when doing the ingestion
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
+        if self.dp.psp is None:
+            raise ValueError("psp must be set before getting data transformer output table name")
         return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform(f"dt_{tableName}"))
 
 
@@ -266,10 +272,17 @@ class YellowDatasetUtilities(JobUtilities):
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
 
         # Initialize database operations based on merge store type
-        assert self.schemaProjector is not None, "Schema projector must be initialized"
-        self.db_ops = DatabaseOperationsFactory.create_database_operations(
-            dp.psp.mergeStore, self.schemaProjector
+        assert self.mergeSchemaProjector is not None, "Schema projector must be initialized"
+        self.merge_db_ops = DatabaseOperationsFactory.create_database_operations(
+            dp.getPSP().mergeStore, self.mergeSchemaProjector
         )
+        self.mergeSchemaProjector.setDBOps(self.merge_db_ops)
+
+    def getDataset(self) -> Dataset:
+        """This returns the dataset"""
+        if self.dataset is None:
+            raise ValueError("dataset is not set")
+        return self.dataset
 
     def checkForSchemaChanges(self, state: 'BatchState') -> None:
         """Check if any dataset schemas have changed since batch start"""
@@ -287,13 +300,13 @@ class YellowDatasetUtilities(JobUtilities):
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.db_ops)
+        stagingDS: Dataset = self.mergeSchemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), mergeConnection)
         return t
 
     def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE, self.db_ops)
+        mergeDS: Dataset = self.mergeSchemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE)
         t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), mergeConnection)
         return t
 
@@ -304,19 +317,19 @@ class YellowDatasetUtilities(JobUtilities):
     def getPhysStagingTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the staging table name for a dataset"""
         tableName: str = self.getBaseTableNameForDataset(dataset)
-        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform(tableName + "_staging"))
+        return self.dp.getPSP().namingMapper.fmtTVI(self.dp.getTableForPlatform(tableName + "_staging"))
 
     def getPhysMergeTableNameForDataset(self, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
-        return self.dp.psp.namingMapper.fmtTVI(self.getRawMergeTableNameForDataset(self.store, dataset))
+        return self.dp.getPSP().namingMapper.fmtTVI(self.getRawMergeTableNameForDataset(self.store, dataset))
 
     def createStagingTableIndexes(self, mergeConnection: Connection, tableName: str) -> None:
         """Create performance indexes for staging tables"""
-        assert self.schemaProjector is not None
+        assert self.mergeSchemaProjector is not None
 
-        batchIdIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_id")
-        keyHashIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
-        batchKeyIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_key")
+        batchIdIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_batch_id")
+        keyHashIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
+        batchKeyIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_batch_key")
         indexes = [
             # Primary: batch filtering (used in every query)
             (batchIdIndexName, [YellowSchemaConstants.BATCH_ID_COLUMN_NAME]),
@@ -330,12 +343,12 @@ class YellowDatasetUtilities(JobUtilities):
 
         for index_name, columns in indexes:
             # Check if index already exists using database operations
-            index_exists = self.db_ops.check_index_exists(mergeConnection, tableName, index_name)
+            index_exists = self.merge_db_ops.check_index_exists(mergeConnection, tableName, index_name)
 
             if not index_exists:
                 try:
                     with log_operation_timing(logger, "create_staging_index", index_name=index_name):
-                        index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
+                        index_sql = self.merge_db_ops.create_index_sql(index_name, tableName, columns)
                         mergeConnection.execute(sqlalchemy.text(index_sql))
                     logger.info("Created staging index successfully", index_name=index_name, table_name=tableName)
                 except Exception as e:
@@ -346,9 +359,9 @@ class YellowDatasetUtilities(JobUtilities):
 
     def createMergeTableIndexes(self, mergeConnection: Connection, tableName: str) -> None:
         """Create performance indexes for merge tables"""
-        assert self.schemaProjector is not None
+        assert self.mergeSchemaProjector is not None
 
-        keyHashIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
+        keyHashIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
         indexes = [
             # Critical: join performance (exists in all modes)
             (keyHashIndexName, [YellowSchemaConstants.KEY_HASH_COLUMN_NAME])
@@ -356,10 +369,10 @@ class YellowDatasetUtilities(JobUtilities):
 
         # Add forensic-specific indexes for batch milestoned tables
         if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
-            batchOutIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_out")
-            liveRecordsIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_live_records")
-            batchInIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_in")
-            batchRangeIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_batch_range")
+            batchOutIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_batch_out")
+            liveRecordsIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_live_records")
+            batchInIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_batch_in")
+            batchRangeIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_batch_range")
             indexes.extend([
                 # Critical: live record filtering (batch_out = 2147483647)
                 (batchOutIndexName, [YellowSchemaConstants.BATCH_OUT_COLUMN_NAME]),
@@ -375,7 +388,7 @@ class YellowDatasetUtilities(JobUtilities):
             ])
         else:
             # For live-only mode, we can create an index on ds_surf_all_hash for change detection
-            allHashIndexName: str = self.dp.psp.namingMapper.fmtTVI(f"idx_{tableName}_all_hash")
+            allHashIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_all_hash")
             indexes.extend([
                 # For live-only mode: change detection performance
                 (allHashIndexName, [YellowSchemaConstants.ALL_HASH_COLUMN_NAME])
@@ -384,12 +397,12 @@ class YellowDatasetUtilities(JobUtilities):
         for index_name, columns in indexes:
             # Check if index already exists
             # Check if index already exists using database operations
-            index_exists = self.db_ops.check_index_exists(mergeConnection, tableName, index_name)
+            index_exists = self.merge_db_ops.check_index_exists(mergeConnection, tableName, index_name)
 
             if not index_exists:
                 try:
                     with log_operation_timing(logger, "create_merge_index", index_name=index_name):
-                        index_sql = self.db_ops.create_index_sql(index_name, tableName, columns)
+                        index_sql = self.merge_db_ops.create_index_sql(index_name, tableName, columns)
                         mergeConnection.execute(sqlalchemy.text(index_sql))
                     logger.info("Created merge index successfully", index_name=index_name, table_name=tableName)
                 except Exception as e:
@@ -401,11 +414,11 @@ class YellowDatasetUtilities(JobUtilities):
     def ensureUniqueConstraintExists(self, mergeConnection: Connection, tableName: str, columnName: str) -> None:
         """Ensure that a unique constraint exists on the specified column"""
         # Use database-specific constraint checking
-        constraint_exists = self.db_ops.check_unique_constraint_exists(mergeConnection, tableName, columnName)
+        constraint_exists = self.merge_db_ops.check_unique_constraint_exists(mergeConnection, tableName, columnName)
 
         if not constraint_exists:
             # Create the unique constraint using database-specific method
-            constraint_name = self.db_ops.create_unique_constraint(mergeConnection, tableName, columnName)
+            constraint_name = self.merge_db_ops.create_unique_constraint(mergeConnection, tableName, columnName)
             logger.debug("Creating unique constraint",
                          constraint_name=constraint_name,
                          table_name=tableName,
@@ -512,9 +525,9 @@ class YellowDatasetUtilities(JobUtilities):
         ws_name = self._normalizeNameComponent(workspace_name)
         dsg_name = self._normalizeNameComponent(dsg_name)
         store_name = self._normalizeNameComponent(self.store.name)
-        dataset_name = self._normalizeNameComponent(self.dataset.name)
+        dataset_name = self._normalizeNameComponent(self.getDataset().name)
 
-        return self.dp.psp.namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view")
+        return self.dp.getPSP().namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view")
 
     def getPhysWorkspaceFullViewName(self, workspace_name: str, dsg_name: str) -> str:
         """Generate a full workspace view name with _full suffix for forensic platforms"""
@@ -522,9 +535,9 @@ class YellowDatasetUtilities(JobUtilities):
         ws_name = self._normalizeNameComponent(workspace_name)
         dsg_name = self._normalizeNameComponent(dsg_name)
         store_name = self._normalizeNameComponent(self.store.name)
-        dataset_name = self._normalizeNameComponent(self.dataset.name)
+        dataset_name = self._normalizeNameComponent(self.getDataset().name)
 
-        return self.dp.psp.namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full")
+        return self.dp.getPSP().namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_full")
 
     def getPhysWorkspaceLiveViewName(self, workspace_name: str, dsg_name: str) -> str:
         """Generate a live workspace view name with _live suffix for both platform types"""
@@ -532,9 +545,9 @@ class YellowDatasetUtilities(JobUtilities):
         ws_name = self._normalizeNameComponent(workspace_name)
         dsg_name = self._normalizeNameComponent(dsg_name)
         store_name = self._normalizeNameComponent(self.store.name)
-        dataset_name = self._normalizeNameComponent(self.dataset.name)
+        dataset_name = self._normalizeNameComponent(self.getDataset().name)
 
-        return self.dp.psp.namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live")
+        return self.dp.getPSP().namingMapper.fmtTVI(f"{dp_name}_{ws_name}_{dsg_name}_{store_name}_{dataset_name}_view_live")
 
 
 class BatchStatus(Enum):
@@ -686,7 +699,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
     def getInternalDataContainers(self) -> set[DataContainer]:
         """This returns any DataContainers used by the platform."""
-        return {self.dp.psp.kafkaConnectCluster, self.dp.psp.mergeStore}
+        return {self.dp.getPSP().kafkaConnectCluster, self.dp.getPSP().mergeStore}
 
     def createJinjaTemplate(self, name: str) -> Template:
         template: Template = self.env.get_template(name, None)
@@ -717,9 +730,9 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             try:
                 storeEntry: DatastoreCacheEntry = eco.cache_getDatastoreOrThrow(storeName)
                 store: Datastore = storeEntry.datastore
-                yu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.psp.credStore, self.dp, store)
+                yu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store)
 
-                if isinstance(store.cmd, KafkaIngestion):
+                if isinstance(store.getCMD(), KafkaIngestion):
                     # For each dataset in the store
                     for dataset in store.datasets.values():
                         datasetName = dataset.name
@@ -780,7 +793,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
         # Prepare the global context for the template
         try:
-            pg_user, pg_password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
+            pg_user, pg_password = self.dp.getPSP().credStore.getAsUserPassword(self.dp.getPSP().mergeRW_Credential)
             # Prepare Kafka API keys if needed (using connectCredentials)
             # kafka_api_key, kafka_api_secret = self.getKafkaKeysFromCredential(platform.connectCredentials)
             # TODO: Implement getKafkaKeysFromCredential similar to getPostgresUserPasswordFromCredential
@@ -789,18 +802,19 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
             context: dict[str, Any] = {
                 "ingest_nodes": ingest_nodes,
-                "database_name": self.dp.psp.mergeStore.databaseName,
+                "database_name": self.dp.getPSP().mergeStore.databaseName,
                 "database_user": pg_user,
                 "database_password": pg_password,
                 "kafka_api_key": kafka_api_key,  # Placeholder
                 "kafka_api_secret": kafka_api_secret,  # Placeholder
                 # Add default_connector_config if defined in KPSGraphHandler
             }
-            if isinstance(self.dp.psp.mergeStore, HostPortSQLDatabase):
-                context["database_host"] = self.dp.psp.mergeStore.hostPortPair.hostName
-                context["database_port"] = self.dp.psp.mergeStore.hostPortPair.port
+            ms: SQLDatabase = self.dp.getPSP().mergeStore
+            if isinstance(ms, HostPortSQLDatabase):
+                context["database_host"] = ms.hostPortPair.hostName
+                context["database_port"] = ms.hostPortPair.port
             else:
-                raise ValueError(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
+                raise ValueError(f"Unsupported merge store type: {type(ms)}")
 
             # Render the template once with the full context
             with log_operation_timing(logger, "terraform_code_generation", platform_name=platform.name):
@@ -989,8 +1003,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get database connection
-        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-        engine = createEngine(self.dp.psp.mergeStore, user, password)
+        user, password = self.dp.getPSP().credStore.getAsUserPassword(self.dp.getPSP().mergeRW_Credential)
+        engine = createEngine(self.dp.getPSP().mergeStore, user, password)
 
         # Build the ingestion_streams context from the graph
         ingestion_streams: list[dict[str, Any]] = []
@@ -1020,7 +1034,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             stream_key = f"{storeName}_{dataset.name}"
                             stream_config = {
                                 "stream_key": stream_key,
-                                "priority": node.priority.priority.value,
+                                "priority": node.getPriority().priority.value,
                                 "single_dataset": True,
                                 "datasets": [dataset.name],
                                 "store_name": storeName,
@@ -1033,7 +1047,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                             # Add credential information for this stream
                             if stream_config["ingestion_type"] == IngestionType.KAFKA.value:
                                 stream_config["kafka_connect_credential_secret_name"] = K8sUtils.to_k8s_name(
-                                    self.dp.psp.connectCredentials.name)
+                                    self.dp.getPSP().connectCredentials.name)
                             elif stream_config["ingestion_type"] == IngestionType.SQL_SOURCE.value:
                                 # For SQL snapshot ingestion, we need the source database credentials
                                 if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
@@ -1045,7 +1059,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         job_hint: K8sIngestionHint = self.getIngestionJobLimits(storeName)
                         stream_config = {
                             "stream_key": storeName,
-                            "priority": node.priority.priority.value,
+                            "priority": node.getPriority().priority.value,
                             "single_dataset": False,
                             "datasets": [dataset.name for dataset in store.datasets.values()],
                             "store_name": storeName,
@@ -1057,7 +1071,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         # Add credential information for this stream
                         if stream_config["ingestion_type"] == IngestionType.KAFKA.value:
                             stream_config["kafka_connect_credential_secret_name"] = K8sUtils.to_k8s_name(
-                                self.dp.psp.connectCredentials.name)
+                                self.dp.getPSP().connectCredentials.name)
                         elif stream_config["ingestion_type"] == IngestionType.SQL_SOURCE.value:
                             # For SQL snapshot ingestion, we need the source database credentials
                             if isinstance(store.cmd, SQLSnapshotIngestion) and store.cmd.credential is not None:
@@ -1086,35 +1100,36 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             git_repo_owner, git_repo_name = git_repo_parts
 
             # Common context for all streams (platform-level configuration)
-            common_context: dict[str, Any] = self.dp.psp.yp_assm.createYAMLContext(eco)
-            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.dp.psp.mergeStore)
+            common_context: dict[str, Any] = self.dp.getPSP().yp_assm.createYAMLContext(eco)
+            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.dp.getPSP().mergeStore)
             common_context.update(
                 {
-                    "namespace_name": self.dp.psp.yp_assm.namespace,
+                    "namespace_name": self.dp.getPSP().yp_assm.namespace,
                     "platform_name": K8sUtils.to_k8s_name(self.dp.name),
                     "original_platform_name": self.dp.name,  # Original platform name for job execution
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                     "merge_db_driver": merge_db_driver,
-                    "merge_db_database": self.dp.psp.mergeStore.databaseName,
-                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
-                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
-                    "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
-                    "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
+                    "merge_db_database": self.dp.getPSP().mergeStore.databaseName,
+                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.getPSP().mergeRW_Credential.name),
+                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.getPSP().gitCredential.name),
+                    "git_credential_name": self.dp.getPSP().gitCredential.name,  # Original credential name for job parameter
+                    "datasurface_docker_image": self.dp.getPSP().datasurfaceDockerImage,
                     "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
                     "git_repo_branch": gitRepo.branchName,
                     "git_repo_name": gitRepo.repositoryName,
                     "git_repo_owner": git_repo_owner,
                     "git_repo_repo_name": git_repo_name,
                     # Git cache configuration variables
-                    "pv_storage_class": self.dp.psp.pv_storage_class,
+                    "pv_storage_class": self.dp.getPSP().pv_storage_class,
                 }
             )
-            if isinstance(self.dp.psp.mergeStore, HostPortSQLDatabase):
-                common_context["merge_db_hostname"] = self.dp.psp.mergeStore.hostPortPair.hostName
-                common_context["merge_db_port"] = self.dp.psp.mergeStore.hostPortPair.port
+            ms: SQLDatabase = self.dp.getPSP().mergeStore
+            if isinstance(ms, HostPortSQLDatabase):
+                common_context["merge_db_hostname"] = ms.hostPortPair.hostName
+                common_context["merge_db_port"] = ms.hostPortPair.port
             else:
-                raise ValueError(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
+                raise ValueError(f"Unsupported merge store type: {type(ms)}")
             if merge_db_query:
                 common_context["merge_db_query"] = merge_db_query
 
@@ -1161,8 +1176,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         from datasurface.platforms.yellow.db_utils import createEngine
 
         # Get database connection
-        user, password = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-        engine = createEngine(self.dp.psp.mergeStore, user, password)
+        user, password = self.dp.getPSP().credStore.getAsUserPassword(self.dp.getPSP().mergeRW_Credential)
+        engine = createEngine(self.dp.getPSP().mergeStore, user, password)
 
         default_transformer_hint: K8sDataTransformerHint = K8sDataTransformerHint(
             workspaceName=self.dp.name,
@@ -1208,10 +1223,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                                 # Use the same stream_key logic as the ingestion factory
                                 if is_single_dataset:
-                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.psp.credStore, self.dp, store, sink.datasetName)
+                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store, sink.datasetName)
                                     stream_key = ydu.getIngestionStreamKey()
                                 else:
-                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.psp.credStore, self.dp, store)
+                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store)
                                     stream_key = ydu.getIngestionStreamKey()
 
                                 # Regular ingestion DAG naming pattern
@@ -1233,7 +1248,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # Get output dataset list
                     output_dataset_list: list[str] = [dataset.name for dataset in outputDatastore.datasets.values()]
 
-                    user_hint: Optional[PlatformDataTransformerHint] = self.dp.psp.getDataTransformerJobHint(workspaceName)
+                    user_hint: Optional[PlatformDataTransformerHint] = self.dp.getPSP().getDataTransformerJobHint(workspaceName)
                     if user_hint is not None:
                         job_hint = cast(K8sDataTransformerHint, user_hint)
                     else:
@@ -1246,7 +1261,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "workspace_name": workspaceName,
                         "output_datastore_name": outputDatastore.name,
                         "input_dag_ids": input_dag_ids,
-                        "priority": node.priority.priority.value,
+                        "priority": node.getPriority().priority.value,
                         "input_dataset_list": input_dataset_list,
                         "output_dataset_list": output_dataset_list,
                         "job_limits": job_hint.to_k8s_json(),
@@ -1282,8 +1297,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             git_repo_owner, git_repo_name = git_repo_parts
 
             # Common context for all DataTransformers (platform-level configuration)
-            common_context: dict[str, Any] = self.dp.psp.yp_assm.createYAMLContext(eco)
-            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.dp.psp.mergeStore)
+            common_context: dict[str, Any] = self.dp.getPSP().yp_assm.createYAMLContext(eco)
+            merge_db_driver, merge_db_query = getDriverNameAndQueryForDataContainer(self.dp.getPSP().mergeStore)
             common_context.update(
                 {
                     "platform_name": K8sUtils.to_k8s_name(self.dp.name),
@@ -1291,25 +1306,26 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     "ecosystem_name": eco.name,  # Original ecosystem name
                     "ecosystem_k8s_name": K8sUtils.to_k8s_name(eco.name),  # K8s-safe ecosystem name for volume claims
                     "merge_db_driver": merge_db_driver,
-                    "merge_db_database": self.dp.psp.mergeStore.databaseName,
-                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
-                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
-                    "git_credential_name": self.dp.psp.gitCredential.name,  # Original credential name for job parameter
-                    "datasurface_docker_image": self.dp.psp.datasurfaceDockerImage,
+                    "merge_db_database": self.dp.getPSP().mergeStore.databaseName,
+                    "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.dp.getPSP().mergeRW_Credential.name),
+                    "git_credential_secret_name": K8sUtils.to_k8s_name(self.dp.getPSP().gitCredential.name),
+                    "git_credential_name": self.dp.getPSP().gitCredential.name,  # Original credential name for job parameter
+                    "datasurface_docker_image": self.dp.getPSP().datasurfaceDockerImage,
                     "git_repo_url": f"https://github.com/{gitRepo.repositoryName}",
                     "git_repo_branch": gitRepo.branchName,
                     "git_repo_name": gitRepo.repositoryName,
                     "git_repo_owner": git_repo_owner,
                     "git_repo_repo_name": git_repo_name,
                     # Git cache configuration variables
-                    "pv_storage_class": self.dp.psp.pv_storage_class,
+                    "pv_storage_class": self.dp.getPSP().pv_storage_class,
                 }
             )
-            if isinstance(self.dp.psp.mergeStore, HostPortSQLDatabase):
-                common_context["merge_db_hostname"] = self.dp.psp.mergeStore.hostPortPair.hostName
-                common_context["merge_db_port"] = self.dp.psp.mergeStore.hostPortPair.port
+            ms: SQLDatabase = self.dp.getPSP().mergeStore
+            if isinstance(ms, HostPortSQLDatabase):
+                common_context["merge_db_hostname"] = ms.hostPortPair.hostName
+                common_context["merge_db_port"] = ms.hostPortPair.port
             else:
-                raise ValueError(f"Unsupported merge store type: {type(self.dp.psp.mergeStore)}")
+                raise ValueError(f"Unsupported merge store type: {type(ms)}")
             if merge_db_query:
                 common_context["merge_db_query"] = merge_db_query
 
@@ -1388,21 +1404,21 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         # Platform-level credentials (always required)
         platform_secrets = [
             {
-                'credential': self.dp.psp.mergeRW_Credential,
+                'credential': self.dp.getPSP().mergeRW_Credential,
                 'purpose': 'SQL Read/Write database access for merge store',
-                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.mergeRW_Credential.name),
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.getPSP().mergeRW_Credential.name),
                 'category': 'Platform Core'
             },
             {
-                'credential': self.dp.psp.gitCredential,
+                'credential': self.dp.getPSP().gitCredential,
                 'purpose': 'Git repository access for ecosystem model',
-                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.gitCredential.name),
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.getPSP().gitCredential.name),
                 'category': 'Platform Core'
             },
             {
-                'credential': self.dp.psp.connectCredentials,
+                'credential': self.dp.getPSP().connectCredentials,
                 'purpose': 'Kafka Connect cluster API access',
-                'k8s_name': K8sUtils.to_k8s_name(self.dp.psp.connectCredentials.name),
+                'k8s_name': K8sUtils.to_k8s_name(self.dp.getPSP().connectCredentials.name),
                 'category': 'Platform Core'
             }
         ]
@@ -1471,7 +1487,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             f"This document lists all Kubernetes secrets required for the `{self.dp.name}` YellowDataPlatform deployment.",
             "",
             f"**Platform:** {self.dp.name}",
-            f"**Namespace:** {self.dp.psp.yp_assm.namespace}",
+            f"**Namespace:** {self.dp.getPSP().yp_assm.namespace}",
             f"**Ecosystem Repository:** {gitRepo.repositoryName}",
             "",
             "## Overview",
@@ -1547,7 +1563,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         f"kubectl create secret generic {k8s_name} \\",
                         "  --from-literal=POSTGRES_USER='your-username' \\",
                         "  --from-literal=POSTGRES_PASSWORD='your-password' \\",
-                        f"  --namespace {self.dp.psp.yp_assm.namespace}",
+                        f"  --namespace {self.dp.getPSP().yp_assm.namespace}",
                         "```",
                         ""
                     ])
@@ -1557,7 +1573,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "```bash",
                         f"kubectl create secret generic {k8s_name} \\",
                         "  --from-literal=token='your-api-token' \\",
-                        f"  --namespace {self.dp.psp.yp_assm.namespace}",
+                        f"  --namespace {self.dp.getPSP().yp_assm.namespace}",
                         "```",
                         ""
                     ])
@@ -1568,7 +1584,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         f"kubectl create secret generic {k8s_name} \\",
                         "  --from-literal=api_key='your-api-key' \\",
                         "  --from-literal=api_secret='your-api-secret' \\",
-                        f"  --namespace {self.dp.psp.yp_assm.namespace}",
+                        f"  --namespace {self.dp.getPSP().yp_assm.namespace}",
                         "```",
                         ""
                     ])
@@ -1580,13 +1596,13 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             "",
             "```bash",
             "# List all secrets in the namespace",
-            f"kubectl get secrets -n {self.dp.psp.yp_assm.namespace}",
+            f"kubectl get secrets -n {self.dp.getPSP().yp_assm.namespace}",
             "",
             "# Verify specific secrets exist",
         ])
 
         for k8s_name in sorted(secrets_info.keys()):
-            markdown_lines.append(f"kubectl get secret {k8s_name} -n {self.dp.psp.yp_assm.namespace}")
+            markdown_lines.append(f"kubectl get secret {k8s_name} -n {self.dp.getPSP().yp_assm.namespace}")
 
         markdown_lines.extend([
             "```",
@@ -1608,7 +1624,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         required_ports = self.graph.generatePorts()
 
         # Add platform-specific ports (merge store)
-        required_ports.update(self.graph.getPortsForDataContainer(self.dp.psp.mergeStore))
+        required_ports.update(self.graph.getPortsForDataContainer(self.dp.getPSP().mergeStore))
 
         return required_ports
 
@@ -1623,7 +1639,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
         yaml_lines = [
             "# Operational Network Policy for External Database Access",
             f"# Generated for platform: {self.dp.name}",
-            f"# Namespace: {self.dp.psp.yp_assm.namespace}",
+            f"# Namespace: {self.dp.getPSP().yp_assm.namespace}",
             f"# Generated at: {datetime.now().isoformat()}",
             "#",
             "# Apply this network policy to allow pods to connect to external databases",
@@ -1639,7 +1655,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             "kind: NetworkPolicy",
             "metadata:",
             f"  name: {K8sUtils.to_k8s_name(self.dp.name)}-operational-database-access",
-            f"  namespace: {self.dp.psp.yp_assm.namespace}",
+            f"  namespace: {self.dp.getPSP().yp_assm.namespace}",
             "  labels:",
             f"    app: {K8sUtils.to_k8s_name(self.dp.name)}",
             "    component: operational-network-policy",
@@ -1707,9 +1723,9 @@ class KafkaConnectCluster(DataContainer):
         super().lint(eco, tree)
         self.kafkaServer.lint(eco, tree.addSubTree(self.kafkaServer))
 
-    def getNamingAdapter(self) -> Optional['DataContainerNamingMapper']:
+    def getNamingAdapter(self) -> 'DataContainerNamingMapper':
         """Returns None as naming is handled by the platform."""
-        return None
+        return DataContainerNamingMapper()
 
 
 class YellowMilestoneStrategy(Enum):
@@ -2085,18 +2101,18 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         logger.info("Generating bootstrap artifacts",
                     platform_name=self.name,
                     ring_level=ringLevel)
+        assembly: Assembly = self.yp_assm.createAssembly(
+            mergeRW_Credential=self.mergeRW_Credential,
+            mergeDB=self.mergeStore)
+        # Create Jinja2 environment
+        env: Environment = Environment(
+            loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
+            autoescape=select_autoescape(['html', 'xml'])
+        )
         if ringLevel == 0:
-            # Create Jinja2 environment
-            env: Environment = Environment(
-                loader=PackageLoader('datasurface.platforms.yellow.templates', 'jinja'),
-                autoescape=select_autoescape(['html', 'xml'])
-            )
 
             # Load the bootstrap template
             # This defines the kubernetes services for the Yellow environment which the data platforms run inside.
-            assembly: Assembly = self.yp_assm.createAssembly(
-                mergeRW_Credential=self.mergeRW_Credential,
-                mergeDB=self.mergeStore)
 
             # Load the infrastructure DAG template
 
@@ -2152,32 +2168,21 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
             # PSP level DAG to create factory dags for each dataplatform which in turn
             # create ingestion and transformer DAGs for that dataplatform.
-            dag_template: Template = env.get_template('airflow2X/infrastructure_dag.py.j2')
-            rendered_infrastructure_dag: str = dag_template.render(context)
 
             #  This now really generates database records for the dataplatforms, ingestion streams and datatransformers
             # in the newly merged model.
-            model_merge_template: Template = env.get_template('model_merge_job.yaml.j2')
-            rendered_model_merge_job: str = model_merge_template.render(context)
-
-            # This is a yaml file which runs in the environment to create database tables needed
-            # and other things required to run the dataplatforms.
-            ring1_init_template: Template = env.get_template('ring1_init_job.yaml.j2')
-            rendered_ring1_init_job: str = ring1_init_template.render(context)
-
-            # This creates all the Workspace views needed for all the dataplatforms in the model.
-            reconcile_views_template: Template = env.get_template('reconcile_views_job.yaml.j2')
-            rendered_reconcile_views_job: str = reconcile_views_template.render(context)
-
             # Return as dictionary with filename as key
             # Factory DAG files removed - now handled dynamically by infrastructure DAG
-            return {
-                "kubernetes-bootstrap.yaml": rendered_yaml,
-                f"{self.to_python_name(self.name)}_infrastructure_dag.py": rendered_infrastructure_dag,
-                f"{self.to_python_name(self.name)}_model_merge_job.yaml": rendered_model_merge_job,
-                f"{self.to_python_name(self.name)}_ring1_init_job.yaml": rendered_ring1_init_job,
-                f"{self.to_python_name(self.name)}_reconcile_views_job.yaml": rendered_reconcile_views_job
-            }
+            rc: dict[str, str] = dict(
+                {
+                    "kubernetes-bootstrap.yaml": rendered_yaml,
+                })
+            assm_artifacts: dict[str, str] = assembly.generateBootstrapArtifacts(eco, context, env, ringLevel)
+            # Copy the assembly artifacts to the rc dictionary after prefixing all keys with the platform name
+            for key, value in assm_artifacts.items():
+                rc[f"{self.to_python_name(self.name)}_{key}"] = value
+            rc.update(assm_artifacts)
+            return rc
         elif ringLevel == 1:
             # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
             mergeUser, mergePassword = self.credStore.getAsUserPassword(self.mergeRW_Credential)
@@ -2190,7 +2195,12 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             for ydp in self.dataPlatforms.values():
                 assert isinstance(ydp, YellowGenericDataPlatform)
                 ydp.createPlatformTables(eco, mergeEngine, inspector)
-            return {}
+            assm_artifacts: dict[str, str] = assembly.generateBootstrapArtifacts(eco, dict(), env, ringLevel)
+            # Copy the assembly artifacts to the rc dictionary after prefixing all keys with the platform name
+            rc: dict[str, str] = dict()
+            for key, value in assm_artifacts.items():
+                rc[f"{self.to_python_name(self.name)}_{key}"] = value
+            return rc
         else:
             raise ValueError(f"Invalid ring level {ringLevel} for YellowDataPlatform")
 
@@ -2211,6 +2221,11 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         # Create the required data containers
         # Set logging context for this platform
         set_context(platform=name)
+
+    def getPSP(self) -> YellowPlatformServiceProvider:
+        if self.psp is None:
+            raise ValueError("psp must be set before getting platform service provider")
+        return self.psp
 
     def createPlatformTables(self, eco: Ecosystem, mergeEngine: Engine, inspector: Inspector) -> None:
         """This creates the tables for the data platform in the merge engine during bootstrapping."""
@@ -2235,9 +2250,9 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             assert store.cmd.singleOrMultiDatasetIngestion is not None
             assert primDP is not None
             cmd: SQLIngestion = SQLMergeIngestion(
-                primDP.psp.mergeStore,  # The merge tables are in the primary platform's merge store
+                primDP.getPSP().mergeStore,  # The merge tables are in the primary platform's merge store
                 primDP,
-                self.psp.mergeRW_Credential,  # This dataplatforms credentials MUST have read access to the primary platform's merge store
+                self.getPSP().mergeRW_Credential,  # This dataplatforms credentials MUST have read access to the primary platform's merge store
                 store.cmd.singleOrMultiDatasetIngestion
             )
             return cmd
@@ -2263,14 +2278,14 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         super().setPSP(psp)
 
     def getCredentialStore(self) -> CredentialStore:
-        return self.psp.credStore
+        return self.getPSP().credStore
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
                 "_type": self.__class__.__name__,
-                "pspName": self.psp.name,
+                "pspName": self.getPSP().name,
                 "milestoneStrategy": self.milestoneStrategy.value,
                 "stagingBatchesToKeep": self.stagingBatchesToKeep
             }
@@ -2301,11 +2316,11 @@ class YellowDataPlatform(YellowGenericDataPlatform):
 
     def getPhysDAGTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        return self.psp.namingMapper.fmtTVI(self.getTableForPlatform("airflow_dsg"))
+        return self.getPSP().namingMapper.fmtTVI(self.getTableForPlatform("airflow_dsg"))
 
     def getPhysDataTransformerTableName(self) -> str:
         """This returns the name of the DataTransformer DAG table"""
-        return self.psp.namingMapper.fmtTVI(self.getTableForPlatform("airflow_datatransformer"))
+        return self.getPSP().namingMapper.fmtTVI(self.getTableForPlatform("airflow_datatransformer"))
 
     def getAirflowDAGTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch metrics table. The key is either the data store name or the
@@ -2365,6 +2380,8 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             datasetName: Optional dataset name for single-dataset reset. If None, resets entire store.
         """
 
+        if self.psp is None:
+            raise ValueError("psp must be set before resetting batch state")
         # Get credentials and create database connection
         user, password = self.psp.credStore.getAsUserPassword(self.psp.mergeRW_Credential)
         engine = createEngine(self.psp.mergeStore, user, password)
@@ -2375,6 +2392,8 @@ class YellowDataPlatform(YellowGenericDataPlatform):
             return "ERROR: Could not find datastore in ecosystem"
 
         datastore: Datastore = datastore_ce.datastore
+        if datastore.cmd is None:
+            raise ValueError("cmd must be set before resetting batch state")
         if datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
             return "ERROR: Cannot specify a dataset name for a multi-dataset datastore"
         elif datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET and datasetName is None:
@@ -2453,13 +2472,13 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                                 return "ERROR: Could not find datastore in ecosystem"
 
                             datastore: Datastore = datastore_ce.datastore
-                            if datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
+                            if datastore.getCMD().singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
                                 logger.error("Cannot specify dataset name for multi-dataset datastore",
                                              datastore_name=datastore.name,
                                              dataset_name=datasetName,
                                              platform_name=self.name)
                                 return "ERROR: Cannot specify a dataset name for a multi-dataset datastore"
-                            elif datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET and datasetName is None:
+                            elif datastore.getCMD().singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET and datasetName is None:
                                 logger.error("Cannot reset single-dataset datastore without dataset name",
                                              datastore_name=datastore.name,
                                              platform_name=self.name)
@@ -2543,13 +2562,24 @@ class YellowSchemaProjector(SchemaProjector):
 
     def __init__(self, eco: Ecosystem, dp: 'YellowDataPlatform'):
         super().__init__(eco, dp)
+        self.db_ops: Optional[DatabaseOperations] = None
+
+    def setDBOps(self, db_ops: DatabaseOperations) -> None:
+        self.db_ops = db_ops
+
+    def getDBOps(self) -> DatabaseOperations:
+        if self.db_ops is None:
+            raise ValueError("Database operations must be set before getting them")
+        return self.db_ops
 
     def getSchemaTypes(self) -> set[str]:
         return {YellowSchemaConstants.SCHEMA_TYPE_MERGE, YellowSchemaConstants.SCHEMA_TYPE_STAGING}
 
-    def computeSchema(self, dataset: 'Dataset', schemaType: str, db_ops: DatabaseOperations) -> 'Dataset':
+    def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
         """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform."""
         assert isinstance(self.dp, YellowDataPlatform)
+        if self.db_ops is None:
+            raise ValueError("Database operations must be set before computing schema")
         if schemaType == YellowSchemaConstants.SCHEMA_TYPE_MERGE:
             pds: Dataset = copy.deepcopy(dataset)
             ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
@@ -2558,10 +2588,10 @@ class YellowSchemaProjector(SchemaProjector):
                 ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
             ddlSchema.add(
                 DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
-                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
+                          data_type=VarChar(maxSize=self.db_ops.get_hash_column_width())))
             ddlSchema.add(
                 DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
-                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
+                          data_type=VarChar(maxSize=self.db_ops.get_hash_column_width())))
             if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_IN_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
                 ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_OUT_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
@@ -2577,10 +2607,10 @@ class YellowSchemaProjector(SchemaProjector):
             ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
             ddlSchema.add(
                 DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
-                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
+                          data_type=VarChar(maxSize=self.db_ops.get_hash_column_width())))
             ddlSchema.add(
                 DDLColumn(name=YellowSchemaConstants.KEY_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,
-                          data_type=VarChar(maxSize=db_ops.get_hash_column_width())))
+                          data_type=VarChar(maxSize=self.db_ops.get_hash_column_width())))
             # For staging tables, modify the primary key to include batch_id to allow same business keys across batches
             if ddlSchema.primaryKeyColumns:
                 # Create new primary key with original columns plus batch_id

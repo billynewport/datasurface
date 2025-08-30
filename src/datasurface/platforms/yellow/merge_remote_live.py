@@ -7,13 +7,13 @@ from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset
 )
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, Connection
 from datasurface.md.schema import DDLTable, DDLColumn, NullableStatus
 from datasurface.md.types import VarChar
 from typing import cast, List, Optional, Any
 from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, YellowSchemaProjector,
-    BatchStatus, BatchState, YellowDatasetUtilities
+    BatchStatus, BatchState
 )
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
@@ -24,6 +24,7 @@ from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md import SQLMergeIngestion
 from datasurface.platforms.yellow.merge import NoopJobException
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 
 # Setup logging for Kubernetes environment
@@ -43,14 +44,8 @@ class MergeRemoteJob(Job):
             raise ValueError("Store command is required")
         if not isinstance(store.cmd, SQLMergeIngestion):
             raise TypeError(f"Expected SQLMergeIngestion, got {type(store.cmd)}")
-        self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, store.cmd.dataPlatform)
-        self.remoteYDU: YellowDatasetUtilities
-        if datasetName is not None:
-            self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store, datasetName)
-        else:
-            self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store)
 
-    def _getHighCommittedRemoteBatchId(self, sourceEngine: Engine, sp: YellowSchemaProjector) -> int:
+    def _getHighCommittedRemoteBatchId(self, sourceEngine: Engine) -> int:
         """Fetch the highest committed batch ID from the remote batch metrics table.
 
         This ensures we only pull committed batches to maintain data consistency.
@@ -61,6 +56,8 @@ class MergeRemoteJob(Job):
 
         with sourceEngine.connect() as sourceConn:
             # Get the highest committed batch ID
+            if self.remoteYDU.dp.psp is None:
+                raise ValueError(f"psp in DataPlatform {self.remoteYDU.dp.name} must be set before getting job hint")
             nm = self.remoteYDU.dp.psp.namingMapper
             key_col = nm.fmtCol("key")
             batch_id_col = nm.fmtCol("batch_id")
@@ -99,25 +96,25 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None):
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None):
         """Override to add IUD column for remote merge ingestion staging tables."""
 
         # Create a modified dataset with IUD column for staging
         # Add standard staging columns
-        if self.schemaProjector is None:
+        if self.mergeSchemaProjector is None:
             raise ValueError("Schema projector must be initialized")
-        sp: YellowSchemaProjector = self.schemaProjector
-        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
+        sp: YellowSchemaProjector = self.mergeSchemaProjector
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
         # Add IUD column for remote merge operations
         ddlSchema.add(DDLColumn(name=YellowSchemaConstants.IUD_COLUMN_NAME, data_type=VarChar(maxSize=1), nullable=NullableStatus.NOT_NULLABLE))
 
-        t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
+        t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), mergeConnection)
         return t
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
-            batchId: int) -> tuple[int, int, int]:
+            batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
         """Ingest data from remote forensic merge table to staging.
 
         First batch is a seed batch that pulls all live records.
@@ -155,9 +152,7 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         # Get current remote batch ID if not already determined, if this changes it doesn't matter
         # We will still seed with this batch and catch up later
         if currentRemoteBatchId is None:
-            if self.schemaProjector is None:
-                raise ValueError("Schema projector must be initialized")
-            currentRemoteBatchId = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
+            currentRemoteBatchId = self._getHighCommittedRemoteBatchId(sourceEngine)
             logger.info("Current remote batch ID determined", remote_batch_id=currentRemoteBatchId)
 
         # Fail fast if there is no committed remote batch to pull
@@ -177,14 +172,16 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
 
                 # Get schema information
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+                if schema.primaryKeyColumns is None:
+                    raise ValueError(f"Primary key columns must be set for dataset {self.store.name}.{datasetToIngestName}")
                 pkColumns: List[str] = schema.primaryKeyColumns.colNames
                 if not pkColumns:
                     pkColumns = [col.name for col in schema.columns.values()]
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
-                if self.schemaProjector is None:
+                if self.mergeSchemaProjector is None:
                     raise ValueError("Schema projector must be initialized")
-                sp: YellowSchemaProjector = self.schemaProjector
+                sp: YellowSchemaProjector = self.mergeSchemaProjector
 
                 if SeedBatch:
                     # Seed batch: Get all live records as of current remote batch
@@ -370,9 +367,9 @@ class SnapshotMergeJobRemoteLive(MergeRemoteJob):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        if self.schemaProjector is None:
+        if self.mergeSchemaProjector is None:
             raise ValueError("Schema projector must be initialized")
-        sp: YellowSchemaProjector = self.schemaProjector
+        sp: YellowSchemaProjector = self.mergeSchemaProjector
 
         with mergeEngine.begin() as connection:
             state: BatchState = self.getBatchState(mergeEngine, connection, key, batchId)

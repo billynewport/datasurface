@@ -11,7 +11,7 @@ from sqlalchemy.engine import Engine
 from datasurface.md.schema import DDLTable
 from typing import Any, cast, Dict, List, Optional, Tuple
 from datasurface.platforms.yellow.yellow_dp import (
-    YellowDataPlatform, YellowSchemaProjector,
+    YellowDataPlatform,
     BatchStatus, BatchState, JobStatus
 )
 from datasurface.platforms.yellow.logging_utils import (
@@ -19,6 +19,7 @@ from datasurface.platforms.yellow.logging_utils import (
 )
 from datasurface.platforms.yellow.merge_scd2_forensic import MergeSCD2ForensicJob
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 
 # Setup logging for Kubernetes environment
@@ -65,6 +66,8 @@ class SnapshotMergeJobDebeziumForensic(MergeSCD2ForensicJob):
         return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)
 
     def _getJobHintKV(self) -> Dict[str, Any]:
+        if self.dp.psp is None:
+            raise ValueError("PlatformServiceProvider must be set before getting job hint")
         if self.dataset is not None:
             jobHint = self.dp.psp.getIngestionJobHint(self.store.name, self.dataset.name)
         else:
@@ -84,16 +87,10 @@ class SnapshotMergeJobDebeziumForensic(MergeSCD2ForensicJob):
         return tx_col, tx_order_col, op_col, after_col, before_col, map_i, map_u, map_d
 
     def ingestNextBatchToStaging(
-            self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int) -> Tuple[int, int, int]:
-        assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
+            self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int, source_dp_ops: DatabaseOperations) -> Tuple[int, int, int]:
 
         tx_col, tx_order_col, op_col, after_col, before_col, map_i, map_u, map_d = self._getConfig()
         quoted_tx = f'"{tx_col}"'
-        quoted_op = f'"{op_col}"'
-        quoted_after = f'"{after_col}"'
-        quoted_before = f'"{before_col}"'
-        quoted_tx_order = f'"{tx_order_col}"' if tx_order_col else None
 
         # Retrieve prior last_tx from last committed batch
         with mergeEngine.begin() as connection:
@@ -163,11 +160,12 @@ class SnapshotMergeJobDebeziumForensic(MergeSCD2ForensicJob):
                     stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
 
                     schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+                    if schema.primaryKeyColumns is None:
+                        raise ValueError(f"Primary key columns must be set for dataset {self.store.name}.{datasetName}")
                     pkColumns: List[str] = schema.primaryKeyColumns.colNames
                     if not pkColumns:
                         pkColumns = [col.name for col in schema.columns.values()]
                     allColumns: List[str] = [col.name for col in schema.columns.values()]
-                    quoted_columns = [f'"{col}"' for col in allColumns]
 
                     # Use database operations for Debezium CDC conflation
                     insert_sql = self.merge_db_ops.get_debezium_cdc_conflation_sql(

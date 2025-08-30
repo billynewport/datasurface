@@ -1,0 +1,1293 @@
+"""
+Infrastructure DAG for {{ psp_name }} Data Platform
+Generated automatically by DataSurface Yellow Airflow 2.8.1 Platform
+
+This DAG contains the core infrastructure tasks:
+- MERGE task: Generates infrastructure terraform files
+- Metrics collector task: Collects and processes metrics
+- Apply security task: Applies security configurations
+- Table removal task: Cleans up unused tables
+"""
+
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import PythonOperator
+from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.operators.python import BranchPythonOperator
+from kubernetes.client import models as k8s
+import json
+import os
+from typing import Optional, List
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+import boto3
+
+# AWS Secrets Manager integration for dynamic secret fetching
+def fetch_secrets_for_job(merge_secret_path: str, merge_credential_name: str, 
+                         source_secret_path: Optional[str] = None, source_credential_name: Optional[str] = None) -> List[k8s.V1EnvVar]:
+    """
+    Airflow fetches secrets from AWS Secrets Manager and returns them as environment variables for the pod.
+    Uses the existing DataSurface environment variable naming pattern: {credential_name}_USER, {credential_name}_PASSWORD, etc.
+    
+    Args:
+        merge_secret_path: Path to merge database credentials in AWS Secrets Manager
+        merge_credential_name: Name of merge credential (for env var naming)
+        source_secret_path: Optional path to source-specific credentials in AWS Secrets Manager
+        source_credential_name: Optional name of source credential (for env var naming)
+    
+    Returns:
+        List of Kubernetes environment variables containing the fetched secrets using existing naming pattern
+    """
+    secrets_client = boto3.client('secretsmanager')
+    env_vars: List[k8s.V1EnvVar] = []
+    
+    try:
+        # Fetch merge credentials (shared by all jobs)
+        merge_response = secrets_client.get_secret_value(SecretId=merge_secret_path)
+        merge_creds = json.loads(merge_response['SecretString'])
+        
+        # Add merge credentials using existing naming pattern: {credential_name}_USER, etc.
+        env_vars.extend([
+            k8s.V1EnvVar(name=f'{merge_credential_name}_USER', value=merge_creds.get('username', '')),
+            k8s.V1EnvVar(name=f'{merge_credential_name}_PASSWORD', value=merge_creds.get('password', '')),
+        ])
+        
+        # Fetch source-specific credentials if provided
+        if source_secret_path and source_credential_name:
+            source_response = secrets_client.get_secret_value(SecretId=source_secret_path)
+            source_creds = json.loads(source_response['SecretString'])
+            
+            # Add source credentials using existing naming pattern: {credential_name}_USER, etc.
+            env_vars.extend([
+                k8s.V1EnvVar(name=f'{source_credential_name}_USER', value=source_creds.get('username', '')),
+                k8s.V1EnvVar(name=f'{source_credential_name}_PASSWORD', value=source_creds.get('password', '')),
+            ])
+    
+    except Exception as e:
+        # Log error but don't fail - let the pod handle missing credentials gracefully
+        print(f"Warning: Failed to fetch secrets from AWS Secrets Manager: {e}")
+        # Add empty environment variables as fallback using existing naming pattern
+        env_vars.extend([
+            k8s.V1EnvVar(name=f'{merge_credential_name}_USER', value=''),
+            k8s.V1EnvVar(name=f'{merge_credential_name}_PASSWORD', value=''),
+        ])
+        if source_credential_name:
+            env_vars.extend([
+                k8s.V1EnvVar(name=f'{source_credential_name}_USER', value=''),
+                k8s.V1EnvVar(name=f'{source_credential_name}_PASSWORD', value=''),
+            ])
+    
+    return env_vars
+
+
+# Default arguments for the DAG
+default_args = {
+    'owner': 'datasurface',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+# Create the DAG
+dag = DAG(
+    '{{ psp_k8s_name }}_infrastructure',
+    default_args=default_args,
+    description='Infrastructure DAG for {{ psp_k8s_name }} Data Platform',
+    schedule='@daily',  # Run daily, can be adjusted based on needs
+    catchup=False,
+    max_active_runs=1,
+    tags=['datasurface', 'infrastructure', '{{ psp_k8s_name }}']
+)
+
+# Start task
+start_task = EmptyOperator(
+    task_id='start_infrastructure_tasks',
+    dag=dag
+)
+
+# Environment variables for infrastructure tasks (using AWS Secrets Manager for merge credentials)
+def get_common_env_vars() -> List[k8s.V1EnvVar]:
+    """Get common environment variables for infrastructure tasks, fetching merge secrets from AWS Secrets Manager."""
+    # Platform configuration (literal values from template)
+    platform_env_vars = [
+        k8s.V1EnvVar(name='DATASURFACE_PSP_NAME', value='{{ psp_k8s_name }}'),
+        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value='{{ namespace_name }}'),
+    ]
+    
+    # Fetch merge credentials from AWS Secrets Manager using existing naming pattern
+    merge_secret_env_vars = fetch_secrets_for_job('datasurface/merge/credentials', '{{ merge_db_credential_secret_name }}')
+    
+    # Git credentials (keep as Kubernetes secret for now)
+    git_env_vars = [
+        k8s.V1EnvVar(
+            name='{{ git_credential_secret_name }}_TOKEN',
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name='{{ git_credential_secret_name }}',
+                    key='token'
+                )
+            )
+        )
+    ]
+    
+    {% if kafka_connect_credential_secret_name %}
+    # Kafka Connect credentials (keep as Kubernetes secret for now)
+    kafka_env_vars = [
+        k8s.V1EnvVar(
+            name='{{ kafka_connect_credential_secret_name }}_TOKEN',
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name='{{ kafka_connect_credential_secret_name }}',
+                    key='token'
+                )
+            )
+        )
+    ]
+    {% else %}
+    kafka_env_vars = []
+    {% endif %}
+    
+    return platform_env_vars + merge_secret_env_vars + git_env_vars + kafka_env_vars
+
+# Get common environment variables for infrastructure tasks
+common_env_vars = get_common_env_vars()
+
+# MERGE Task - Generates infrastructure terraform files using model merge handler
+merge_task = KubernetesPodOperator(
+    task_id='infrastructure_merge_task',
+    name='{{ psp_k8s_name }}-infra-merge',
+    namespace='{{ namespace_name }}',
+    image='{{ datasurface_docker_image }}',
+    cmds=['/bin/bash'],
+    arguments=[
+        '-c',
+        '''
+        echo "🔄 Starting DataSurface Infrastructure Model Merge Handler"
+        
+        # Set PYTHONPATH for DataSurface modules
+        export PYTHONPATH="/app/src"
+        
+        # Run merge handler for platform using cache-aware CLI
+        echo "🔧 Running infrastructure model merge handler with shared cache..."
+        python -m datasurface.cmd.platform handleModelMerge \\
+          --git-repo-path {{ git_cache_local_path }} \\
+          --git-repo-owner {{ git_repo_owner }} \\
+          --git-repo-name {{ git_repo_repo_name }} \\
+          --git-repo-branch {{ git_repo_branch }} \\
+          --git-platform-repo-credential-name {{ git_credential_name }}{% if git_cache_enabled %} \\
+          --use-git-cache{% endif %} \\
+          --max-cache-age-minutes {{ git_cache_max_age_minutes }} \\
+          --output /workspace/generated_artifacts \\
+          --psp {{ psp_k8s_name }}
+        
+        echo "✅ Infrastructure model merge handler complete!"
+        '''
+    ],
+    env_vars=common_env_vars,  # type: ignore
+    {% if git_cache_enabled %}
+    volumes=[
+        k8s.V1Volume(
+            name='git-model-cache',
+            persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                claim_name='{{ git_clone_cache_pvc }}'
+            )
+        ),
+        k8s.V1Volume(
+            name='workspace',
+            empty_dir=k8s.V1EmptyDirVolumeSource()
+        )
+    ],
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='git-model-cache',
+            mount_path='{{ git_cache_local_path }}',
+            read_only=False
+        ),
+        k8s.V1VolumeMount(
+            name='workspace',
+            mount_path='/workspace',
+            read_only=False
+        )
+    ],
+    {% else %}
+    volumes=[
+        k8s.V1Volume(
+            name='workspace',
+            empty_dir=k8s.V1EmptyDirVolumeSource()
+        )
+    ],
+    volume_mounts=[
+        k8s.V1VolumeMount(
+            name='workspace',
+            mount_path='/workspace',
+            read_only=False
+        )
+    ],
+    {% endif %}
+    is_delete_operator_pod=True,
+    get_logs=True,
+    dag=dag
+)
+
+# Metrics Collector Task - Placeholder for future metrics collection
+metrics_collector_task = EmptyOperator(
+    task_id='metrics_collector_task',
+    dag=dag
+)
+
+# Apply Security Task - Placeholder for future security operations
+apply_security_task = EmptyOperator(
+    task_id='apply_security_task',
+    dag=dag
+)
+
+# Table Removal Task - Placeholder for future table cleanup operations
+table_removal_task = EmptyOperator(
+    task_id='table_removal_task',
+    dag=dag
+)
+
+# Copy the exact factory DAG creation logic from the original templates
+# This is identical to yellow_platform_factory_dag.py.j2 functionality
+
+def create_ingestion_stream_dag(platform_config: dict, stream_config: dict) -> DAG:
+    """Create a single ingestion stream DAG from configuration - identical to original template"""
+    platform_name = platform_config['platform_name']
+    stream_key = stream_config['stream_key']
+    schedule_string = stream_config['schedule_string']
+    
+    # Default arguments for the DAG
+    default_args = {
+        'owner': 'datasurface',
+        'depends_on_past': False,
+        'start_date': datetime(2025, 1, 1),
+        'email_on_failure': True,
+        'email_on_retry': False,
+        'retries': 0,  # No retries - the job handles its own retry logic
+        'retry_delay': timedelta(minutes=5),
+    }
+
+    # Create the DAG
+    dag = DAG(
+        f'{platform_name}__{stream_key}_ingestion',
+        default_args=default_args,
+        description=f'Ingestion Stream DAG for {platform_name}__{stream_key}',
+        schedule=schedule_string,  # External trigger schedule
+        max_active_runs=1,
+        catchup=False,
+        is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
+        tags=['datasurface', 'ingestion', platform_name, stream_key]
+    )
+
+    # Build AWS Secrets Manager paths and credential names from database configuration
+    source_name = stream_config.get('source_name', stream_key)
+    source_type = stream_config.get('source_type', 'sql')
+    
+    # AWS Secrets Manager paths following DataSurface convention
+    merge_secret_path = 'datasurface/merge/credentials'
+    merge_credential_name = platform_config['merge_db_credential_secret_name']
+    
+    source_secret_path: Optional[str] = None
+    source_credential_name: Optional[str] = None
+    
+    # Determine if we need source-specific credentials based on database configuration
+    if (stream_config.get('ingestion_type') == 'sql_source' and 
+        stream_config.get('source_credential_secret_name') and 
+        stream_config['source_credential_secret_name'] != platform_config['merge_db_credential_secret_name']):
+        source_secret_path = f'datasurface/sources/{source_type}/{source_name}'
+        source_credential_name = stream_config['source_credential_secret_name']
+    elif stream_config.get('ingestion_type') == 'kafka':
+        source_secret_path = f'datasurface/sources/kafka/{source_name}'
+        source_credential_name = stream_config.get('kafka_connect_credential_secret_name')
+    
+    # Airflow fetches secrets from AWS Secrets Manager using existing credential naming pattern
+    secret_env_vars = fetch_secrets_for_job(merge_secret_path, merge_credential_name, 
+                                          source_secret_path, source_credential_name)
+    
+    # Platform configuration environment variables (literal values from database config)
+    platform_env_vars = [
+        k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
+        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
+    ]
+    
+    # Git credentials (keep as Kubernetes secret for now - can be moved to AWS Secrets Manager later)
+    git_env_vars = [
+        k8s.V1EnvVar(
+            name=f"{platform_config['git_credential_secret_name']}_TOKEN",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['git_credential_secret_name'],
+                    key='token'
+                )
+            )
+        )
+    ]
+    
+    # Combine all environment variables
+    env_vars = platform_env_vars + secret_env_vars + git_env_vars
+
+    # Function to determine next action based on job return code
+    def determine_next_action(**context):
+        """Determine the next action based on the job return code parsed from Airflow task logs"""
+        import re
+        import os
+        
+        dag_run = context['dag_run']
+        
+        # Determine the correct task name based on DAG type
+        # DataTransformer output DAGs use "output_ingestion_job"
+        # Regular ingestion DAGs use "snapshot_merge_job"
+        if "_dt_ingestion" in dag_run.dag_id:
+            task_name = "output_ingestion_job"
+        else:
+            task_name = "snapshot_merge_job"
+        
+        # Build path to the job log file
+        log_dir = f"/opt/airflow/logs/dag_id={dag_run.dag_id}/run_id={dag_run.run_id}/task_id={task_name}"
+        
+        return_code = -1  # Default to error
+        
+        try:
+            # Find the latest attempt log file
+            if os.path.exists(log_dir):
+                attempt_files = [f for f in os.listdir(log_dir) if f.startswith('attempt=') and f.endswith('.log')]
+                if attempt_files:
+                    latest_attempt = max(attempt_files)
+                    log_file = os.path.join(log_dir, latest_attempt)
+                    
+                    if os.path.exists(log_file):
+                        with open(log_file, 'r') as f:
+                            logs = f.read()
+                        
+                        # Parse logs to find DATASURFACE_RESULT_CODE=X
+                        match = re.search(r'DATASURFACE_RESULT_CODE=(-?\d+)', logs)
+                        if match:
+                            return_code = int(match.group(1))
+                            print(f"Found result code: {return_code} in task logs")
+                        else:
+                            print("No DATASURFACE_RESULT_CODE found in logs")
+                    else:
+                        print(f"Log file not found: {log_file}")
+                else:
+                    print(f"No attempt log files found in {log_dir}")
+            else:
+                print(f"Log directory not found: {log_dir}")
+        except Exception as e:
+            print(f"Error reading task logs: {e}")
+        
+        print(f"Final result code: {return_code}")
+        
+        if return_code == 1:  # KEEP_WORKING
+            return 'reschedule_immediately'
+        elif return_code == 0:  # DONE
+            return 'wait_for_trigger'
+        else:  # ERROR (-1)
+            raise Exception(f"SnapshotMergeJob failed with code {return_code} - manual intervention required")
+
+    # Job task
+    job_args = [
+        '--platform-name', platform_config['original_platform_name'],
+        '--store-name', stream_config['store_name'],
+        '--operation', 'snapshot-merge',
+        '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
+        '--git-repo-owner', platform_config['git_repo_owner'],
+        '--git-repo-name', platform_config['git_repo_repo_name'],
+        '--git-repo-branch', platform_config['git_repo_branch'],
+        '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+        '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
+    ]
+    
+    if platform_config.get('git_cache_enabled'):
+        job_args.append('--use-git-cache')  # Enable cache usage
+        
+    # Add dataset name if present
+    if stream_config.get('dataset_name'):
+        job_args.extend(['--dataset-name', stream_config['dataset_name']])
+
+    job = KubernetesPodOperator(
+        task_id='snapshot_merge_job',
+        name=f"{platform_name}-{stream_key.replace('-', '_')}-job",
+        namespace=platform_config['namespace_name'],
+        image=platform_config['datasurface_docker_image'],
+        cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+        arguments=job_args,
+        env_vars=env_vars,  # type: ignore
+        image_pull_policy='{{ image_pull_policy }}',
+        volumes=[
+            k8s.V1Volume(
+                name='git-model-cache',
+                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                    claim_name='{{ git_clone_cache_pvc }}'
+                )
+            )
+        ] if platform_config.get('git_cache_enabled') else [],
+        volume_mounts=[
+            k8s.V1VolumeMount(
+                name='git-model-cache',
+                mount_path='{{ git_cache_local_path }}',
+                read_only=False
+            )
+        ] if platform_config.get('git_cache_enabled') else [],
+        is_delete_operator_pod=True,
+        get_logs=True,
+        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
+        container_resources=k8s.V1ResourceRequirements(
+            requests={
+                'memory': stream_config.get('job_limits', {}).get('requested_memory', '256Mi'),
+                'cpu': stream_config.get('job_limits', {}).get('requested_cpu', '100m')
+            },
+            limits={
+                'memory': stream_config.get('job_limits', {}).get('limits_memory', '256Mi'),
+                'cpu': stream_config.get('job_limits', {}).get('limits_cpu', '100m')
+            }
+        ),
+        on_finish_action="delete_pod",
+        dag=dag,
+        priority_weight=stream_config.get('priority', 0),
+        weight_rule='absolute'
+    )
+
+    # Branch operator
+    branch = BranchPythonOperator(
+        task_id='check_result',
+        python_callable=determine_next_action,
+        dag=dag
+    )
+
+    # Reschedule immediately
+    reschedule = TriggerDagRunOperator(
+        task_id='reschedule_immediately',
+        trigger_dag_id=f'{platform_name}__{stream_key}_ingestion',  # Trigger the SAME DAG
+        conf={'triggered_by': 'reschedule'},
+        dag=dag
+    )
+
+    # Wait for trigger
+    wait = EmptyOperator(
+        task_id='wait_for_trigger',
+        dag=dag
+    )
+
+    # Set up dependencies
+    job >> branch
+    branch >> [reschedule, wait] 
+    
+    return dag
+
+def create_database_connection(driver: str, user: str, password: str, host: str, port: int, database: str, query_driver: Optional[str] = None):
+    """Helper function to create database connection URL and engine consistently"""
+    # Build common URL parameters
+    url_params = {
+        "drivername": driver,
+        "username": user,
+        "password": password,
+        "host": host,
+        "port": port,
+        "database": database,
+    }
+    
+    # Add query parameters if needed
+    if query_driver:
+        url_params["query"] = {"driver": query_driver}
+    
+    db_url = URL.create(**url_params)
+    return create_engine(db_url)
+
+
+def load_platform_configurations(config: dict):
+    """Load configurations from database and create DAG objects - identical to original template"""
+    generated_dags = {}
+    
+    try:
+        import sqlalchemy
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
+        
+        # Build database connection using environment variables
+        merge_db_driver = config['merge_db_driver']
+        merge_db_user = os.environ.get(f"{config['merge_db_credential_secret_name']}_USER")
+        merge_db_password = os.environ.get(f"{config['merge_db_credential_secret_name']}_PASSWORD")
+        merge_db_host = config['merge_db_hostname']
+        merge_db_port = config['merge_db_port']
+        merge_db_db_name = config['merge_db_database']
+        merge_db_query = config.get('merge_db_query', None)
+        
+        if not merge_db_user or not merge_db_password:
+            print("Missing Merge SQL credentials in environment variables")
+            return {}
+        
+        # Create database connection using helper function
+        engine = create_database_connection(
+            driver=merge_db_driver,
+            user=merge_db_user,
+            password=merge_db_password,
+            host=merge_db_host,
+            port=merge_db_port,
+            database=merge_db_db_name,
+            query_driver=merge_db_query
+        )
+        
+        # Read from the platform-specific airflow_dsg table
+        table_name = config['phys_dag_table_name']
+        with engine.begin() as connection:
+            result = connection.execute(text(f"""
+                SELECT stream_key, config_json 
+                FROM {table_name}
+                WHERE status = 'active'
+            """))
+            configs = result.fetchall()
+        
+        # Create a DAG for each active stream
+        for stream_key, config_json in configs:
+            stream_config = json.loads(config_json)
+            dag = create_ingestion_stream_dag(config, stream_config)
+            dag_id = f"{config['platform_name']}__{stream_key}_ingestion"
+            generated_dags[dag_id] = dag
+                
+    except Exception as e:
+        print(f"Error loading platform configurations: {e}")
+        return {}
+    
+    return generated_dags
+
+def find_existing_factory_dags(platform_name: str):
+    """Find all DAGs in globals() that were previously created by this ingestion factory"""
+    factory_dags = {}
+    platform_prefix = f"{platform_name}__"
+    
+    for name, obj in globals().items():
+        if (name.startswith(platform_prefix) and 
+            name.endswith("_ingestion") and 
+            not name.endswith("_dt_ingestion") and  # Exclude DataTransformer output DAGs
+            not name.endswith("_datatransformer") and  # Exclude DataTransformer execution DAGs
+            hasattr(obj, 'dag_id')):
+            factory_dags[name] = obj
+    
+    return factory_dags
+
+def sync_dynamic_dags(config: dict, **context):
+    """Task that synchronizes dynamic DAGs with database configuration - identical to original template"""
+    task_instance = context['task_instance']
+    platform_name = config['platform_name']
+    
+    try:
+        task_instance.log.info("=" * 80)
+        task_instance.log.info("🏭 FACTORY DAG EXECUTION - Dynamic DAG Lifecycle Management")
+        task_instance.log.info(f"📍 Platform: {platform_name}")
+        task_instance.log.info("=" * 80)
+        
+        # Step 1: Find existing factory DAGs
+        task_instance.log.info("🔍 Scanning for existing factory-managed DAGs...")
+        existing_dags = find_existing_factory_dags(platform_name)
+        task_instance.log.info(f"   Found {len(existing_dags)} existing DAGs from previous factory runs")
+        
+        # Step 2: Load current configurations from database
+        task_instance.log.info("📊 Loading current configurations from database...")
+        current_dags = load_platform_configurations(config)
+        task_instance.log.info(f"   Found {len(current_dags)} active configurations in database")
+        
+        # Step 3: Calculate lifecycle changes
+        existing_dag_ids = set(existing_dags.keys())
+        current_dag_ids = set(current_dags.keys())
+        
+        to_create = current_dag_ids - existing_dag_ids
+        to_remove = existing_dag_ids - current_dag_ids  
+        to_update = current_dag_ids & existing_dag_ids
+        
+        task_instance.log.info("")
+        task_instance.log.info("📋 LIFECYCLE ANALYSIS:")
+        task_instance.log.info(f"   🆕 To Create: {len(to_create)} DAGs")
+        task_instance.log.info(f"   🗑️  To Remove: {len(to_remove)} DAGs") 
+        task_instance.log.info(f"   🔄 To Update: {len(to_update)} DAGs")
+        
+        # Step 4: Execute lifecycle changes
+        # Remove obsolete DAGs
+        removed_dags = []
+        if to_remove:
+            task_instance.log.info("🗑️  REMOVING OBSOLETE DAGs:")
+            for dag_id in to_remove:
+                if dag_id in globals():
+                    del globals()[dag_id]
+                    removed_dags.append(dag_id)
+                    task_instance.log.info(f"   🗑️  REMOVED: {dag_id}")
+        
+        # Create new DAGs  
+        created_dags = []
+        if to_create:
+            task_instance.log.info("🆕 CREATING NEW DAGs:")
+            for dag_id in to_create:
+                globals()[dag_id] = current_dags[dag_id]
+                created_dags.append(dag_id)
+                task_instance.log.info(f"   ✅ CREATED: {dag_id}")
+        
+        # Update existing DAGs
+        updated_dags = []
+        if to_update:
+            task_instance.log.info("🔄 UPDATING EXISTING DAGs:")
+            for dag_id in to_update:
+                globals()[dag_id] = current_dags[dag_id]
+                updated_dags.append(dag_id)
+                task_instance.log.info(f"   🔄 UPDATED: {dag_id}")
+        
+        total_changes = len(removed_dags) + len(created_dags) + len(updated_dags)
+        task_instance.log.info(f"📊 TOTAL CHANGES: {total_changes}")
+        task_instance.log.info(f"📊 ACTIVE DAGS: {len(current_dags)} (after lifecycle management)")
+        
+        summary = f"✅ Lifecycle complete: -{len(removed_dags)} +{len(created_dags)} ~{len(updated_dags)} = {len(current_dags)} active DAGs"
+        return summary
+        
+    except Exception as e:
+        task_instance.log.error(f"❌ Factory DAG failed: {str(e)}")
+        raise Exception(f"❌ Factory DAG failed: {str(e)}")
+
+def create_platform_factory_dag(config: dict) -> DAG:
+    """Create a platform factory DAG from configuration - identical to yellow_platform_factory_dag.py.j2"""
+    platform_name = config['platform_name']
+    
+    # Create the visible Factory DAG that appears in Airflow UI
+    factory_dag = DAG(
+        f'{platform_name}_factory_dag',
+        description=f'Factory DAG for {platform_name} - Creates and manages dynamic ingestion stream DAGs',
+        schedule='*/5 * * * *',  # Check for configuration changes every 5 minutes
+        start_date=datetime(2025, 1, 1),
+        max_active_runs=1,
+        catchup=False,
+        is_paused_upon_creation=False,
+        tags=['datasurface', 'factory', platform_name, 'dynamic-dag-manager']
+    )
+
+    # Create the factory task
+    sync_task = PythonOperator(
+        task_id='sync_dynamic_dags',
+        python_callable=lambda **context: sync_dynamic_dags(config, **context),
+        dag=factory_dag,
+        provide_context=True
+    )
+
+    # Also execute once during DAG discovery for immediate availability
+    # This provides backward compatibility with the current behavior
+    try:
+        initial_dags = load_platform_configurations(config)
+        for dag_id, dag_object in initial_dags.items():
+            globals()[dag_id] = dag_object
+    except Exception as e:
+        print(f"Warning: Failed to load initial dynamic DAGs during discovery: {e}")
+
+    return factory_dag
+
+# Copy the exact DataTransformer factory DAG creation logic from the original template
+# This is identical to datatransformer_factory_dag.py.j2 functionality
+
+def determine_next_action(**context):
+    """Determine whether to reschedule immediately or wait for next trigger"""
+    import os
+    
+    # Read the log file to determine if we need to reschedule
+    dag_id = context['dag'].dag_id
+    run_id = context['dag_run'].run_id
+    task_id_suffix = context.get('task_id_suffix', 'job')
+    task_id = f'datatransformer_{task_id_suffix}' if 'datatransformer' in dag_id else f'output_ingestion_{task_id_suffix}'
+    
+    log_file_path = f"/opt/airflow/logs/dag_id={dag_id}/run_id={run_id}/task_id={task_id}/attempt=1.log"
+    
+    try:
+        if os.path.exists(log_file_path):
+            with open(log_file_path, 'r') as f:
+                log_content = f.read()
+                if "RESCHEDULE_IMMEDIATELY" in log_content:
+                    return 'reschedule_immediately'
+                elif "JOB_COMPLETED_SUCCESSFULLY" in log_content:
+                    return 'wait_for_trigger'
+                else:
+                    # Default to waiting if we can't determine
+                    return 'wait_for_trigger'
+        else:
+            return 'wait_for_trigger'
+    except Exception as e:
+        print(f"Error reading log file {log_file_path}: {e}")
+        return 'wait_for_trigger'
+
+def create_datatransformer_execution_dag(platform_config: dict, dt_config: dict) -> DAG:
+    """Create a DataTransformer execution DAG from configuration - identical to original template"""
+    platform_name = platform_config['platform_name']
+    workspace_name = dt_config['workspace_name']
+    output_datastore_name = dt_config['output_datastore_name']
+    input_dag_ids = dt_config.get('input_dag_ids', [])
+    schedule_string = dt_config.get('schedule_string')  # None if sensor-based, cron string if scheduled
+    
+    # Default arguments for the DAG
+    default_args = {
+        'owner': 'datasurface',
+        'depends_on_past': False,
+        'start_date': datetime(2025, 1, 1),
+        'email_on_failure': True,
+        'email_on_retry': False,
+        'retries': 0,  # No retries - the job handles its own retry logic
+        'retry_delay': timedelta(minutes=5),
+    }
+
+    # Determine schedule: use cron string if provided, otherwise None (external trigger/sensor based)
+    dag_schedule = schedule_string if schedule_string else None
+
+    # Create the DAG
+    dag = DAG(
+        f'{platform_name}__{workspace_name}_datatransformer',
+        default_args=default_args,
+        description=f'DataTransformer DAG for {platform_name}__{workspace_name}',
+        schedule=dag_schedule,  # Use trigger schedule or None for sensor-based
+        max_active_runs=1,
+        catchup=False,
+        is_paused_upon_creation=False,  # Start unpaused so DAGs are immediately active
+        tags=['datasurface', 'datatransformer', platform_name, workspace_name]
+    )
+
+    # Fetch merge credentials from AWS Secrets Manager using existing naming pattern
+    merge_secret_env_vars = fetch_secrets_for_job('datasurface/merge/credentials', platform_config['merge_db_credential_secret_name'])
+    
+    # Platform configuration environment variables (literal values from database config)
+    platform_env_vars = [
+        k8s.V1EnvVar(name='DATASURFACE_PLATFORM_NAME', value=platform_config['original_platform_name']),
+        k8s.V1EnvVar(name='DATASURFACE_NAMESPACE', value=platform_config['namespace_name']),
+    ]
+    
+    # Git credentials (keep as Kubernetes secret for now)
+    git_env_vars = [
+        k8s.V1EnvVar(
+            name=f"{platform_config['git_credential_secret_name']}_TOKEN",
+            value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(
+                    name=platform_config['git_credential_secret_name'],
+                    key='token'
+                )
+            )
+        )
+    ]
+
+    # DataTransformer-specific repository credential (if different from platform git credential)
+    if (dt_config.get('git_credential_secret_name') and 
+        dt_config['git_credential_secret_name'] != platform_config['git_credential_secret_name']):
+        git_env_vars.append(
+            k8s.V1EnvVar(
+                name=f"{dt_config['git_credential_secret_name']}_TOKEN",
+                value_from=k8s.V1EnvVarSource(
+                    secret_key_ref=k8s.V1SecretKeySelector(
+                        name=dt_config['git_credential_secret_name'],
+                        key='token'
+                    )
+                )
+            )
+        )
+    
+    # Combine all environment variables
+    env_vars = platform_env_vars + merge_secret_env_vars + git_env_vars
+
+    # Start task
+    start_task = EmptyOperator(
+        task_id='start_datatransformer',
+        dag=dag
+    )
+
+    # Create external task sensors only if no schedule (sensor-based mode)
+    sensors = []
+    if schedule_string is None:
+        # Sensor-based mode: wait for input DAGs to complete
+        for i, input_dag_id in enumerate(input_dag_ids, 1):
+            sensor = ExternalTaskSensor(
+                task_id=f'wait_for_{input_dag_id.replace("__", "_").replace("-", "_")}',
+                external_dag_id=input_dag_id,
+                external_task_id='wait_for_trigger',  # Wait for the completion of the ingestion
+                allowed_states=['success'],
+                failed_states=['failed'],
+                mode='reschedule',
+                timeout=3600,  # 1 hour timeout
+                poke_interval=30,  # Check every 30 seconds
+                dag=dag
+            )
+            sensors.append(sensor)
+    # If scheduled mode: no sensors needed, DAG runs on schedule
+
+    # DataTransformer job
+    datatransformer_job = KubernetesPodOperator(
+        task_id='datatransformer_job',
+        name=f"{platform_name}-{workspace_name.replace('_', '-')}-dt-job",
+        namespace=platform_config['namespace_name'],
+        image=platform_config['datasurface_docker_image'],
+        cmds=['python', '-m', 'datasurface.platforms.yellow.transformerjob'],
+        arguments=[
+            '--platform-name', platform_config['original_platform_name'],
+            '--workspace-name', workspace_name,
+            '--operation', 'run-datatransformer',
+            '--working-folder', '/workspace/datatransformer',
+            '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
+            '--git-repo-owner', platform_config['git_repo_owner'],
+            '--git-repo-name', platform_config['git_repo_repo_name'],
+            '--git-repo-branch', platform_config['git_repo_branch'],
+            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+            '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
+        ] + (['--use-git-cache'] if platform_config.get('git_cache_enabled') else []),
+        env_vars=env_vars,  # type: ignore
+        image_pull_policy='{{ image_pull_policy }}',
+        volumes=[
+            k8s.V1Volume(
+                name='git-model-cache',
+                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                    claim_name='{{ git_clone_cache_pvc }}'
+                )
+            ),
+            k8s.V1Volume(
+                name='datatransformer-workspace',
+                empty_dir=k8s.V1EmptyDirVolumeSource()
+            )
+        ] if platform_config.get('git_cache_enabled') else [
+            k8s.V1Volume(
+                name='datatransformer-workspace',
+                empty_dir=k8s.V1EmptyDirVolumeSource()
+            )
+        ],
+        volume_mounts=[
+            k8s.V1VolumeMount(
+                name='git-model-cache',
+                mount_path='{{ git_cache_local_path }}',
+                read_only=False
+            ),
+            k8s.V1VolumeMount(
+                name='datatransformer-workspace',
+                mount_path='/workspace/datatransformer',
+                read_only=False
+            )
+        ] if platform_config.get('git_cache_enabled') else [
+            k8s.V1VolumeMount(
+                name='datatransformer-workspace',
+                mount_path='/workspace/datatransformer',
+                read_only=False
+            )
+        ],
+        is_delete_operator_pod=True,
+        get_logs=True,
+        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
+        container_resources=k8s.V1ResourceRequirements(
+            requests={
+                'memory': dt_config.get('job_limits', {}).get('requested_memory', '512Mi'),
+                'cpu': dt_config.get('job_limits', {}).get('requested_cpu', '200m')
+            },
+            limits={
+                'memory': dt_config.get('job_limits', {}).get('limits_memory', '2Gi'),
+                'cpu': dt_config.get('job_limits', {}).get('limits_cpu', '1000m')
+            }
+        ),
+        on_finish_action="delete_pod",
+        dag=dag,
+        priority_weight=dt_config.get('priority', 0),
+        weight_rule='absolute'
+    )
+
+    # Output ingestion job as a task within the transformer DAG - only runs if datatransformer succeeds
+    output_ingestion_job = KubernetesPodOperator(
+        task_id='output_ingestion_job',
+        name=f"{platform_name}-{output_datastore_name.replace('_', '-')}-output-job",
+        namespace=platform_config['namespace_name'],
+        image=platform_config['datasurface_docker_image'],
+        cmds=['python', '-m', 'datasurface.platforms.yellow.jobs'],
+        arguments=[
+            '--platform-name', platform_config['original_platform_name'],
+            '--operation', 'snapshot-merge',
+            '--store-name', output_datastore_name,
+            '--git-repo-path', '{{ git_cache_local_path }}',  # Use cache mount path
+            '--git-repo-owner', platform_config['git_repo_owner'],
+            '--git-repo-name', platform_config['git_repo_repo_name'],
+            '--git-repo-branch', platform_config['git_repo_branch'],
+            '--git-platform-repo-credential-name', platform_config['git_credential_name'],
+            '--max-cache-age-minutes', str(platform_config['git_cache_max_age_minutes'])  # Cache freshness threshold
+        ] + (['--use-git-cache'] if platform_config.get('git_cache_enabled') else []),
+        env_vars=env_vars,  # type: ignore (reuse same env_vars from datatransformer_job)
+        image_pull_policy='{{ image_pull_policy }}',
+        volumes=[
+            k8s.V1Volume(
+                name='git-model-cache',
+                persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
+                    claim_name='{{ git_clone_cache_pvc }}'
+                )
+            )
+        ] if platform_config.get('git_cache_enabled') else [],
+        volume_mounts=[
+            k8s.V1VolumeMount(
+                name='git-model-cache',
+                mount_path='{{ git_cache_local_path }}',
+                read_only=False
+            )
+        ] if platform_config.get('git_cache_enabled') else [],
+        is_delete_operator_pod=True,
+        get_logs=True,
+        do_xcom_push=False,  # Disabled to avoid RBAC issues with pods/exec
+        trigger_rule='all_success',  # Only run if datatransformer_job succeeds
+        container_resources=k8s.V1ResourceRequirements(
+            requests={
+                'memory': dt_config.get('output_job_limits', {}).get('requested_memory', '256Mi'),
+                'cpu': dt_config.get('output_job_limits', {}).get('requested_cpu', '100m')
+            },
+            limits={
+                'memory': dt_config.get('output_job_limits', {}).get('limits_memory', '1Gi'),
+                'cpu': dt_config.get('output_job_limits', {}).get('limits_cpu', '500m')
+            }
+        ),
+        on_finish_action="delete_pod",
+        dag=dag,
+        priority_weight=dt_config.get('priority', 0),
+        weight_rule='absolute'
+    )
+
+    # Branch operator to determine next action (after output ingestion completes)
+    branch = BranchPythonOperator(
+        task_id='check_result',
+        python_callable=determine_next_action,
+        op_kwargs={'task_id_suffix': 'job'},
+        dag=dag,
+        trigger_rule='none_failed_min_one_success'  # Run if either datatransformer succeeded or output_ingestion completed
+    )
+
+    # Reschedule immediately for continuous processing
+    reschedule = TriggerDagRunOperator(
+        task_id='reschedule_immediately',
+        trigger_dag_id=f'{platform_name}__{workspace_name}_datatransformer',
+        conf={'triggered_by': 'reschedule'},
+        dag=dag
+    )
+
+    # Wait for next external trigger
+    wait = EmptyOperator(
+        task_id='wait_for_trigger',
+        dag=dag
+    )
+
+    # Define task dependencies
+    if sensors:
+        start_task >> sensors
+        sensors >> datatransformer_job
+    else:
+        start_task >> datatransformer_job
+    
+    # Sequential execution with proper failure handling:
+    # - output_ingestion_job only runs if datatransformer_job succeeds (trigger_rule='all_success')
+    # - branch runs after both complete (either success path or failure path)
+    datatransformer_job >> output_ingestion_job
+    [datatransformer_job, output_ingestion_job] >> branch
+    branch >> [reschedule, wait]
+    
+    return dag
+
+def load_datatransformer_configurations(config: dict):
+    """Load DataTransformer configurations from database and create DAG objects - identical to original template"""
+    generated_dags = {}
+    
+    try:
+        import sqlalchemy
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
+        
+        # Build database connection using environment variables
+        merge_db_driver = config['merge_db_driver']
+        merge_db_user = os.environ.get(f"{config['merge_db_credential_secret_name']}_USER")
+        merge_db_password = os.environ.get(f"{config['merge_db_credential_secret_name']}_PASSWORD")
+        merge_db_host = config['merge_db_hostname']
+        merge_db_port = config['merge_db_port']
+        merge_db_db_name = config['merge_db_database']
+        merge_db_query = config.get('merge_db_query', None)
+        
+        if not merge_db_user or not merge_db_password:
+            print("Missing Merge SQL credentials in environment variables")
+            return {}
+        
+        # Create database connection using helper function
+        engine = create_database_connection(
+            driver=merge_db_driver,
+            user=merge_db_user,
+            password=merge_db_password,
+            host=merge_db_host,
+            port=merge_db_port,
+            database=merge_db_db_name,
+            query_driver=merge_db_query
+        )
+        
+        # Read from the platform-specific airflow_datatransformer table
+        table_name = config['phys_datatransformer_table_name']
+        with engine.begin() as connection:
+            result = connection.execute(text(f"""
+                SELECT workspace_name, config_json 
+                FROM {table_name}
+                WHERE status = 'active'
+            """))
+            configs = result.fetchall()
+        
+        # Create DAGs for each DataTransformer configuration
+        for row in configs:
+            workspace_name = row[0]
+            config_json = json.loads(row[1])
+            
+            # Log scheduling mode for debugging
+            schedule_string = config_json.get('schedule_string')
+            if schedule_string:
+                print(f"Creating scheduled DataTransformer DAG for {workspace_name} with schedule: {schedule_string}")
+            else:
+                print(f"Creating sensor-based DataTransformer DAG for {workspace_name}")
+            
+            # Create only the execution DAG (output ingestion is now a task within it)
+            execution_dag_id = f"{config['platform_name']}__{workspace_name}_datatransformer"
+            
+            generated_dags[execution_dag_id] = create_datatransformer_execution_dag(config, config_json)
+            # Note: output ingestion DAG no longer needed - integrated as task within execution DAG
+        
+        return generated_dags
+        
+    except Exception as e:
+        print(f"Error loading DataTransformer configurations: {e}")
+        return {}
+
+def sync_datatransformer_dags(config: dict, **context):
+    """Synchronize dynamic DataTransformer DAGs with database configuration - identical to original template"""
+    task_instance = context['task_instance']
+    platform_name = config['platform_name']
+    
+    try:
+        task_instance.log.info("=" * 80)
+        task_instance.log.info("🏭 DATATRANSFORMER FACTORY DAG EXECUTION STARTED")
+        task_instance.log.info("=" * 80)
+        task_instance.log.info(f"🔧 Platform: {platform_name}")
+        task_instance.log.info(f"🗃️  DataTransformer Table: {config['phys_datatransformer_table_name']}")
+        task_instance.log.info("=" * 80)
+        
+        # Step 1: Load current configuration from database
+        task_instance.log.info("📊 LOADING DATATRANSFORMER CONFIGURATIONS FROM DATABASE")
+        task_instance.log.info("=" * 60)
+        
+        current_dags = load_datatransformer_configurations(config)
+        task_instance.log.info(f"📈 Found {len(current_dags)} DAG configurations in database")
+        
+        # Step 2: Compare with existing DAGs in globals
+        # Get existing DataTransformer-related DAGs using naming convention
+        # Note: _dt_ingestion DAGs are now integrated as tasks, so only check _datatransformer DAGs
+        existing_dt_dags = {k: v for k, v in globals().items() 
+                           if k.endswith('_datatransformer')}
+        
+        current_dag_ids = set(current_dags.keys())
+        existing_dag_ids = set(existing_dt_dags.keys())
+        
+        to_create = current_dag_ids - existing_dag_ids
+        to_remove = existing_dag_ids - current_dag_ids
+        to_update = current_dag_ids & existing_dag_ids
+        
+        task_instance.log.info(f"🆕 DAGs to CREATE: {len(to_create)}")
+        task_instance.log.info(f"🗑️  DAGs to REMOVE: {len(to_remove)}")
+        task_instance.log.info(f"🔄 DAGs to UPDATE: {len(to_update)}")
+        
+        # Step 3: Execute lifecycle changes
+        # Remove obsolete DAGs
+        removed_dags = []
+        if to_remove:
+            task_instance.log.info("🗑️  REMOVING OBSOLETE DAGs:")
+            for dag_id in to_remove:
+                if dag_id in globals():
+                    del globals()[dag_id]
+                    removed_dags.append(dag_id)
+                    task_instance.log.info(f"   🗑️  REMOVED: {dag_id}")
+        
+        # Create new DAGs  
+        created_dags = []
+        if to_create:
+            task_instance.log.info("🆕 CREATING NEW DAGs:")
+            for dag_id in to_create:
+                globals()[dag_id] = current_dags[dag_id]
+                created_dags.append(dag_id)
+                task_instance.log.info(f"   ✅ CREATED: {dag_id}")
+        
+        # Update existing DAGs
+        updated_dags = []
+        if to_update:
+            task_instance.log.info("🔄 UPDATING EXISTING DAGs:")
+            for dag_id in to_update:
+                globals()[dag_id] = current_dags[dag_id]
+                updated_dags.append(dag_id)
+                task_instance.log.info(f"   🔄 UPDATED: {dag_id}")
+        
+        total_changes = len(removed_dags) + len(created_dags) + len(updated_dags)
+        task_instance.log.info(f"📊 TOTAL CHANGES: {total_changes}")
+        task_instance.log.info(f"📊 ACTIVE DATATRANSFORMER DAGS: {len(current_dags)}")
+        
+        summary = f"✅ DataTransformer Lifecycle complete: -{len(removed_dags)} +{len(created_dags)} ~{len(updated_dags)} = {len(current_dags)} active DAGs"
+        return summary
+        
+    except Exception as e:
+        task_instance.log.error(f"❌ DATATRANSFORMER FACTORY DAG EXECUTION FAILED: {str(e)}")
+        raise Exception(f"❌ DataTransformer Factory DAG failed: {str(e)}")
+
+def create_datatransformer_factory_dag(config: dict) -> DAG:
+    """Create a datatransformer factory DAG from configuration - identical to datatransformer_factory_dag.py.j2"""
+    platform_name = config['platform_name']
+    
+    # Create the factory DAG for DataTransformers
+    factory_default_args = {
+        'owner': 'datasurface',
+        'depends_on_past': False,
+        'start_date': datetime(2025, 1, 1),
+        'email_on_failure': True,
+        'email_on_retry': False,
+        'retries': 1,
+        'retry_delay': timedelta(minutes=5),
+    }
+
+    factory_dag = DAG(
+        f'{platform_name}_datatransformer_factory',
+        default_args=factory_default_args,
+        description=f'DataTransformer Dynamic DAG Factory for {platform_name}',
+        schedule='*/5 * * * *',  # Run every 5 minutes to sync configurations
+        catchup=False,
+        max_active_runs=1,
+        tags=['datasurface', 'factory', 'datatransformer', platform_name]
+    )
+
+    # Create the factory task
+    sync_task = PythonOperator(
+        task_id='sync_datatransformer_dags',
+        python_callable=lambda **context: sync_datatransformer_dags(config, **context),
+        dag=factory_dag,
+        provide_context=True
+    )
+
+    # Also execute once during DAG discovery for immediate availability
+    try:
+        initial_dags = load_datatransformer_configurations(config)
+        for dag_id, dag_object in initial_dags.items():
+            globals()[dag_id] = dag_object
+    except Exception as e:
+        print(f"Warning: Failed to load initial DataTransformer DAGs during discovery: {e}")
+
+    return factory_dag
+
+def create_factory_dags_from_database(**context):
+    """Read factory DAG configurations from database and create factory DAGs in globals()"""
+    # Check if we're running during task execution (context provided) or module import (no context)
+    task_instance = context.get('task_instance') if context else None
+    
+    def log_message(msg):
+        if task_instance:
+            task_instance.log.info(msg)
+        else:
+            print(msg)
+    
+    try:
+        import sqlalchemy
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
+        
+        # Build database connection using environment variables
+        merge_db_user = os.environ.get('{{ merge_db_credential_secret_name | replace("-", "_") }}_USER')
+        merge_db_password = os.environ.get('{{ merge_db_credential_secret_name | replace("-", "_") }}_PASSWORD')
+        merge_db_host = '{{ merge_db_hostname }}'
+        merge_db_port = {{ merge_db_port }}
+        merge_db_db_name = '{{ merge_db_database }}'
+        merge_db_query = '{{ merge_db_query }}'
+        
+        if not merge_db_user or not merge_db_password:
+            if task_instance:
+                raise Exception("Missing Merge SQL credentials in environment variables")
+            else:
+                log_message("Missing Merge SQL credentials - factory DAGs will be created during task execution")
+                return "Factory DAG creation deferred to task execution"
+        
+        # Create database connection using helper function
+        engine = create_database_connection(
+            driver='{{ merge_db_driver }}',
+            user=merge_db_user,
+            password=merge_db_password,
+            host=merge_db_host,
+            port=merge_db_port,
+            database=merge_db_db_name,
+            query_driver=merge_db_query
+        )
+        
+        # Read factory DAG configurations - table created/populated by handleModelMerge
+        factory_table_name = '{{ phys_factory_table_name }}'
+        with engine.begin() as connection:
+            result = connection.execute(text(f"""
+                SELECT platform_name, factory_type, config_json 
+                FROM {factory_table_name}
+                WHERE status = 'active'
+            """))
+            configs = result.fetchall()
+        
+        created_factories = []
+        
+        # Create factory DAGs for each configuration
+        for platform_name, factory_type, config_json in configs:
+            config = json.loads(config_json)
+            
+            if factory_type == 'platform':
+                # Create platform factory DAG
+                factory_dag = create_platform_factory_dag(config)
+                factory_dag_id = f"{platform_name}_factory_dag"
+                globals()[factory_dag_id] = factory_dag
+                created_factories.append(f"Platform: {factory_dag_id}")
+                
+            elif factory_type == 'datatransformer':
+                # Create datatransformer factory DAG
+                factory_dag = create_datatransformer_factory_dag(config)
+                factory_dag_id = f"{platform_name}_datatransformer_factory"
+                globals()[factory_dag_id] = factory_dag
+                created_factories.append(f"DataTransformer: {factory_dag_id}")
+        
+        log_message(f"✅ Created {len(created_factories)} factory DAGs:")
+        for factory in created_factories:
+            log_message(f"   → {factory}")
+            
+        return f"Factory DAG creation complete: {len(created_factories)} factories created"
+        
+    except Exception as e:
+        error_msg = f"❌ Error creating factory DAGs: {e}"
+        log_message(error_msg)
+        if task_instance:
+            raise Exception(f"Factory DAG creation failed: {str(e)}")
+        else:
+            # During module import, don't raise - just log and continue
+            return f"Factory DAG creation failed: {str(e)}"
+
+# Also execute once during DAG discovery for immediate availability
+try:
+    initial_factory_dags = create_factory_dags_from_database()
+    print(f"🚀 Factory DAG creation during discovery: {initial_factory_dags}")
+except Exception as e:
+    print(f"Warning: Failed to load initial Factory DAGs during discovery: {e}")
+
+# Factory DAG Creation Task - Synchronize factory DAGs like datatransformer factory does
+factory_creation_task = PythonOperator(
+    task_id='create_factory_dags',
+    python_callable=create_factory_dags_from_database,
+    dag=dag,
+    provide_context=True
+)
+
+# End task
+end_task = EmptyOperator(
+    task_id='end_infrastructure_tasks',
+    dag=dag
+)
+
+# Define task dependencies
+# MERGE task runs first to generate infrastructure and populate factory DAG table
+start_task >> merge_task  # type: ignore
+
+# Factory creation runs after merge to read the populated factory DAG table
+merge_task >> factory_creation_task  # type: ignore
+
+# Security and metrics can run in parallel after factory creation
+factory_creation_task >> [apply_security_task, metrics_collector_task]  # type: ignore
+
+# Table removal runs after security is applied
+apply_security_task >> table_removal_task  # type: ignore
+
+# All tasks complete before end
+[metrics_collector_task, table_removal_task] >> end_task  # type: ignore 

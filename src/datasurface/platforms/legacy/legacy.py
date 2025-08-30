@@ -97,7 +97,7 @@ class LegacyPlatformServiceProvider(PlatformServicesProvider):
     def generateBootstrapArtifacts(self, eco: 'Ecosystem', ringLevel: int) -> dict[str, str]:
         raise NotImplementedError("generateBootstrapArtifacts not implemented")
 
-    def mergeHandler(self, eco: 'Ecosystem'):
+    def mergeHandler(self, eco: 'Ecosystem', basePlatformDir: str):
         pass
 
     def __eq__(self, other: object) -> bool:

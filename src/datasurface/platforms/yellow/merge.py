@@ -30,6 +30,9 @@ from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFact
 from datasurface.platforms.yellow.db_utils import createInspector
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from datasurface.md.exceptions import UnknownObjectTypeException
+from datasurface.platforms.yellow.yellow_dp import YellowSchemaProjector
+from datasurface.md import SQLMergeIngestion
+
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -77,10 +80,10 @@ class Job(YellowDatasetUtilities):
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
         # Initialize database operations based on merge store type
-        if self.schemaProjector is None:
+        if self.mergeSchemaProjector is None:
             raise ValueError("Schema projector must be initialized")
         self.merge_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
-            dp.psp.mergeStore, self.schemaProjector
+            dp.getPSP().mergeStore, self.mergeSchemaProjector
         )
         if self.store.cmd is None:
             raise ValueError("Store command is required")
@@ -94,17 +97,26 @@ class Job(YellowDatasetUtilities):
                 raise ValueError("Store command data container is required")
             if not isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase)):
                 raise TypeError(f"Unsupported data container type: {type(self.store.cmd.dataContainer)}")
-            self.source_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
-                self.store.cmd.dataContainer, self.schemaProjector
-            )
         self.numReconcileDDLs: int = 0
 
         self.srcNM: DataContainerNamingMapper
         if isinstance(self.store.cmd.dataContainer, DataPlatformManagedDataContainer):
-            self.srcNM = self.dp.psp.mergeStore.getNamingAdapter()
+            self.srcNM = self.dp.getPSP().mergeStore.getNamingAdapter()
         else:
-            self.srcNM = self.store.cmd.dataContainer.getNamingAdapter()
-        self.mrgNM: DataContainerNamingMapper = self.dp.psp.mergeStore.getNamingAdapter()
+            self.srcNM = self.store.cmd.getDataContainer().getNamingAdapter()
+        self.mrgNM: DataContainerNamingMapper = self.dp.getPSP().mergeStore.getNamingAdapter()
+
+        if isinstance(store.cmd, SQLMergeIngestion):
+            self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, store.cmd.dataPlatform)
+        else:
+            self.remoteDP: YellowDataPlatform = self.dp
+        self.remoteYDU: YellowDatasetUtilities
+        if datasetName is not None:
+            self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store, datasetName)
+        else:
+            self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store)
+        self.sourceSchemaProjector: YellowSchemaProjector = cast(YellowSchemaProjector, self.remoteDP.createSchemaProjector(eco))
+        self.sourceSchemaProjector.setDBOps(self.remoteYDU.merge_db_ops)
 
     def createBatchCounterTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
         """This creates the batch counter table"""
@@ -121,9 +133,9 @@ class Job(YellowDatasetUtilities):
         # Handle case where dataset might be None (e.g., in tests)
         jobHint: Optional[PlatformRuntimeHint] = None
         if self.dataset is not None:
-            jobHint = self.dp.psp.getIngestionJobHint(self.store.name, self.dataset.name)
+            jobHint = self.dp.getPSP().getIngestionJobHint(self.store.name, self.dataset.name)
         else:
-            jobHint = self.dp.psp.getIngestionJobHint(self.store.name)
+            jobHint = self.dp.getPSP().getIngestionJobHint(self.store.name)
 
         value: int = defaultValue
         if jobHint is not None:
@@ -147,16 +159,16 @@ class Job(YellowDatasetUtilities):
         t: Table = self.getBatchMetricsTable(mergeConnection)
         createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the staging schema for a dataset"""
-        stagingDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
-        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), engine)
+        stagingDS: Dataset = self.mergeSchemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
+        t: Table = datasetToSQLAlchemyTable(stagingDS, tableName, sqlalchemy.MetaData(), mergeConnection)
         return t
 
-    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None) -> Table:
+    def getMergeSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the merge schema for a dataset"""
-        mergeDS: Dataset = self.schemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE, self.merge_db_ops)
-        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), engine)
+        mergeDS: Dataset = self.mergeSchemaProjector.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_MERGE)
+        t: Table = datasetToSQLAlchemyTable(mergeDS, tableName, sqlalchemy.MetaData(), mergeConnection)
         return t
 
     def createBatchCommon(self, connection: Connection, key: str, state: BatchState) -> int:
@@ -365,7 +377,8 @@ class Job(YellowDatasetUtilities):
         connection.execute(text(update_sql))
 
     @abstractmethod
-    def ingestNextBatchToStaging(self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int) -> tuple[int, int, int]:
+    def ingestNextBatchToStaging(self, sourceEngine: Engine, mergeEngine: Engine, key: str,
+                                 batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
         """This will ingest the next batch to staging"""
         pass
 
@@ -416,7 +429,7 @@ class Job(YellowDatasetUtilities):
         if currentStatus == BatchStatus.STARTED.value:
             # Ingest the batch to staging tables if new batch.
             logger.info("Continuing batch ingestion", batch_id=batchId, key=key, status=currentStatus)
-            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+            self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId, self.merge_db_ops)
 
         with mergeEngine.begin() as connection:
             currentStatus = self.checkBatchStatus(connection, key, batchId)
@@ -434,8 +447,8 @@ class Job(YellowDatasetUtilities):
         isDataTransformerOutput = isinstance(self.store.cmd, DataTransformerOutput)
 
         # Now, get a connection to the merge database
-        mergeUser, mergePassword = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-        mergeEngine: Engine = createEngine(self.dp.psp.mergeStore, mergeUser, mergePassword)
+        mergeUser, mergePassword = self.dp.getPSP().credStore.getAsUserPassword(self.dp.getPSP().mergeRW_Credential)
+        mergeEngine: Engine = createEngine(self.dp.getPSP().mergeStore, mergeUser, mergePassword)
 
         ingestionType: IngestionConsistencyType = IngestionConsistencyType.MULTI_DATASET
         if isDataTransformerOutput:
@@ -464,7 +477,7 @@ class Job(YellowDatasetUtilities):
         # Check current batch status to determine what to do
         if ingestionType == IngestionConsistencyType.SINGLE_DATASET:
             # For single dataset ingestion, process each dataset separately
-            ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, self.dataset.name)
+            ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, self.getDataset().name)
         else:
             # For multi-dataset ingestion, process all datasets in a single batch
             ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store)
@@ -531,7 +544,7 @@ class Job(YellowDatasetUtilities):
 
         # Get primary key columns
         schema: DDLTable = cast(DDLTable, dataset.originalSchema)
-        pkColumns: List[str] = schema.primaryKeyColumns.colNames
+        pkColumns: List[str] = schema.getPrimaryKeyList().colNames
         if not pkColumns:
             # If no primary key, use all columns
             pkColumns = [col.name for col in schema.columns.values()]
@@ -615,10 +628,10 @@ class Job(YellowDatasetUtilities):
 
     def baseIngestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
-            batchId: int) -> tuple[int, int, int]:
+            batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
         # Default SQL generator using the standard source query builder
         def default_sql_generator(sourceTableName: str, allColumns: List[str], pkColumns: List[str]) -> str:
-            return self.source_db_ops.build_source_query_with_hashes(
+            return source_dp_ops.build_source_query_with_hashes(
                 sourceTableName, allColumns, pkColumns
             )
 

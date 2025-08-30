@@ -20,6 +20,7 @@ from datasurface.platforms.yellow.logging_utils import (
 from datasurface.platforms.yellow.merge import Job, JobStatus
 from datasurface.platforms.yellow.merge_forensic import SnapshotDeltaMode
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -47,8 +48,8 @@ class SnapshotMergeJobLiveOnly(Job):
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
-            batchId: int) -> tuple[int, int, int]:
-        return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+            batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
+        return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId, source_dp_ops)
 
     def mergeStagingToMergeAndCommit(self, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         return SnapshotMergeJobLiveOnly.genericMergeStagingToMergeAndCommitLive(self, mergeEngine, batchId, key, SnapshotDeltaMode.SNAPSHOT, chunkSize)
@@ -195,14 +196,14 @@ class SnapshotMergeJobLiveOnly(Job):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        if job.schemaProjector is None:
-            raise ValueError("Schema projector must be initialized")
 
         with mergeEngine.begin() as connection:
             state: BatchState = job.getBatchState(mergeEngine, connection, key, batchId)
 
             # Check for schema changes before merging
             job.checkForSchemaChanges(state)
+            if job.dp.psp is None:
+                raise ValueError(f"psp in DataPlatform {job.dp.name} must be set before getting job hint")
             nm: DataContainerNamingMapper = job.dp.psp.namingMapper
 
             for datasetToMergeName in state.all_datasets:

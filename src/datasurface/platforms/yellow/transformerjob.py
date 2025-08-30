@@ -178,8 +178,8 @@ class DataTransformerJob(JobUtilities):
 
             # Now, get a connection to the merge database
             with log_operation_timing(logger, "database_connection_setup"):
-                systemMergeUser, systemMergePassword = self.dp.psp.credStore.getAsUserPassword(self.dp.psp.mergeRW_Credential)
-                systemMergeEngine: Engine = createEngine(self.dp.psp.mergeStore, systemMergeUser, systemMergePassword)
+                systemMergeUser, systemMergePassword = self.dp.getPSP().credStore.getAsUserPassword(self.dp.getPSP().mergeRW_Credential)
+                systemMergeEngine: Engine = createEngine(self.dp.getPSP().mergeStore, systemMergeUser, systemMergePassword)
                 inspector = createInspector(systemMergeEngine)
 
             # Need to create the dt tables for the output datastore if they don't exist

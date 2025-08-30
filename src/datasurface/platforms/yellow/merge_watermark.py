@@ -21,6 +21,7 @@ from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.merge_forensic import SnapshotDeltaMode
 from datasurface.md.governance import SQLWatermarkSnapshotDeltaIngestion
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -55,7 +56,7 @@ class MergeWatermarkJob(Job):
             tableName: str = self.getPhysSourceTableName(dataset)
 
             # Use the new database operations method to get max watermark value
-            sql: str = self.source_db_ops.get_max_watermark_value(tableName, watermarkColumn)
+            sql: str = self.sourceSchemaProjector.getDBOps().get_max_watermark_value(tableName, watermarkColumn)
             result: Result = connection.execute(text(sql))
 
             # The watermark column type is either an integer or a timestamp
@@ -71,7 +72,7 @@ class MergeWatermarkJob(Job):
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
-            batchId: int) -> tuple[int, int, int]:
+            batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
         """
         This will grab the high watermark across all datasets and ingest records based on watermark ranges.
         For the first batch, it ingests all records with watermark < high_watermark.
@@ -112,13 +113,13 @@ class MergeWatermarkJob(Job):
         if previousHighWatermark is None:
             # Snapshot: fetch all records up to the latest high watermark
             def watermark_sql_generator(sourceTableName: str, allColumns: List[str], pkColumns: List[str]) -> str:
-                return self.source_db_ops.get_watermark_records_lt(
+                return self.sourceSchemaProjector.getDBOps().get_watermark_records_lt(
                     sourceTableName, allColumns, pkColumns, cmd.watermarkColumn, latestHighWatermark
                 )
         else:
             # Incremental: fetch records in watermark range
             def watermark_sql_generator(sourceTableName: str, allColumns: List[str], pkColumns: List[str]) -> str:
-                return self.source_db_ops.get_watermark_records_range(
+                return self.sourceSchemaProjector.getDBOps().get_watermark_records_range(
                     sourceTableName, allColumns, pkColumns, cmd.watermarkColumn, previousHighWatermark, latestHighWatermark
                 )
 

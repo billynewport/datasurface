@@ -20,6 +20,8 @@ from datasurface.platforms.yellow.logging_utils import (
 from datasurface.platforms.yellow.merge import Job, JobStatus
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from enum import Enum
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
+
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
@@ -50,9 +52,9 @@ class SnapshotMergeJobForensic(Job):
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
-            batchId: int) -> tuple[int, int, int]:
+            batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
         """This is the same copy a snapshot from the source table to the staging table as the live only job."""
-        return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId)
+        return self.baseIngestNextBatchToStaging(sourceEngine, mergeEngine, key, batchId, source_dp_ops)
 
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
         return self.executeNormalRollingBatch(sourceEngine, mergeEngine, key)

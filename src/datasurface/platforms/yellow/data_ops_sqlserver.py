@@ -392,7 +392,7 @@ class SQLServerDatabaseOperations(DatabaseOperations):
         result = connection.execute(text(check_sql), {"table_name": table_name, "index_name": index_name})
         return result.fetchone()[0] > 0
 
-    def create_index_sql(self, index_name: str, table_name: str, columns: List[str]) -> str:
+    def create_index_sql(self, index_name: str, table_name: str, columns: List[str], unique: bool = False) -> str:
         """Generate SQL to create an index."""
         formatted_columns = [f"[{col}]" for col in columns]
         return f"CREATE INDEX [{index_name}] ON [{table_name}] ({', '.join(formatted_columns)})"

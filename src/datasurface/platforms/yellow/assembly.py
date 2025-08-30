@@ -157,6 +157,14 @@ class Component(ABC):
         """Convert CPU spec to Kubernetes format by ensuring binary units have 'm' suffix"""
         return f"{int(cpu * 1000)}m"
 
+    @abstractmethod
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        """This generates a kubernetes yaml file for the component using a jinja2 template.
+        This doesn't need an intention graph, it's just for boot-strapping.
+        The files which are generated depend on the component.
+        """
+        raise NotImplementedError("This is an abstract method")
+
 
 class NamespaceComponent(Component):
     def __init__(self, name: str, namespace: str) -> None:
@@ -174,6 +182,9 @@ class NamespaceComponent(Component):
         namespace_rendered: str = namespace_template.render(ctxt)
         yaml += namespace_rendered
         return yaml
+
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        return dict()
 
 
 class LoggingComponent(Component):
@@ -195,6 +206,9 @@ class LoggingComponent(Component):
         yaml += logging_rendered
         return yaml
 
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        return dict()
+
 
 class NetworkPolicyComponent(Component):
     def __init__(self, psp_name: str, namespace: str) -> None:
@@ -214,6 +228,9 @@ class NetworkPolicyComponent(Component):
         network_policy_rendered: str = network_policy_template.render(ctxt)
         yaml += network_policy_rendered
         return yaml
+
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        return dict()
 
 
 class Airflow2XComponent(Component):
@@ -271,6 +288,30 @@ class Airflow2XComponent(Component):
         yaml += airflow_rendered
         return yaml
 
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        dag_template: Template = jinjaEnv.get_template('airflow2X/infrastructure_dag.py.j2')
+        rendered_infrastructure_dag: str = dag_template.render(context)
+        rc: dict[str, str] = dict()
+        rc["infrastructure_dag.py"] = rendered_infrastructure_dag
+
+        model_merge_template: Template = jinjaEnv.get_template('airflow2X/model_merge_job.yaml.j2')
+        rendered_model_merge_job: str = model_merge_template.render(context)
+
+        # This is a yaml file which runs in the environment to create database tables needed
+        # and other things required to run the dataplatforms.
+        ring1_init_template: Template = jinjaEnv.get_template('airflow2X/ring1_init_job.yaml.j2')
+        rendered_ring1_init_job: str = ring1_init_template.render(context)
+
+        # This creates all the Workspace views needed for all the dataplatforms in the model.
+        reconcile_views_template: Template = jinjaEnv.get_template('airflow2X/reconcile_views_job.yaml.j2')
+        rendered_reconcile_views_job: str = reconcile_views_template.render(context)
+
+        rc["model_merge_job.yaml"] = rendered_model_merge_job
+        rc["ring1_init_job.yaml"] = rendered_ring1_init_job
+        rc["reconcile_views_job.yaml"] = rendered_reconcile_views_job
+
+        return rc
+
 
 class PostgresComponent(Component):
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: PostgresDatabase,
@@ -311,6 +352,9 @@ class PostgresComponent(Component):
         yaml += postgres_rendered
         return yaml
 
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        return dict()
+
 
 class PVCComponent(Component):
     def __init__(self, name: str, namespace: str, capacity: StorageRequirement, storageClass: str, accessMode: str) -> None:
@@ -334,6 +378,9 @@ class PVCComponent(Component):
         pvc_rendered: str = pvc_template.render(ctxt)
         yaml += pvc_rendered
         return yaml
+
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        return dict()
 
 
 class NFSComponent(Component):
@@ -386,6 +433,9 @@ class NFSComponent(Component):
         yaml += nfs_rendered
         return yaml
 
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        return dict()
+
 
 class Assembly:
     def __init__(self, name: str, namespace: str, components: list[Component]) -> None:
@@ -404,6 +454,25 @@ class Assembly:
 
         # Join with proper YAML document separator
         return '\n'.join(yaml_parts) + '\n'
+
+    def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv: Environment, ringLevel: int) -> dict[str, str]:
+        """This generates a kubernetes yaml file for the assembly using a jinja2 template.
+        This doesn't need an intention graph, it's just for boot-strapping.
+        The files which are generated depend on the assembly components.
+        """
+
+        # Iterate over the components and ask them to make their artifacts and collect them
+        # to be returned. Components returning similarly named files with be concatenated.
+        artifacts: dict[str, str] = dict()
+        for component in self.components:
+            component_artifacts: dict[str, str] = component.generateBootstrapArtifacts(eco, context, jinjaEnv, ringLevel)
+            if component_artifacts:
+                for key, value in component_artifacts.items():
+                    if key in artifacts:
+                        artifacts[key] += '\n' + value
+                    else:
+                        artifacts[key] = value
+        return artifacts
 
 
 DB = TypeVar('DB', bound=HostPortSQLDatabase)

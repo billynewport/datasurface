@@ -35,6 +35,8 @@ class TestEcosystemValidation(unittest.TestCase):
         # Check the store has a pip
         pip: Optional[PrimaryIngestionPlatform] = e.primaryIngestionPlatforms.get("NW_Data")
         self.assertIsNotNone(pip)
+        if pip is None:
+            raise Exception("PrimaryIngestionPlatform not found")
         self.assertEqual(len(pip.dataPlatforms), 1)
         self.assertEqual(pip.dataPlatforms, {DataPlatformKey("LegacyA")})
         rc = e.lintAndHydrateCaches()

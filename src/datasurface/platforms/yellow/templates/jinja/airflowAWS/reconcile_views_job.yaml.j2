@@ -1,0 +1,85 @@
+# reconcile-views-job.yaml (AWS version)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ psp_k8s_name }}-reconcile-views-job
+  namespace: {{ namespace_name }}
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ airflow_k8s_name }}-service-account
+      containers:
+      - name: reconcile-views-handler
+        image: {{ datasurface_docker_image }}
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "🔄 Starting DataSurface Reconcile Views Handler (AWS)"
+          
+          # Install AWS CLI and boto3 if not present
+          pip install boto3 > /dev/null 2>&1 || echo "boto3 already installed"
+          
+          # Fetch credentials from AWS Secrets Manager
+          echo "🔐 Fetching credentials from AWS Secrets Manager..."
+          python3 << 'EOF'
+          import boto3
+          import json
+          import os
+          
+          def get_secret(secret_name):
+              client = boto3.client('secretsmanager', region_name='{{ aws_region | default("us-east-1") }}')
+              try:
+                  response = client.get_secret_value(SecretId=secret_name)
+                  return json.loads(response['SecretString'])
+              except Exception as e:
+                  print(f"Error fetching secret {secret_name}: {e}")
+                  return {}
+          
+          # Fetch merge database credentials
+          merge_creds = get_secret('datasurface/merge/credentials')
+          if merge_creds:
+              os.environ['{{ merge_db_credential_secret_name | replace("-", "_") }}_USER'] = merge_creds.get('postgres_USER', '')
+              os.environ['{{ merge_db_credential_secret_name | replace("-", "_") }}_PASSWORD'] = merge_creds.get('postgres_PASSWORD', '')
+              print("✅ Merge database credentials loaded")
+          
+          # Fetch Git credentials
+          git_creds = get_secret('datasurface/git/credentials')
+          if git_creds:
+              os.environ['{{ git_credential_secret_name | replace("-", "_") }}_TOKEN'] = git_creds.get('token', '')
+              print("✅ Git credentials loaded")
+          
+          print("🔐 All credentials loaded from AWS Secrets Manager")
+          EOF
+          
+          # Run reconcile views job using shared git cache
+          echo "🔧 Running reconcile views job with shared cache..."
+          python -m datasurface.platforms.yellow.reconcile_workspace_views \
+            --psp {{ psp_name }} \
+            --git-repo-path {{ git_cache_local_path }} \
+            --git-repo-owner {{ git_repo_owner }} \
+            --git-repo-name {{ git_repo_repo_name }} \
+            --git-repo-branch {{ git_repo_branch }} \
+            --git-platform-repo-credential-name {{ git_credential_name }} \
+            {% if git_cache_enabled %}
+            --use-git-cache \
+            {% endif %}
+            --max-cache-age-minutes {{ git_cache_max_age_minutes }}
+          
+          echo "✅ Reconcile views job complete!"
+        env:
+        - name: PYTHONPATH
+          value: "/app/src"
+        - name: AWS_REGION
+          value: "{{ aws_region | default('us-east-1') }}"
+        {% if git_cache_enabled %}
+        volumeMounts:
+        - name: git-model-cache
+          mountPath: {{ git_cache_local_path }}
+      volumes:
+      - name: git-model-cache
+        persistentVolumeClaim:
+          claimName: {{ git_clone_cache_pvc }}
+      {% endif %}
+      restartPolicy: Never
+  backoffLimit: 3

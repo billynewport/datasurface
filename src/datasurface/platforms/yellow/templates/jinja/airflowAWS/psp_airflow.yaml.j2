@@ -1,0 +1,347 @@
+# Yellow Airflow 2.8.1 Platform Service Provider
+
+# Airflow Service Account for RBAC with AWS IAM Role
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ airflow_k8s_name }}-service-account
+  namespace: {{ namespace_name }}
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::{{ aws_account_id }}:role/{{ airflow_k8s_name }}-secrets-role
+---
+# Airflow Role for Pod Management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: {{ namespace_name }}
+  name: {{ airflow_k8s_name }}-pod-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list"]
+---
+# Airflow RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ airflow_k8s_name }}-pod-manager-binding
+  namespace: {{ namespace_name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ airflow_k8s_name }}-service-account
+  namespace: {{ namespace_name }}
+roleRef:
+  kind: Role
+  name: {{ airflow_k8s_name }}-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# Airflow DAGs PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ airflow_k8s_name }}-dags-pvc
+  namespace: {{ namespace_name }}
+spec:
+  storageClassName: {{ pv_storage_class }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Airflow Logs PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ airflow_k8s_name }}-logs-pvc
+  namespace: {{ namespace_name }}
+spec:
+  storageClassName: {{ pv_storage_class }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Airflow ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ airflow_k8s_name }}-config
+  namespace: {{ namespace_name }}
+data:
+  airflow.cfg: |
+    [core]
+    executor = LocalExecutor
+    sql_alchemy_conn = {{ airflow_db_url }}
+    dags_folder = /opt/airflow/dags
+    load_examples = False
+
+    [webserver]
+    web_server_host = 0.0.0.0
+    web_server_port = 8080
+
+    [logging]
+    base_log_folder = /opt/airflow/logs
+    remote_logging = False
+
+    [database]
+    sql_alchemy_conn = {{ airflow_db_url }}
+---
+# Airflow Scheduler Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ airflow_k8s_name }}-scheduler
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ airflow_k8s_name }}-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ airflow_k8s_name }}-scheduler
+  template:
+    metadata:
+      labels:
+        app: {{ airflow_k8s_name }}-scheduler
+    spec:
+      serviceAccountName: {{ airflow_k8s_name }}-service-account
+      securityContext:
+        fsGroup: 50000
+        fsGroupChangePolicy: "OnRootMismatch"
+        runAsUser: 50000
+        runAsGroup: 50000
+      initContainers:
+      - name: airflow-db-init
+        image: {{ airflow_image }}
+        command: ["/bin/bash", "-c"]
+        args:
+          - airflow db init
+        envFrom:
+          - secretRef:
+              name: {{ airflow_db_credential_secret_name }}
+        env:
+          - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+            value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
+        volumeMounts:
+          - name: airflow-dags
+            mountPath: /opt/airflow/dags
+          - name: airflow-logs
+            mountPath: /opt/airflow/logs
+          - name: airflow-config
+            mountPath: /opt/airflow/airflow.cfg
+            subPath: airflow.cfg
+      containers:
+        - name: {{ airflow_k8s_name }}-scheduler
+          image: {{ airflow_image }}
+          command: ["airflow", "scheduler"]
+          envFrom:
+            - secretRef:
+                name: {{ airflow_db_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - configMapRef:
+                name: {{ psp_k8s_name }}-logging-config
+          env:
+            - name: AIRFLOW_UID
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
+            - name: GIT_REPO_URL
+              value: "{{ git_repo_url }}"
+            - name: GIT_REPO_BRANCH
+              value: "{{ git_repo_branch }}"
+            - name: GIT_REPO_NAME
+              value: "{{ git_repo_name }}"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+            - name: YELLOW_JOB_TYPE
+              value: "airflow-scheduler"
+            # Extra Factory DAG credentials (needed for dynamic DAG creation)
+            {% for cred in extra_credentials %}
+            - name: {{ cred }}_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ cred }}
+                  key: {{ cred }}_USER
+            - name: {{ cred }}_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ cred }}
+                  key: {{ cred }}_PASSWORD
+            {% endfor %}
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: airflow-config
+              mountPath: /opt/airflow/airflow.cfg
+              subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: {{ scheduler_requested_memory }}
+              cpu: {{ scheduler_requested_cpu }}
+            limits:
+              memory: {{ scheduler_limits_memory }}
+              cpu: {{ scheduler_limits_cpu }}
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: {{ airflow_k8s_name }}-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: {{ airflow_k8s_name }}-logs-pvc
+        - name: airflow-config
+          configMap:
+            name: {{ airflow_k8s_name }}-config
+        - name: git-repo
+          emptyDir: {}
+---
+# Airflow Webserver Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ airflow_k8s_name }}-webserver
+  namespace: {{ namespace_name }}
+  labels:
+    app: {{ airflow_k8s_name }}-webserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ airflow_k8s_name }}-webserver
+  template:
+    metadata:
+      labels:
+        app: {{ airflow_k8s_name }}-webserver
+    spec:
+      serviceAccountName: {{ airflow_k8s_name }}-service-account
+      securityContext:
+        fsGroup: 50000
+        fsGroupChangePolicy: "OnRootMismatch"
+        runAsUser: 50000
+        runAsGroup: 50000
+      containers:
+        - name: {{ airflow_k8s_name }}-webserver
+          image: {{ airflow_image }}
+          command: ["airflow", "webserver"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: {{ airflow_db_credential_secret_name }}
+            - secretRef:
+                name: {{ git_credential_secret_name }}
+            - configMapRef:
+                name: {{ psp_k8s_name }}-logging-config
+          env:
+            - name: AIRFLOW_UID
+              value: "50000"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
+            - name: GIT_REPO_URL
+              value: "{{ git_repo_url }}"
+            - name: GIT_REPO_BRANCH
+              value: "{{ git_repo_branch }}"
+            - name: GIT_REPO_NAME
+              value: "{{ git_repo_name }}"
+            # Kubernetes-specific environment variables for logging context
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Logging configuration
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: YELLOW_ENVIRONMENT
+              value: "production"
+            - name: YELLOW_JOB_TYPE
+              value: "airflow-webserver"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: airflow-config
+              mountPath: /opt/airflow/airflow.cfg
+              subPath: airflow.cfg
+            - name: git-repo
+              mountPath: /opt/datasurface/model
+              readOnly: true
+          resources:
+            requests:
+              memory: {{ webserver_requested_memory }}
+              cpu: {{ webserver_requested_cpu }}
+            limits:
+              memory: {{ webserver_limits_memory }}
+              cpu: {{ webserver_limits_cpu }}
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: {{ airflow_k8s_name }}-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: {{ airflow_k8s_name }}-logs-pvc
+        - name: airflow-config
+          configMap:
+            name: {{ airflow_k8s_name }}-config
+        - name: git-repo
+          emptyDir: {}
+---
+# Airflow Webserver Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ airflow_k8s_name }}-webserver-service
+  namespace: {{ namespace_name }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: {{ airflow_k8s_name }}-webserver
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---

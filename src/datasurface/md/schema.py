@@ -215,7 +215,11 @@ class Schema(Documentable):
         Documentable.__init__(self, None)
         self.primaryKeyColumns: Optional[PrimaryKeyList] = None
         self.ingestionPartitionColumns: Optional[PartitionKeyList] = None
-        """How should this dataset be partitioned for ingestion and storage"""
+
+    def getPrimaryKeyList(self) -> PrimaryKeyList:
+        if self.primaryKeyColumns is None:
+            return PrimaryKeyList([])
+        return self.primaryKeyColumns
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()

@@ -1,0 +1,522 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DataSurface EKS Infrastructure Stack for AWS Marketplace'
+
+Parameters:
+  KubernetesDeploymentType:
+    Type: String
+    Default: Fargate
+    AllowedValues:
+      - Fargate
+      - EC2Nodes
+    Description: Choose between Fargate (serverless) or EC2 nodes for Kubernetes workloads
+
+  ClusterName:
+    Type: String
+    Default: datasurface-eks-cluster
+    Description: Name for the EKS cluster
+
+  NodeGroupInstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 instance type for worker nodes (only used if EC2Nodes is selected)
+
+  CreateAuroraDatabase:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Create Aurora PostgreSQL cluster for DataSurface (set to false if using existing RDS)
+
+  DatabaseMasterUsername:
+    Type: String
+    Default: postgres
+    Description: Master username for Aurora PostgreSQL cluster
+
+  DatabaseMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 128
+    Description: Master password for Aurora PostgreSQL cluster (8-128 characters)
+    Default: DataSurface123!
+
+Conditions:
+  UseFargate: !Equals [!Ref KubernetesDeploymentType, Fargate]
+  UseEC2Nodes: !Equals [!Ref KubernetesDeploymentType, EC2Nodes]
+  CreateDatabase: !Equals [!Ref CreateAuroraDatabase, 'true']
+
+Resources:
+  # VPC Configuration
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-vpc
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Public Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-public-subnet-2
+
+  # Private Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.10.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.20.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-private-subnet-2
+
+  # NAT Gateway
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-public-routes
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-private-routes-1
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet2
+
+  # EKS Cluster Security Group
+  EKSClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EKS cluster
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-cluster-sg
+
+  # Aurora Database Security Group
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateDatabase
+    Properties:
+      GroupDescription: Security group for Aurora PostgreSQL cluster
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref EKSClusterSecurityGroup
+          Description: Allow PostgreSQL access from EKS cluster
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-aurora-sg
+
+  # IAM Roles
+  EKSClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  EKSNodeGroupRole:
+    Type: AWS::IAM::Role
+    Condition: UseEC2Nodes
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+  EKSFargateRole:
+    Type: AWS::IAM::Role
+    Condition: UseFargate
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks-fargate-pods.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy
+
+  # DataSurface Airflow IRSA Role for Secrets Manager Access
+  DataSurfaceAirflowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ClusterName}-airflow-secrets-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/${EKSCluster.OpenIdConnectIssuerUrl}
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                !Sub "${EKSCluster.OpenIdConnectIssuerUrl}:sub": "system:serviceaccount:ns-yellow-starter:airflow-service-account"
+                !Sub "${EKSCluster.OpenIdConnectIssuerUrl}:aud": "sts.amazonaws.com"
+      Policies:
+        - PolicyName: DataSurfaceSecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:datasurface/*"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-airflow-secrets-role
+
+  # EKS OIDC Identity Provider
+  EKSOIDCProvider:
+    Type: AWS::IAM::OIDCIdentityProvider
+    Properties:
+      Url: !GetAtt EKSCluster.OpenIdConnectIssuerUrl
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 9e99a48a9960b14926bb7f3b02e22da2b0ab7280
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-oidc-provider
+
+  # EKS Cluster
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref ClusterName
+      Version: '1.28'
+      RoleArn: !GetAtt EKSClusterRole.Arn
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !Ref EKSClusterSecurityGroup
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+        EndpointConfigPrivate: false
+        EndpointConfigPublic: true
+
+  # EKS Node Group (only if EC2Nodes is selected)
+  EKSNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Condition: UseEC2Nodes
+    Properties:
+      ClusterName: !Ref EKSCluster
+      NodeRole: !GetAtt EKSNodeGroupRole.Arn
+      Subnets:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      InstanceTypes:
+        - !Ref NodeGroupInstanceType
+      ScalingConfig:
+        MinSize: 1
+        MaxSize: 3
+        DesiredSize: 2
+      UpdateConfig:
+        MaxUnavailablePercentage: 25
+
+  # Fargate Profile (only if Fargate is selected)
+  EKSFargateProfile:
+    Type: AWS::EKS::FargateProfile
+    Condition: UseFargate
+    Properties:
+      ClusterName: !Ref EKSCluster
+      FargateProfileName: datasurface-fargate-profile
+      PodExecutionRoleArn: !GetAtt EKSFargateRole.Arn
+      Subnets:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Selectors:
+        - Namespace: default
+        - Namespace: kube-system
+        - Namespace: ns-yellow-starter
+
+  # Aurora PostgreSQL Cluster
+  AuroraSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Condition: CreateDatabase
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora PostgreSQL cluster
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-aurora-subnet-group
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Condition: CreateDatabase
+    Properties:
+      DBClusterIdentifier: !Sub ${ClusterName}-aurora-cluster
+      Engine: aurora-postgresql
+      EngineVersion: '15.4'
+      MasterUsername: !Ref DatabaseMasterUsername
+      MasterUserPassword: !Ref DatabaseMasterPassword
+      DatabaseName: postgres
+      DBSubnetGroupName: !Ref AuroraSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref AuroraSecurityGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "03:00-04:00"
+      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      StorageEncrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-aurora-cluster
+
+  AuroraInstance1:
+    Type: AWS::RDS::DBInstance
+    Condition: CreateDatabase
+    Properties:
+      DBInstanceIdentifier: !Sub ${ClusterName}-aurora-instance-1
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.r6g.large
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-aurora-instance-1
+
+  # AWS Secrets Manager Secrets (when Aurora is created)
+  DataSurfaceMergeSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateDatabase
+    Properties:
+      Name: datasurface/merge/credentials
+      Description: DataSurface merge database credentials for Aurora
+      SecretString: !Sub |
+        {
+          "postgres_USER": "${DatabaseMasterUsername}",
+          "postgres_PASSWORD": "${DatabaseMasterPassword}"
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-merge-secret
+
+  DataSurfaceAirflowSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateDatabase
+    Properties:
+      Name: datasurface/airflow/credentials
+      Description: DataSurface Airflow database credentials for Aurora
+      SecretString: !Sub |
+        {
+          "postgres_USER": "${DatabaseMasterUsername}",
+          "postgres_PASSWORD": "${DatabaseMasterPassword}"
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-airflow-secret
+
+  DataSurfaceSourceSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateDatabase
+    Properties:
+      Name: datasurface/sources/store1/credentials
+      Description: DataSurface Store1 source database credentials for Aurora
+      SecretString: !Sub |
+        {
+          "store1_USER": "${DatabaseMasterUsername}",
+          "store1_PASSWORD": "${DatabaseMasterPassword}"
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-source-secret
+
+Outputs:
+  EKSClusterName:
+    Description: Name of the EKS cluster
+    Value: !Ref EKSCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-EKSClusterName
+
+  EKSClusterEndpoint:
+    Description: EKS cluster endpoint
+    Value: !GetAtt EKSCluster.Endpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-EKSClusterEndpoint
+
+  EKSClusterArn:
+    Description: EKS cluster ARN
+    Value: !GetAtt EKSCluster.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-EKSClusterArn
+
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPCId
+
+  PrivateSubnets:
+    Description: Private subnet IDs
+    Value: !Join [',', [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnets
+
+  PublicSubnets:
+    Description: Public subnet IDs
+    Value: !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnets
+
+  AuroraClusterEndpoint:
+    Condition: CreateDatabase
+    Description: Aurora PostgreSQL cluster endpoint
+    Value: !GetAtt AuroraCluster.Endpoint.Address
+    Export:
+      Name: !Sub ${AWS::StackName}-AuroraClusterEndpoint
+
+  AuroraClusterPort:
+    Condition: CreateDatabase
+    Description: Aurora PostgreSQL cluster port
+    Value: !GetAtt AuroraCluster.Endpoint.Port
+    Export:
+      Name: !Sub ${AWS::StackName}-AuroraClusterPort
+
+  DatabaseMasterUsername:
+    Condition: CreateDatabase
+    Description: Aurora PostgreSQL master username
+    Value: !Ref DatabaseMasterUsername
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseMasterUsername
+
+  DataSurfaceAirflowRoleArn:
+    Description: ARN of the DataSurface Airflow IRSA role for Secrets Manager access
+    Value: !GetAtt DataSurfaceAirflowRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DataSurfaceAirflowRoleArn
+
+  EKSOIDCProviderArn:
+    Description: ARN of the EKS OIDC Identity Provider
+    Value: !Ref EKSOIDCProvider
+    Export:
+      Name: !Sub ${AWS::StackName}-EKSOIDCProviderArn

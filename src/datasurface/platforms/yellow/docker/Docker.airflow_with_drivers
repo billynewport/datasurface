@@ -35,8 +35,11 @@ RUN pip install --no-cache-dir \
   apache-airflow-providers-odbc \
   apache-airflow-providers-microsoft-mssql \
   apache-airflow-providers-oracle \
+  apache-airflow-providers-amazon \
+  apache-airflow-providers-cncf-kubernetes \
   pyodbc \
-  oracledb
+  oracledb \
+  boto3
 
 # DB2: only on amd64 (no ARM client)
 RUN if [ "$TARGETARCH" = "amd64" ]; then \

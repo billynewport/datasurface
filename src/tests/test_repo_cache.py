@@ -29,13 +29,13 @@ class MockCredentialStore(CredentialStore):
     def checkCredentialIsAvailable(self, cred: Credential, tree: ValidationTree) -> None:
         pass  # Mock implementation
 
-    def getAsUserPassword(self, credential: Credential) -> tuple[str, str]:
+    def getAsUserPassword(self, cred: Credential) -> tuple[str, str]:
         return ("mock_user", "mock_password")
 
     def getAsPublicPrivateCertificate(self, cred: Credential) -> tuple[str, str, str]:
         return ("mock_public", "mock_private", "mock_password")
 
-    def getAsToken(self, credential: Credential) -> str:
+    def getAsToken(self, cred: Credential) -> str:
         return "mock_token"
 
     def lintCredential(self, cred: Credential, tree: ValidationTree) -> None:

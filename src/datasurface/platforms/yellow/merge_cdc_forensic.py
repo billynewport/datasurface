@@ -11,7 +11,7 @@ from sqlalchemy.engine import Engine
 from datasurface.md.schema import DDLTable
 from typing import Any, cast, Dict, List, Optional, Tuple
 from datasurface.platforms.yellow.yellow_dp import (
-    YellowDataPlatform, YellowSchemaProjector,
+    YellowDataPlatform,
     BatchStatus, BatchState, JobStatus
 )
 from datasurface.platforms.yellow.logging_utils import (
@@ -19,6 +19,7 @@ from datasurface.platforms.yellow.logging_utils import (
 )
 from datasurface.platforms.yellow.merge_scd2_forensic import MergeSCD2ForensicJob
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -59,6 +60,8 @@ class SnapshotMergeJobCDCForensic(MergeSCD2ForensicJob):
 
     def _getJobHintKV(self) -> Dict[str, Any]:
         # Mirrors logic in Job.getIngestionOverrideValue to pick dataset-specific hint if available
+        if self.dp.psp is None:
+            raise ValueError("PlatformServiceProvider must be set before getting job hint")
         if self.dataset is not None:
             jobHint = self.dp.psp.getIngestionJobHint(self.store.name, self.dataset.name)
         else:
@@ -75,13 +78,10 @@ class SnapshotMergeJobCDCForensic(MergeSCD2ForensicJob):
         return tx_col, iud_col, map_i, map_u, map_d
 
     def ingestNextBatchToStaging(
-            self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int) -> Tuple[int, int, int]:
-        assert self.schemaProjector is not None
-        sp: YellowSchemaProjector = self.schemaProjector
+            self, sourceEngine: Engine, mergeEngine: Engine, key: str, batchId: int, source_dp_ops: DatabaseOperations) -> Tuple[int, int, int]:
 
         tx_col, iud_col, map_i, map_u, map_d = self._getConfig()
         quoted_tx = f'"{tx_col}"'
-        quoted_iud = f'"{iud_col}"'
 
         # Get batch state for last processed TX (from last committed batch if exists)
         with mergeEngine.begin() as connection:
@@ -151,11 +151,12 @@ class SnapshotMergeJobCDCForensic(MergeSCD2ForensicJob):
                     stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)
 
                     schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+                    if schema.primaryKeyColumns is None:
+                        raise ValueError(f"Primary key columns must be set for dataset {self.store.name}.{datasetName}")
                     pkColumns: List[str] = schema.primaryKeyColumns.colNames
                     if not pkColumns:
                         pkColumns = [col.name for col in schema.columns.values()]
                     allColumns: List[str] = [col.name for col in schema.columns.values()]
-                    quoted_columns = [f'"{col}"' for col in allColumns]
 
                     # Use database operations for CDC conflation
                     insert_sql = self.merge_db_ops.get_cdc_conflation_sql(

@@ -1041,6 +1041,12 @@ class CaptureMetaData(UserDSLObject):
         self.dataContainer: Optional[DataContainer] = None
         self.add(*args)
 
+    def getDataContainer(self) -> DataContainer:
+        """This returns the data container or throws an exception if it's not specified"""
+        if self.dataContainer is None:
+            raise ValueError("Container not specified")
+        return self.dataContainer
+
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update({"_type": self.__class__.__name__})
@@ -1126,6 +1132,12 @@ class IngestionMetadata(CaptureMetaData):
         super().__init__()
         self.credential: Optional[Credential] = None
         self.add(*args)
+
+    def getCredential(self) -> Credential:
+        """This returns the credential or throws an exception if it's not specified"""
+        if self.credential is None:
+            raise ValueError("Credential not specified")
+        return self.credential
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -1454,6 +1466,11 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
 
         # Process *args using existing add method
         self.add(*args)
+
+    def getCMD(self) -> CaptureMetaData:
+        if self.cmd is None:
+            raise AttributeError(f"CaptureMetaData not set for {self.name}")
+        return self.cmd
 
     def isDatasetDSGApproved(self, workspace: str, dsg: str, datasetName: str) -> bool:
         """Returns true if the dataset/dsg is approved"""
@@ -3205,11 +3222,10 @@ class DataPlatform(Documentable, JSONable, Generic[P]):
 
             if self.psp is None and other.psp is None:
                 return rc
-            if self.psp is None and other.psp is not None:
+            elif self.psp is not None and other.psp is not None:
+                return rc and self.psp.name == other.psp.name
+            else:
                 return False
-            if self.psp is not None and other.psp is None:
-                return False
-            return rc and self.psp.name == other.psp.name
         else:
             return False
 
@@ -4116,6 +4132,11 @@ class PipelineNode(InternalLintableObject, JSONable):
         # This set of nodes depend on this node
         self.rightHandNodes: dict[str, PipelineNode] = dict()
         self.priority: Optional[WorkspacePriority] = None
+
+    def getPriority(self) -> WorkspacePriority:
+        if self.priority is None:
+            raise AttributeError(f"Priority not set for {self.name}")
+        return self.priority
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}/{self.name}"

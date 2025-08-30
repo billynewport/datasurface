@@ -20,6 +20,9 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
 
     def __init__(self, methodName: str = "runTest") -> None:
         eco: Optional[Ecosystem] = BaseSnapshotMergeJobTest.loadEcosystem("src/tests/yellow_dp_tests")
+        self.assertIsNotNone(eco, "Ecosystem not loaded")
+        if eco is None:
+            raise Exception("Ecosystem not loaded")
         dp: YellowDataPlatform = cast(YellowDataPlatform, eco.getDataPlatformOrThrow("Test_DP"))
         dp.milestoneStrategy = YellowMilestoneStrategy.SCD2
 
@@ -201,7 +204,7 @@ class TestSnapshotMergeJobForensic(BaseSnapshotMergeJobTest, unittest.TestCase):
             'ds_surf_batch_out': 2147483647
         }, self)
 
-        self.assertEqual(self.job.numReconcileDDLs, 1)
+        self.assertEqual(self.getJob().numReconcileDDLs, 1)
         print("All forensic merge scenario tests passed!")
 
 

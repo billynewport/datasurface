@@ -7,7 +7,7 @@ from datasurface.md import (
     Datastore, Ecosystem, CredentialStore, Dataset
 )
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, Connection
 from datasurface.md.schema import DDLTable, DDLColumn, PrimaryKeyList, NullableStatus
 from datasurface.md.types import Integer
 from typing import cast, List, Optional, Any
@@ -27,6 +27,7 @@ from datasurface.platforms.yellow.merge_remote_live import (
     IS_SEED_BATCH_KEY, REMOTE_BATCH_ID_KEY
 )
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
+from datasurface.platforms.yellow.database_operations import DatabaseOperations
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -52,17 +53,17 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             store: Datastore, datasetName: Optional[str] = None) -> None:
         super().__init__(eco, credStore, dp, store, datasetName)
 
-    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, engine: Optional[Engine] = None):
+    def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None):
         """Override to add remote batch columns for forensic mirror staging tables."""
 
         # Create a modified dataset with additional columns for staging
 
         # Add standard staging columns
-        if self.schemaProjector is None:
+        if self.mergeSchemaProjector is None:
             raise ValueError("Schema projector must be initialized")
-        sp: YellowSchemaProjector = self.schemaProjector
+        sp: YellowSchemaProjector = self.mergeSchemaProjector
         # This already includes the batch_id, all_hash, and key_hash columns
-        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING, self.merge_db_ops)
+        stagingDataset: Dataset = sp.computeSchema(dataset, YellowSchemaConstants.SCHEMA_TYPE_STAGING)
 
         # Add remote batch columns to preserve original milestoning
         ddlSchema: DDLTable = cast(DDLTable, stagingDataset.originalSchema)
@@ -76,7 +77,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
             new_pk_columns = list(ddlSchema.primaryKeyColumns.colNames) + [f"remote_{YellowSchemaConstants.BATCH_IN_COLUMN_NAME}"]
             ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
 
-        t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), engine)
+        t: Table = datasetToSQLAlchemyTable(stagingDataset, tableName, MetaData(), mergeConnection)
         return t
 
     def executeBatch(self, sourceEngine: Engine, mergeEngine: Engine, key: str) -> JobStatus:
@@ -85,17 +86,15 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         This method uses the remote batch ID as the local batch ID end-to-end. If the latest
         remote batch is already committed locally, it exits early.
         """
-        if self.schemaProjector is None:
-            raise ValueError("Schema projector must be initialized")
         # Determine the remote batch to process
-        remoteBatchId: int = self._getHighCommittedRemoteBatchId(sourceEngine, self.schemaProjector)
+        remoteBatchId: int = self._getHighCommittedRemoteBatchId(sourceEngine)
 
         # Fail fast if there is no committed remote batch to pull
         if remoteBatchId == 0:
             raise NoopJobException("No committed remote batches found on remote source; cannot run remote forensic sync")
 
         # Ingest to staging for this remote batch id (method handles early exit if already committed)
-        recordsInserted, _, _ = self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, remoteBatchId)
+        recordsInserted, _, _ = self.ingestNextBatchToStaging(sourceEngine, mergeEngine, key, remoteBatchId, self.sourceSchemaProjector.getDBOps())
 
         # Proceed to merge the staging data into the forensic merge table
         # Even if no records were inserted, we need to mark the batch as committed
@@ -107,7 +106,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     def ingestNextBatchToStaging(
             self, sourceEngine: Engine, mergeEngine: Engine, key: str,
-            batchId: int) -> tuple[int, int, int]:
+            batchId: int, source_dp_ops: DatabaseOperations) -> tuple[int, int, int]:
         """Ingest data from remote forensic merge table to staging.
 
         First batch is a seed batch that pulls all live records.
@@ -189,14 +188,16 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
                 # Get schema information
                 schema: DDLTable = cast(DDLTable, dataset.originalSchema)
+                if schema.primaryKeyColumns is None:
+                    raise ValueError(f"Primary key columns must be set for dataset {self.store.name}.{datasetToIngestName}")
                 pkColumns: List[str] = schema.primaryKeyColumns.colNames
                 if not pkColumns:
                     pkColumns = [col.name for col in schema.columns.values()]
                 allColumns: List[str] = [col.name for col in schema.columns.values()]
 
-                if self.schemaProjector is None:
+                if self.mergeSchemaProjector is None:
                     raise ValueError("Schema projector must be initialized")
-                sp: YellowSchemaProjector = self.schemaProjector
+                sp: YellowSchemaProjector = self.mergeSchemaProjector
 
                 if isSeedBatch:
                     # Seed batch: Get all live records as of current remote batch
@@ -303,10 +304,12 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     source_table=sourceTableName,
                     as_of_remote_batch=currentRemoteBatchId)
 
+        if not isinstance(job, MergeRemoteJob):
+            raise ValueError("Job must be a MergeRemoteJob subclass")
         # Query for ALL records that existed as of the current remote batch ID
         # This includes both live and historical records to create a complete mirror
         # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = job.source_db_ops.get_quoted_columns(allColumns)
+        quoted_columns = job.sourceSchemaProjector.getDBOps().get_quoted_columns(allColumns)
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
             {job.srcNM.fmtCol(YellowSchemaConstants.ALL_HASH_COLUMN_NAME)},
@@ -355,9 +358,11 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
                     last_remote_batch=lastRemoteBatchId,
                     current_remote_batch=currentRemoteBatchId)
 
+        if not isinstance(job, MergeRemoteJob):
+            raise ValueError("Job must be a MergeRemoteJob subclass")
         # Get ALL new records since last batch - both new records and record closures
         # We preserve the remote hashes as-is to maintain source system consistency
-        quoted_columns = job.source_db_ops.get_quoted_columns(allColumns)
+        quoted_columns = job.sourceSchemaProjector.getDBOps().get_quoted_columns(allColumns)
 
         selectSql = f"""
         SELECT {', '.join(quoted_columns)},
@@ -467,9 +472,9 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         total_updated: int = 0
         total_deleted: int = 0
         totalRecords: int = 0
-        if job.schemaProjector is None:
+        if job.mergeSchemaProjector is None:
             raise ValueError("Schema projector must be initialized")
-        sp: YellowSchemaProjector = job.schemaProjector
+        sp: YellowSchemaProjector = job.mergeSchemaProjector
 
         # The batchId passed in should already be the remote batch ID
         localBatchId = batchId

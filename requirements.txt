@@ -31,3 +31,6 @@ geoalchemy2==0.18.0
 # Snowflake
 snowflake-sqlalchemy==1.7.6
 snowflake-connector-python==3.17.2
+
+# AWS
+boto3==1.40.19

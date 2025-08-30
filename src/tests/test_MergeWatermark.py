@@ -25,13 +25,13 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
 
     def common_clear_and_insert_data(self, test_data: list, tc: unittest.TestCase) -> None:
         """Common pattern to clear source and insert new test data"""
-        with self.source_engine.begin() as conn:
-            for dataset in self.store.datasets.values():
+        with self.getSourceEngine().begin() as conn:
+            for dataset in self.getStore().datasets.values():
                 conn.execute(text(f'DELETE FROM {dataset.name}'))
         self.insertTestData(test_data)
 
     def insertTestData(self, data: list[dict]) -> None:
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             for row in data:
                 conn.execute(text("""
                     INSERT INTO people ("id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time")
@@ -39,7 +39,7 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
                 """), row)
 
     def updateTestData(self, id_val: str, updates: dict) -> None:
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             set_clause = ", ".join([f'"{k}" = :{k}' for k in updates.keys()])
             query = f'UPDATE people SET {set_clause} WHERE "id" = :id'
             params = updates.copy()
@@ -47,58 +47,58 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
             conn.execute(text(query), params)
 
     def deleteTestData(self, id_val: str) -> None:
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             conn.execute(text('DELETE FROM people WHERE "id" = :id'), {"id": id_val})
 
     def getMergeTableData(self) -> list:
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             # Check if this is a forensic platform (has batch milestoning)
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
+            if self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic table - no ds_surf_batch_id column
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_all_hash, ds_surf_key_hash,
                            ds_surf_batch_in, ds_surf_batch_out
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id", ds_surf_batch_in
                 """))
-            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
+            elif self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only table - has ds_surf_batch_id column
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             else:
-                raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")
+                raise Exception(f"Unsupported milestone strategy: {self.getDP().milestoneStrategy}")
             return [row._asdict() for row in result.fetchall()]
 
     def getLiveRecords(self) -> list:
         from datasurface.platforms.yellow.yellow_dp import YellowMilestoneStrategy
 
-        with self.merge_engine.begin() as conn:
-            if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
+        with self.getMergeEngine().begin() as conn:
+            if self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD1:
                 # Live-only schema: no batch_in/batch_out columns
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
-            elif self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
+            elif self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD2:
                 # Forensic schema: has batch_in/batch_out columns, filter for live records
                 # Note: ds_surf_batch_id is not included in forensic tables
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_all_hash, ds_surf_key_hash,
                            ds_surf_batch_in, ds_surf_batch_out
-                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysMergeTableNameForDataset(self.getStore().datasets["people"])}
                     WHERE ds_surf_batch_out = 2147483647
                     ORDER BY "id"
                 """))
             else:
-                raise Exception(f"Unsupported milestone strategy: {self.dp.milestoneStrategy}")
+                raise Exception(f"Unsupported milestone strategy: {self.getDP().milestoneStrategy}")
 
             return [row._asdict() for row in result.fetchall()]
 
@@ -107,9 +107,9 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         # Step 1: Run batch 1 with empty source table
         print("Step 1: Running batch 1 with empty source table")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 1, tc)
-        if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 1, tc)
+        if self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD1:
             batch_merge_column = 'ds_surf_batch_id'
         else:
             batch_merge_column = 'ds_surf_batch_in'
@@ -135,16 +135,16 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         self.insertTestData(test_data)
 
         # Debug: Verify data was inserted
-        with self.source_engine.begin() as conn:
+        with self.getSourceEngine().begin() as conn:
             result = conn.execute(text('SELECT COUNT(*) FROM people'))
             count = result.fetchone()[0]
             print(f"DEBUG: After insert, people table has {count} rows")
             tc.assertEqual(count, 5)
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 1, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 2, tc)
-        self.checkSpecificBatchStatus(self.store.name, 2, BatchStatus.COMMITTED, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 2, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 2, BatchStatus.COMMITTED, tc)
 
         # Verify 4 rows are in merge table with batch_id = 2 (records with watermark < "2025-01-01 00:02:00")
         # Records 1,2,3,4 should be ingested, but NOT record 5 (which has watermark = "2025-01-01 00:02:00")
@@ -163,8 +163,8 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         self.updateTestData("1", {"employer": "Company X", "firstName": "Johnny", "last_update_time": "2025-01-01 00:03:00"})
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 3, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 3, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 3, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 3, tc)
 
         # We now have 5 lives but don't have the updated record 1 yet.
         live_data = self.getLiveRecords()
@@ -187,8 +187,8 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
                                     "employer": "Company B", "dod": None, "last_update_time": "2025-01-01 00:04:00"})
         print("Step 4: Running batch 4 to ingest updated record 1")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 4, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 4, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 4, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 4, tc)
         live_data = self.getLiveRecords()
         # Check that record 1 was updated in batch 4
         self.common_verify_record_exists(live_data, "1", {batch_merge_column: 4}, tc)
@@ -206,8 +206,8 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
                               "employer": "Company F", "dod": None, "last_update_time": "2025-01-01 00:05:00"}])
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 5, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 5, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 5, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 5, tc)
 
         # Now batch 5 should ingest records with watermark >= "2025-01-01 00:03:00" AND < "2025-01-01 00:04:00"
         # This includes the updated record 1 with watermark "2025-01-01 00:03:00"
@@ -231,8 +231,8 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
                               "employer": "Company G", "dod": None, "last_update_time": "2025-01-01 00:06:00"}])
 
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 6, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 6, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 6, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 6, tc)
 
         # Now batch 6 should ingest records with watermark >= "2025-01-01 00:04:00" AND < "2025-01-01 00:05:00"
         # This includes record 6 with watermark "2025-01-01 00:04:00"
@@ -245,14 +245,14 @@ class BaseWatermarkMergeJobTest(BaseMergeJobTest):
         # Step 7: Run another batch with no changes
         print("Step 7: Running batch 7 with no changes")
         tc.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus(self.store.name, 7, BatchStatus.COMMITTED, tc)
-        self.checkCurrentBatchIs(self.store.name, 7, tc)
+        self.checkSpecificBatchStatus(self.getStore().name, 7, BatchStatus.COMMITTED, tc)
+        self.checkCurrentBatchIs(self.getStore().name, 7, tc)
 
         # Verify no changes occurred - all rows should keep their previous batch_ids
         live_data_after = self.getLiveRecords()
         tc.assertEqual(len(live_data_after), 6)
 
-        if self.dp.milestoneStrategy == YellowMilestoneStrategy.SCD2:
+        if self.getDP().milestoneStrategy == YellowMilestoneStrategy.SCD2:
             # Look at merge data
             merge_data = self.getMergeTableData()
             tc.assertEqual(len(merge_data), 8)
@@ -307,19 +307,19 @@ class TestWatermarkMergeJob(BaseWatermarkMergeJobTest, unittest.TestCase):
 
     def getStagingTableData(self) -> list:
         """Get all data from the staging table"""
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             try:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -337,26 +337,21 @@ class TestWatermarkMergeJob(BaseWatermarkMergeJobTest, unittest.TestCase):
 
         # Run the job until completion (should commit the batch)
         self.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store2", 1, BatchStatus.COMMITTED, self)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, self)
 
         # Step 2: Try to reset the committed batch - this should fail
-        assert self.eco is not None
-        assert self.dp is not None
-        result = self.dp.resetBatchState(self.eco, "Store2")
+        result = self.getDP().resetBatchState(self.eco, self.getStore().name)
 
         # Check that the reset failed with the expected error message
         self.assertEqual(result, "ERROR: Batch is COMMITTED and cannot be reset")
 
         # Verify batch status is still COMMITTED (unchanged)
-        self.checkSpecificBatchStatus("Store2", 1, BatchStatus.COMMITTED, self)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, self)
 
     def test_reset_nonexistent_datastore_fails(self) -> None:
         """Test that trying to reset a non-existent datastore fails"""
-        assert self.eco is not None
-        assert self.dp is not None
-
         # Try to reset a datastore that doesn't exist
-        result = self.dp.resetBatchState(self.eco, "NonExistentStore")
+        result = self.getDP().resetBatchState(self.eco, "NonExistentStore")
 
         # Check that the reset failed with the expected error message
         self.assertEqual(result, "ERROR: Could not find datastore in ecosystem")
@@ -398,19 +393,19 @@ class TestWatermarkMergeJobForensic(BaseWatermarkMergeJobTest, unittest.TestCase
 
     def getStagingTableData(self) -> list:
         """Get all data from the staging table"""
-        with self.merge_engine.begin() as conn:
+        with self.getMergeEngine().begin() as conn:
             try:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             except Exception:
                 result = conn.execute(text(f"""
                     SELECT "id", "firstName", "lastName", "dob", "employer", "dod", "last_update_time",
                            ds_surf_batch_id, ds_surf_all_hash, ds_surf_key_hash
-                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.store.datasets["people"])}
+                    FROM {self.ydu.getPhysStagingTableNameForDataset(self.getStore().datasets["people"])}
                     ORDER BY "id"
                 """))
             return [row._asdict() for row in result.fetchall()]
@@ -428,26 +423,21 @@ class TestWatermarkMergeJobForensic(BaseWatermarkMergeJobTest, unittest.TestCase
 
         # Run the job until completion (should commit the batch)
         self.assertEqual(self.runJob(), JobStatus.DONE)
-        self.checkSpecificBatchStatus("Store2", 1, BatchStatus.COMMITTED, self)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, self)
 
         # Step 2: Try to reset the committed batch - this should fail
-        assert self.eco is not None
-        assert self.dp is not None
-        result = self.dp.resetBatchState(self.eco, "Store2")
+        result = self.getDP().resetBatchState(self.eco, self.getStore().name)
 
         # Check that the reset failed with the expected error message
         self.assertEqual(result, "ERROR: Batch is COMMITTED and cannot be reset")
 
         # Verify batch status is still COMMITTED (unchanged)
-        self.checkSpecificBatchStatus("Store2", 1, BatchStatus.COMMITTED, self)
+        self.checkSpecificBatchStatus(self.getStore().name, 1, BatchStatus.COMMITTED, self)
 
     def test_reset_nonexistent_datastore_fails(self) -> None:
         """Test that trying to reset a non-existent datastore fails"""
-        assert self.eco is not None
-        assert self.dp is not None
-
         # Try to reset a datastore that doesn't exist
-        result = self.dp.resetBatchState(self.eco, "NonExistentStore")
+        result = self.getDP().resetBatchState(self.eco, "NonExistentStore")
 
         # Check that the reset failed with the expected error message
         self.assertEqual(result, "ERROR: Could not find datastore in ecosystem")
