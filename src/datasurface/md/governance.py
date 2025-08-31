@@ -142,7 +142,7 @@ class InfraHardVendorPolicy(AllowDisallowPolicy[Literal[CloudVendor]]):
         return f"InfraStructureVendorPolicy({self.name})"
 
     def __eq__(self, v: object) -> bool:
-        return super().__eq__(v) and isinstance(v, InfraStructureVendorPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
+        return super().__eq__(v) and isinstance(v, InfraHardVendorPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
 
     def __hash__(self) -> int:
         return super().__hash__()
@@ -276,7 +276,7 @@ class DataContainerNamingMapper:
     def mapRawDatasetView(self, dp: 'DataPlatform', w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset') -> str:
         """This names the workspace view name for a dataset used in a DSG. This is the actual name used by
         consumers, the view, not the underlying table holding the data"""
-        return self.fmtCol(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
+        return self.fmtTVI(f"{dp.name}_{w.name}_{dsg.name}_{store.name}_{ds.name}")
 
     @abstractmethod
     def mapAttributeName(self, w: 'Workspace', dsg: 'DatasetGroup', store: 'Datastore', ds: 'Dataset', attributeName: str) -> str:
@@ -4650,7 +4650,6 @@ class PlatformPipelineGraph(InternalLintableObject):
 
     def getPortsForDataContainer(self, dataContainer: 'DataContainer') -> set[int]:
         """Extract ports from a data container if it's a HostPortSQLDatabase"""
-        from datasurface.md.governance import HostPortSQLDatabase
         if isinstance(dataContainer, HostPortSQLDatabase):
             return {dataContainer.hostPortPair.port}
         return set()
@@ -4674,7 +4673,6 @@ class PlatformPipelineGraph(InternalLintableObject):
 
         # Extract ports from workspaces in this graph
         for workspace in self.workspaces.values():
-
             if workspace.dataContainer is not None:
                 required_ports.update(self.getPortsForDataContainer(workspace.dataContainer))
 

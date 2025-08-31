@@ -272,7 +272,8 @@ class YellowDatasetUtilities(JobUtilities):
         self.dataset: Optional[Dataset] = self.store.datasets[datasetName] if datasetName is not None else None
 
         # Initialize database operations based on merge store type
-        assert self.mergeSchemaProjector is not None, "Schema projector must be initialized"
+        if self.mergeSchemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
         self.merge_db_ops = DatabaseOperationsFactory.create_database_operations(
             dp.getPSP().mergeStore, self.mergeSchemaProjector
         )
@@ -325,7 +326,8 @@ class YellowDatasetUtilities(JobUtilities):
 
     def createStagingTableIndexes(self, mergeConnection: Connection, tableName: str) -> None:
         """Create performance indexes for staging tables"""
-        assert self.mergeSchemaProjector is not None
+        if self.mergeSchemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
 
         batchIdIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_batch_id")
         keyHashIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
@@ -359,7 +361,8 @@ class YellowDatasetUtilities(JobUtilities):
 
     def createMergeTableIndexes(self, mergeConnection: Connection, tableName: str) -> None:
         """Create performance indexes for merge tables"""
-        assert self.mergeSchemaProjector is not None
+        if self.mergeSchemaProjector is None:
+            raise ValueError("Schema projector must be initialized")
 
         keyHashIndexName: str = self.dp.getPSP().namingMapper.fmtTVI(f"idx_{tableName}_key_hash")
         indexes = [
@@ -745,9 +748,12 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         input_data_format = "JSON"  # Default or derive from schema/metadata
 
                         # These should not be None after passing lint
-                        assert dataset.originalSchema is not None
-                        assert dataset.originalSchema.primaryKeyColumns is not None
-                        assert dataset.originalSchema.primaryKeyColumns.colNames is not None
+                        if dataset.originalSchema is None:
+                            raise ValueError(f"Dataset {dataset.name} has no original schema")
+                        if dataset.originalSchema.primaryKeyColumns is None:
+                            raise ValueError(f"Dataset {dataset.name} has no primary key columns")
+                        if dataset.originalSchema.primaryKeyColumns.colNames is None:
+                            raise ValueError(f"Dataset {dataset.name} has no primary key columns")
 
                         # Build node-specific config
                         node_data = {
@@ -991,7 +997,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             )
         )
         rc: K8sIngestionHint = default_ingestion_hint
-        assert self.dp.psp is not None
+        if self.dp.psp is None:
+            raise ValueError("psp must be set before getting ingestion job hint")
         user_ingestion_hint: Optional[PlatformIngestionHint] = self.dp.psp.getIngestionJobHint(storeName, datasetName)
         if user_ingestion_hint is not None:
             rc = cast(K8sIngestionHint, user_ingestion_hint)
@@ -1025,7 +1032,8 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     # Determine if this is single or multi dataset ingestion
                     is_single_dataset = store.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.SINGLE_DATASET
 
-                    assert store.cmd.stepTrigger is not None
+                    if store.cmd.stepTrigger is None:
+                        raise ValueError(f"Store {storeName} has no step trigger")
                     if is_single_dataset:
                         # For single dataset, create a separate entry for each dataset
                         for dataset in store.datasets.values():
@@ -1268,7 +1276,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                         "output_job_limits": output_job_hint.to_k8s_json()
                     }
 
-                    assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
+                    if workspace.dataTransformer.code is None:
+                        raise ValueError(f"Workspace {workspaceName} has no data transformer code")
+                    if not isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact):
+                        raise ValueError(f"Workspace {workspaceName} has no python repo code artifact")
                     if workspace.dataTransformer.code.repo.credential is not None:
                         dt_config["git_credential_secret_name"] = K8sUtils.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
 
@@ -1459,7 +1470,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             workspace: Workspace = dsgRoot.workspace
             workspaceName = workspace.name
             if workspace.dataTransformer is not None:
-                assert isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact)
+                if workspace.dataTransformer.code is None:
+                    raise ValueError(f"Workspace {workspaceName} has no data transformer code")
+                if not isinstance(workspace.dataTransformer.code, PythonRepoCodeArtifact):
+                    raise ValueError(f"Workspace {workspaceName} has no python repo code artifact")
                 if workspace.dataTransformer.code.repo.credential is not None:
                     k8s_name = K8sUtils.to_k8s_name(workspace.dataTransformer.code.repo.credential.name)
                     if k8s_name not in secrets_info:
@@ -2192,7 +2206,8 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
 
             ydp: DataPlatform
             for ydp in self.dataPlatforms.values():
-                assert isinstance(ydp, YellowGenericDataPlatform)
+                if not isinstance(ydp, YellowGenericDataPlatform):
+                    raise ValueError(f"YellowDataPlatform {ydp.name} is not a YellowGenericDataPlatform")
                 ydp.createPlatformTables(eco, mergeEngine, inspector)
             assm_artifacts: dict[str, str] = assembly.generateBootstrapArtifacts(eco, dict(), env, ringLevel)
             # Copy the assembly artifacts to the rc dictionary after prefixing all keys with the platform name
@@ -2235,26 +2250,26 @@ class YellowDataPlatform(YellowGenericDataPlatform):
     def getEffectiveCMDForDatastore(self, eco: Ecosystem, store: Datastore) -> CaptureMetaData:
         """If there is a pip for the datastore then construct a new SQLMergeIngestion and return it. Otherwise return the current cmd."""
         pip: Optional[PrimaryIngestionPlatform] = eco.getPrimaryIngestionPlatformsForDatastore(store.name)
+        cmd: CaptureMetaData = store.getCMD()
         if pip is None:
-            assert store.cmd is not None
-            return store.cmd
+            return cmd
         else:
             primDP: Optional[YellowDataPlatform] = self.getCompatiblePIPToUseForDatastore(eco, store.name)
             # If this platform is itself the primary ingestion platform for the datastore,
             # then the effective CMD should remain unchanged (read from the original source).
             if primDP is self:
-                assert store.cmd is not None
-                return store.cmd
-            assert store.cmd is not None
-            assert store.cmd.singleOrMultiDatasetIngestion is not None
-            assert primDP is not None
-            cmd: SQLIngestion = SQLMergeIngestion(
+                return cmd
+            if primDP is None:
+                raise ValueError(f"No compatible Primary ingestion platform found for datastore {store.name}")
+            if cmd.singleOrMultiDatasetIngestion is None:
+                raise ValueError(f"Datastore {store.name} has no singleOrMultiDatasetIngestion")
+            sqlCmd: SQLIngestion = SQLMergeIngestion(
                 primDP.getPSP().mergeStore,  # The merge tables are in the primary platform's merge store
                 primDP,
                 self.getPSP().mergeRW_Credential,  # This dataplatforms credentials MUST have read access to the primary platform's merge store
-                store.cmd.singleOrMultiDatasetIngestion
+                cmd.singleOrMultiDatasetIngestion
             )
-            return cmd
+            return sqlCmd
 
     def getCompatiblePIPToUseForDatastore(self, eco: Ecosystem, storeName: str) -> Optional['YellowDataPlatform']:
         """This returns a DataPlatform which is compatible with this DataPlatform. Datastores with PIPs can have multiple of them.
@@ -2541,7 +2556,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                                              batch_id=current_batch_id,
                                              key=key,
                                              platform_name=self.name)
-                                return "ERROR: Could not find batch state for batch {current_batch_id}"
+                                return f"ERROR: Could not find batch state for batch {current_batch_id}"
 
         logger.info("Batch state reset operation completed",
                     platform_name=self.name,
@@ -2576,7 +2591,8 @@ class YellowSchemaProjector(SchemaProjector):
 
     def computeSchema(self, dataset: 'Dataset', schemaType: str) -> 'Dataset':
         """This returns the actual Dataset in use for that Dataset in the Workspace on this DataPlatform."""
-        assert isinstance(self.dp, YellowDataPlatform)
+        if not isinstance(self.dp, YellowDataPlatform):
+            raise ValueError(f"Schema projector must be a YellowDataPlatform, got {type(self.dp)}")
         if self.db_ops is None:
             raise ValueError("Database operations must be set before computing schema")
         if schemaType == YellowSchemaConstants.SCHEMA_TYPE_MERGE:

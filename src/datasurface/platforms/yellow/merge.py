@@ -88,15 +88,6 @@ class Job(YellowDatasetUtilities):
         if self.store.cmd is None:
             raise ValueError("Store command is required")
 
-        # For DataTransformerOutput, data is already in merge database, no external source needed
-        if isinstance(self.store.cmd, DataTransformerOutput):
-            # Use merge database as source for DataTransformer outputs
-            self.source_db_ops: DatabaseOperations = self.merge_db_ops
-        else:
-            if self.store.cmd.dataContainer is None:
-                raise ValueError("Store command data container is required")
-            if not isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase)):
-                raise TypeError(f"Unsupported data container type: {type(self.store.cmd.dataContainer)}")
         self.numReconcileDDLs: int = 0
 
         self.srcNM: DataContainerNamingMapper
