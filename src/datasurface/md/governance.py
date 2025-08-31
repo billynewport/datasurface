@@ -138,8 +138,8 @@ class InfraHardVendorPolicy(AllowDisallowPolicy[Literal[CloudVendor]]):
                  notAllowed: Optional[set[CloudVendor]] = None):
         super().__init__(name, doc, convertCloudVendorItems(allowed), convertCloudVendorItems(notAllowed))
 
-    def __str__(self):
-        return f"InfraStructureVendorPolicy({self.name})"
+    def __str__(self) -> str:
+        return f"InfraHardVendorPolicy({self.name})"
 
     def __eq__(self, v: object) -> bool:
         return super().__eq__(v) and isinstance(v, InfraHardVendorPolicy) and self.allowed == v.allowed and self.notAllowed == v.notAllowed
@@ -158,7 +158,7 @@ class DataPlatformPolicy(AllowDisallowPolicy['DataPlatformKey']):
                  notAllowed: Optional[set['DataPlatformKey']] = None):
         super().__init__(name, doc, allowed, notAllowed)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"DataPlatformPolicy({self.name})"
 
     def __eq__(self, v: object) -> bool:
@@ -1117,7 +1117,7 @@ class DataTransformerOutput(CaptureMetaData):
                         f"Specified Workspace {self.workSpaceName} output store name {w.dataTransformer.outputDatastore.name} "
                         f"doesnt match referring datastore {d.name}", ProblemSeverity.ERROR))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"DataTransformerOutput({self.workSpaceName})"
 
     def __eq__(self, other: object) -> bool:
@@ -5059,7 +5059,7 @@ class InfraStructureLocationPolicy(AllowDisallowPolicy[LocationKey]):
                  notAllowed: Optional[set[LocationKey]] = None):
         super().__init__(name, doc, allowed, notAllowed)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"InfrastructureLocationPolicy({self.name})"
 
     def __eq__(self, v: object) -> bool:
@@ -5086,7 +5086,7 @@ class InfraStructureVendorPolicy(AllowDisallowPolicy[VendorKey]):
                  notAllowed: Optional[set[VendorKey]] = None):
         super().__init__(name, doc, allowed, notAllowed)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"InfraStructureVendorPolicy({self.name})"
 
     def __eq__(self, v: object) -> bool:

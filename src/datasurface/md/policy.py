@@ -89,7 +89,7 @@ class AllowDisallowPolicy(Policy[P]):
         return super().__eq__(other) and isinstance(other, AllowDisallowPolicy) and self.name == other.name and \
             self.allowed == other.allowed and self.notAllowed == other.notAllowed
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name}, {self.allowed},{self.notAllowed})"
 
     def to_json(self) -> dict[str, Any]:
