@@ -704,23 +704,26 @@ class StorageRequirement(UserDSLObject):
 
 class SQLDatabase(DataContainer):
     """A generic SQL Database data container"""
-    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str, identifierLengthLimit: int = 64) -> None:
+    def __init__(self, name: str, locations: set['LocationKey'], databaseName: str, identifierLengthLimit: int = 64,
+                 poolSize: int = 5, maxOverflow: int = 10) -> None:
         super().__init__(name, locations)
         self.databaseName: str = databaseName
         self.identifierLengthLimit: int = identifierLengthLimit
+        self.poolSize: int = poolSize
+        self.maxOverflow: int = maxOverflow
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
         rc.update(
             {
                 "_type": self.__class__.__name__, "databaseName": self.databaseName,
-                "identifierLengthLimit": self.identifierLengthLimit})
+                "identifierLengthLimit": self.identifierLengthLimit, "poolSize": self.poolSize, "maxOverflow": self.maxOverflow})
         return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, SQLDatabase)):
             return super().__eq__(other) and self.databaseName == other.databaseName and \
-                self.identifierLengthLimit == other.identifierLengthLimit
+                self.identifierLengthLimit == other.identifierLengthLimit and self.poolSize == other.poolSize and self.maxOverflow == other.maxOverflow
         return False
 
     def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
@@ -793,9 +796,11 @@ class HostPortPairList(UserDSLObject):
 class HostPortSQLDatabase(SQLDatabase):
     """This is a SQL database with a host and port"""
     def __init__(self, name: str, locations: set['LocationKey'], hostPort: HostPortPair, databaseName: str,
-                 identifierLengthLimit: int = 63) -> None:
+                 identifierLengthLimit: int = 63, poolSize: int = 5, maxOverflow: int = 10) -> None:
         super().__init__(name, locations, databaseName, identifierLengthLimit)
         self.hostPortPair: HostPortPair = hostPort
+        self.poolSize: int = poolSize
+        self.maxOverflow: int = maxOverflow
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -837,8 +842,10 @@ class SnowFlakeDatabase(SQLDatabase):
             region: Optional[str] = None,
             warehouse: Optional[str] = None,
             schema: Optional[str] = None,
-            role: Optional[str] = None) -> None:
-        super().__init__(name, locations, databaseName, identifierLengthLimit=255)
+            role: Optional[str] = None,
+            poolSize: int = 5,
+            maxOverflow: int = 10) -> None:
+        super().__init__(name, locations, databaseName, identifierLengthLimit=255, poolSize=poolSize, maxOverflow=maxOverflow)
         self.account: str = account
         self.region: Optional[str] = region
         self.warehouse: Optional[str] = warehouse
@@ -876,8 +883,9 @@ class SnowFlakeDatabase(SQLDatabase):
 
 class PostgresDatabase(HostPortSQLDatabase):
     """This is a Postgres database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=63)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str,
+                 poolSize: int = 5, maxOverflow: int = 10) -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=63, poolSize=poolSize, maxOverflow=maxOverflow)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -900,8 +908,9 @@ class PostgresDatabase(HostPortSQLDatabase):
 
 class MySQLDatabase(HostPortSQLDatabase):
     """This is a MySQL database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=64)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str,
+                 poolSize: int = 5, maxOverflow: int = 10) -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=64, poolSize=poolSize, maxOverflow=maxOverflow)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -919,8 +928,9 @@ class MySQLDatabase(HostPortSQLDatabase):
 
 class OracleDatabase(HostPortSQLDatabase):
     """This is an Oracle database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str,
+                 poolSize: int = 5, maxOverflow: int = 10) -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128, poolSize=poolSize, maxOverflow=maxOverflow)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -941,17 +951,20 @@ class OracleDatabase(HostPortSQLDatabase):
 
 class SQLServerDatabase(HostPortSQLDatabase):
     """This is a SQL Server database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str,
+                 trustServerCertificate: bool = True, commandTimeout: int = 30, poolSize: int = 5, maxOverflow: int = 10) -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128, poolSize=poolSize, maxOverflow=maxOverflow)
+        self.trustServerCertificate: bool = trustServerCertificate
+        self.commandTimeout: int = commandTimeout
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
-        rc.update({"_type": self.__class__.__name__})
+        rc.update({"_type": self.__class__.__name__, "trustServerCertificate": self.trustServerCertificate, "commandTimeout": self.commandTimeout})
         return rc
 
     def __eq__(self, other: object) -> bool:
         if (isinstance(other, SQLServerDatabase)):
-            return super().__eq__(other)
+            return super().__eq__(other) and self.trustServerCertificate == other.trustServerCertificate and self.commandTimeout == other.commandTimeout
         return False
 
     def __hash__(self) -> int:
@@ -963,8 +976,9 @@ class SQLServerDatabase(HostPortSQLDatabase):
 
 class DB2Database(HostPortSQLDatabase):
     """This is a DB2 database"""
-    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str) -> None:
-        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128)
+    def __init__(self, name: str, hostPort: HostPortPair, locations: set['LocationKey'], databaseName: str,
+                 poolSize: int = 5, maxOverflow: int = 10) -> None:
+        super().__init__(name, locations, hostPort, databaseName, identifierLengthLimit=128, poolSize=poolSize, maxOverflow=maxOverflow)
 
     def to_json(self) -> dict[str, Any]:
         rc: dict[str, Any] = super().to_json()
@@ -1004,8 +1018,9 @@ class ObjectStorage(DataContainer):
 
 class PyOdbcSourceInfo(SQLDatabase):
     """This describes how to connect to a database using pyodbc"""
-    def __init__(self, name: str, locs: set['LocationKey'], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str) -> None:
-        super().__init__(name, locs, databaseName)
+    def __init__(self, name: str, locs: set['LocationKey'], serverHost: str, databaseName: str, driver: str, connectionStringTemplate: str,
+                 poolSize: int = 5, maxOverflow: int = 10) -> None:
+        super().__init__(name, locs, databaseName, poolSize=poolSize, maxOverflow=maxOverflow)
         self.serverHost: str = serverHost
         self.driver: str = driver
         self.connectionStringTemplate: str = connectionStringTemplate
@@ -1468,6 +1483,7 @@ class Datastore(ANSI_SQL_NamedObject, Documentable, JSONable):
         self.add(*args)
 
     def getCMD(self) -> CaptureMetaData:
+        """This returns the capture meta data for the datastore or raises an exception if it is not set"""
         if self.cmd is None:
             raise AttributeError(f"CaptureMetaData not set for {self.name}")
         return self.cmd

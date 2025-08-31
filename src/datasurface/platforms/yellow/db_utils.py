@@ -110,7 +110,7 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
         if isinstance(base_query, dict):
             base_query.update({"driver": query})
             if isinstance(container, SQLServerDatabase):
-                base_query["TrustServerCertificate"] = "yes"
+                base_query["TrustServerCertificate"] = "yes" if container.trustServerCertificate else "no"
             url_params["query"] = base_query
         else:
             url_params["query"] = {"driver": query}
@@ -126,8 +126,8 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
     if isinstance(container, SQLServerDatabase):
         engine_kwargs.update({
             # Optimized connection pooling for DDL performance
-            "pool_size": 5,  # Smaller pool for better resource management
-            "max_overflow": 10,  # Reduced overflow for faster allocation
+            "pool_size": container.poolSize,  # Smaller pool for better resource management
+            "max_overflow": container.maxOverflow,  # Reduced overflow for faster allocation
             "pool_pre_ping": True,
             "pool_recycle": 1800,  # Recycle connections every 30 minutes
             "pool_timeout": 5,  # Fast timeout for connection acquisition
@@ -139,7 +139,7 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
                 # Additional ODBC performance settings
                 "MARS_Connection": "yes",  # Multiple Active Result Sets
                 "Connection Timeout": "3",  # Much faster connection establishment
-                "Command Timeout": "15",   # Faster command timeout for DDL
+                "Command Timeout": container.commandTimeout,   # Faster command timeout for DDL
                 # Additional optimizations for DDL performance
                 "TrustServerCertificate": "yes",  # Avoid SSL overhead in dev environments
                 "AnsiNPW": "yes",  # Use ANSI null padding - slightly faster
@@ -149,16 +149,16 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
     elif isinstance(container, PostgresDatabase):
         engine_kwargs.update({
             # PostgreSQL optimizations
-            "pool_size": 10,
-            "max_overflow": 20,
+            "pool_size": container.poolSize,
+            "max_overflow": container.maxOverflow,
             "pool_pre_ping": True,
             "pool_recycle": 3600,
         })
     elif isinstance(container, DB2Database):
         engine_kwargs.update({
             # DB2 optimizations
-            "pool_size": 8,
-            "max_overflow": 15,
+            "pool_size": container.poolSize,
+            "max_overflow": container.maxOverflow,
             "pool_pre_ping": True,
             "pool_recycle": 3600,  # Recycle connections every hour
             "pool_timeout": 10,  # Timeout for connection acquisition

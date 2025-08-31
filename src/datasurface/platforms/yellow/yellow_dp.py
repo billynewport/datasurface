@@ -51,6 +51,7 @@ from datasurface.platforms.yellow.assembly import K8sResourceLimits, K8sUtils, C
 from datasurface.platforms.yellow.assembly import K8sAssemblyFactory
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from datasurface.platforms.yellow.database_operations import DatabaseOperations
+from datasurface.md.exceptions import UnknownObjectTypeException
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
@@ -112,15 +113,11 @@ class JobUtilities(ABC):
 
     def getPhysBatchCounterTableName(self) -> str:
         """This returns the name of the batch counter table"""
-        if self.dp.psp is None:
-            raise ValueError("psp must be set before getting batch counter table name")
-        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_counter"))
+        return self.dp.getPSP().namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_counter"))
 
     def getPhysBatchMetricsTableName(self) -> str:
         """This returns the name of the batch metrics table"""
-        if self.dp.psp is None:
-            raise ValueError("psp must be set before getting batch metrics table name")
-        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_metrics"))
+        return self.dp.getPSP().namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_metrics"))
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""
@@ -171,18 +168,19 @@ class JobUtilities(ABC):
 
     def getRawBaseTableNameForDataset(self, store: Datastore, dataset: Dataset, allowMapping: bool) -> str:
         """This returns the base table name for a dataset"""
-        if isinstance(store.cmd, SQLIngestion):
+        cmd: CaptureMetaData = store.getCMD()
+        if isinstance(cmd, SQLIngestion):
             if allowMapping:
-                if dataset.name in store.cmd.tableForDataset:
-                    return f"{store.name}_{store.cmd.tableForDataset[dataset.name]}"
+                if dataset.name in cmd.tableForDataset:
+                    return f"{store.name}_{cmd.tableForDataset[dataset.name]}"
                 else:
                     return f"{store.name}_{dataset.name}"
             else:
                 return f"{store.name}_{dataset.name}"
-        elif isinstance(store.cmd, DataTransformerOutput):
+        elif isinstance(cmd, DataTransformerOutput):
             return f"{store.name}_{dataset.name}"  # ✅ Simple base name without circular call
         else:
-            raise Exception(f"Unknown store command type: {type(store.cmd)}")
+            raise UnknownObjectTypeException(f"Unknown store command type: {type(cmd)}")
 
     def getRawMergeTableNameForDataset(self, store: Datastore, dataset: Dataset) -> str:
         """This returns the merge table name for a dataset"""
@@ -194,9 +192,7 @@ class JobUtilities(ABC):
         normal merge table notation. The dt prefix is ONLY used for the output tables for a DataTransformer when doing the ingestion
         of these output tables. Once the data is ingested for output datastores, the data is merged in to the normal merge tables."""
         tableName: str = self.getRawBaseTableNameForDataset(store, dataset, False)
-        if self.dp.psp is None:
-            raise ValueError("psp must be set before getting data transformer output table name")
-        return self.dp.psp.namingMapper.fmtTVI(self.dp.getTableForPlatform(f"dt_{tableName}"))
+        return self.dp.getPSP().namingMapper.fmtTVI(self.dp.getTableForPlatform(f"dt_{tableName}"))
 
 
 class K8sDataTransformerHint(PlatformDataTransformerHint):

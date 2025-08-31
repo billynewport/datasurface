@@ -31,7 +31,7 @@ from datasurface.platforms.yellow.db_utils import createInspector
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from datasurface.md.exceptions import UnknownObjectTypeException
 from datasurface.platforms.yellow.yellow_dp import YellowSchemaProjector
-from datasurface.md import SQLMergeIngestion
+from datasurface.md import SQLMergeIngestion, CaptureMetaData
 
 
 # Setup logging for Kubernetes environment
@@ -85,21 +85,20 @@ class Job(YellowDatasetUtilities):
         self.merge_db_ops: DatabaseOperations = DatabaseOperationsFactory.create_database_operations(
             dp.getPSP().mergeStore, self.mergeSchemaProjector
         )
-        if self.store.cmd is None:
-            raise ValueError("Store command is required")
-
         self.numReconcileDDLs: int = 0
 
         self.srcNM: DataContainerNamingMapper
-        if isinstance(self.store.cmd.dataContainer, DataPlatformManagedDataContainer):
+        cmd: CaptureMetaData = self.store.getCMD()
+        if isinstance(cmd.dataContainer, DataPlatformManagedDataContainer):
             self.srcNM = self.dp.getPSP().mergeStore.getNamingAdapter()
         else:
-            self.srcNM = self.store.cmd.getDataContainer().getNamingAdapter()
+            self.srcNM = cmd.getDataContainer().getNamingAdapter()
         self.mrgNM: DataContainerNamingMapper = self.dp.getPSP().mergeStore.getNamingAdapter()
 
-        if isinstance(store.cmd, SQLMergeIngestion):
-            self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, store.cmd.dataPlatform)
+        if isinstance(cmd, SQLMergeIngestion):
+            self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, cmd.dataPlatform)
         else:
+            # This also means DataTransformerOutput is using merge store as the source
             self.remoteDP: YellowDataPlatform = self.dp
         self.remoteYDU: YellowDatasetUtilities
         if datasetName is not None:

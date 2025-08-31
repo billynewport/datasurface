@@ -378,7 +378,7 @@ def log_startup_info(
     startup_data = {
         'event_type': 'startup',
         'component': component,
-        'timestamp': datetime.utcnow().isoformat() + "Z"
+        'timestamp': datetime.now(timezone.utc).isoformat() + "Z"
     }
 
     if version:
@@ -406,7 +406,7 @@ def log_health_check(
         'event_type': 'health_check',
         'component': component,
         'status': status,
-        'timestamp': datetime.utcnow().isoformat() + "Z"
+        'timestamp': datetime.now(timezone.utc).isoformat() + "Z"
     }
 
     if details:
