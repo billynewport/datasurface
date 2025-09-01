@@ -53,7 +53,7 @@ metadata:
 spec:
   storageClassName: {{ pv_storage_class }}
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 5Gi
@@ -67,7 +67,7 @@ metadata:
 spec:
   storageClassName: {{ pv_storage_class }}
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 5Gi
@@ -206,9 +206,11 @@ spec:
             - name: airflow-config
               mountPath: /opt/airflow/airflow.cfg
               subPath: airflow.cfg
+            {% if git_cache_enabled %}
             - name: git-repo
-              mountPath: /opt/datasurface/model
-              readOnly: true
+              mountPath: {{ git_cache_local_path }}
+              readOnly: false
+            {% endif %}
           resources:
             requests:
               memory: {{ scheduler_requested_memory }}
@@ -226,8 +228,14 @@ spec:
         - name: airflow-config
           configMap:
             name: {{ airflow_k8s_name }}-config
+        {% if git_cache_enabled %}
+        - name: git-repo
+          persistentVolumeClaim:
+            claimName: {{ git_clone_cache_pvc }}
+        {% else %}
         - name: git-repo
           emptyDir: {}
+        {% endif %}
 ---
 # Airflow Webserver Deployment
 apiVersion: apps/v1
@@ -307,9 +315,11 @@ spec:
             - name: airflow-config
               mountPath: /opt/airflow/airflow.cfg
               subPath: airflow.cfg
+            {% if git_cache_enabled %}
             - name: git-repo
-              mountPath: /opt/datasurface/model
-              readOnly: true
+              mountPath: {{ git_cache_local_path }}
+              readOnly: false
+            {% endif %}
           resources:
             requests:
               memory: {{ webserver_requested_memory }}
@@ -327,8 +337,14 @@ spec:
         - name: airflow-config
           configMap:
             name: {{ airflow_k8s_name }}-config
+        {% if git_cache_enabled %}
+        - name: git-repo
+          persistentVolumeClaim:
+            claimName: {{ git_clone_cache_pvc }}
+        {% else %}
         - name: git-repo
           emptyDir: {}
+        {% endif %}
 ---
 # Airflow Webserver Service
 apiVersion: v1

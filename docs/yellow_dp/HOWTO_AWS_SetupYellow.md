@@ -153,7 +153,7 @@ if aws cloudformation describe-stacks --stack-name datasurface-eks-stack --query
 fi
 ```
 
-### Step 2: Configure kubectl for EKS
+### Step 2: Configure kubectl for EKS and Install EFS CSI Driver
 
 **Update kubeconfig to access the EKS cluster:**
 ```bash
@@ -165,6 +165,56 @@ aws eks update-kubeconfig \
 # Verify cluster access
 kubectl get nodes
 kubectl get namespaces
+
+# Install EFS CSI Driver (required for EFS storage)
+aws eks create-addon \
+  --cluster-name $CLUSTER_NAME \
+  --addon-name aws-efs-csi-driver \
+  --region us-east-1
+
+# Wait for EFS CSI driver to be ready
+aws eks wait addon-active \
+  --cluster-name $CLUSTER_NAME \
+  --addon-name aws-efs-csi-driver \
+  --region us-east-1
+
+echo "EFS CSI Driver installed successfully"
+
+# Create EFS StorageClass
+export EFS_FILE_SYSTEM_ID=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`EFSFileSystemId`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+echo "EFS File System ID: $EFS_FILE_SYSTEM_ID"
+
+# Create EFS StorageClass manifest
+cat > efs-storageclass.yaml << EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: $EFS_FILE_SYSTEM_ID
+  directoryPerms: "0755"
+  uid: "50000"
+  gid: "50000"
+volumeBindingMode: Immediate
+allowVolumeExpansion: false
+EOF
+
+# Apply the EFS StorageClass
+kubectl apply -f efs-storageclass.yaml
+
+# Verify StorageClass creation
+kubectl get storageclass efs-sc
+
+echo "EFS StorageClass created successfully"
 ```
 
 ### Step 3: Create AWS Secrets Manager Secrets
@@ -254,19 +304,19 @@ aws secretsmanager list-secrets \
 ### Step 1: Clone the Starter Repository
 
 **Optional: Remove Previous Environment**
-If you have an existing yellow_starter deployment, clean it up first:
+If you have an existing yellow_aws_dual_aurora deployment, clean it up first:
 ```bash
 # Remove old Kubernetes namespace and all resources
 kubectl delete namespace "$NAMESPACE"
 
 # Remove local artifacts (if reusing same directory)
-rm -rf yellow_starter/generated_output/
+rm -rf yellow_aws_dual_aurora/generated_output/
 ```
 
 **Clone Fresh Repository**
 ```bash
-git clone https://github.com/billynewport/yellow_starter.git
-cd yellow_starter
+git clone https://github.com/billynewport/yellow_aws_dual_aurora.git
+cd yellow_aws_dual_aurora
 ```
 
 ### Step 2: Build and Push Custom Airflow Image (REQUIRED)
@@ -345,7 +395,7 @@ cat dsg_platform_mapping.json
 
 ### Step 4: Create Environment Setup and Utility Scripts (AWS-Specific)
 
-To avoid shell escaping issues and improve reliability, create these utility scripts in your `yellow_starter` directory:
+To avoid shell escaping issues and improve reliability, create these utility scripts in your `yellow_aws_dual_aurora` directory:
 
 **Create AWS Environment Setup Script (`setup_aws_env.sh`):**
 
@@ -894,6 +944,12 @@ Open http://localhost:8080 and login with:
 - Automated backups and maintenance
 - High availability and performance optimization
 
+**Amazon EFS Integration:**
+- Shared filesystem storage for Airflow DAGs, logs, and git cache
+- ReadWriteMany access mode for multiple pod access
+- Automatic scaling and high availability
+- POSIX-compliant filesystem for git operations
+
 ## Default Credentials
 
 **AWS RDS Database**: Uses credentials from AWS Secrets Manager
@@ -924,4 +980,201 @@ Open http://localhost:8080 and login with:
 - Clean configuration with AWS-native secret management for existing RDS credentials
 - IRSA configured for secure AWS service access
 - Network connectivity verified between EKS cluster and existing RDS instances
+
+## Known Issues and Troubleshooting
+
+### Issue 1: Fargate Profile Namespace Mismatch
+
+**Problem**: Pods stuck in `Pending` state with "no nodes available to schedule pods" error.
+
+**Root Cause**: The CloudFormation template creates a Fargate profile for the `datasurface` namespace, but the generated manifests use the namespace defined in `eco.py` (typically `ns-yellow-starter`).
+
+**Solution**: Create additional Fargate profiles for your actual namespace:
+
+```bash
+# Get your cluster name from CloudFormation outputs
+CLUSTER_NAME=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`EKSClusterName`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+# Get the Fargate execution role ARN
+FARGATE_ROLE_ARN=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Resources[?LogicalResourceId==`EKSFargateRole`].PhysicalResourceId' \
+  --output text \
+  --region us-east-1)
+
+# Get private subnet IDs
+SUBNET1=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+SUBNET2=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet2`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+# Create Fargate profile for your namespace (replace ns-yellow-starter with your namespace)
+aws eks create-fargate-profile \
+  --cluster-name $CLUSTER_NAME \
+  --fargate-profile-name yellow-starter-profile \
+  --pod-execution-role-arn $FARGATE_ROLE_ARN \
+  --subnets $SUBNET1 $SUBNET2 \
+  --selectors namespace=ns-yellow-starter \
+  --region us-east-1
+```
+
+### Issue 2: EFS CSI Driver Compatibility with Fargate
+
+**Problem**: EFS volumes fail to mount with "context deadline exceeded" errors.
+
+**Root Cause**: The EFS CSI driver requires privileged containers, which are not supported on Fargate.
+
+**Solutions**:
+
+**Option A: Use Static EFS Volumes (Recommended for Fargate)**
+
+```bash
+# Get EFS details from CloudFormation
+EFS_FILE_SYSTEM_ID=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`EFSFileSystemId`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+EFS_ACCESS_POINT_ID=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`EFSAccessPointId`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+# Create static PersistentVolumes
+cat > static-efs-volumes.yaml << EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-dags-pv
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: ${EFS_FILE_SYSTEM_ID}::${EFS_ACCESS_POINT_ID}
+    volumeAttributes:
+      path: "/dags"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-logs-pv
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: ${EFS_FILE_SYSTEM_ID}::${EFS_ACCESS_POINT_ID}
+    volumeAttributes:
+      path: "/logs"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: git-cache-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: ${EFS_FILE_SYSTEM_ID}::${EFS_ACCESS_POINT_ID}
+    volumeAttributes:
+      path: "/git-cache"
+EOF
+
+kubectl apply -f static-efs-volumes.yaml
+```
+
+**Option B: Use EC2 Node Groups Instead of Fargate**
+
+If you need full EFS CSI driver functionality, consider using EC2 node groups instead of Fargate. This requires modifying the CloudFormation template to include EC2 node groups.
+
+### Issue 3: Template Storage Class Configuration
+
+**Problem**: Generated manifests may use incorrect storage classes (e.g., `gp3` instead of `efs-sc`).
+
+**Root Cause**: Template generation may use hardcoded storage class values instead of the model configuration.
+
+**Solution**: Ensure your ecosystem model in `eco.py` correctly specifies the storage class:
+
+```python
+STORAGE_CLASS: str = "efs-sc"
+
+# In your YellowPlatformServiceProvider configuration:
+psp: YellowPlatformServiceProvider = YellowPlatformServiceProvider(
+    # ... other parameters ...
+    pv_storage_class=STORAGE_CLASS,
+    # ... other parameters ...
+)
+```
+
+After making changes, rebuild the Docker image and regenerate artifacts:
+
+```bash
+# Rebuild Docker image
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t datasurface/datasurface:latest \
+  -f Dockerfile.datasurface --push .
+
+# Regenerate artifacts
+docker run --rm \
+  -v "$(pwd)":/workspace/model \
+  -w /workspace/model \
+  datasurface/datasurface:latest \
+  python -m datasurface.cmd.platform generatePlatformBootstrap \
+  --ringLevel 0 \
+  --model /workspace/model \
+  --output /workspace/model/generated_output \
+  --psp Test_DP
+```
+
+### Issue 4: Secrets Management Hybrid Configuration
+
+**Problem**: Generated manifests may use Kubernetes secrets instead of full AWS Secrets Manager integration.
+
+**Current Behavior**: The manifests include IRSA configuration but still reference Kubernetes secrets.
+
+**Workaround**: Create Kubernetes secrets that mirror your AWS Secrets Manager values:
+
+```bash
+# Create required Kubernetes secrets
+kubectl create secret generic postgres \
+  --from-literal=postgres_USER=your-db-username \
+  --from-literal=postgres_PASSWORD=your-db-password \
+  -n your-namespace
+
+kubectl create secret generic git \
+  --from-literal=token=your-github-pat \
+  -n your-namespace
+```
+
+**Future Enhancement**: Full AWS Secrets Manager integration is planned to eliminate the need for Kubernetes secrets.
 

@@ -1,0 +1,17 @@
+# EFS StorageClass for shared filesystem storage
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ pv_storage_class }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: {{ efs_file_system_id }}
+  directoryPerms: "0755"
+  uid: "50000"
+  gid: "50000"
+volumeBindingMode: Immediate
+allowVolumeExpansion: false
+---

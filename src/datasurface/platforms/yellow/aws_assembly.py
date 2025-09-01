@@ -149,7 +149,7 @@ class YellowAWSTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
                 PVCComponent(
                     self.git_cache_config.pvc_name, self.namespace,
                     self.git_cache_config.storage_size,
-                    "gp3",  # AWS EBS gp3 storage class for better performance
+                    self.git_cache_config.storageClass,  # AWS EBS gp3 storage class for better performance
                     self.git_cache_config.access_mode),
                 AirflowAWSComponent(
                     "airflow", self.namespace, self.afDBcred, self.afDB, [mergeRWCred],
