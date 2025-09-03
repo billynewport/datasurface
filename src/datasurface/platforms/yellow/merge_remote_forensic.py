@@ -22,7 +22,7 @@ from datasurface.platforms.yellow.logging_utils import (
 )
 from datasurface.platforms.yellow.merge_remote_live import MergeRemoteJob
 from datasurface.platforms.yellow.merge import NoopJobException
-from datasurface.platforms.yellow.jobs import Job
+from datasurface.platforms.yellow.jobs import IngestMergeJob
 from datasurface.platforms.yellow.merge_remote_live import (
     IS_SEED_BATCH_KEY, REMOTE_BATCH_ID_KEY
 )
@@ -234,7 +234,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         return recordsInserted, 0, totalRecords
 
     @staticmethod
-    def _createBatchForRemoteId(job: Job, connection, key: str, remoteBatchId: int) -> bool:
+    def _createBatchForRemoteId(job: IngestMergeJob, connection, key: str, remoteBatchId: int) -> bool:
         """Create a batch record using the remote batch ID instead of incrementing local counter.
 
         This bypasses the normal createBatchCommon logic which increments the local counter.
@@ -296,7 +296,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     @staticmethod
     def _ingestSeedBatch(
-            job: Job, sourceConn, mergeEngine: Engine, sourceTableName: str, stagingTableName: str,
+            job: IngestMergeJob, sourceConn, mergeEngine: Engine, sourceTableName: str, stagingTableName: str,
             allColumns: List[str], pkColumns: List[str], batchId: int, sp: YellowSchemaProjector,
             currentRemoteBatchId: int) -> int:
         """Ingest ALL records from remote table as of the current remote batch ID for mirror replication."""
@@ -337,7 +337,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     @staticmethod
     def _ingestIncrementalBatch(
-            job: Job, sourceConn, mergeEngine: Engine, sourceTableName: str, stagingTableName: str,
+            job: IngestMergeJob, sourceConn, mergeEngine: Engine, sourceTableName: str, stagingTableName: str,
             allColumns: List[str], pkColumns: List[str], batchId: int, sp: YellowSchemaProjector,
             lastRemoteBatchId: Optional[int], currentRemoteBatchId: int) -> int:
         """Ingest only new records since last remote batch for mirror replication."""
@@ -394,7 +394,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     @staticmethod
     def _insertRowsToStaging(
-            job: Job, mergeEngine: Engine, stagingTableName: str, rows: List[Any],
+            job: IngestMergeJob, mergeEngine: Engine, stagingTableName: str, rows: List[Any],
             allColumns: List[str], batchId: int, sp: YellowSchemaProjector, column_names: List[str]) -> int:
         """Insert rows into staging table with batch metadata and remote batch_in/batch_out."""
         if not rows:
@@ -459,7 +459,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         return SnapshotMergeJobRemoteForensic.genericMergeStagingToMergeAndCommitForensic(self, mergeEngine, batchId, key, chunkSize)
 
     @staticmethod
-    def genericMergeStagingToMergeAndCommitForensic(job: Job, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
+    def genericMergeStagingToMergeAndCommitForensic(job: IngestMergeJob, mergeEngine: Engine, batchId: int, key: str, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into forensic merge table using forensic milestoning.
 
         This handles both seed batches (full sync) and incremental batches (delta changes) for forensic tables:
@@ -554,7 +554,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     @staticmethod
     def _processForensicSeedBatch(
-            job: Job, connection, stagingTableName: str, mergeTableName: str,
+            job: IngestMergeJob, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
             sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int, int]:
         """Process forensic mirror seed batch: Replace all local data with remote mirror."""
@@ -615,7 +615,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
 
     @staticmethod
     def _processForensicIncrementalBatch(
-            job: Job, connection, stagingTableName: str, mergeTableName: str,
+            job: IngestMergeJob, connection, stagingTableName: str, mergeTableName: str,
             allColumns: List[str], quoted_all_columns: List[str], batchId: int,
             sp: YellowSchemaProjector, chunkSize: int) -> tuple[int, int, int]:
         """Process forensic mirror incremental batch: Apply remote changes preserving exact milestoning."""
@@ -676,7 +676,7 @@ class SnapshotMergeJobRemoteForensic(MergeRemoteJob):
         return total_inserted, total_updated, 0
 
     @staticmethod
-    def _updateBatchCounter(job: Job, connection, key: str, batchId: int) -> None:
+    def _updateBatchCounter(job: IngestMergeJob, connection, key: str, batchId: int) -> None:
         """Update the batch counter to reflect the current remote batch ID.
 
         This ensures the counter table stays in sync with the metrics table

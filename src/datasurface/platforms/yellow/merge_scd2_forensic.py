@@ -17,7 +17,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.merge import IngestMergeJob
 from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md.types import VarChar
@@ -29,7 +29,7 @@ setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
 
-class MergeSCD2ForensicJob(Job):
+class MergeSCD2ForensicJob(IngestMergeJob):
     """Generic SCD2 forensic merge job driven by IUD staging rows.
 
     Subclasses should implement `ingestNextBatchToStaging` to populate the staging

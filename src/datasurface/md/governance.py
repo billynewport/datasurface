@@ -1094,7 +1094,6 @@ class CaptureMetaData(UserDSLObject):
             # The container is implicit when its a DataTransformer (same as the Workspace container)
             if (not isinstance(self, DataTransformerOutput)):
                 tree.addRaw(AttributeNotSet("Container not specified"))
-            tree.addRaw(AttributeNotSet("Container not specified"))
         else:
             cTree: ValidationTree = tree.addSubTree(self.dataContainer)
             self.dataContainer.lint(eco, cTree)
@@ -2586,7 +2585,7 @@ class Team(GitControlledObject, JSONable):
                 dc: DataContainer = arg
                 if self.containers.get(dc.name) is not None:
                     raise ObjectAlreadyExistsException(f"Duplicate DataContainer {dc.name}")
-                self.containers[dc.name]
+                self.containers[dc.name] = dc
             else:
                 d: Documentation = arg
                 self.documentation = d
@@ -3833,6 +3832,33 @@ class CodeArtifact(UserDSLObject):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}()"
+
+
+class DatasurfaceTransformerType(Enum):
+    """This is the type of datasurface transformer"""
+    EXTERNALIZE_MODEL = "EXTERNALIZE_MODEL"
+
+
+class DatasurfaceTransformerCodeArtifact(CodeArtifact):
+    """This describes a datasurface transformer job and its dependencies"""
+    def __init__(self, type: DatasurfaceTransformerType) -> None:
+        super().__init__()
+        self.type: DatasurfaceTransformerType = type
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "_type": self.__class__.__name__,
+            "type": self.type.name
+        }
+
+    def __eq__(self, o: object) -> bool:
+        return isinstance(o, DatasurfaceTransformerCodeArtifact) and self.type == o.type
+
+    def lint(self, eco: 'Ecosystem', tree: ValidationTree) -> None:
+        pass
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.type.name})"
 
 
 class PythonCodeArtifact(CodeArtifact):

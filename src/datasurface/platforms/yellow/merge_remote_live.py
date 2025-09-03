@@ -18,7 +18,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job, JobStatus
+from datasurface.platforms.yellow.merge import IngestMergeJob, JobStatus
 from sqlalchemy import Table, MetaData
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.md import SQLMergeIngestion
@@ -35,7 +35,7 @@ IS_SEED_BATCH_KEY = "is_seed_batch"
 REMOTE_BATCH_ID_KEY = "remote_batch_id"
 
 
-class MergeRemoteJob(Job):
+class MergeRemoteJob(IngestMergeJob):
 
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform,
                  store: Datastore, datasetName: Optional[str] = None) -> None:

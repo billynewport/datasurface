@@ -509,7 +509,7 @@ class YellowDatasetUtilities(JobUtilities):
                 createOrUpdateTable(mergeConnection, inspector, mergeTable)
                 # Only add unique constraint on key_hash for live-only mode
                 # In forensic mode, multiple records can have the same key_hash (different versions)
-                self.ensureUniqueConstraintExists(mergeConnection, tableName, "ds_surf_key_hash")
+                self.ensureUniqueConstraintExists(mergeConnection, tableName, YellowSchemaConstants.KEY_HASH_COLUMN_NAME)
 
             # Create performance indexes for merge table
             self.createMergeTableIndexes(mergeConnection, tableName)

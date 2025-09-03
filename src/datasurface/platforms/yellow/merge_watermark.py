@@ -16,7 +16,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.jobs import Job
+from datasurface.platforms.yellow.jobs import IngestMergeJob
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.merge_forensic import SnapshotDeltaMode
@@ -28,7 +28,7 @@ setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
 
-class MergeWatermarkJob(Job):
+class MergeWatermarkJob(IngestMergeJob):
     """
     This ingestion type uses a watermark column to ingest data in a source. For the first batch it will determine the high watermark column value
     across all datasets and then ingest all records with a watermark value less than the high watermark. The high watermark is then stored in the batch state.

@@ -48,6 +48,11 @@ def getLatestModelFolder(modelFolderName: str) -> str:
     return latestModelFolder
 
 
+class CannotCloneGitRepositoryException(Exception):
+    """This exception is raised when a git repository cannot be cloned."""
+    pass
+
+
 def cloneGitRepository(credStore: CredentialStore, repo: GitHubRepository, gitRepoPath: str) -> str:
     """This will clone the git repository into the given path. If the directory is empty, it will clone the repository.
     If the directory is not empty, it will not clone the repository.
@@ -96,7 +101,7 @@ def cloneGitRepository(credStore: CredentialStore, repo: GitHubRepository, gitRe
 
             # Validate that the repository was cloned successfully
             if not os.path.exists(os.path.join(tempFolder, '.git')):
-                raise Exception(f"Repository was not cloned successfully - no .git directory found in {tempFolder}")
+                raise CannotCloneGitRepositoryException(f"Repository was not cloned successfully - no .git directory found in {tempFolder}")
 
             # Check if eco.py exists (expected model file)
             if not os.path.exists(os.path.join(tempFolder, 'eco.py')):
@@ -118,7 +123,7 @@ def cloneGitRepository(credStore: CredentialStore, repo: GitHubRepository, gitRe
                 git_token = os.environ.get(f"{repo.credential.name}_TOKEN", "")
                 if git_token:
                     sanitized_error = sanitized_error.replace(git_token, "***TOKEN***")
-            raise Exception(f"Failed to clone repository {repo.repositoryName}: {sanitized_error or 'Unknown git error'}")
+            raise CannotCloneGitRepositoryException(f"Failed to clone repository {repo.repositoryName}: {sanitized_error or 'Unknown git error'}")
     else:
         logger.info(f"Using existing repository in {tempFolder}")
 
@@ -134,7 +139,7 @@ def cloneGitRepository(credStore: CredentialStore, repo: GitHubRepository, gitRe
         if os.path.exists(tempFolder):
             import shutil
             shutil.rmtree(tempFolder)
-        raise Exception(f"Failed to rename temp folder to {finalModelFolder}: {e}")
+        raise CannotCloneGitRepositoryException(f"Failed to rename temp folder to {finalModelFolder}: {e}")
 
     return finalModelFolder
 

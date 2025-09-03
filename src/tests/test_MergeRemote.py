@@ -19,8 +19,9 @@ from datasurface.md.model_loader import loadEcosystemFromEcoModule
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, YellowMilestoneStrategy
 from typing import Any, Optional, Type
 from datetime import datetime
-from datasurface.platforms.yellow.jobs import Job
+from datasurface.platforms.yellow.jobs import IngestMergeJob
 from datetime import date
+from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 
 # Check if SQL Server tests should be enabled
 ENABLE_SQLSERVER_TESTS = os.getenv("ENABLE_SQLSERVER_TESTS", "false").lower() == "true"
@@ -90,7 +91,7 @@ class TestMergeRemoteLive(unittest.TestCase):
         # Sort both datasets by a consistent key for comparison
         # Use a composite key: (id, ds_surf_batch_in) to handle multiple versions of the same record
         def sort_key(record: Any) -> tuple[str, int]:
-            return (record["id"], record["ds_surf_batch_in"])
+            return (record["id"], record[YellowSchemaConstants.BATCH_IN_COLUMN_NAME])
 
         primary_sorted = sorted(primary_data, key=sort_key)
         remote_sorted = sorted(remote_data, key=sort_key)
@@ -116,7 +117,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                     f"Primary record: {primary_record}, Remote record: {remote_record}"
                 )
 
-    def setup_stream_test(self, platformName: str, storeName: str, job_class: Type[Job]) -> BaseSnapshotMergeJobTest:
+    def setup_stream_test(self, platformName: str, storeName: str, job_class: Type[IngestMergeJob]) -> BaseSnapshotMergeJobTest:
         eco: Optional[Ecosystem]
         tree: Optional[ValidationTree]
         eco, tree = loadEcosystemFromEcoModule("src/tests/pip_test_model")

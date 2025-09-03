@@ -74,7 +74,7 @@ class NoopJobException(Exception):
     pass
 
 
-class Job(YellowDatasetUtilities):
+class IngestMergeJob(YellowDatasetUtilities):
     """This is the base class for all jobs. The batch counter and batch_metric/state tables are likely to be common across batch implementations. The 2
     step process, stage and then merge is also likely to be common. Some may use external staging but then it's just a noop stage with a merge."""
     def __init__(self, eco: Ecosystem, credStore: CredentialStore, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> None:

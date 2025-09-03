@@ -17,7 +17,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job, JobStatus
+from datasurface.platforms.yellow.merge import IngestMergeJob, JobStatus
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from enum import Enum
 from datasurface.platforms.yellow.database_operations import DatabaseOperations
@@ -37,7 +37,7 @@ class SnapshotDeltaMode(Enum):
     UPSERT = "upsert"
 
 
-class SnapshotMergeJobForensic(Job):
+class SnapshotMergeJobForensic(IngestMergeJob):
     """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
     and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
     it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
@@ -64,7 +64,7 @@ class SnapshotMergeJobForensic(Job):
         return SnapshotMergeJobForensic.genericMergeStagingToMergeAndCommitForensic(self, mergeEngine, batchId, key, SnapshotDeltaMode.SNAPSHOT, chunkSize)
 
     @staticmethod
-    def genericMergeStagingToMergeAndCommitForensic(job: Job, mergeEngine: Engine, batchId: int, key: str,
+    def genericMergeStagingToMergeAndCommitForensic(job: IngestMergeJob, mergeEngine: Engine, batchId: int, key: str,
                                                     mode: SnapshotDeltaMode, chunkSize: int = 10000) -> tuple[int, int, int]:
         """
         Perform a forensic merge using a single MERGE statement. All operations (insert, update, delete) are handled in one statement.

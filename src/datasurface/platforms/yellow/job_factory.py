@@ -18,15 +18,15 @@ from datasurface.platforms.yellow.merge_live import SnapshotMergeJobLiveOnly
 from datasurface.platforms.yellow.merge_forensic import SnapshotMergeJobForensic
 from datasurface.platforms.yellow.merge_remote_forensic import SnapshotMergeJobRemoteForensic
 from datasurface.platforms.yellow.merge_remote_live import SnapshotMergeJobRemoteLive
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.merge import IngestMergeJob
 
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
 
-def calculateCorrectJob(eco: Ecosystem, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> Optional[Job]:
-    job: Optional[Job] = None
+def calculateCorrectJob(eco: Ecosystem, dp: YellowDataPlatform, store: Datastore, datasetName: Optional[str] = None) -> Optional[IngestMergeJob]:
+    job: Optional[IngestMergeJob] = None
     # Check if this is a remote merge ingestion (from another platform's merge table)
     if dp.milestoneStrategy == YellowMilestoneStrategy.SCD1:
         if isinstance(store.cmd, SQLMergeIngestion):

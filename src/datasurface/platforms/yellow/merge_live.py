@@ -17,7 +17,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger
 )
-from datasurface.platforms.yellow.merge import Job, JobStatus
+from datasurface.platforms.yellow.merge import IngestMergeJob, JobStatus
 from datasurface.platforms.yellow.merge_forensic import SnapshotDeltaMode
 from datasurface.platforms.yellow.yellow_constants import YellowSchemaConstants
 from datasurface.platforms.yellow.database_operations import DatabaseOperations
@@ -27,7 +27,7 @@ setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
 
-class SnapshotMergeJobLiveOnly(Job):
+class SnapshotMergeJobLiveOnly(IngestMergeJob):
     """This job will create a new batch for this ingestion stream. It will then using the batch id, query all records in the source database tables
     and insert them in to the staging table adding the batch id and the hash of every column in the record. The staging table must be created if
     it doesn't exist and altered to match the current schema if necessary when the job starts. The staging table has 3 extra columns, the batch id,
@@ -55,7 +55,7 @@ class SnapshotMergeJobLiveOnly(Job):
         return SnapshotMergeJobLiveOnly.genericMergeStagingToMergeAndCommitLive(self, mergeEngine, batchId, key, SnapshotDeltaMode.SNAPSHOT, chunkSize)
 
     @staticmethod
-    def genericMergeStagingToMergeAndCommitLive(job: Job, mergeEngine: Engine, batchId: int, key: str, mode: SnapshotDeltaMode,
+    def genericMergeStagingToMergeAndCommitLive(job: IngestMergeJob, mergeEngine: Engine, batchId: int, key: str, mode: SnapshotDeltaMode,
                                                 chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using either INSERT...ON CONFLICT (default) or PostgreSQL MERGE with DELETE support.
 
@@ -73,7 +73,7 @@ class SnapshotMergeJobLiveOnly(Job):
             return SnapshotMergeJobLiveOnly._mergeStagingToMergeWithUpsert(job, mergeEngine, batchId, key, mode, chunkSize)
 
     @staticmethod
-    def _mergeStagingToMergeWithUpsert(job: Job, mergeEngine: Engine, batchId: int, key: str,
+    def _mergeStagingToMergeWithUpsert(job: IngestMergeJob, mergeEngine: Engine, batchId: int, key: str,
                                        mode: SnapshotDeltaMode, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using INSERT...ON CONFLICT with batched processing for better performance on large datasets.
         This processes merge operations in smaller batches to avoid memory issues while maintaining transactional consistency.
@@ -187,7 +187,7 @@ class SnapshotMergeJobLiveOnly(Job):
         return total_inserted, total_updated, total_deleted
 
     @staticmethod
-    def _mergeStagingToMergeWithMerge(job: Job, mergeEngine: Engine, batchId: int, key: str,
+    def _mergeStagingToMergeWithMerge(job: IngestMergeJob, mergeEngine: Engine, batchId: int, key: str,
                                       mode: SnapshotDeltaMode, chunkSize: int = 10000) -> tuple[int, int, int]:
         """Merge staging data into merge table using PostgreSQL MERGE with DELETE support (PostgreSQL 15+).
         This approach handles INSERT, UPDATE, and DELETE operations in a single MERGE statement."""

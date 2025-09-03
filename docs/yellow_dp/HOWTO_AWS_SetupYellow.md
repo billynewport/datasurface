@@ -83,39 +83,41 @@ The document automatically detects which configuration is being used and adjusts
 
 **Choose Your Database Option:**
 
-**Option A: Create New Aurora PostgreSQL Cluster (Recommended for new deployments)**
+**Deploy AWS Infrastructure with EKS and EFS:**
 ```bash
-# Set your AWS account ID
+# Set your deployment parameters
 export AWS_ACCOUNT_ID="your-aws-account-id"
+export KEY_PAIR_NAME="your-ec2-keypair-name"
+export DATABASE_PASSWORD="your-secure-database-password"
+export GITHUB_TOKEN="your-github-personal-access-token"
 
-# Deploy with new Aurora PostgreSQL cluster
+# Deploy DataSurface EKS infrastructure
 aws cloudformation create-stack \
   --stack-name datasurface-eks-stack \
-  --template-body file://src/datasurface/platforms/yellow/templates/cloudformation/datasurface-eks-stack.yaml \
+  --template-body file://aws-marketplace/cloudformation/datasurface-eks-stack.yaml \
   --parameters \
-    ParameterKey=KubernetesDeploymentType,ParameterValue=Fargate \
-    ParameterKey=CreateAuroraDatabase,ParameterValue=true \
-    ParameterKey=DatabaseMasterUsername,ParameterValue=postgres \
-    ParameterKey=DatabaseMasterPassword,ParameterValue=YourSecurePassword123! \
+    ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME \
+    ParameterKey=DatabasePassword,ParameterValue=$DATABASE_PASSWORD \
+    ParameterKey=GitHubToken,ParameterValue=$GITHUB_TOKEN \
+    ParameterKey=CreateDatabase,ParameterValue=false \
+    ParameterKey=KubernetesDeploymentType,ParameterValue=EKS-EC2 \
   --capabilities CAPABILITY_IAM \
   --region us-east-1
 ```
 
-**Option B: Use Existing RDS Instances**
-```bash
-# Set your AWS account ID
-export AWS_ACCOUNT_ID="your-aws-account-id"
+**Note**: This template creates:
+- EKS cluster (v1.32) with EC2 node groups
+- EFS file system for shared storage
+- OIDC identity provider for IRSA
+- IAM roles for EFS CSI driver
+- VPC with public/private subnets
+- Application Load Balancer
+- S3 bucket for artifacts
 
-# Deploy without creating Aurora (use your existing RDS instances)
-aws cloudformation create-stack \
-  --stack-name datasurface-eks-stack \
-  --template-body file://src/datasurface/platforms/yellow/templates/cloudformation/datasurface-eks-stack.yaml \
-  --parameters \
-    ParameterKey=KubernetesDeploymentType,ParameterValue=Fargate \
-    ParameterKey=CreateAuroraDatabase,ParameterValue=false \
-  --capabilities CAPABILITY_IAM \
-  --region us-east-1
-```
+**Instance Type Considerations**:
+- Default `m5.large` (2 vCPU) may be insufficient for default Airflow resource requests
+- Recommended: `m5.xlarge` (4 vCPU) or larger for production deployments
+- See troubleshooting section for CPU resource issues
 
 **Wait for Stack Creation:**
 ```bash
@@ -153,7 +155,7 @@ if aws cloudformation describe-stacks --stack-name datasurface-eks-stack --query
 fi
 ```
 
-### Step 2: Configure kubectl for EKS and Install EFS CSI Driver
+### Step 2: Configure kubectl for EKS and Setup EFS Storage
 
 **Update kubeconfig to access the EKS cluster:**
 ```bash
@@ -180,14 +182,33 @@ aws eks wait addon-active \
 
 echo "EFS CSI Driver installed successfully"
 
-# Create EFS StorageClass
+# Get EFS details from CloudFormation outputs
 export EFS_FILE_SYSTEM_ID=$(aws cloudformation describe-stacks \
   --stack-name datasurface-eks-stack \
   --query 'Stacks[0].Outputs[?OutputKey==`EFSFileSystemId`].OutputValue' \
   --output text \
   --region us-east-1)
 
+export EFS_CSI_DRIVER_ROLE_ARN=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`EFSCSIDriverRoleArn`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
 echo "EFS File System ID: $EFS_FILE_SYSTEM_ID"
+echo "EFS CSI Driver Role ARN: $EFS_CSI_DRIVER_ROLE_ARN"
+
+# Annotate EFS CSI controller service account with IAM role (for IRSA)
+kubectl annotate serviceaccount efs-csi-controller-sa \
+  -n kube-system \
+  eks.amazonaws.com/role-arn=$EFS_CSI_DRIVER_ROLE_ARN \
+  --overwrite
+
+# Restart EFS CSI controller to pick up the new IAM role
+kubectl rollout restart deployment/efs-csi-controller -n kube-system
+
+# Wait for EFS CSI controller to be ready
+kubectl rollout status deployment/efs-csi-controller -n kube-system
 
 # Create EFS StorageClass manifest
 cat > efs-storageclass.yaml << EOF
@@ -925,30 +946,41 @@ Open http://localhost:8080 and login with:
 ## AWS-Specific Features
 
 **IAM Roles for Service Accounts (IRSA):**
-- Airflow service account annotated with IAM role ARN
-- Enables secure access to AWS Secrets Manager without storing credentials in pods
+- EFS CSI driver service account with IAM role for dynamic provisioning
+- Airflow service account with IAM role for AWS Secrets Manager access
+- Eliminates need for storing AWS credentials in pods
 - Automatic credential rotation and fine-grained permissions
 
 **AWS Secrets Manager Integration:**
 - Database credentials stored securely in AWS Secrets Manager
+- Git tokens and other sensitive data managed centrally
 - Airflow fetches secrets dynamically using boto3 SDK
-- Eliminates need for Kubernetes secrets for sensitive data
+- Reduces attack surface by avoiding Kubernetes secrets
 
-**EKS Fargate Support:**
-- Serverless compute for Kubernetes pods
-- Automatic scaling based on pod resource requirements
-- No need to manage EC2 instances
+**EKS with EC2 Node Groups:**
+- Managed Kubernetes control plane with AWS-optimized worker nodes
+- Auto Scaling Groups for automatic node scaling
+- Support for EFS CSI driver and privileged containers
+- Cost-effective compute with reserved instance options
 
 **AWS RDS Integration:**
-- Managed PostgreSQL database service
-- Automated backups and maintenance
-- High availability and performance optimization
+- Managed PostgreSQL database service for Airflow and application data
+- Automated backups, maintenance, and security patches
+- High availability with Multi-AZ deployments
+- Performance monitoring and optimization tools
 
 **Amazon EFS Integration:**
-- Shared filesystem storage for Airflow DAGs, logs, and git cache
+- Fully managed NFS file system for shared storage
 - ReadWriteMany access mode for multiple pod access
-- Automatic scaling and high availability
-- POSIX-compliant filesystem for git operations
+- Automatic scaling from GB to PB without provisioning
+- POSIX-compliant filesystem for git operations and DAG storage
+- Regional availability and 99.999999999% (11 9's) durability
+
+**CloudFormation Infrastructure as Code:**
+- Complete infrastructure defined in version-controlled templates
+- Automated provisioning of VPC, subnets, security groups
+- OIDC identity provider for secure service account authentication
+- Consistent deployments across environments
 
 ## Default Credentials
 
@@ -981,200 +1013,133 @@ Open http://localhost:8080 and login with:
 - IRSA configured for secure AWS service access
 - Network connectivity verified between EKS cluster and existing RDS instances
 
-## Known Issues and Troubleshooting
+## Troubleshooting
 
-### Issue 1: Fargate Profile Namespace Mismatch
+### Common Issues and Solutions
 
-**Problem**: Pods stuck in `Pending` state with "no nodes available to schedule pods" error.
+#### Issue: PVCs Stuck in Pending State
 
-**Root Cause**: The CloudFormation template creates a Fargate profile for the `datasurface` namespace, but the generated manifests use the namespace defined in `eco.py` (typically `ns-yellow-starter`).
+**Symptoms**: PersistentVolumeClaims remain in `Pending` status, pods cannot start.
 
-**Solution**: Create additional Fargate profiles for your actual namespace:
+**Solution**: Verify EFS CSI driver is properly configured:
 
 ```bash
-# Get your cluster name from CloudFormation outputs
-CLUSTER_NAME=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
-  --query 'Stacks[0].Outputs[?OutputKey==`EKSClusterName`].OutputValue' \
-  --output text \
-  --region us-east-1)
+# Check EFS CSI driver status
+kubectl get pods -n kube-system -l app=efs-csi-controller
 
-# Get the Fargate execution role ARN
-FARGATE_ROLE_ARN=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
-  --query 'Stacks[0].Resources[?LogicalResourceId==`EKSFargateRole`].PhysicalResourceId' \
-  --output text \
-  --region us-east-1)
+# Verify service account annotation
+kubectl describe serviceaccount efs-csi-controller-sa -n kube-system
 
-# Get private subnet IDs
-SUBNET1=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
-  --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
-  --output text \
-  --region us-east-1)
-
-SUBNET2=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
-  --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet2`].OutputValue' \
-  --output text \
-  --region us-east-1)
-
-# Create Fargate profile for your namespace (replace ns-yellow-starter with your namespace)
-aws eks create-fargate-profile \
-  --cluster-name $CLUSTER_NAME \
-  --fargate-profile-name yellow-starter-profile \
-  --pod-execution-role-arn $FARGATE_ROLE_ARN \
-  --subnets $SUBNET1 $SUBNET2 \
-  --selectors namespace=ns-yellow-starter \
-  --region us-east-1
+# Check PVC events for specific errors
+kubectl describe pvc <pvc-name> -n <namespace>
 ```
 
-### Issue 2: EFS CSI Driver Compatibility with Fargate
+#### Issue: Pods Cannot Mount EFS Volumes
 
-**Problem**: EFS volumes fail to mount with "context deadline exceeded" errors.
+**Symptoms**: Pods fail to start with volume mount errors.
 
-**Root Cause**: The EFS CSI driver requires privileged containers, which are not supported on Fargate.
+**Solution**: Ensure EFS security group allows NFS traffic:
+
+```bash
+# Get EFS security group ID from CloudFormation
+EFS_SG_ID=$(aws cloudformation describe-stacks \
+  --stack-name datasurface-eks-stack \
+  --query 'Stacks[0].Resources[?LogicalResourceId==`EFSSecurityGroup`].PhysicalResourceId' \
+  --output text \
+  --region us-east-1)
+
+# Verify NFS rule exists (port 2049)
+aws ec2 describe-security-groups --group-ids $EFS_SG_ID --region us-east-1
+```
+
+#### Issue: Airflow Pods Crash on Startup
+
+**Symptoms**: Airflow scheduler/webserver pods restart repeatedly.
+
+**Solution**: Check database connectivity and initialization:
+
+```bash
+# Check Airflow logs
+kubectl logs deployment/airflow-scheduler -n <namespace>
+
+# Test database connection
+kubectl run db-test --rm -i --restart=Never \
+  --image=postgres:16 \
+  --env="PGPASSWORD=<password>" \
+  -n <namespace> \
+  -- psql -h <db-host> -U <db-user> -c "SELECT version();"
+```
+
+#### Issue: AWS Secrets Manager Access Denied
+
+**Symptoms**: Pods cannot access AWS Secrets Manager secrets.
+
+**Solution**: Verify IRSA configuration:
+
+```bash
+# Check service account annotation
+kubectl describe serviceaccount airflow-service-account -n <namespace>
+
+# Verify IAM role exists and has correct policies
+aws iam get-role --role-name <role-name> --region us-east-1
+aws iam list-attached-role-policies --role-name <role-name> --region us-east-1
+```
+
+#### Issue: Pods Stuck in Pending - Insufficient CPU
+
+**Symptoms**: Airflow scheduler shows "Insufficient cpu" and remains in `Pending` status.
+
+**Cause**: Default Airflow resource requests (scheduler: 2 CPU, webserver: 1 CPU) exceed capacity of `m5.large` nodes (2 vCPU each).
 
 **Solutions**:
 
-**Option A: Use Static EFS Volumes (Recommended for Fargate)**
+**Option A: Use Larger Instance Types (Recommended)**
+```bash
+# Update CloudFormation to use m5.xlarge or larger
+aws cloudformation update-stack \
+  --stack-name datasurface-eks-v3 \
+  --template-body file://aws-marketplace/cloudformation/datasurface-eks-stack.yaml \
+  --parameters ParameterKey=InstanceType,ParameterValue=m5.xlarge \
+  --capabilities CAPABILITY_IAM \
+  --region us-east-1
+```
+
+**Option B: Temporarily Patch Resource Requests**
+```bash
+# Reduce scheduler CPU request
+kubectl patch deployment airflow-scheduler -n ns-yellow-starter -p '{"spec":{"template":{"spec":{"containers":[{"name":"airflow","resources":{"requests":{"cpu":"500m","memory":"1Gi"}}}]}}}}'
+
+# Reduce webserver CPU request  
+kubectl patch deployment airflow-webserver -n ns-yellow-starter -p '{"spec":{"template":{"spec":{"containers":[{"name":"airflow","resources":{"requests":{"cpu":"500m","memory":"1Gi"}}}]}}}}'
+```
+
+**Instance Type Recommendations**:
+- `m5.large` (2 vCPU): Only suitable with reduced resource requests
+- `m5.xlarge` (4 vCPU): Recommended minimum for default resource requests
+- `m5.2xlarge` (8 vCPU): Good for production workloads
+- `m5.4xlarge` (16 vCPU): Excellent for heavy workloads or multiple environments
+
+### Performance Optimization
+
+#### EFS Performance Mode
+
+For high-throughput workloads, consider using EFS Max I/O mode:
 
 ```bash
-# Get EFS details from CloudFormation
-EFS_FILE_SYSTEM_ID=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
-  --query 'Stacks[0].Outputs[?OutputKey==`EFSFileSystemId`].OutputValue' \
-  --output text \
-  --region us-east-1)
-
-EFS_ACCESS_POINT_ID=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
-  --query 'Stacks[0].Outputs[?OutputKey==`EFSAccessPointId`].OutputValue' \
-  --output text \
-  --region us-east-1)
-
-# Create static PersistentVolumes
-cat > static-efs-volumes.yaml << EOF
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: airflow-dags-pv
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: efs-sc
-  csi:
-    driver: efs.csi.aws.com
-    volumeHandle: ${EFS_FILE_SYSTEM_ID}::${EFS_ACCESS_POINT_ID}
-    volumeAttributes:
-      path: "/dags"
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: airflow-logs-pv
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: efs-sc
-  csi:
-    driver: efs.csi.aws.com
-    volumeHandle: ${EFS_FILE_SYSTEM_ID}::${EFS_ACCESS_POINT_ID}
-    volumeAttributes:
-      path: "/logs"
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: git-cache-pv
-spec:
-  capacity:
-    storage: 5Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: efs-sc
-  csi:
-    driver: efs.csi.aws.com
-    volumeHandle: ${EFS_FILE_SYSTEM_ID}::${EFS_ACCESS_POINT_ID}
-    volumeAttributes:
-      path: "/git-cache"
-EOF
-
-kubectl apply -f static-efs-volumes.yaml
+# Check current EFS performance mode
+aws efs describe-file-systems --file-system-id <efs-id> --region us-east-1
 ```
 
-**Option B: Use EC2 Node Groups Instead of Fargate**
+#### Node Group Scaling
 
-If you need full EFS CSI driver functionality, consider using EC2 node groups instead of Fargate. This requires modifying the CloudFormation template to include EC2 node groups.
-
-### Issue 3: Template Storage Class Configuration
-
-**Problem**: Generated manifests may use incorrect storage classes (e.g., `gp3` instead of `efs-sc`).
-
-**Root Cause**: Template generation may use hardcoded storage class values instead of the model configuration.
-
-**Solution**: Ensure your ecosystem model in `eco.py` correctly specifies the storage class:
-
-```python
-STORAGE_CLASS: str = "efs-sc"
-
-# In your YellowPlatformServiceProvider configuration:
-psp: YellowPlatformServiceProvider = YellowPlatformServiceProvider(
-    # ... other parameters ...
-    pv_storage_class=STORAGE_CLASS,
-    # ... other parameters ...
-)
-```
-
-After making changes, rebuild the Docker image and regenerate artifacts:
+Adjust node group size based on workload requirements:
 
 ```bash
-# Rebuild Docker image
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t datasurface/datasurface:latest \
-  -f Dockerfile.datasurface --push .
-
-# Regenerate artifacts
-docker run --rm \
-  -v "$(pwd)":/workspace/model \
-  -w /workspace/model \
-  datasurface/datasurface:latest \
-  python -m datasurface.cmd.platform generatePlatformBootstrap \
-  --ringLevel 0 \
-  --model /workspace/model \
-  --output /workspace/model/generated_output \
-  --psp Test_DP
+# Update node group scaling configuration
+aws eks update-nodegroup-config \
+  --cluster-name <cluster-name> \
+  --nodegroup-name <nodegroup-name> \
+  --scaling-config minSize=1,maxSize=10,desiredSize=3 \
+  --region us-east-1
 ```
-
-### Issue 4: Secrets Management Hybrid Configuration
-
-**Problem**: Generated manifests may use Kubernetes secrets instead of full AWS Secrets Manager integration.
-
-**Current Behavior**: The manifests include IRSA configuration but still reference Kubernetes secrets.
-
-**Workaround**: Create Kubernetes secrets that mirror your AWS Secrets Manager values:
-
-```bash
-# Create required Kubernetes secrets
-kubectl create secret generic postgres \
-  --from-literal=postgres_USER=your-db-username \
-  --from-literal=postgres_PASSWORD=your-db-password \
-  -n your-namespace
-
-kubectl create secret generic git \
-  --from-literal=token=your-github-pat \
-  -n your-namespace
-```
-
-**Future Enhancement**: Full AWS Secrets Manager integration is planned to eliminate the need for Kubernetes secrets.
 

@@ -10,7 +10,7 @@ from sqlalchemy import text, MetaData
 from sqlalchemy.engine import Engine
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.platforms.yellow import db_utils
-from datasurface.platforms.yellow.jobs import Job, JobStatus
+from datasurface.platforms.yellow.jobs import IngestMergeJob, JobStatus
 from datasurface.platforms.yellow.yellow_dp import BatchState, BatchStatus
 from datasurface.md import Ecosystem, PostgresDatabase, SQLServerDatabase, DB2Database
 from datasurface.md import Datastore, SQLIngestion
@@ -37,7 +37,7 @@ class BaseMergeJobTest(ABC):
     dp: Optional[YellowDataPlatform]
     store_entry: Optional[DatastoreCacheEntry]
     store: Optional[Datastore]
-    job: Optional[Job]
+    job: Optional[IngestMergeJob]
     source_engine: Optional[Engine]
     merge_engine: Optional[Engine]
     ydu: YellowDatasetUtilities
@@ -60,7 +60,7 @@ class BaseMergeJobTest(ABC):
         # Initialize database operations for test cleanup
         self.db_ops = None
 
-    def getJob(self) -> Job:
+    def getJob(self) -> IngestMergeJob:
         if self.job is None:
             raise ValueError("job is not set")
         return self.job

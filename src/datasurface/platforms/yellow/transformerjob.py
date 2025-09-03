@@ -7,20 +7,16 @@ from datasurface.md.sqlalchemyutils import createOrUpdateTable
 from datasurface.platforms.yellow.yellow_dp import JobUtilities, JobStatus
 from datasurface.md import (
     Ecosystem, CredentialStore, Workspace, WorkspaceCacheEntry, Datastore, Dataset,
-    DataPlatform, Credential
+    Credential
 )
 from datasurface.md.credential import CredentialType
 from datasurface.platforms.yellow.yellow_dp import YellowDataPlatform, KubernetesEnvVarsCredentialStore
 from sqlalchemy import Engine, text
 from datasurface.platforms.yellow.db_utils import createEngine, createInspector
-from datasurface.md.codeartifact import PythonRepoCodeArtifact
-from typing import cast, Dict, Any, Optional, Callable
-from datasurface.cmd.platform import cloneGitRepository, getLatestModelAtTimestampedFolder
+from typing import cast, Any, Optional
+from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
 import os
 import sys
-import copy
-import importlib
-from types import ModuleType
 from sqlalchemy.engine import Connection
 from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 import sqlalchemy
@@ -29,50 +25,34 @@ import argparse
 from datasurface.md.repo import GitHubRepository
 from datasurface.md.lint import ValidationTree
 from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities
-
+from abc import ABC, abstractmethod
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger, set_context,
     log_operation_timing
 )
-
+from datasurface.md.model_schema import DatasurfaceTransformerType, executeModelExternalizer
+from datasurface.md.codeartifact import PythonRepoCodeArtifact
+from datasurface.md import DatasurfaceTransformerCodeArtifact
+# Removed import to avoid circular dependency - will import in function
+import copy
+import importlib
+from types import ModuleType
+from datasurface.cmd.platform import cloneGitRepository
+from typing import Callable
+from datasurface.platforms.yellow.transformer_context import DataTransformerContext
 # Setup logging for Kubernetes environment
 setup_logging_for_environment()
 logger = get_contextual_logger(__name__)
 
 
-class DataTransformerContext:
-    """This class is used to map dataset names to table names for the workspace."""
-    def __init__(self, eco: Ecosystem, workspace: Workspace, dp: DataPlatform) -> None:
-        self._eco: Ecosystem = eco
-        self._workspace: Workspace = workspace
-        self._dataPlatform: DataPlatform = dp
-        self._input_dataset_to_table_mapping: Dict[str, str] = {}
-        self._output_dataset_to_table_mapping: Dict[str, str] = {}
+class CodeArtifactHandler(ABC):
+    def __init__(self, job: 'DataTransformerJob') -> None:
+        self.job: 'DataTransformerJob' = job
 
-    def _getInputKey(self, dsg: str, storeName: str, datasetName: str) -> str:
-        return f"{dsg}#{storeName}#{datasetName}"
-
-    def _getOutputKey(self, storeName: str, datasetName: str) -> str:
-        return f"output#{storeName}#{datasetName}"
-
-    def getInputTableNameForDataset(self, dsg: str, storeName: str, datasetName: str) -> str:
-        return self._input_dataset_to_table_mapping.get(self._getInputKey(dsg, storeName, datasetName), "")
-
-    def getOutputTableNameForDataset(self, datasetName: str) -> str:
-        assert self._workspace.dataTransformer is not None
-        tableName: str = self._output_dataset_to_table_mapping.get(self._getOutputKey(self._workspace.dataTransformer.outputDatastore.name, datasetName), "")
-        if tableName == "":
-            raise ValueError(f"Output table name not found for dataset {datasetName}")
-        return tableName
-
-    def getEcosystem(self) -> Ecosystem:
-        return self._eco
-
-    def getPlatform(self) -> DataPlatform:
-        return self._dataPlatform
-
-    def getWorkspace(self) -> Workspace:
-        return self._workspace
+    @abstractmethod
+    def execute(self, connection: Connection) -> Any:
+        """Execute the code artifact."""
+        pass
 
 
 class InternalDataTransformerContext(DataTransformerContext):
@@ -130,46 +110,6 @@ class DataTransformerJob(JobUtilities):
             except Exception as e:
                 logger.error(f"Could not truncate table {table_name}: {e}")
 
-    def executeTransformer(self, codeDir: str, connection: Connection, workspace: Workspace, outputDatastore: Datastore) -> Optional[Any]:
-        """Load and execute the transformer code."""
-        # Try to load and execute the transformer code
-        origSystemPath: list[str] = copy.deepcopy(sys.path)
-        try:
-            sys.path.append(codeDir)
-
-            transformerModuleName: str = "transformer"
-
-            # Remove the module from sys.modules to force a reload
-            if transformerModuleName in sys.modules:
-                del sys.modules[transformerModuleName]
-
-            try:
-                module: ModuleType = importlib.import_module(transformerModuleName)
-                executeTransformer: Callable = getattr(module, "executeTransformer")
-
-                # Build the dataset mapping
-                dataset_mapping = self._buildDatasetMapping(workspace, outputDatastore)
-
-                # Call the transformer function
-                logger.info(f"Calling transformer function: {executeTransformer}")
-                result = executeTransformer(connection, dataset_mapping)
-                logger.info(f"Transformer function result: {result}")
-                logger.info(f"DataTransformer executed successfully for workspace: {self.workspaceName}")
-                return result
-
-            except ModuleNotFoundError:
-                # Should only happen on initial setup of a repository
-                logger.error(f"Transformer module not found in {codeDir}")
-                raise
-            except AttributeError as e:
-                logger.error(f"createTransformer function not found in transformer module: {e}")
-                raise
-            except Exception as e:
-                logger.error(f"Error executing transformer: {e}")
-                raise
-        finally:
-            sys.path = origSystemPath
-
     def run(self, credStore: CredentialStore) -> JobStatus:
         try:
             logger.info("Starting DataTransformer job",
@@ -187,13 +127,8 @@ class DataTransformerJob(JobUtilities):
             w: Workspace = wce.workspace
             assert w.dataTransformer is not None
             assert w.dataTransformer.outputDatastore is not None
-            code: PythonRepoCodeArtifact = cast(PythonRepoCodeArtifact, w.dataTransformer.code)
-
-            # git clone the code artifact in to the code folder in the working folder
-            clone_dir: str = os.path.join(self.workingFolder, "code")
-            with log_operation_timing(logger, "git_clone_repository", repo=str(code.repo)):
-                finalCodeFolder: str = cloneGitRepository(credStore, code.repo, clone_dir)
-
+            # Import here to avoid circular dependency
+            codeArtifactHandler: CodeArtifactHandler = createCodeArtifactHandler(self)
             # Get the output datastore
             outputDatastore: Datastore = w.dataTransformer.outputDatastore
 
@@ -220,7 +155,7 @@ class DataTransformerJob(JobUtilities):
                     self._truncateOutputTables(connection, outputDatastore)
 
                     # Execute the transformer code
-                    result = self.executeTransformer(finalCodeFolder, connection, w, outputDatastore)
+                    result = codeArtifactHandler.execute(connection)
 
                     if result is None:
                         logger.warning("DataTransformer returned no result")
@@ -237,6 +172,106 @@ class DataTransformerJob(JobUtilities):
                              workspace_name=self.workspaceName,
                              working_folder=self.workingFolder)
             return JobStatus.ERROR
+
+
+def createCodeArtifactHandler(job: 'DataTransformerJob') -> CodeArtifactHandler:
+    """Create a code artifact handler for the given job."""
+    w: Workspace = job.eco.cache_getWorkspaceOrThrow(job.workspaceName).workspace
+    if w.dataTransformer is None:
+        raise ValueError(f"Workspace {job.workspaceName} has no data transformer")
+    if w.dataTransformer.code is None:
+        raise ValueError(f"Workspace {job.workspaceName} has no data transformer code")
+
+    if isinstance(w.dataTransformer.code, PythonRepoCodeArtifact):
+        return PythonRepoCodeArtifactHandler(job)
+    elif isinstance(w.dataTransformer.code, DatasurfaceTransformerCodeArtifact):
+        return SystemCodeArtifactHandler(job)
+    else:
+        raise ValueError(f"Unsupported code artifact type: {type(w.dataTransformer.code)}")
+
+
+class PythonRepoCodeArtifactHandler(CodeArtifactHandler):
+    def __init__(self, job: 'DataTransformerJob') -> None:
+        super().__init__(job)
+
+    def callTransformer(self, codeDir: str, connection: Connection, workspace: Workspace, outputDatastore: Datastore) -> Optional[Any]:
+        """Load and execute the transformer code."""
+        # Try to load and execute the transformer code
+        origSystemPath: list[str] = copy.deepcopy(sys.path)
+        try:
+            sys.path.append(codeDir)
+
+            transformerModuleName: str = "transformer"
+
+            # Remove the module from sys.modules to force a reload
+            if transformerModuleName in sys.modules:
+                del sys.modules[transformerModuleName]
+
+            try:
+                module: ModuleType = importlib.import_module(transformerModuleName)
+                executeTransformer: Callable = getattr(module, "executeTransformer")
+
+                # Build the dataset mapping
+                dataset_mapping = self.job._buildDatasetMapping(workspace, outputDatastore)
+
+                # Call the transformer function
+                logger.info(f"Calling transformer function: {executeTransformer}")
+                result = executeTransformer(connection, dataset_mapping)
+                logger.info(f"Transformer function result: {result}")
+                logger.info(f"DataTransformer executed successfully for workspace: {self.job.workspaceName}")
+                return result
+
+            except ModuleNotFoundError:
+                # Should only happen on initial setup of a repository
+                logger.error(f"Transformer module not found in {codeDir}")
+                raise
+            except AttributeError as e:
+                logger.error(f"createTransformer function not found in transformer module: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Error executing transformer: {e}")
+                raise
+        finally:
+            sys.path = origSystemPath
+
+    def execute(self, connection: Connection) -> Any:
+        """Execute the code artifact."""
+        wce: WorkspaceCacheEntry = self.job.eco.cache_getWorkspaceOrThrow(self.job.workspaceName)
+        w: Workspace = wce.workspace
+        if w.dataTransformer is None:
+            raise ValueError(f"Workspace {self.job.workspaceName} has no data transformer")
+        if w.dataTransformer.outputDatastore is None:
+            raise ValueError(f"Workspace {self.job.workspaceName} has no output datastore")
+        if w.dataTransformer.code is not None and not isinstance(w.dataTransformer.code, PythonRepoCodeArtifact):
+            raise ValueError(f"Workspace {self.job.workspaceName} has a code artifact that is not a PythonRepoCodeArtifact")
+        code: PythonRepoCodeArtifact = w.dataTransformer.code
+
+        # git clone the code artifact in to the code folder in the working folder
+        clone_dir: str = os.path.join(self.job.workingFolder, "code")
+        with log_operation_timing(logger, "git_clone_repository", repo=str(code.repo)):
+            finalCodeFolder: str = cloneGitRepository(self.job.credStore, code.repo, clone_dir)
+        return self.callTransformer(finalCodeFolder, connection, w, w.dataTransformer.outputDatastore)
+
+
+class SystemCodeArtifactHandler(CodeArtifactHandler):
+    def __init__(self, job: 'DataTransformerJob') -> None:
+        super().__init__(job)
+
+    def execute(self, connection: Connection) -> Any:
+        """Execute the code artifact."""
+        wce: WorkspaceCacheEntry = self.job.eco.cache_getWorkspaceOrThrow(self.job.workspaceName)
+        w: Workspace = wce.workspace
+        if w.dataTransformer is None:
+            raise ValueError(f"Workspace {self.job.workspaceName} has no data transformer")
+        if w.dataTransformer.outputDatastore is None:
+            raise ValueError(f"Workspace {self.job.workspaceName} has no output datastore")
+        if w.dataTransformer.code is not None and not isinstance(w.dataTransformer.code, DatasurfaceTransformerCodeArtifact):
+            raise ValueError(f"Workspace {self.job.workspaceName} has a code artifact that is not a DatasurfaceTransformerCodeArtifact")
+        code: DatasurfaceTransformerCodeArtifact = w.dataTransformer.code
+        if code.type == DatasurfaceTransformerType.EXTERNALIZE_MODEL:
+            executeModelExternalizer(connection, self.job._buildDatasetMapping(w, w.dataTransformer.outputDatastore))
+        else:
+            raise ValueError(f"Unsupported code artifact type: {code.type}")
 
 
 def main():

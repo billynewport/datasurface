@@ -15,7 +15,7 @@ from datasurface.platforms.yellow.yellow_dp import (
 )
 from datasurface.cmd.platform import getLatestModelAtTimestampedFolder
 import argparse
-from datasurface.platforms.yellow.merge import Job
+from datasurface.platforms.yellow.merge import IngestMergeJob
 import sys
 from datasurface.platforms.yellow.yellow_dp import JobStatus
 from datasurface.md.repo import GitHubRepository
@@ -165,7 +165,7 @@ def main():
 
         # Import here to avoid circular import
         from datasurface.platforms.yellow.job_factory import calculateCorrectJob
-        job: Optional[Job] = calculateCorrectJob(eco, dp, store, args.dataset_name)
+        job: Optional[IngestMergeJob] = calculateCorrectJob(eco, dp, store, args.dataset_name)
         if job is None:
             logger.error("Failed to calculate correct job", operation=args.operation)
             return -1  # ERROR
