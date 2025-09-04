@@ -76,21 +76,26 @@ class AirflowAWSComponent(Component):
     def generateBootstrapArtifacts(self, eco: Ecosystem, context: dict[str, Any], jinjaEnv, ringLevel: int) -> dict[str, str]:
         """Generate AWS-specific infrastructure DAG"""
         dag_template = jinjaEnv.get_template('airflowAWS/infrastructure_dag.py.j2')
+
+        comp_context: dict[str, Any] = context.copy()
+        comp_context.update({
+            "airflow_k8s_name": K8sUtils.to_k8s_name(self.name),
+        })
         rc: dict[str, str] = dict()
-        rendered_infrastructure_dag: str = dag_template.render(context)
+        rendered_infrastructure_dag: str = dag_template.render(comp_context)
         rc["infrastructure_dag.py"] = rendered_infrastructure_dag
 
         model_merge_template: Template = jinjaEnv.get_template('airflowAWS/model_merge_job.yaml.j2')
-        rendered_model_merge_job: str = model_merge_template.render(context)
+        rendered_model_merge_job: str = model_merge_template.render(comp_context)
 
         # This is a yaml file which runs in the environment to create database tables needed
         # and other things required to run the dataplatforms.
         ring1_init_template: Template = jinjaEnv.get_template('airflowAWS/ring1_init_job.yaml.j2')
-        rendered_ring1_init_job: str = ring1_init_template.render(context)
+        rendered_ring1_init_job: str = ring1_init_template.render(comp_context)
 
         # This creates all the Workspace views needed for all the dataplatforms in the model.
         reconcile_views_template: Template = jinjaEnv.get_template('airflowAWS/reconcile_views_job.yaml.j2')
-        rendered_reconcile_views_job: str = reconcile_views_template.render(context)
+        rendered_reconcile_views_job: str = reconcile_views_template.render(comp_context)
 
         rc["model_merge_job.yaml"] = rendered_model_merge_job
         rc["ring1_init_job.yaml"] = rendered_ring1_init_job

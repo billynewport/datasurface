@@ -2157,6 +2157,7 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
                     "merge_db_database": self.mergeStore.databaseName,
                     "merge_db_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),
                     "airflow_name": K8sUtils.to_k8s_name(self.airflowName),
+                    "airflow_k8s_name": K8sUtils.to_k8s_name(self.airflowName),
                     "airflow_credential_secret_name": K8sUtils.to_k8s_name(self.mergeRW_Credential.name),  # Airflow uses postgres creds
                     "kafka_cluster_name": K8sUtils.to_k8s_name(self.kafkaClusterName),
                     "kafka_connect_name": K8sUtils.to_k8s_name(self.kafkaConnectName),

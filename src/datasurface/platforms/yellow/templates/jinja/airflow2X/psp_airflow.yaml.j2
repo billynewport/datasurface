@@ -4,7 +4,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: airflow-service-account
+  name: {{ airflow_k8s_name }}-service-account
   namespace: {{ namespace_name }}
 ---
 # Airflow Role for Pod Management
