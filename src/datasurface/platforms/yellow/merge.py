@@ -18,13 +18,12 @@ from datasurface.platforms.yellow.db_utils import createEngine
 from datasurface.platforms.yellow.yellow_dp import (
     YellowDataPlatform, BatchStatus, BatchState
 )
-from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable, createOrUpdateTable
+from datasurface.md.sqlalchemyutils import datasetToSQLAlchemyTable
 from datasurface.platforms.yellow.yellow_dp import YellowDatasetUtilities, JobStatus
 from abc import abstractmethod
 from datasurface.platforms.yellow.logging_utils import (
     setup_logging_for_environment, get_contextual_logger,
 )
-from sqlalchemy.engine.reflection import Inspector
 from datasurface.platforms.yellow.database_operations import DatabaseOperations
 from datasurface.platforms.yellow.data_ops_factory import DatabaseOperationsFactory
 from datasurface.platforms.yellow.db_utils import createInspector
@@ -108,11 +107,6 @@ class IngestMergeJob(YellowDatasetUtilities):
         self.sourceSchemaProjector: YellowSchemaProjector = cast(YellowSchemaProjector, self.remoteDP.createSchemaProjector(eco))
         self.sourceSchemaProjector.setDBOps(self.remoteYDU.merge_db_ops)
 
-    def createBatchCounterTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
-        """This creates the batch counter table"""
-        t: Table = self.getBatchCounterTable()
-        createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
-
     CHUNK_SIZE_KEY: str = "chunkSize"
     CHUNK_SIZE_DEFAULT: int = 50000
 
@@ -143,11 +137,6 @@ class IngestMergeJob(YellowDatasetUtilities):
         if value <= 0:
             raise ValueError(f"Value must be greater than 0, got {value}")
         return value
-
-    def createBatchMetricsTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
-        """This creates the batch metrics table"""
-        t: Table = self.getBatchMetricsTable(mergeConnection)
-        createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
 
     def getStagingSchemaForDataset(self, dataset: Dataset, tableName: str, mergeConnection: Optional[Connection] = None) -> Table:
         """This returns the staging schema for a dataset"""

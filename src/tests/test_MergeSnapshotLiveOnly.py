@@ -244,7 +244,6 @@ class BaseMergeJobTest(ABC):
         self.getDP().getPSP().credStore = mock_cred_store  # type: ignore[attr-defined]
 
     def setupDatabases(self) -> None:
-
         # Create source engine based on merge store type for consistency
         cmd: CaptureMetaData = self.getStore().getCMD()
         if not isinstance(cmd, SQLIngestion):

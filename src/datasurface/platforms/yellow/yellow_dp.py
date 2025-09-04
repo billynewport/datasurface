@@ -115,9 +115,19 @@ class JobUtilities(ABC):
         """This returns the name of the batch counter table"""
         return self.dp.getPSP().namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_counter"))
 
+    def createBatchCounterTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
+        """This creates the batch counter table"""
+        t: Table = self.getBatchCounterTable()
+        createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
+
     def getPhysBatchMetricsTableName(self) -> str:
         """This returns the name of the batch metrics table"""
         return self.dp.getPSP().namingMapper.fmtTVI(self.dp.getTableForPlatform("batch_metrics"))
+
+    def createBatchMetricsTable(self, mergeConnection: Connection, inspector: Inspector) -> None:
+        """This creates the batch metrics table"""
+        t: Table = self.getBatchMetricsTable(mergeConnection)
+        createOrUpdateTable(mergeConnection, inspector, t, createOnly=True)
 
     def getBatchCounterTable(self) -> Table:
         """This constructs the sqlalchemy table for the batch counter table"""

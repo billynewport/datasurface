@@ -188,7 +188,6 @@ def addDatasurfaceModel(eco: Ecosystem, repo: Repository) -> None:
                                         DDLColumn("ecoName", VarChar(255), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
                                         DDLColumn("vendorName", VarChar(255), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
                                         DDLColumn("locationName", VarChar(255), primary_key=PrimaryKeyStatus.PK, nullable=NullableStatus.NOT_NULLABLE),
-                                        DDLColumn("parentLocationName", VarChar(255), nullable=NullableStatus.NULLABLE),
                                     ]
                                 )),
                     ]),
@@ -200,11 +199,11 @@ def addDatasurfaceModel(eco: Ecosystem, repo: Repository) -> None:
 
 
 class RecordCollector:
-    def __init__(self, dataset: Dataset, conn: Connection) -> None:
+    def __init__(self, dataset: Dataset, conn: Connection, table_name: str) -> None:
         self.dataset: Dataset = dataset
         self.conn: Connection = conn
         self.records: List[Dict[str, Any]] = []
-        self.table: Table = sqlalchemyutils.datasetToSQLAlchemyTable(dataset, dataset.name, sqlalchemy.MetaData(), conn)
+        self.table: Table = sqlalchemyutils.datasetToSQLAlchemyTable(dataset, table_name, sqlalchemy.MetaData(), conn)
 
     def insert(self, record: Dict[str, Any]) -> None:
         self.records.append(record)
@@ -234,21 +233,29 @@ def executeModelExternalizer(conn: Connection, context: DataTransformerContext) 
 
     # Create lists for each table's insert data
     # We add rows to these for batch insertion later
-    ecoT: RecordCollector = RecordCollector(modelStore.datasets["Ecosystem"], conn)
-    gzT: RecordCollector = RecordCollector(modelStore.datasets["GovernanceZone"], conn)
-    teamT: RecordCollector = RecordCollector(modelStore.datasets["Team"], conn)
-    storeT: RecordCollector = RecordCollector(modelStore.datasets["Datastore"], conn)
-    datasetT: RecordCollector = RecordCollector(modelStore.datasets["Dataset"], conn)
-    workspaceT: RecordCollector = RecordCollector(modelStore.datasets["Workspace"], conn)
-    dsgT: RecordCollector = RecordCollector(modelStore.datasets["DatasetGroup"], conn)
-    dskT: RecordCollector = RecordCollector(modelStore.datasets["DatasetSink"], conn)
-    dtT: RecordCollector = RecordCollector(modelStore.datasets["DataTransformer"], conn)
-    pspT: RecordCollector = RecordCollector(modelStore.datasets["PSP"], conn)
-    dpT: RecordCollector = RecordCollector(modelStore.datasets["DataPlatform"], conn)
-    dsgAssignT: RecordCollector = RecordCollector(modelStore.datasets["DSGPlatformAssignment"], conn)
-    pipT: RecordCollector = RecordCollector(modelStore.datasets["PrimaryIngestionPlatform"], conn)
-    vendorT: RecordCollector = RecordCollector(modelStore.datasets["InfrastructureVendor"], conn)
-    infraLocT: RecordCollector = RecordCollector(modelStore.datasets["InfrastructureLocation"], conn)
+    ecoT: RecordCollector = RecordCollector(modelStore.datasets["Ecosystem"], conn, context.getOutputTableNameForDataset("Ecosystem"))
+    gzT: RecordCollector = RecordCollector(modelStore.datasets["GovernanceZone"], conn, context.getOutputTableNameForDataset("GovernanceZone"))
+    teamT: RecordCollector = RecordCollector(modelStore.datasets["Team"], conn, context.getOutputTableNameForDataset("Team"))
+    storeT: RecordCollector = RecordCollector(modelStore.datasets["Datastore"], conn, context.getOutputTableNameForDataset("Datastore"))
+    datasetT: RecordCollector = RecordCollector(modelStore.datasets["Dataset"], conn, context.getOutputTableNameForDataset("Dataset"))
+    workspaceT: RecordCollector = RecordCollector(modelStore.datasets["Workspace"], conn, context.getOutputTableNameForDataset("Workspace"))
+    dsgT: RecordCollector = RecordCollector(modelStore.datasets["DatasetGroup"], conn, context.getOutputTableNameForDataset("DatasetGroup"))
+    dskT: RecordCollector = RecordCollector(modelStore.datasets["DatasetSink"], conn, context.getOutputTableNameForDataset("DatasetSink"))
+    dtT: RecordCollector = RecordCollector(modelStore.datasets["DataTransformer"], conn, context.getOutputTableNameForDataset("DataTransformer"))
+    pspT: RecordCollector = RecordCollector(modelStore.datasets["PSP"], conn, context.getOutputTableNameForDataset("PSP"))
+    dpT: RecordCollector = RecordCollector(modelStore.datasets["DataPlatform"], conn, context.getOutputTableNameForDataset("DataPlatform"))
+    dsgAssignT: RecordCollector = RecordCollector(
+        modelStore.datasets["DSGPlatformAssignment"], conn,
+        context.getOutputTableNameForDataset("DSGPlatformAssignment"))
+    pipT: RecordCollector = RecordCollector(
+        modelStore.datasets["PrimaryIngestionPlatform"], conn,
+        context.getOutputTableNameForDataset("PrimaryIngestionPlatform"))
+    vendorT: RecordCollector = RecordCollector(
+        modelStore.datasets["InfrastructureVendor"], conn,
+        context.getOutputTableNameForDataset("InfrastructureVendor"))
+    infraLocT: RecordCollector = RecordCollector(
+        modelStore.datasets["InfrastructureLocation"], conn,
+        context.getOutputTableNameForDataset("InfrastructureLocation"))
 
     # Collect ecosystem data
     ecoT.insert({"ecoName": eco.name, "repo": str(eco.owningRepo), "liveRepo": str(eco.liveRepo)})
@@ -261,12 +268,12 @@ def executeModelExternalizer(conn: Connection, context: DataTransformerContext) 
             for datastore in team.dataStores.values():
                 storeT.insert({
                     "ecoName": eco.name, "gzName": gz.name, "teamName": team.name, "datastoreName": datastore.name,
-                    "productionStatus": datastore.productionStatus, "deprecationStatus": datastore.deprecationStatus
+                    "productionStatus": datastore.productionStatus.name, "deprecationStatus": datastore.deprecationStatus.status.name
                 })
                 for dataset in datastore.datasets.values():
                     datasetT.insert({
                         "ecoName": eco.name, "gzName": gz.name, "teamName": team.name,
-                        "datastoreName": datastore.name, "datasetName": dataset.name, "deprecationStatus": dataset.deprecationStatus
+                        "datastoreName": datastore.name, "datasetName": dataset.name, "deprecationStatus": dataset.deprecationStatus.status.name
                     })
             for workspace in team.workspaces.values():
                 workspaceT.insert({"ecoName": eco.name, "gzName": gz.name, "teamName": team.name, "workspaceName": workspace.name})
@@ -283,7 +290,8 @@ def executeModelExternalizer(conn: Connection, context: DataTransformerContext) 
                 if workspace.dataTransformer is not None:
                     dtT.insert({
                         "ecoName": eco.name, "gzName": gz.name, "teamName": team.name, "workspaceName": workspace.name,
-                        "dataTransformerName": workspace.dataTransformer.name, "trigger": workspace.dataTransformer.trigger
+                        "dataTransformerName": workspace.dataTransformer.name,
+                        "trigger_type": str(workspace.dataTransformer.trigger) if workspace.dataTransformer.trigger else None
                     })
 
     # Collect PSP and platform data
@@ -297,8 +305,8 @@ def executeModelExternalizer(conn: Connection, context: DataTransformerContext) 
         for assignment in dsgPlatformAssignment.assignments:
             dsgAssignT.insert({
                 "ecoName": eco.name, "workspaceName": dsgPlatformAssignment.workspace, "dsgName": dsgPlatformAssignment.dsgName,
-                "dataPlatform": assignment.dataPlatform, "productionStatus": assignment.productionStatus,
-                "deprecationsAllowed": assignment.deprecationsAllowed, "status": assignment.status
+                "dataPlatform": assignment.dataPlatform.name, "productionStatus": assignment.productionStatus.name,
+                "deprecationsAllowed": assignment.deprecationsAllowed.name, "status": assignment.status.name
             })
 
     # Collect ingestion platform data
@@ -320,9 +328,12 @@ def executeModelExternalizer(conn: Connection, context: DataTransformerContext) 
                 "cloudVendor": infrastructureVendor.hardCloudVendor.name if infrastructureVendor.hardCloudVendor else None
             })
         for location in infrastructureVendor.locations.values():
+            if location.key is None:
+                raise ValueError(f"Location {location.name} has no key")
+            # Convert the locationPath to a comma seperated list of location names
+            locationName: str = ",".join(location.key.locationPath)
             infraLocT.insert({
-                "ecoName": eco.name, "vendorName": infrastructureVendor.name, "locationName": location.name,
-                "parentLocationName": location.setParentLocation
+                "ecoName": eco.name, "vendorName": infrastructureVendor.name, "locationName": locationName
             })
 
     # Execute batched inserts for each table using executemany pattern
