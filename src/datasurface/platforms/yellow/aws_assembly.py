@@ -13,6 +13,8 @@ from datasurface.platforms.yellow.assembly import (
     Component, K8sUtils
 )
 from jinja2 import Template
+from datasurface.platforms.yellow.db_utils import getDriverNameAndQueryForDataContainer
+import urllib.parse
 
 
 class AirflowAWSComponent(Component):
@@ -50,12 +52,17 @@ class AirflowAWSComponent(Component):
 
         airflow_template: Template = env.get_template('airflowAWS/psp_airflow.yaml.j2')
         ctxt: dict[str, Any] = templateContext.copy()
+        driverName, query = getDriverNameAndQueryForDataContainer(self.db)
+        # URL-encode the driver query parameter to handle spaces and special characters
+        encoded_query = urllib.parse.quote_plus(query) if query else None
 
         # Add AWS-specific context
         ctxt.update({
             "airflow_k8s_name": K8sUtils.to_k8s_name(self.name),
             "airflow_db_hostname": self.db.hostPortPair.hostName,
             "airflow_db_port": self.db.hostPortPair.port,
+            "airflow_db_driver": driverName,
+            "airflow_db_query": encoded_query,
             "airflow_db_credential_secret_name": K8sUtils.to_k8s_name(self.dbCred.name),
             "extra_credentials": [K8sUtils.to_k8s_name(cred.name) for cred in self.dagCreds],
             "airflow_image": self.airflow_image,
