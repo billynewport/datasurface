@@ -33,7 +33,7 @@ def get_database_state(host="localhost", port=5432, database="customer_db", user
             # Get customer count and latest customer
             cursor.execute("SELECT COUNT(*) as count FROM customers")
             result = cursor.fetchone()
-            customer_count = result.get('count', 0) if result else 0
+            customer_count = result.get('count', 0) if result else 0  # type: ignore
 
             cursor.execute("SELECT id, firstname, lastname FROM customers ORDER BY id DESC LIMIT 1")
             latest_customer = cursor.fetchone()
@@ -41,7 +41,7 @@ def get_database_state(host="localhost", port=5432, database="customer_db", user
             # Get address count and latest address
             cursor.execute("SELECT COUNT(*) as count FROM addresses")
             result = cursor.fetchone()
-            address_count = result.get('count', 0) if result else 0
+            address_count = result.get('count', 0) if result else 0  # type: ignore
 
             cursor.execute("SELECT id, customerid, streetname FROM addresses ORDER BY id DESC LIMIT 1")
             latest_address = cursor.fetchone()

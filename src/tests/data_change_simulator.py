@@ -134,6 +134,10 @@ class DataChangeSimulator:
     def create_tables_if_needed(self) -> None:
         """Create customers and addresses tables if they don't exist."""
         try:
+            if not self.connection:
+                self.logger.error("❌ No connection to the database. Cannot create tables.")
+                sys.exit(1)
+
             with self.connection.cursor() as cursor:
                 self.logger.info("🗄️ Creating tables if they don't exist...")
 
@@ -300,6 +304,10 @@ class DataChangeSimulator:
         if not self.ensure_connection():
             return []
 
+        if not self.connection:
+            self.logger.error("❌ No connection to the database. Cannot fetch customers.")
+            return []
+
         try:
             with self.connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM customers")
@@ -311,6 +319,10 @@ class DataChangeSimulator:
     def get_existing_addresses(self) -> List[Any]:
         """Get list of existing addresses."""
         if not self.ensure_connection():
+            return []
+
+        if not self.connection:
+            self.logger.error("❌ No connection to the database. Cannot fetch addresses.")
             return []
 
         try:
@@ -348,6 +360,10 @@ class DataChangeSimulator:
             street_name = f"{street_num} {random.choice(self.streets)}"
             city, state = random.choice(self.cities_states)
             zip_code = self.generate_zip_code()
+
+            if not self.connection:
+                self.logger.error("❌ No connection to the database. Cannot insert new customer.")
+                return False
 
             with self.connection.cursor() as cursor:
                 # Insert customer first without address references
@@ -404,6 +420,10 @@ class DataChangeSimulator:
 
             values.append(customer_id)
 
+            if not self.connection:
+                self.logger.error("❌ No connection to the database. Cannot update customer.")
+                return False
+
             with self.connection.cursor() as cursor:
                 cursor.execute(f"""
                     UPDATE customers SET {', '.join(updates)}
@@ -436,6 +456,10 @@ class DataChangeSimulator:
             street_name = f"{street_num} {random.choice(self.streets)}"
             city, state = random.choice(self.cities_states)
             zip_code = self.generate_zip_code()
+
+            if not self.connection:
+                self.logger.error("❌ No connection to the database. Cannot insert new address.")
+                return False
 
             with self.connection.cursor() as cursor:
                 cursor.execute("""
@@ -472,6 +496,10 @@ class DataChangeSimulator:
 
             # Randomly choose what to update
             update_type = random.choice(['street', 'city_state', 'zip'])
+
+            if not self.connection:
+                self.logger.error("❌ No connection to the database. Cannot update address.")
+                return False
 
             with self.connection.cursor() as cursor:
                 if update_type == 'street':
@@ -543,6 +571,10 @@ class DataChangeSimulator:
 
             address_to_delete = random.choice(deletable_addresses)
             address_id = address_to_delete['id']
+
+            if not self.connection:
+                self.logger.error("❌ No connection to the database. Cannot delete address.")
+                return False
 
             with self.connection.cursor() as cursor:
                 cursor.execute("DELETE FROM addresses WHERE id = %s", (address_id,))
