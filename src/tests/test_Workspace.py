@@ -383,7 +383,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(col2, intType)
 
         # Change name of type
-        col2: DDLColumn = DDLColumn(
+        col2 = DDLColumn(
             "Col2", Integer(), primary_key=PrimaryKeyStatus.PK,
             nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
         )
@@ -391,7 +391,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(col2, intType)
 
         # Change type to Decimal
-        col2: DDLColumn = DDLColumn(
+        col2 = DDLColumn(
             "Col1", Decimal(10, 2), primary_key=PrimaryKeyStatus.PK,
             nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
         )
@@ -399,7 +399,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(intType, col2)
 
         # Just change primary key flag
-        col2: DDLColumn = DDLColumn(
+        col2 = DDLColumn(
             "Col1", Integer(), primary_key=PrimaryKeyStatus.NOT_PK,
             nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
         )
@@ -407,7 +407,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(col2, intType)
 
         # Just change nullable
-        col2: DDLColumn = DDLColumn(
+        col2 = DDLColumn(
             "Col1", Integer(), primary_key=PrimaryKeyStatus.PK,
             nullable=NullableStatus.NULLABLE, classifications=[SimpleDC(SimpleDCTypes.MNPI)]
         )
@@ -415,7 +415,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(col2, intType)
 
         # Just change classification
-        col2: DDLColumn = DDLColumn(
+        col2 = DDLColumn(
             "Col1", Integer(), primary_key=PrimaryKeyStatus.PK,
             nullable=NullableStatus.NOT_NULLABLE, classifications=[SimpleDC(SimpleDCTypes.PC1)]
         )
@@ -452,7 +452,7 @@ class TestWorkspace(unittest.TestCase):
             self.assertEqual(t2.primaryKeyColumns.colNames[0], "Col2")
 
         # Change Column name
-        t2: DDLTable = DDLTable(
+        t2 = DDLTable(
             columns=[
                 DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                 DDLColumn("Col2_XXX", String(10)),
@@ -462,7 +462,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertNotEqual(t1, t2)
 
         # Remove column
-        t2: DDLTable = DDLTable(
+        t2 = DDLTable(
             columns=[
                 DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                 DDLColumn("Col2_XXX", String(10))
@@ -472,7 +472,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(len(t2.columns), 2)
 
         # Add Column name
-        t2: DDLTable = DDLTable(
+        t2 = DDLTable(
             columns=[
                 DDLColumn("Col1", Integer(), primary_key=PrimaryKeyStatus.PK),
                 DDLColumn("Col2_XXX", String(10)),

@@ -3159,6 +3159,7 @@ class DataPlatform(Documentable, JSONable, Generic[P]):
         self.psp: Optional[P] = None
 
         # Handle backward compatibility: if *args are provided, parse them the old way
+        self.executor: DataPlatformExecutor
         if args:
             # Legacy mode: parse *args (slower but compatible)
             parsed_executor: Optional[DataPlatformExecutor] = executor
@@ -3174,7 +3175,7 @@ class DataPlatform(Documentable, JSONable, Generic[P]):
             # Use parsed values
             if parsed_executor is None:
                 raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
-            self.executor: DataPlatformExecutor = parsed_executor
+            self.executor = parsed_executor
 
             # Initialize Documentable with parsed documentation
             self.documentation = parsed_documentation
@@ -3182,7 +3183,7 @@ class DataPlatform(Documentable, JSONable, Generic[P]):
             # New mode: use named parameters directly (faster!)
             if executor is None:
                 raise ObjectDoesntExistException(f"Could not find object of type {DataPlatformExecutor}")
-            self.executor: DataPlatformExecutor = executor
+            self.executor = executor
 
     @abstractmethod
     def setPSP(self, psp: P) -> None:
@@ -3534,7 +3535,7 @@ class DatasetSink(UserDSLObject):
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is deprecated and deprecations are not allowed")
                     elif (self.deprecationsAllowed == DeprecationsAllowed.ALLOWED):
                         tree.addProblem(f"Dataset {self.storeName}:{self.datasetName} is using deprecated dataset", ProblemSeverity.WARNING)
-                dataset: Optional[Dataset] = store.datasets.get(self.datasetName)
+                dataset = store.datasets.get(self.datasetName)
                 if (dataset is None):
                     tree.addRaw(UnknownObjectReference(f"Unknown dataset {self.storeName}:{self.datasetName}", ProblemSeverity.ERROR))
                 else:
@@ -3714,13 +3715,13 @@ class DatasetGroup(ANSI_SQL_NamedObject, Documentable):
                     parsed_platformMD = arg
 
             # Use parsed values
-            self.platformMD: Optional[DataPlatformChooser] = parsed_platformMD
-            self.documentation: Optional[Documentation] = parsed_documentation
-            self.sinks: dict[str, DatasetSink] = parsed_sinks
+            self.platformMD = parsed_platformMD
+            self.documentation = parsed_documentation
+            self.sinks = parsed_sinks
         else:
             # new mode: use named parameters directly (faster!)
-            self.platformMD: Optional[DataPlatformChooser] = platform_chooser
-            self.documentation: Optional[Documentation] = documentation
+            self.platformMD = platform_chooser
+            self.documentation = documentation
 
             if sinks is not None:
                 for sink in sinks:

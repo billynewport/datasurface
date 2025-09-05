@@ -1,0 +1,13 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: fs-02e6c99e4f52f437f
+  directoryPerms: "0755"
+  uid: "50000"
+  gid: "50000"
+volumeBindingMode: Immediate
+allowVolumeExpansion: false

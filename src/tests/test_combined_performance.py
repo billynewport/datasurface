@@ -51,7 +51,7 @@ class TestCombinedPerformance(unittest.TestCase):
 
         for t in range(table_count):
             # Create columns with legacy DDLColumn constructor
-            columns: list[DDLColumn] = []
+            columns = []
             for c in range(columns_per_table):
                 col = DDLColumn.create_legacy(
                     f"legacy_table_{t}_col_{c}",

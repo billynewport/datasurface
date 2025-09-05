@@ -18,8 +18,8 @@ class TestLint(unittest.TestCase):
         r.lint(tree)
         self.assertFalse(tree.hasErrors())
 
-        r: GitHubRepository = GitHubRepository("billynewport/repo", "FOmain")
-        tree: ValidationTree = ValidationTree(r)
+        r = GitHubRepository("billynewport/repo", "FOmain")
+        tree = ValidationTree(r)
         r.lint(tree)
         self.assertFalse(tree.hasErrors())
 

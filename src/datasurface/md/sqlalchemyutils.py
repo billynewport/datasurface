@@ -129,11 +129,11 @@ def datasetToSQLAlchemyTable(dataset: Dataset, tableName: str, metadata: MetaDat
             columns.append(ddlColumnToSQLAlchemyType(col, engine))
         if (table.primaryKeyColumns is not None):
             pk: PrimaryKeyConstraint = PrimaryKeyConstraint(*table.primaryKeyColumns.colNames)
-            sqTable: Table = Table(tableName, metadata, *columns, pk)
-            return sqTable
+            sqTable1: Table = Table(tableName, metadata, *columns, pk)
+            return sqTable1
         else:
-            sqTable: Table = Table(tableName, metadata, *columns)
-            return sqTable
+            sqTable2: Table = Table(tableName, metadata, *columns)
+            return sqTable2
     else:
         raise Exception("Unknown schema type")
 
@@ -613,9 +613,9 @@ def createOrUpdateTable(connection: Connection, inspector: Inspector, table: Tab
     # Identify new and altered columns
     newColumns: List[Column[Any]] = []
     for column in table.columns:
-        col_typed: Column[Any] = column
-        if col_typed.name not in currentSchema.columns:  # type: ignore[attr-defined]
-            newColumns.append(col_typed)
+        col_typedA: Column[Any] = column
+        if col_typedA.name not in currentSchema.columns:  # type: ignore[attr-defined]
+            newColumns.append(col_typedA)
 
     columnsToAlter: List[Column[Any]] = []
     for column in currentSchema.columns:

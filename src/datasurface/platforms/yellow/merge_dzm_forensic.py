@@ -127,7 +127,7 @@ class SnapshotMergeJobDebeziumForensic(MergeSCD2ForensicJob):
             high_tx_global = last_tx
             for datasetName in self.store.datasets.keys():
                 dataset = self.store.datasets[datasetName]
-                cdcTableName: str = self.getPhysSourceTableName(dataset)
+                cdcTableName = self.getPhysSourceTableName(dataset)
                 high_tx_result = sourceConn.execute(text(f"SELECT MAX({quoted_tx}) FROM {cdcTableName}"))
                 high_tx_row = high_tx_result.fetchone()
                 if high_tx_row and high_tx_row[0] is not None:

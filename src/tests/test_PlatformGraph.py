@@ -98,9 +98,9 @@ class Test_PlatformGraphs(unittest.TestCase):
         # These all use the default priority initially so verify its UNKNOWN
         p: WorkspacePriority = cast(WorkspacePriority, workspaceA.priority)
         self.assertEqual(p.priority, WorkloadTier.UNKNOWN)
-        p: WorkspacePriority = cast(WorkspacePriority, workspaceB.priority)
+        p = cast(WorkspacePriority, workspaceB.priority)
         self.assertEqual(p.priority, WorkloadTier.UNKNOWN)
-        p: WorkspacePriority = cast(WorkspacePriority, workspaceC.priority)
+        p = cast(WorkspacePriority, workspaceC.priority)
         self.assertEqual(p.priority, WorkloadTier.UNKNOWN)
 
         # Now set the priority of workspaceA and B to MEDIUM, set C to LOW
@@ -144,7 +144,7 @@ class Test_PlatformGraphs(unittest.TestCase):
         pi.propagateWorkspacePriorities()
 
         # Workspace A's left hand nodes should all be MEDIUM
-        work_a_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceA)
+        work_a_export_nodes = pi.findAllExportNodesForWorkspace(workspaceA)
         for en in work_a_export_nodes:
             # export customers is critical because the mask transformer uses it
             if en.datasetName == "customers":
@@ -152,7 +152,7 @@ class Test_PlatformGraphs(unittest.TestCase):
             else:
                 self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.MEDIUM)
 
-        work_b_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceB)
+        work_b_export_nodes = pi.findAllExportNodesForWorkspace(workspaceB)
         for en in work_b_export_nodes:
             self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.CRITICAL)
 
@@ -167,7 +167,7 @@ class Test_PlatformGraphs(unittest.TestCase):
         # Masked_NW_Data.customers uses NW_Data.customers
         # NW_Data is used by A, B and indirectly by C.
         # NW_Data is multi-dataset ingestion so all datasets use a single node/priority.
-        work_c_export_nodes: set[ExportNode] = pi.findAllExportNodesForWorkspace(workspaceC)
+        work_c_export_nodes = pi.findAllExportNodesForWorkspace(workspaceC)
         for en in work_c_export_nodes:
             self.assertEqual(cast(WorkspacePriority, en.priority).priority, WorkloadTier.CRITICAL)
             # Walk leftwards checking all nodes are CRITICAL

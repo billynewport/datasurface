@@ -49,6 +49,11 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
         Documentable.__init__(self, documentation)
 
         # Handle backward compatibility: if *args are provided, parse them the old way
+        self.type: DataType
+        self.nullable: NullableStatus
+        self.primaryKey: PrimaryKeyStatus
+        self.classification: Optional[list[DataClassification]]
+
         if args:
             # Legacy mode: parse *args
             parsed_nullable: Optional[NullableStatus] = nullable
@@ -68,18 +73,18 @@ class DDLColumn(ANSI_SQL_NamedObject, Documentable):
                     parsed_documentation = arg
 
             # Use parsed values
-            self.type: DataType = data_type
-            self.nullable: NullableStatus = parsed_nullable if parsed_nullable is not None else DEFAULT_nullable
-            self.primaryKey: PrimaryKeyStatus = parsed_primary_key if parsed_primary_key is not None else DEFAULT_primaryKey
-            self.classification: Optional[list[DataClassification]] = parsed_classifications if parsed_classifications else None
+            self.type = data_type
+            self.nullable = parsed_nullable if parsed_nullable is not None else DEFAULT_nullable
+            self.primaryKey = parsed_primary_key if parsed_primary_key is not None else DEFAULT_primaryKey
+            self.classification = parsed_classifications if parsed_classifications else None
             if parsed_documentation:
                 self.documentation = parsed_documentation
         else:
             # New mode: use named parameters directly (faster!)
-            self.type: DataType = data_type
-            self.nullable: NullableStatus = nullable if nullable is not None else DEFAULT_nullable
-            self.primaryKey: PrimaryKeyStatus = primary_key if primary_key is not None else DEFAULT_primaryKey
-            self.classification: Optional[list[DataClassification]] = classifications
+            self.type = data_type
+            self.nullable = nullable if nullable is not None else DEFAULT_nullable
+            self.primaryKey = primary_key if primary_key is not None else DEFAULT_primaryKey
+            self.classification = classifications if classifications else None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -448,6 +453,7 @@ class DDLTable(Schema):
     def lint(self, tree: ValidationTree) -> None:
         """This method performs linting on this schema"""
         super().lint(tree)
+        col: DDLColumn
         if self.primaryKeyColumns:
             pkTree: ValidationTree = tree.addSubTree(self.primaryKeyColumns)
             self.primaryKeyColumns.lint(pkTree)
@@ -455,7 +461,7 @@ class DDLTable(Schema):
                 if (colName not in self.columns):
                     pkTree.addRaw(NotBackwardsCompatible(f"Primary key column {colName} is not in the column list"))
                 else:
-                    col: DDLColumn = self.columns[colName]
+                    col = self.columns[colName]
                     if (col.primaryKey != PrimaryKeyStatus.PK):
                         tree.addRaw(NotBackwardsCompatible(f"Column {colName} should be marked primary key column"))
                     if (col.nullable == NullableStatus.NULLABLE):
@@ -474,7 +480,7 @@ class DDLTable(Schema):
                 if (colName not in self.columns):
                     tree.addRaw(NotBackwardsCompatible(f"Partitioning column {colName} is not in the column list"))
                 else:
-                    col: DDLColumn = self.columns[colName]
+                    col = self.columns[colName]
                     if (col.nullable == NullableStatus.NULLABLE):
                         tree.addRaw(NotBackwardsCompatible(f"Partitioning column {colName} cannot be nullable"))
 

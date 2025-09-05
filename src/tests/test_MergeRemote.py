@@ -504,7 +504,7 @@ class TestMergeRemoteLive(unittest.TestCase):
                     self.checkTestRecordsMatchExpected(batch_data, live_records)
                 else:
                     # For remote forensic merge, the batch ID is the same as the primary batch ID (remote batch ID)
-                    local_batch_id: int = batch_id  # Remote forensic uses primary batch ID as local batch ID
+                    local_batch_id = batch_id  # Remote forensic uses primary batch ID as local batch ID
                     test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
                     self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
             batch_id += 1
@@ -646,7 +646,7 @@ class TestMergeRemoteLive(unittest.TestCase):
             self.checkTestRecordsMatchExpected(batch_data, live_records)
         else:
             # Remote forensic merge uses primary batch ID as local batch ID
-            local_batch_id: int = batch_id
+            local_batch_id = batch_id
             test_utils.checkSpecificBatchStatus(test_utils.storeName, local_batch_id, BatchStatus.COMMITTED, self)
             self.compare_forensic_merge_tables(test_utils, pip_utils, local_batch_id, batch_data)
 

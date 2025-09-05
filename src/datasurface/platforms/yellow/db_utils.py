@@ -79,7 +79,7 @@ def createEngine(container: DataContainer, userName: str, password: str) -> Engi
         }
     elif isinstance(container, SnowFlakeDatabase):
         # Snowflake uses account (as host portion), HTTPS on 443, and optional warehouse/role in query
-        account_full: str = container.account
+        account_full = container.account
         if container.region and "." not in account_full:
             account_full = f"{account_full}.{container.region}"
         query_params: Dict[str, Any] = {}

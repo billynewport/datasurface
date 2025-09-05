@@ -79,21 +79,24 @@ The document automatically detects which configuration is being used and adjusts
 
 ## Phase 1: AWS Infrastructure Setup
 
-### Step 1: Deploy AWS Infrastructure via CloudFormation
+### Step 1: Deploy AWS Infrastructure in Two Stages
 
-**Choose Your Database Option:**
+To ensure a repeatable setup, we deploy the infrastructure in two stages: first the EKS cluster, then the IAM roles that depend on it.
 
-**Deploy AWS Infrastructure with EKS and EFS:**
+**Stage 1: Deploy EKS Cluster and OIDC Provider**
+
+This first stack provisions the core EKS cluster and creates the OIDC provider that the IAM roles will trust.
+
 ```bash
 # Set your deployment parameters
-export AWS_ACCOUNT_ID="your-aws-account-id"
+export STACK_NAME="ds-eks-m5-v4" # Use a short, unique name
 export KEY_PAIR_NAME="your-ec2-keypair-name"
 export DATABASE_PASSWORD="your-secure-database-password"
 export GITHUB_TOKEN="your-github-personal-access-token"
 
-# Deploy DataSurface EKS infrastructure
+# Deploy the main EKS infrastructure stack
 aws cloudformation create-stack \
-  --stack-name datasurface-eks-stack \
+  --stack-name $STACK_NAME \
   --template-body file://aws-marketplace/cloudformation/datasurface-eks-stack.yaml \
   --parameters \
     ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME \
@@ -103,16 +106,75 @@ aws cloudformation create-stack \
     ParameterKey=KubernetesDeploymentType,ParameterValue=EKS-EC2 \
   --capabilities CAPABILITY_IAM \
   --region us-east-1
+
+# Wait for the EKS stack to complete
+echo "Waiting for EKS cluster stack to complete... (This will take 10-15 minutes)"
+aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region us-east-1
+echo "✅ EKS cluster stack created successfully."
+```
+
+**Stage 2: Deploy IAM Roles for Service Accounts**
+
+Now that the cluster and OIDC provider exist, we deploy a second stack that creates the IAM roles for the EFS CSI Driver and Airflow.
+
+```bash
+# Get the OIDC Provider ARN from the first stack's outputs
+export OIDC_PROVIDER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name $STACK_NAME \
+  --query "Stacks[0].Outputs[?OutputKey=='EKSOIDCProviderArn'].OutputValue" \
+  --output text \
+  --region us-east-1)
+
+echo "OIDC Provider ARN: $OIDC_PROVIDER_ARN"
+
+# Deploy the IAM roles stack
+aws cloudformation create-stack \
+  --stack-name "${STACK_NAME}-iam-roles" \
+  --template-body file://aws-marketplace/cloudformation/iam-roles-for-eks.yaml \
+  --parameters \
+    ParameterKey=EKSOIDCProviderArn,ParameterValue=$OIDC_PROVIDER_ARN \
+    ParameterKey=StackName,ParameterValue=$STACK_NAME \
+  --capabilities CAPABILITY_IAM \
+  --region us-east-1
+
+# Wait for the IAM roles stack to complete
+echo "Waiting for IAM roles stack to complete..."
+aws cloudformation wait stack-create-complete --stack-name "${STACK_NAME}-iam-roles" --region us-east-1
+echo "✅ IAM roles created successfully."
 ```
 
 **Note**: This template creates:
 - EKS cluster (v1.32) with EC2 node groups
 - EFS file system for shared storage
 - OIDC identity provider for IRSA
-- IAM roles for EFS CSI driver
+- IAM roles for EFS CSI driver and Airflow Secrets Manager access
 - VPC with public/private subnets
 - Application Load Balancer
 - S3 bucket for artifacts
+
+**⚠️ IMPORTANT - IAM Permissions Required**: The `datasurface_test` user needs these IAM permissions for CloudFormation to succeed:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "iam:CreateOpenIDConnectProvider",
+                "iam:CreateRole",
+                "iam:PutRolePolicy",
+                "iam:AttachRolePolicy",
+                "iam:TagOpenIDConnectProvider",
+                "iam:UpdateAssumeRolePolicy"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+**Solution**: Add these permissions to the `datasurface_test` group as an inline policy. The two-stage deployment automatically creates all required IAM resources with correct trust policies.
 
 **Instance Type Considerations**:
 - Default `m5.large` (2 vCPU) may be insufficient for default Airflow resource requests
@@ -121,14 +183,9 @@ aws cloudformation create-stack \
 
 **Wait for Stack Creation:**
 ```bash
-# Wait for stack creation to complete (15-20 minutes with Aurora, 10-15 without)
-aws cloudformation wait stack-create-complete \
-  --stack-name datasurface-eks-stack \
-  --region us-east-1
-
 # Get the EKS cluster name from stack outputs
 export CLUSTER_NAME=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
+  --stack-name $STACK_NAME \
   --query 'Stacks[0].Outputs[?OutputKey==`EKSClusterName`].OutputValue' \
   --output text \
   --region us-east-1)
@@ -136,15 +193,15 @@ export CLUSTER_NAME=$(aws cloudformation describe-stacks \
 echo "EKS Cluster Name: $CLUSTER_NAME"
 
 # If you created Aurora, get the database connection details
-if aws cloudformation describe-stacks --stack-name datasurface-eks-stack --query 'Stacks[0].Outputs[?OutputKey==`AuroraClusterEndpoint`]' --output text --region us-east-1 > /dev/null 2>&1; then
+if aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`AuroraClusterEndpoint`]' --output text --region us-east-1 > /dev/null 2>&1; then
   export AURORA_ENDPOINT=$(aws cloudformation describe-stacks \
-    --stack-name datasurface-eks-stack \
+    --stack-name $STACK_NAME \
     --query 'Stacks[0].Outputs[?OutputKey==`AuroraClusterEndpoint`].OutputValue' \
     --output text \
     --region us-east-1)
   
   export AURORA_PORT=$(aws cloudformation describe-stacks \
-    --stack-name datasurface-eks-stack \
+    --stack-name $STACK_NAME \
     --query 'Stacks[0].Outputs[?OutputKey==`AuroraClusterPort`].OutputValue' \
     --output text \
     --region us-east-1)
@@ -184,13 +241,13 @@ echo "EFS CSI Driver installed successfully"
 
 # Get EFS details from CloudFormation outputs
 export EFS_FILE_SYSTEM_ID=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
+  --stack-name $STACK_NAME \
   --query 'Stacks[0].Outputs[?OutputKey==`EFSFileSystemId`].OutputValue' \
   --output text \
   --region us-east-1)
 
 export EFS_CSI_DRIVER_ROLE_ARN=$(aws cloudformation describe-stacks \
-  --stack-name datasurface-eks-stack \
+  --stack-name "${STACK_NAME}-iam-roles" \
   --query 'Stacks[0].Outputs[?OutputKey==`EFSCSIDriverRoleArn`].OutputValue' \
   --output text \
   --region us-east-1)
@@ -238,7 +295,26 @@ kubectl get storageclass efs-sc
 echo "EFS StorageClass created successfully"
 ```
 
-### Step 3: Create AWS Secrets Manager Secrets
+### Step 3: Configure Airflow Service Account with IAM Role
+
+**CRITICAL**: After deploying the IAM roles stack, you must update the Airflow service account annotation with the correct IAM role ARN.
+
+```bash
+# Get the Airflow IAM role ARN from the IAM roles stack
+export AIRFLOW_ROLE_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}-iam-roles" \
+  --query 'Stacks[0].Outputs[?OutputKey==`AirflowSecretsRoleArn`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+echo "Airflow IAM Role ARN: $AIRFLOW_ROLE_ARN"
+
+# Update the service account annotation (this will be needed after deploying Airflow)
+# Note: This step is done after deploying the Kubernetes artifacts in the next phase
+echo "Save this ARN - you'll need it after deploying Airflow artifacts"
+```
+
+### Step 4: Create AWS Secrets Manager Secrets
 
 **Choose based on your database setup:**
 
@@ -262,26 +338,36 @@ echo "✅ Database credentials automatically created by CloudFormation"
 **Option B: Using Existing RDS Instances**
 
 **Create database and Git credentials in AWS Secrets Manager for your existing RDS instances:**
+
+**⚠️ IMPORTANT**: Use JSON format for Airflow database credentials (not URI format):
+
 ```bash
-# Create merge database credentials (update with your existing RDS credentials)
+# Create Airflow database connection (for Airflow's native AWS Secrets Manager backend)
+aws secretsmanager create-secret \
+  --name "airflow/connections/postgres_default" \
+  --description "Airflow database connection for existing RDS" \
+  --secret-string '{
+    "conn_type": "postgres",
+    "host": "aws-postgres-1.ceziu2wcs0eo.us-east-1.rds.amazonaws.com",
+    "port": 5432,
+    "login": "postgres",
+    "password": "your-existing-rds-password",
+    "schema": "airflow_db"
+  }' \
+  --region us-east-1
+
+# Create merge database credentials (for DataSurface jobs - still uses JSON format)
 aws secretsmanager create-secret \
   --name "datasurface/merge/credentials" \
   --description "DataSurface merge database credentials for existing RDS" \
-  --secret-string '{"postgres_USER":"your-existing-rds-username","postgres_PASSWORD":"your-existing-rds-password"}' \
+  --secret-string '{"postgres_USER":"postgres","postgres_PASSWORD":"your-existing-rds-password"}' \
   --region us-east-1
 
-# Create source database credentials (example for Store1 - update with your existing RDS credentials)
+# Create source database credentials (example for Store1)
 aws secretsmanager create-secret \
   --name "datasurface/sources/store1/credentials" \
   --description "DataSurface Store1 source database credentials for existing RDS" \
-  --secret-string '{"store1_USER":"your-existing-rds-username","store1_PASSWORD":"your-existing-rds-password"}' \
-  --region us-east-1
-
-# Create Airflow database credentials (for your existing Airflow RDS instance)
-aws secretsmanager create-secret \
-  --name "datasurface/airflow/credentials" \
-  --description "DataSurface Airflow database credentials for existing RDS" \
-  --secret-string '{"postgres_USER":"your-existing-airflow-rds-username","postgres_PASSWORD":"your-existing-airflow-rds-password"}' \
+  --secret-string '{"store1_USER":"postgres","store1_PASSWORD":"your-existing-rds-password"}' \
   --region us-east-1
 
 # Create Git credentials
@@ -293,10 +379,20 @@ aws secretsmanager create-secret \
 
 # Verify secrets were created
 aws secretsmanager list-secrets \
-  --query 'SecretList[?contains(Name, `datasurface`)].Name' \
+  --query 'SecretList[?contains(Name, `datasurface`) || contains(Name, `airflow`)].Name' \
   --output table \
   --region us-east-1
 ```
+
+**Key Format Differences:**
+- **Airflow database connection**: Use JSON format with connection details for Airflow's native AWS Secrets Manager backend
+- **DataSurface jobs**: Use JSON format for boto3 fetching in DAG code  
+- **Both approaches**: Use IRSA for secure access without storing AWS credentials
+
+**Critical Configuration Notes:**
+- **Secret Name**: Must be exactly `airflow/connections/postgres_default` for Airflow's automatic database connection lookup
+- **Secret Format**: JSON object with `conn_type`, `host`, `port`, `login`, `password`, `schema` fields
+- **ConfigMap Database Section**: Must be empty - Airflow automatically fetches connection from secrets backend
 
 **Create Git credentials (required for both options):**
 ```bash
@@ -805,6 +901,14 @@ sleep 10
 # Deploy Kubernetes infrastructure FIRST (creates required PVCs and IRSA)
 kubectl apply -f generated_output/Test_DP/kubernetes-bootstrap.yaml
 
+# CRITICAL: Update Airflow service account with correct IAM role ARN
+kubectl annotate serviceaccount airflow-service-account \
+  -n "$NAMESPACE" \
+  eks.amazonaws.com/role-arn=$AIRFLOW_ROLE_ARN \
+  --overwrite
+
+echo "✅ Airflow service account configured with IAM role: $AIRFLOW_ROLE_ARN"
+
 # Now apply Ring 1 initialization job (requires PVCs created above)
 kubectl apply -f generated_output/Test_DP/test_dp_ring1_init_job.yaml
 
@@ -832,18 +936,18 @@ kubectl wait --for=condition=complete job/test-dp-ring1-init -n "$NAMESPACE" --t
 ./aws_utils.sh status
 ```
 
-### Step 4: Verify Airflow Services
+### Step 4: Initialize Airflow Database and Services
 
-Airflow requires database initialization before the webserver can start properly.
+**CRITICAL**: Airflow requires proper database initialization before the webserver can start. The AWS setup uses external RDS databases that must be initialized properly.
 
 ```bash
 # Source environment variables
 source .env
 
-# Wait for Airflow scheduler to be ready
-kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=300s
+# Wait for Airflow scheduler to be ready (init container must complete first)
+kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=600s
 
-# Initialize Airflow database (required for webserver to start)
+# Initialize Airflow database (the init container should have done this, but verify)
 kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- airflow db init
 
 # Wait for Airflow webserver to be ready (after database initialization)
@@ -859,7 +963,7 @@ kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- airflow db check
 ### Step 5: Create Airflow Admin User
 
 ```bash
-# Create Airflow admin user
+# Create Airflow admin user (required for web UI access)
 kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- \
   airflow users create \
   --username admin \
@@ -868,6 +972,53 @@ kubectl exec deployment/airflow-scheduler -n "$NAMESPACE" -- \
   --role Admin \
   --email admin@example.com \
   --password admin123
+
+echo "✅ Airflow admin user created: admin/admin123"
+```
+
+### Step 6: Deploy DAG Factory and Model Merge Jobs
+
+```bash
+# Get the current scheduler pod name
+SCHEDULER_POD=$(kubectl get pods -n "$NAMESPACE" -l app=airflow-scheduler -o jsonpath='{.items[0].metadata.name}')
+
+# Copy infrastructure DAG to Airflow
+kubectl cp generated_output/Test_DP/test_dp_infrastructure_dag.py $SCHEDULER_POD:/opt/airflow/dags/ -n "$NAMESPACE"
+
+# Deploy model merge job to populate ingestion stream configurations
+kubectl apply -f generated_output/Test_DP/test_dp_model_merge_job.yaml
+
+# Wait for model merge job to complete
+kubectl wait --for=condition=complete job/test-dp-model-merge-job -n "$NAMESPACE" --timeout=300s
+
+# Deploy reconcile views job to create/update workspace views
+kubectl apply -f generated_output/Test_DP/test_dp_reconcile_views_job.yaml
+
+# Wait for reconcile views job to complete
+kubectl wait --for=condition=complete job/test-dp-reconcile-views-job -n "$NAMESPACE" --timeout=300s
+
+# Restart Airflow scheduler to trigger factory DAGs (creates dynamic ingestion stream DAGs)
+kubectl delete pod -n "$NAMESPACE" -l app=airflow-scheduler
+kubectl wait --for=condition=ready pod -l app=airflow-scheduler -n "$NAMESPACE" --timeout=300s
+```
+
+### Step 7: Verify AWS Deployment
+
+```bash
+# Check all pods are running
+./aws_utils.sh status
+
+# Verify AWS RDS databases exist
+./aws_utils.sh db-list
+
+# Test AWS Secrets Manager integration
+./aws_utils.sh secrets-test
+
+# List all DAGs
+./aws_utils.sh dags
+
+# Access Airflow web interface (runs in foreground)
+./aws_utils.sh port-forward
 ```
 
 ### Step 6: Deploy DAG Factory and Model Merge Jobs
@@ -952,10 +1103,11 @@ Open http://localhost:8080 and login with:
 - Automatic credential rotation and fine-grained permissions
 
 **AWS Secrets Manager Integration:**
-- Database credentials stored securely in AWS Secrets Manager
-- Git tokens and other sensitive data managed centrally
-- Airflow fetches secrets dynamically using boto3 SDK
-- Reduces attack surface by avoiding Kubernetes secrets
+- **Airflow database connection**: Managed via Airflow's native AWS Secrets Manager backend using JSON format
+- **Database credentials**: Stored as JSON objects in AWS Secrets Manager with connection details (`conn_type`, `host`, `port`, `login`, `password`, `schema`)
+- **Extra credentials for jobs**: Fetched dynamically in DAG code using boto3 SDK
+- **Configuration**: Set via `secrets_backend` in `airflow.cfg` with empty `[database]` section - Airflow automatically fetches `postgres_default` connection
+- **Security**: Uses IRSA (IAM Roles for Service Accounts) - no AWS credentials stored in pods
 
 **EKS with EC2 Node Groups:**
 - Managed Kubernetes control plane with AWS-optimized worker nodes
@@ -1072,18 +1224,117 @@ kubectl run db-test --rm -i --restart=Never \
 
 #### Issue: AWS Secrets Manager Access Denied
 
-**Symptoms**: Pods cannot access AWS Secrets Manager secrets.
+**Symptoms**: Airflow pods crash with SQLite errors despite AWS Secrets Manager configuration:
+```
+airflow.exceptions.AirflowConfigException: error: cannot use SQLite with the LocalExecutor
+DB: sqlite:////opt/airflow/airflow.db
+ERROR: You need to initialize the database. Please run `airflow db init`.
+```
 
-**Solution**: Verify IRSA configuration:
+**Root Cause**: Airflow service account annotation has incorrect or missing IAM role ARN.
+
+**Solution - Fix Service Account IAM Role Configuration**:
 
 ```bash
-# Check service account annotation
-kubectl describe serviceaccount airflow-service-account -n <namespace>
+# 1. Get the correct Airflow IAM role ARN from CloudFormation
+export AIRFLOW_ROLE_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}-iam-roles" \
+  --query 'Stacks[0].Outputs[?OutputKey==`AirflowSecretsRoleArn`].OutputValue' \
+  --output text \
+  --region us-east-1)
 
-# Verify IAM role exists and has correct policies
-aws iam get-role --role-name <role-name> --region us-east-1
-aws iam list-attached-role-policies --role-name <role-name> --region us-east-1
+echo "Correct Airflow IAM Role ARN: $AIRFLOW_ROLE_ARN"
+
+# 2. Update the service account annotation
+kubectl annotate serviceaccount airflow-service-account \
+  -n ns-yellow-starter \
+  eks.amazonaws.com/role-arn=$AIRFLOW_ROLE_ARN \
+  --overwrite
+
+# 3. Restart Airflow deployments to pick up the new annotation
+kubectl rollout restart deployment/airflow-scheduler -n ns-yellow-starter
+kubectl rollout restart deployment/airflow-webserver -n ns-yellow-starter
+
+# 4. Verify the annotation is correct
+kubectl describe serviceaccount airflow-service-account -n ns-yellow-starter
+
+# 5. Test role assumption works
+kubectl run test-airflow-access --rm -i --restart=Never \
+  --image=amazon/aws-cli:latest \
+  --overrides='{"spec":{"serviceAccountName":"airflow-service-account"}}' \
+  -n ns-yellow-starter \
+  -- sh -c "aws sts get-caller-identity && aws secretsmanager get-secret-value --secret-id airflow/connections/postgres_default --region us-east-1"
 ```
+
+**Common Issues:**
+- **Template generates wrong role name**: Generated YAML often contains `airflow-secrets-role` instead of the actual CloudFormation role name
+- **CloudFormation role doesn't exist**: If IAM roles stack failed to deploy, the role won't exist despite CloudFormation saying it does
+- **Wrong OIDC provider**: Role trust policy references wrong cluster's OIDC provider
+
+**Verification Steps:**
+```bash
+# Verify IAM role exists and has correct policies
+aws iam get-role --role-name <actual-role-name> --region us-east-1
+aws iam list-attached-role-policies --role-name <actual-role-name> --region us-east-1
+```
+
+#### Issue: EFS CSI Driver Access Denied
+
+**Symptoms**: PVCs stuck in Pending state with "Access Denied" errors in EFS CSI driver logs:
+```
+failed to provision volume with StorageClass "efs-sc": rpc error: code = Internal desc = Failed to fetch Access Points or Describe File System: operation error STS: AssumeRoleWithWebIdentity, https response error StatusCode: 403, RequestID: xxx, api error AccessDenied: Not authorized to perform sts:AssumeRoleWithWebIdentity
+```
+
+**Root Cause**: EFS CSI driver service account lacks proper IAM role trust policy configuration.
+
+**Solution - Fixed in CloudFormation Templates**: 
+
+The two-stage CloudFormation deployment automatically creates the correct IAM role with the proper trust policy format. The critical fix was using the **shorter OIDC issuer format** in the trust policy conditions:
+
+**✅ Correct Trust Policy Format:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::ACCOUNT-ID:oidc-provider/oidc.eks.REGION.amazonaws.com/id/OIDC-ID"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "oidc.eks.REGION.amazonaws.com/id/OIDC-ID:sub": "system:serviceaccount:kube-system:efs-csi-controller-sa",
+          "oidc.eks.REGION.amazonaws.com/id/OIDC-ID:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Key Points:**
+- Use `StringEquals` (not `StringLike`) for OIDC conditions
+- Use the shorter OIDC issuer format (without full ARN prefix in conditions)
+- Include both `sub` (subject) and `aud` (audience) conditions
+- The CloudFormation templates automatically handle this configuration
+
+**Manual Verification (if needed):**
+```bash
+# Verify EFS CSI driver service account annotation
+kubectl describe serviceaccount efs-csi-controller-sa -n kube-system
+
+# Test role assumption
+kubectl run test-efs-permissions --rm -i --restart=Never \
+  --image=amazon/aws-cli:latest \
+  --serviceaccount=efs-csi-controller-sa \
+  -n kube-system \
+  -- aws sts get-caller-identity
+
+# Check PVC status after fix
+kubectl get pvc -n <namespace>
+```
+
 
 #### Issue: Pods Stuck in Pending - Insufficient CPU
 
@@ -1142,4 +1393,126 @@ aws eks update-nodegroup-config \
   --scaling-config minSize=1,maxSize=10,desiredSize=3 \
   --region us-east-1
 ```
+
+## Known Issues and Manual Fixes Required
+
+**⚠️ CRITICAL**: The following issues require manual intervention after artifact generation. These represent gaps between the template generation and CloudFormation reality that need to be addressed.
+
+### Issue 1: IAM Role ARN Mismatch (BLOCKING)
+
+**Symptoms**: Airflow init containers hang indefinitely with no logs, eventually get OOMKilled.
+
+**Root Cause**: Template generates hardcoded role ARN that doesn't match CloudFormation's auto-generated role names.
+
+**Template Generates**: `arn:aws:iam::479984738272:role/airflow-secrets-role`
+**CloudFormation Creates**: `arn:aws:iam::479984738272:role/ds-eks-m5-v5-iam-roles-AirflowSecretsRole-6PRSTdC9kgcr`
+
+**Manual Fix Required After Artifact Generation**:
+```bash
+# 1. Get the actual role ARN from CloudFormation
+export AIRFLOW_ROLE_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}-iam-roles" \
+  --query 'Stacks[0].Outputs[?OutputKey==`AirflowSecretsRoleArn`].OutputValue' \
+  --output text \
+  --region us-east-1)
+
+echo "Actual Role ARN: $AIRFLOW_ROLE_ARN"
+
+# 2. Update the generated YAML file
+sed -i "s|arn:aws:iam::479984738272:role/airflow-secrets-role|$AIRFLOW_ROLE_ARN|g" \
+  generated_output/Test_DP/kubernetes-bootstrap.yaml
+
+# 3. Verify the fix
+grep "role-arn" generated_output/Test_DP/kubernetes-bootstrap.yaml
+```
+
+### Issue 2: AWS Secrets Manager Backend Timeout
+
+**Symptoms**: `airflow db init` command hangs when using `sql_alchemy_conn_cmd` approach.
+
+**Root Cause**: Airflow's SecretsManagerBackend times out during database initialization, even with correct IAM permissions.
+
+**Diagnostic Commands**:
+```bash
+# Test AWS connectivity from init container
+kubectl exec <scheduler-pod> -n ns-yellow-starter -c airflow-db-init -- \
+  timeout 5 python -c "import boto3; print(boto3.client('sts').get_caller_identity())"
+
+# Test SecretsManagerBackend (this will timeout)
+kubectl exec <scheduler-pod> -n ns-yellow-starter -c airflow-db-init -- \
+  timeout 10 python -c "
+from airflow.providers.amazon.aws.secrets.secrets_manager import SecretsManagerBackend
+backend = SecretsManagerBackend(connections_prefix='airflow/connections')
+conn = backend.get_connection('postgres_default')
+print(conn.get_uri())
+"
+```
+
+**Current Workaround**: Use hardcoded database connection in init container environment variable.
+
+### Issue 3: Template Database Configuration
+
+**Problem**: The `psp_airflow.yaml.j2` template has an empty `{{ airflow_db_url }}` variable, causing SQLite fallback.
+
+**Template Fix Applied**:
+```yaml
+[database]
+sql_alchemy_conn_cmd = python -c "import os; from airflow.providers.amazon.aws.secrets.secrets_manager import SecretsManagerBackend; backend = SecretsManagerBackend(connections_prefix='airflow/connections'); conn = backend.get_connection('postgres_default'); print(conn.get_uri())"
+```
+
+**Issue**: This approach causes init container timeouts.
+
+### Issue 4: Init Container Resource Limits
+
+**Symptoms**: Multiple `Init:OOMKilled` events despite node capacity availability.
+
+**Cause**: Init containers have no resource limits specified, hitting default namespace limits.
+
+**Manual Fix**: Add resource limits to init containers in generated YAML:
+```yaml
+initContainers:
+- name: airflow-db-init
+  # ... existing config ...
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 4Gi
+      cpu: 1000m
+```
+
+### Issue 5: AWS Secrets Manager Secret Format
+
+**Correct Format** (JSON - works):
+```json
+{
+  "conn_type": "postgres",
+  "host": "aws-postgres-1.ceziu2wcs0eo.us-east-1.rds.amazonaws.com",
+  "port": 5432,
+  "login": "postgres",
+  "password": "hekmuc-3fevpu-kygSas",
+  "schema": "airflow_db"
+}
+```
+
+**Incorrect Format** (URI - doesn't work):
+```
+postgresql://postgres:password@host:port/db
+```
+
+### Recommended Next Steps for Tomorrow
+
+1. **Fix CloudFormation Template**: Add `RoleName: airflow-secrets-role` to create predictable role names
+2. **Update Template Variables**: Make the AWS assembly provide the correct role ARN pattern
+3. **Alternative Approach**: Consider using Kubernetes secrets instead of AWS Secrets Manager for database connection
+4. **Template Automation**: Create post-deployment script to automatically update role ARNs
+
+### Working Components (Don't Change)
+
+- ✅ **Two-stage CloudFormation deployment** - EKS cluster + IAM roles separation works
+- ✅ **EFS CSI driver configuration** - Trust policy format and annotation process works
+- ✅ **Docker multiplatform builds** - Both datasurface/datasurface:latest and datasurface/airflow:2.11.0-aws work
+- ✅ **AWS Secrets Manager access** - IAM roles and IRSA work correctly when role ARN is correct
+- ✅ **EFS storage class and PVC binding** - EFS integration works properly
 

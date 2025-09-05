@@ -131,9 +131,10 @@ class GitControlledObject(Documentable):
         added_keys: set[str] = proposed_keys - current_keys
 
         # first check any top level objects have been added or removed by the correct change sources
+        obj: Optional[GitControlledObject] = None
         for key in deleted_keys:
             # Check if the object was deleted by the authoized change source
-            obj: Optional[GitControlledObject] = current[key]
+            obj = current[key]
             if (not obj.owningRepo.eqForAuthorization(changeSource)):
                 vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
                     obj.owningRepo,
@@ -142,7 +143,7 @@ class GitControlledObject(Documentable):
 
         for key in added_keys:
             # Check if the object was added by the specified change source
-            obj: Optional[GitControlledObject] = proposed[key]
+            obj = proposed[key]
             if (not obj.owningRepo.eqForAuthorization(changeSource)):
                 vTree.addRaw(RepositoryNotAuthorizedToMakeChanges(
                     obj.owningRepo,
@@ -170,20 +171,21 @@ class GitControlledObject(Documentable):
         added_keys: set[str] = proposed_keys - current_keys
 
         # first check any top level objects have been added or removed by the correct change sources
+        obj: Optional[object] = None
         for key in deleted_keys:
             # Check if the object was deleted by the authoized change source
-            obj: Optional[object] = current[key]
+            obj = current[key]
             vTree.addProblem(f"{str(obj)} has been deleted")
 
         for key in added_keys:
             # Check if the object was added by the specified change source
-            obj: Optional[object] = proposed[key]
+            obj = proposed[key]
             vTree.addProblem(f"{str(obj)} has been added")
 
         # Now check each common object for changes
         common_keys: set[str] = current_keys.intersection(proposed_keys)
         for key in common_keys:
-            prop: Optional[object] = proposed[key]
+            prop = proposed[key]
             curr: Optional[object] = current[key]
             if (prop != curr):
                 vTree.addProblem(f"{str(prop)} has been modified")

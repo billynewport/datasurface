@@ -23,6 +23,7 @@ class AirflowAWSComponent(Component):
     This generates Kubernetes manifests optimized for EKS with AWS integrations like IRSA.
     """
     def __init__(self, name: str, namespace: str, dbCred: Credential, db: HostPortSQLDatabase,
+                 airflow_iam_role_arn: str,
                  dagCreds: list[Credential], webserverResourceLimits: Optional[K8sResourceLimits] = None,
                  schedulerResourceLimits: Optional[K8sResourceLimits] = None,
                  airflow_image: str = "datasurface/airflow:2.11.0-aws",
@@ -31,6 +32,7 @@ class AirflowAWSComponent(Component):
         self.dbCred: Credential = dbCred
         self.db: HostPortSQLDatabase = db
         self.dagCreds: list[Credential] = dagCreds
+        self.airflow_iam_role_arn: str = airflow_iam_role_arn
         self.webserverResourceLimits: K8sResourceLimits = webserverResourceLimits or K8sResourceLimits(
             requested_memory=StorageRequirement("1G"),
             limits_memory=StorageRequirement("2G"),
@@ -67,6 +69,7 @@ class AirflowAWSComponent(Component):
             "extra_credentials": [K8sUtils.to_k8s_name(cred.name) for cred in self.dagCreds],
             "airflow_image": self.airflow_image,
             "aws_account_id": self.aws_account_id,
+            "airflow_iam_role_arn": self.airflow_iam_role_arn,
             # Resource limits
             "webserver_requested_memory": self.webserverResourceLimits.to_k8s_json()["requested_memory"],
             "webserver_limits_memory": self.webserverResourceLimits.to_k8s_json()["limits_memory"],
@@ -87,6 +90,7 @@ class AirflowAWSComponent(Component):
         comp_context: dict[str, Any] = context.copy()
         comp_context.update({
             "airflow_k8s_name": K8sUtils.to_k8s_name(self.name),
+            "airflow_iam_role_arn": self.airflow_iam_role_arn,
         })
         rc: dict[str, str] = dict()
         rendered_infrastructure_dag: str = dag_template.render(comp_context)
@@ -127,6 +131,7 @@ class YellowAWSTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
                  afWebserverResourceLimits: K8sResourceLimits,
                  afSchedulerResourceLimits: K8sResourceLimits,
                  aws_account_id: str,
+                 airflow_iam_role_arn: str,
                  airflow_image: str = "datasurface/airflow:2.11.0-aws") -> None:
         super().__init__(name, namespace, git_cache_config)
         self.afDBcred: Credential = afDBcred
@@ -134,6 +139,7 @@ class YellowAWSTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
         self.afWebserverResourceLimits: K8sResourceLimits = afWebserverResourceLimits
         self.afSchedulerResourceLimits: K8sResourceLimits = afSchedulerResourceLimits
         self.aws_account_id: str = aws_account_id
+        self.airflow_iam_role_arn: str = airflow_iam_role_arn
         self.airflow_image: str = airflow_image
 
     def createYellowAWSAssemblyTwinDatabase(
@@ -164,7 +170,7 @@ class YellowAWSTwinDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase]):
                     self.git_cache_config.storageClass,  # AWS EBS gp3 storage class for better performance
                     self.git_cache_config.access_mode),
                 AirflowAWSComponent(
-                    "airflow", self.namespace, self.afDBcred, self.afDB, [mergeRWCred],
+                    "airflow", self.namespace, self.afDBcred, self.afDB, self.airflow_iam_role_arn, [mergeRWCred],
                     webserverResourceLimits=self.afWebserverResourceLimits,
                     schedulerResourceLimits=self.afSchedulerResourceLimits,
                     airflow_image=self.airflow_image,

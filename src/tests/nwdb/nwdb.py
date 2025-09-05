@@ -293,7 +293,7 @@ def defineWorkspaces(eco: Ecosystem, t: Team, locations: set[LocationKey], choos
     # This is a DataTransformer that uses NW_Data#customers as its input and produces
     # Masked_NW_Data#employees as its output. The transform is done using an Azure SQL database and
     # a python application running on a Kubernetes cluster.
-    w: Workspace = Workspace(
+    w = Workspace(
         "MaskCustomersWorkSpace",
         ws_db,
         DatasetGroup(

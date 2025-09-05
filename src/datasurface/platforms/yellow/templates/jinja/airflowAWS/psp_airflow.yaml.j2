@@ -7,7 +7,7 @@ metadata:
   name: {{ airflow_k8s_name }}-service-account
   namespace: {{ namespace_name }}
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::{{ aws_account_id }}:role/{{ airflow_k8s_name }}-secrets-role
+    eks.amazonaws.com/role-arn: {{ airflow_iam_role_arn | default('arn:aws:iam::' + aws_account_id + ':role/' + airflow_k8s_name + '-secrets-role') }}
 ---
 # Airflow Role for Pod Management
 apiVersion: rbac.authorization.k8s.io/v1
@@ -82,9 +82,10 @@ data:
   airflow.cfg: |
     [core]
     executor = LocalExecutor
-    sql_alchemy_conn = {{ airflow_db_url }}
     dags_folder = /opt/airflow/dags
     load_examples = False
+    secrets_backend = airflow.providers.amazon.aws.secrets.secrets_manager.SecretsManagerBackend
+    secrets_backend_kwargs = {"connections_prefix": "airflow/connections", "variables_prefix": "airflow/variables"}
 
     [webserver]
     web_server_host = 0.0.0.0
@@ -95,7 +96,7 @@ data:
     remote_logging = False
 
     [database]
-    sql_alchemy_conn = {{ airflow_db_url }}
+    sql_alchemy_conn_cmd = python -c "import os; from airflow.providers.amazon.aws.secrets.secrets_manager import SecretsManagerBackend; backend = SecretsManagerBackend(connections_prefix='airflow/connections'); conn = backend.get_connection('postgres_default'); print(conn.get_uri())"
 ---
 # Airflow Scheduler Deployment
 apiVersion: apps/v1
@@ -127,12 +128,6 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - airflow db init
-        envFrom:
-          - secretRef:
-              name: {{ airflow_db_credential_secret_name }}
-        env:
-          - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-            value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
         volumeMounts:
           - name: airflow-dags
             mountPath: /opt/airflow/dags
@@ -146,17 +141,11 @@ spec:
           image: {{ airflow_image }}
           command: ["airflow", "scheduler"]
           envFrom:
-            - secretRef:
-                name: {{ airflow_db_credential_secret_name }}
-            - secretRef:
-                name: {{ git_credential_secret_name }}
             - configMapRef:
                 name: {{ psp_k8s_name }}-logging-config
           env:
             - name: AIRFLOW_UID
               value: "50000"
-            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
             - name: GIT_REPO_URL
               value: "{{ git_repo_url }}"
             - name: GIT_REPO_BRANCH
@@ -185,19 +174,6 @@ spec:
               value: "production"
             - name: YELLOW_JOB_TYPE
               value: "airflow-scheduler"
-            # Extra Factory DAG credentials (needed for dynamic DAG creation)
-            {% for cred in extra_credentials %}
-            - name: {{ cred }}_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ cred }}
-                  key: {{ cred }}_USER
-            - name: {{ cred }}_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ cred }}
-                  key: {{ cred }}_PASSWORD
-            {% endfor %}
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/airflow/dags
@@ -268,17 +244,11 @@ spec:
           ports:
             - containerPort: 8080
           envFrom:
-            - secretRef:
-                name: {{ airflow_db_credential_secret_name }}
-            - secretRef:
-                name: {{ git_credential_secret_name }}
             - configMapRef:
                 name: {{ psp_k8s_name }}-logging-config
           env:
             - name: AIRFLOW_UID
               value: "50000"
-            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "{{ airflow_db_driver }}://$({{ airflow_db_credential_secret_name }}_USER):$({{ airflow_db_credential_secret_name }}_PASSWORD)@{{ airflow_db_hostname }}:{{ airflow_db_port }}/{{ airflow_k8s_name }}_db{% if airflow_db_query %}?TrustServerCertificate=yes&driver={{ airflow_db_query }}{% endif %}"
             - name: GIT_REPO_URL
               value: "{{ git_repo_url }}"
             - name: GIT_REPO_BRANCH

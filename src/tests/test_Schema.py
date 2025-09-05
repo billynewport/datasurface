@@ -64,7 +64,7 @@ class TestSchemaCreation(unittest.TestCase):
 
         # Create a table specifying the primary key using the PrimaryKeyList
         # The PK flags on the columns will be calculated from this. The values
-        t: DDLTable = DDLTable(
+        t = DDLTable(
             PrimaryKeyList(["id"]),
             DDLColumn("id", String(10), NullableStatus.NOT_NULLABLE),
             DDLColumn("firstName", String(20)),

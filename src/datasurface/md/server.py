@@ -12,10 +12,11 @@ import sys
 import os
 import copy
 from types import ModuleType
-from typing import Optional, Dict, Any, List, AsyncGenerator, Callable, Protocol
+from typing import Optional, Dict, Any, List, AsyncGenerator, Callable, Protocol, Sequence
 import logging
 from enum import Enum
-from datasurface.md import Ecosystem, JSONable
+from datasurface.md import Ecosystem, JSONable, Dataset, Team, DatastoreCacheEntry, DependentWorkspaces
+from datasurface.md.governance import WorkspaceCacheEntry
 
 # Standard Python logger - works everywhere
 logger = logging.getLogger(__name__)
@@ -134,15 +135,16 @@ class ModelServer:
             if 'tests.actionHandlerResources.step4.eco' in sys.modules:
                 del sys.modules['tests.actionHandlerResources.step4.eco']
 
+            module: ModuleType
             try:
                 # First try importing as a package
                 try:
-                    module: ModuleType = importlib.import_module("tests.actionHandlerResources.step4.eco")
+                    module = importlib.import_module("tests.actionHandlerResources.step4.eco")
                     logger.info("Loaded eco.py as package")
                     return module
                 except ModuleNotFoundError:
                     # Fall back to direct import
-                    module: ModuleType = importlib.import_module("eco")
+                    module = importlib.import_module("eco")
                     logger.info("Loaded eco.py directly")
                     return module
             except ModuleNotFoundError as e:
@@ -169,12 +171,18 @@ class ModelServer:
             params: Dict[str, Any] = query['params']
 
             # Using match statement for command handling
+            store_name: str
+            dataset: Optional[Dataset]
+            workspace: WorkspaceCacheEntry
+            team: Team
+            store_entry: DatastoreCacheEntry
+            deps: Sequence[DependentWorkspaces]
             match command_str:
                 case EcosystemCommand.LIST_WORKSPACES.value:
                     return {"workspaces": [serialize_object(entry.workspace) for entry in self.ecosystem.workSpaceCache.values()]}
 
                 case EcosystemCommand.GET_DATASET.value:
-                    store_name: str = params.get("store_name", "")
+                    store_name = params.get("store_name", "")
                     if len(store_name) == 0:
                         raise ValueError("store_name is required")
                     dataset = self.ecosystem.cache_getDataset(store_name, params["dataset_name"])
@@ -183,7 +191,7 @@ class ModelServer:
                     return {"dataset": serialize_object(dataset)}
 
                 case EcosystemCommand.GET_WORKSPACE.value:
-                    workspace_name: str = params.get("workspace_name", "")
+                    workspace_name = params.get("workspace_name", "")
                     if len(workspace_name) == 0:
                         raise ValueError("workspace_name is required")
                     workspace = self.ecosystem.cache_getWorkspaceOrThrow(workspace_name)
@@ -193,17 +201,17 @@ class ModelServer:
                     return {"teams": list(self.ecosystem.teamCache.keys())}
 
                 case EcosystemCommand.GET_TEAM.value:
-                    governance_zone: str = params.get("governance_zone", "")
+                    governance_zone = params.get("governance_zone", "")
                     if len(governance_zone) == 0:
                         raise ValueError("governance_zone is required")
-                    team_name: str = params.get("team_name", "")
+                    team_name = params.get("team_name", "")
                     if len(team_name) == 0:
                         raise ValueError("team_name is required")
                     team = self.ecosystem.getTeamOrThrow(governance_zone, team_name)
                     return {"team": serialize_object(team)}
 
                 case EcosystemCommand.GET_DATASTORE.value:
-                    store_name: str = params.get("store_name", "")
+                    store_name = params.get("store_name", "")
                     if len(store_name) == 0:
                         raise ValueError("store_name is required")
                     store_entry = self.ecosystem.cache_getDatastoreOrThrow(store_name)
@@ -213,7 +221,7 @@ class ModelServer:
                     return {"datastores": list(self.ecosystem.datastoreCache.keys())}
 
                 case EcosystemCommand.GET_DEPENDENCIES.value:
-                    store_name: str = params.get("store_name", "")
+                    store_name = params.get("store_name", "")
                     if len(store_name) == 0:
                         raise ValueError("store_name is required")
                     deps = self.ecosystem.calculateDependenciesForDatastore(store_name, set())

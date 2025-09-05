@@ -949,7 +949,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
             dsgTree: ValidationTree = wsTree.addSubTree(dsgRoot.dsg)
             if workspace.dataTransformer:
                 dtTree: ValidationTree = wsTree.addSubTree(workspace.dataTransformer)
-                dt: DataTransformer = workspace.dataTransformer
+                dt = workspace.dataTransformer
                 if dt.code is None:
                     dtTree.addRaw(AttributeNotSet("code"))
                 if not isinstance(dt.code, PythonRepoCodeArtifact):
@@ -1043,7 +1043,7 @@ class YellowGraphHandler(DataPlatformGraphHandler):
                     if is_single_dataset:
                         # For single dataset, create a separate entry for each dataset
                         for dataset in store.datasets.values():
-                            job_hint: K8sIngestionHint = self.getIngestionJobLimits(storeName, dataset.name)
+                            job_hint = self.getIngestionJobLimits(storeName, dataset.name)
 
                             stream_key = f"{storeName}_{dataset.name}"
                             stream_config = {
@@ -1237,10 +1237,10 @@ class YellowGraphHandler(DataPlatformGraphHandler):
 
                                 # Use the same stream_key logic as the ingestion factory
                                 if is_single_dataset:
-                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store, sink.datasetName)
+                                    ydu = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store, sink.datasetName)
                                     stream_key = ydu.getIngestionStreamKey()
                                 else:
-                                    ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store)
+                                    ydu = YellowDatasetUtilities(eco, self.dp.getPSP().credStore, self.dp, store)
                                     stream_key = ydu.getIngestionStreamKey()
 
                                 # Regular ingestion DAG naming pattern
@@ -2194,11 +2194,11 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
             # in the newly merged model.
             # Return as dictionary with filename as key
             # Factory DAG files removed - now handled dynamically by infrastructure DAG
-            rc: dict[str, str] = dict(
+            rc = dict(
                 {
                     "kubernetes-bootstrap.yaml": rendered_yaml,
                 })
-            assm_artifacts: dict[str, str] = assembly.generateBootstrapArtifacts(eco, context, env, ringLevel)
+            assm_artifacts = assembly.generateBootstrapArtifacts(eco, context, env, ringLevel)
             # Copy the assembly artifacts to the rc dictionary after prefixing all keys with the platform name
             for key, value in assm_artifacts.items():
                 rc[f"{self.to_python_name(self.name)}_{key}"] = value
@@ -2206,17 +2206,16 @@ class YellowPlatformServiceProvider(PlatformServicesProvider):
         elif ringLevel == 1:
             # Create the airflow dsg table, datatransformer table, and factory DAG table if needed
             mergeUser, mergePassword = self.credStore.getAsUserPassword(self.mergeRW_Credential)
-            mergeEngine: Engine = createEngine(self.mergeStore, mergeUser, mergePassword)
+            mergeEngine = createEngine(self.mergeStore, mergeUser, mergePassword)
             inspector = createInspector(mergeEngine)
             with mergeEngine.begin() as mergeConnection:
                 createOrUpdateTable(mergeConnection, inspector, self.getFactoryDAGTable())
 
-            ydp: DataPlatform
             for ydp in self.dataPlatforms.values():
                 if not isinstance(ydp, YellowGenericDataPlatform):
                     raise ValueError(f"YellowDataPlatform {ydp.name} is not a YellowGenericDataPlatform")
                 ydp.createPlatformTables(eco, mergeEngine, inspector)
-            assm_artifacts: dict[str, str] = assembly.generateBootstrapArtifacts(eco, dict(), env, ringLevel)
+            assm_artifacts = assembly.generateBootstrapArtifacts(eco, dict(), env, ringLevel)
             # Copy the assembly artifacts to the rc dictionary after prefixing all keys with the platform name
             rc: dict[str, str] = dict()
             for key, value in assm_artifacts.items():
@@ -2408,11 +2407,11 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         engine = createEngine(self.psp.mergeStore, user, password)
 
         # Validate datastore exists before proceeding
-        datastore_ce: Optional[DatastoreCacheEntry] = eco.cache_getDatastore(storeName)
+        datastore_ce = eco.cache_getDatastore(storeName)
         if datastore_ce is None:
             return "ERROR: Could not find datastore in ecosystem"
 
-        datastore: Datastore = datastore_ce.datastore
+        datastore = datastore_ce.datastore
         if datastore.cmd is None:
             raise ValueError("cmd must be set before resetting batch state")
         if datastore.cmd.singleOrMultiDatasetIngestion == IngestionConsistencyType.MULTI_DATASET and datasetName is not None:
@@ -2424,15 +2423,15 @@ class YellowDataPlatform(YellowGenericDataPlatform):
         keys_to_reset = []
         if datasetName is not None:
             # Single dataset reset
-            ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore, datasetName)
+            ydu = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore, datasetName)
             keys_to_reset.append(ydu.getIngestionStreamKey())
         else:
             # Multi-dataset reset - there is just one key for the store.
-            ydu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)
+            ydu = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)
             keys_to_reset.append(ydu.getIngestionStreamKey())
 
         # Get table names
-        ypu: YellowDatasetUtilities = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)
+        ypu = YellowDatasetUtilities(eco, self.psp.credStore, self, datastore)
         batch_counter_table = ypu.getPhysBatchCounterTableName()
         batch_metrics_table = ypu.getPhysBatchMetricsTableName()
 
@@ -2536,7 +2535,7 @@ class YellowDataPlatform(YellowGenericDataPlatform):
                                 datasets_cleared = 0
                                 for dataset_name in state.all_datasets:
                                     # Use the proper staging table naming method
-                                    dataset: Dataset = datastore.datasets[dataset_name]
+                                    dataset = datastore.datasets[dataset_name]
                                     staging_table_name = ypu.getPhysStagingTableNameForDataset(dataset)
                                     # Delete staging records for this batch using the correct column name
                                     result = connection.execute(text(f'''
@@ -2603,8 +2602,8 @@ class YellowSchemaProjector(SchemaProjector):
         if self.db_ops is None:
             raise ValueError("Database operations must be set before computing schema")
         if schemaType == YellowSchemaConstants.SCHEMA_TYPE_MERGE:
-            pds: Dataset = copy.deepcopy(dataset)
-            ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
+            pds = copy.deepcopy(dataset)
+            ddlSchema = cast(DDLTable, pds.originalSchema)
             # Only add ds_surf_batch_id for live-only mode, not for forensic mode
             if self.dp.milestoneStrategy != YellowMilestoneStrategy.SCD2:
                 ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
@@ -2624,8 +2623,8 @@ class YellowSchemaProjector(SchemaProjector):
                     ddlSchema.primaryKeyColumns = PrimaryKeyList(new_pk_columns)
             return pds
         elif schemaType == YellowSchemaConstants.SCHEMA_TYPE_STAGING:
-            pds: Dataset = copy.deepcopy(dataset)
-            ddlSchema: DDLTable = cast(DDLTable, pds.originalSchema)
+            pds = copy.deepcopy(dataset)
+            ddlSchema = cast(DDLTable, pds.originalSchema)
             ddlSchema.add(DDLColumn(name=YellowSchemaConstants.BATCH_ID_COLUMN_NAME, data_type=Integer(), nullable=NullableStatus.NOT_NULLABLE))
             ddlSchema.add(
                 DDLColumn(name=YellowSchemaConstants.ALL_HASH_COLUMN_NAME, nullable=NullableStatus.NOT_NULLABLE,

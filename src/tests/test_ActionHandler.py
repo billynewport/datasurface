@@ -48,7 +48,7 @@ class Test_ActionHandlerForGitHub(unittest.TestCase):
             # Now switch to correct branch authorized to make change
             os.environ["HEAD_BRANCH"] = step[2]
             print(f"Trying {baseFolder} -> {headFolder} with good repo")
-            tree: ValidationTree = cicd.verifyPullRequest(baseFolder, headFolder)
+            tree = cicd.verifyPullRequest(baseFolder, headFolder)
             if (tree.hasErrors()):
                 tree.printTree()
                 self.fail("Tree has errors")

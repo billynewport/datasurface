@@ -95,15 +95,15 @@ class IngestMergeJob(YellowDatasetUtilities):
         self.mrgNM: DataContainerNamingMapper = self.dp.getPSP().mergeStore.getNamingAdapter()
 
         if isinstance(cmd, SQLMergeIngestion):
-            self.remoteDP: YellowDataPlatform = cast(YellowDataPlatform, cmd.dataPlatform)
+            self.remoteDP = cast(YellowDataPlatform, cmd.dataPlatform)
         else:
             # This also means DataTransformerOutput is using merge store as the source
             self.remoteDP: YellowDataPlatform = self.dp
         self.remoteYDU: YellowDatasetUtilities
         if datasetName is not None:
-            self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store, datasetName)
+            self.remoteYDU = YellowDatasetUtilities(eco, credStore, self.remoteDP, store, datasetName)
         else:
-            self.remoteYDU: YellowDatasetUtilities = YellowDatasetUtilities(eco, credStore, self.remoteDP, store)
+            self.remoteYDU = YellowDatasetUtilities(eco, credStore, self.remoteDP, store)
         self.sourceSchemaProjector: YellowSchemaProjector = cast(YellowSchemaProjector, self.remoteDP.createSchemaProjector(eco))
         self.sourceSchemaProjector.setDBOps(self.remoteYDU.merge_db_ops)
 
@@ -432,7 +432,7 @@ class IngestMergeJob(YellowDatasetUtilities):
         ingestionType: IngestionConsistencyType = IngestionConsistencyType.MULTI_DATASET
         if isDataTransformerOutput:
             # For DataTransformer output, source and merge are the same (merge database)
-            sourceEngine: Engine = mergeEngine
+            sourceEngine = mergeEngine
             ingestionType = IngestionConsistencyType.MULTI_DATASET
         elif isinstance(self.store.cmd, SQLIngestion):
             # First, get a connection to the source database
@@ -446,7 +446,7 @@ class IngestMergeJob(YellowDatasetUtilities):
                 raise ValueError("Store command data container is required")
             if not isinstance(self.store.cmd.dataContainer, (HostPortSQLDatabase, SnowFlakeDatabase)):
                 raise TypeError(f"Unsupported data container type: {type(self.store.cmd.dataContainer)}")
-            sourceEngine: Engine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
+            sourceEngine = createEngine(self.store.cmd.dataContainer, sourceUser, sourcePassword)
             if cmd.singleOrMultiDatasetIngestion is None:
                 raise ValueError("Ingestion consistency type is required")
             ingestionType = cmd.singleOrMultiDatasetIngestion
@@ -456,10 +456,10 @@ class IngestMergeJob(YellowDatasetUtilities):
         # Check current batch status to determine what to do
         if ingestionType == IngestionConsistencyType.SINGLE_DATASET:
             # For single dataset ingestion, process each dataset separately
-            ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, self.getDataset().name)
+            ydu = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store, self.getDataset().name)
         else:
             # For multi-dataset ingestion, process all datasets in a single batch
-            ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store)
+            ydu = YellowDatasetUtilities(self.eco, self.credStore, self.dp, self.store)
         key: str = ydu.getIngestionStreamKey()
 
         # Create batch counter and metrics tables if they don't exist
@@ -473,9 +473,9 @@ class IngestMergeJob(YellowDatasetUtilities):
             # Need to get the max committed batch id if any
             maxCommittedBatchId: Optional[int] = self.getMaxCommittedBatchId(mergeConnection, key)
             if maxCommittedBatchId is None:
-                currentState: BatchState = BatchState(all_datasets=list(self.store.datasets.keys()))
+                currentState = BatchState(all_datasets=list(self.store.datasets.keys()))
             else:
-                currentState: BatchState = self.getBatchState(mergeEngine, mergeConnection, key, maxCommittedBatchId)
+                currentState = self.getBatchState(mergeEngine, mergeConnection, key, maxCommittedBatchId)
             reconcileNeeded: bool = False
             for dataset in self.store.datasets.values():
                 if dataset.name not in currentState.schema_versions or currentState.schema_versions[dataset.name] != ydu.getSchemaHash(dataset):
@@ -497,9 +497,9 @@ class IngestMergeJob(YellowDatasetUtilities):
             return self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
         elif isinstance(self.store.cmd, SQLIngestion):
             if dataset.name not in self.store.cmd.tableForDataset:
-                tableName: str = dataset.name
+                tableName = dataset.name
             else:
-                tableName: str = self.store.cmd.tableForDataset[dataset.name]
+                tableName = self.store.cmd.tableForDataset[dataset.name]
             return tableName
         else:
             raise UnknownObjectTypeException(f"Unknown store command type: {type(self.store.cmd)}")
@@ -513,10 +513,10 @@ class IngestMergeJob(YellowDatasetUtilities):
 
         # Get source table name - for DataTransformer output, use dt_ prefixed tables
         if isinstance(self.store.cmd, DataTransformerOutput):
-            sourceTableName: str = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
+            sourceTableName = self.getPhysDataTransformerOutputTableNameForDatasetForIngestionOnly(self.store, dataset)
         else:
             # Get source table name using mapping if necessary
-            sourceTableName: str = self.getPhysSourceTableName(dataset)
+            sourceTableName = self.getPhysSourceTableName(dataset)
 
         # Get destination staging table name
         stagingTableName: str = self.getPhysStagingTableNameForDataset(dataset)

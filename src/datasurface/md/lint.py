@@ -80,8 +80,8 @@ class UserDSLObject(ValidatableObject, JSONable):
         else:
             f: Optional[FrameType] = self.findFirstNonDataSurfaceCaller()
             if f is not None:
-                self._line_number: int = f.f_lineno
-                self._file_name: str = f.f_code.co_filename
+                self._line_number = f.f_lineno
+                self._file_name = f.f_code.co_filename
                 # Don't hold onto the frame object itself!
 
     def setSource(self, filename: str, line: int):
@@ -488,7 +488,6 @@ class ValidationTree:
 
 
 class ANSI_SQL_NamedObject(UserDSLObject):
-    name: str
     """This is the base class for objects in the model which must have an SQL identifier compatible name. These
     objects may have names which are using in creating database artifacts such as Tables, views, columns"""
     def __init__(self, name: str, filename: Optional[str] = None, linenumber: Optional[int] = None) -> None:

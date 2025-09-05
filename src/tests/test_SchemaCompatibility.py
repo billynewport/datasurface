@@ -225,13 +225,13 @@ class TestSchemaCompatibility(unittest.TestCase):
         self.assertFalse(t2.checkForBackwardsCompatibility(t1, t))
 
         # Adding a PK column is not backwards compatible
-        t2: DDLTable = copy.deepcopy(t1)
+        t2 = copy.deepcopy(t1)
         t2.add(DDLColumn("middleName3", String(20), NullableStatus.NOT_NULLABLE, PrimaryKeyStatus.PK))
         t = ValidationTree(t2)
         self.assertFalse(t2.checkForBackwardsCompatibility(t1, t))
 
         # Removing a column is not backwards compatible
-        t2: DDLTable = copy.deepcopy(t1)
+        t2 = copy.deepcopy(t1)
         t2.columns.pop("firstName")
         t = ValidationTree(t2)
         self.assertFalse(t2.checkForBackwardsCompatibility(t1, t))

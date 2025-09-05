@@ -54,7 +54,7 @@ class Test_YellowDataPlatform(unittest.TestCase):
                 # Generate the bootstrap artifacts for ring level 0
                 eco: Ecosystem = generatePlatformBootstrap(0, "src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
                 # Generate the bootstrap artifacts for ring level 1
-                eco: Ecosystem = generatePlatformBootstrap(1, "src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
+                eco = generatePlatformBootstrap(1, "src/tests/yellow_dp_tests", "src/tests/yellow_dp_tests/base", "Test_DP")
                 # Validate that the ecosystem was created successfully
                 self.assertIsNotNone(eco)
                 self.assertEqual(eco.name, "Test")

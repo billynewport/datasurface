@@ -84,7 +84,7 @@ class TestEcosystemValidation(unittest.TestCase):
 
         # Test cases where the column is not valid
         col.name = "col 1"  # Not ANSI SQL Identifier
-        tree: ValidationTree = ValidationTree(col)
+        tree = ValidationTree(col)
         col.lint(tree)
         self.assertEqual(len(tree.problems), 1)
         self.assertTrue(tree.hasErrors())
@@ -192,7 +192,7 @@ class TestEcosystemValidation(unittest.TestCase):
         e.checkIfChangesAreAuthorized(e2, diffR, problems)
         self.assertTrue(problems.hasErrors())
 
-        e2: Ecosystem = tests.nwdb.eco.createEcosystem()
+        e2 = tests.nwdb.eco.createEcosystem()
 
         self.assertEqual(e, e2)
         e2.zones.removeDefinition("USA")

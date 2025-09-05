@@ -86,10 +86,11 @@ def validate_cron_string(cron_string: str):
             continue
 
         # If the field contains a ',', it's a list of values
+        values: list[str]
         if ',' in field:
-            values: list[str] = field.split(',')
+            values = field.split(',')
         else:
-            values: list[str] = [field]
+            values = [field]
 
         # Check each value
         dashList: list[str] = []

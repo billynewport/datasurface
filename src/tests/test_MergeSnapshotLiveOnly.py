@@ -113,7 +113,7 @@ class BaseMergeJobTest(ABC):
         self.overrideJobConnections()
         self.overrideCredentialStore()
         # Create YellowDatasetUtilities after credential store override to ensure it uses the mock
-        self.ydu: YellowDatasetUtilities = YellowDatasetUtilities(self.eco, self.getDP().getPSP().credStore, self.getDP(), self.getStore())
+        self.ydu = YellowDatasetUtilities(self.eco, self.getDP().getPSP().credStore, self.getDP(), self.getStore())
 
         # Initialize database operations for test utilities
         if self.getYDU().mergeSchemaProjector is not None:
