@@ -221,6 +221,7 @@ class YellowAWSExternalDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase])
     """
 
     def __init__(self, name: str, namespace: str, git_cache_config: GitCacheConfig,
+                 airflow_iam_role_arn: str,
                  afWebserverResourceLimits: Optional[K8sResourceLimits] = None,
                  afSchedulerResourceLimits: Optional[K8sResourceLimits] = None,
                  aws_account_id: str = "",
@@ -229,6 +230,7 @@ class YellowAWSExternalDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase])
         self.afWebserverResourceLimits: Optional[K8sResourceLimits] = afWebserverResourceLimits
         self.afSchedulerResourceLimits: Optional[K8sResourceLimits] = afSchedulerResourceLimits
         self.aws_account_id: str = aws_account_id
+        self.airflow_iam_role_arn: str = airflow_iam_role_arn
         self.airflow_image: str = airflow_image
 
     def createYellowAWSAssemblySingleDatabase(
@@ -252,7 +254,7 @@ class YellowAWSExternalDatabaseAssembly(K8sAssemblyFactory[HostPortSQLDatabase])
                     "gp3",  # AWS EBS gp3 storage class
                     self.git_cache_config.access_mode),
                 AirflowAWSComponent(
-                    "airflow", self.namespace, dbRWCred, db, [],
+                    "airflow", self.namespace, dbRWCred, db, self.airflow_iam_role_arn, [],
                     webserverResourceLimits=afWebserverResourceLimits,
                     schedulerResourceLimits=afSchedulerResourceLimits,
                     airflow_image=self.airflow_image,
